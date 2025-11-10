@@ -1,0 +1,274 @@
+﻿import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Filter, Download, Printer, FileJson, FileSpreadsheet } from 'lucide-react';
+import { exportToCSV, exportToJSON, printOrders } from '../utils/export';
+import { useNotification } from '../contexts/NotificationContext';
+
+interface Order {
+  id: string;
+  woocommerce_order_id: string;
+  customer_name: string;
+  customer_email: string;
+  delivery_city: string;
+  delivery_state: string;
+  total_amount: number;
+  shipping_fee_paid: number;
+  overall_status: string;
+  payment_status: string;
+  created_at: string;
+}
+
+export function OrdersPage() {
+  const navigate = useNavigate();
+  const notification = useNotification();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
+  useEffect(() => {
+    fetchOrders();
+  }, []);
+
+  useEffect(() => {
+    filterOrders();
+  }, [orders, searchTerm, statusFilter]);
+
+  const fetchOrders = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/orders?limit=100');
+      const data = await response.json();
+      setOrders(data.data || []);
+      
+      if (data.data && data.data.length > 0) {
+        notification.success('Orders Loaded', `Found ${data.data.length} orders`);
+      }
+    } catch (error) {
+      console.error('Error fetching orders:', error);
+      notification.error('Failed to Load Orders', 'Please check your connection');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filterOrders = () => {
+    let filtered = [...orders];
+
+    if (searchTerm) {
+      filtered = filtered.filter(order =>
+        order.woocommerce_order_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        order.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        order.customer_email.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(order => order.overall_status === statusFilter);
+    }
+
+    setFilteredOrders(filtered);
+  };
+
+  const getStatusColor = (status: string) => {
+    const colors: Record<string, string> = {
+      pending: 'bg-yellow-100 text-yellow-800',
+      processing: 'bg-blue-100 text-blue-800',
+      shipped: 'bg-purple-100 text-purple-800',
+      delivered: 'bg-green-100 text-green-800',
+      cancelled: 'bg-red-100 text-red-800',
+    };
+    return colors[status] || 'bg-gray-100 text-gray-800';
+  };
+
+  const handleExportCSV = () => {
+    exportToCSV(filteredOrders, 'orders');
+    notification.success('Export Complete', `${filteredOrders.length} orders exported to CSV`);
+    setShowExportMenu(false);
+  };
+
+  const handleExportJSON = () => {
+    exportToJSON(filteredOrders, 'orders');
+    notification.success('Export Complete', `${filteredOrders.length} orders exported to JSON`);
+    setShowExportMenu(false);
+  };
+
+  const handlePrint = () => {
+    printOrders(filteredOrders);
+    notification.info('Opening Print Dialog', 'Preparing report for printing');
+    setShowExportMenu(false);
+  };
+
+  return (
+    <div>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900">Orders</h1>
+        <p className="text-gray-600 mt-2">
+          Manage all customer orders • {filteredOrders.length} of {orders.length} orders
+        </p>
+      </div>
+
+      {/* Actions Bar */}
+      <div className="card mb-6">
+        <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+          <div className="relative flex-1 w-full md:max-w-md">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Search by order ID, customer name or email..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            />
+          </div>
+
+          <div className="flex gap-3 w-full md:w-auto">
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                notification.info('Filter Applied', `Showing ${e.target.value === 'all' ? 'all' : e.target.value} orders`);
+              }}
+              className="flex-1 md:flex-initial px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            >
+              <option value="all">All Status</option>
+              <option value="pending">Pending</option>
+              <option value="processing">Processing</option>
+              <option value="shipped">Shipped</option>
+              <option value="delivered">Delivered</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+
+            <div className="relative">
+              <button 
+                onClick={() => setShowExportMenu(!showExportMenu)}
+                className="btn-secondary flex items-center"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Export
+              </button>
+
+              {showExportMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 z-10">
+                  <button
+                    onClick={handleExportCSV}
+                    className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 mr-2" />
+                    Export as CSV
+                  </button>
+                  <button
+                    onClick={handleExportJSON}
+                    className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm"
+                  >
+                    <FileJson className="w-4 h-4 mr-2" />
+                    Export as JSON
+                  </button>
+                  <button
+                    onClick={handlePrint}
+                    className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center text-sm"
+                  >
+                    <Printer className="w-4 h-4 mr-2" />
+                    Print Report
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Orders Table */}
+      <div className="card">
+        {loading ? (
+          <div className="text-center py-12">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+            <p className="mt-4 text-gray-600">Loading orders...</p>
+          </div>
+        ) : filteredOrders.length === 0 ? (
+          <div className="text-center py-12">
+            <Search className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600 text-lg">
+              {searchTerm || statusFilter !== 'all' ? 'No orders match your filters' : 'No orders found'}
+            </p>
+            {(searchTerm || statusFilter !== 'all') && (
+              <button
+                onClick={() => {
+                  setSearchTerm('');
+                  setStatusFilter('all');
+                  notification.info('Filters Cleared', 'Showing all orders');
+                }}
+                className="mt-4 text-primary-600 hover:text-primary-700"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Order ID
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Customer
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Destination
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Amount
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Date
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredOrders.map((order) => (
+                  <tr 
+                    key={order.id} 
+                    onClick={() => {
+                      navigate(`/dashboard/orders/${order.id}`);
+                      notification.info('Opening Order', `Loading details for #${order.woocommerce_order_id}`);
+                    }}
+                    className="hover:bg-gray-50 cursor-pointer transition-colors"
+                  >
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-primary-600">
+                      #{order.woocommerce_order_id}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{order.customer_name}</div>
+                      <div className="text-sm text-gray-500">{order.customer_email}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      {order.delivery_city}, {order.delivery_state}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">
+                      ₦{order.total_amount.toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.overall_status)}`}>
+                        {order.overall_status}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      {new Date(order.created_at).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+

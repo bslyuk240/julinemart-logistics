@@ -1,0 +1,20 @@
+﻿
+// Add these imports at the top with other route imports
+import { 
+  createCourierShipmentHandler, 
+  getCourierTrackingHandler, 
+  generateLabelHandler,
+  updateCourierCredentialsHandler,
+  getCourierAPILogsHandler
+} from './routes/courierOperations.js';
+
+// Add these routes before the 404 handler (around line 100)
+
+// Courier Integration routes
+app.post('/api/courier/create-shipment', createCourierShipmentHandler);
+app.get('/api/courier/tracking/:subOrderId', getCourierTrackingHandler);
+app.get('/api/courier/label/:subOrderId', generateLabelHandler);
+app.put('/api/couriers/:courierId/credentials', updateCourierCredentialsHandler);
+app.get('/api/courier/logs', getCourierAPILogsHandler);
+
+console.log('✅ Courier integration routes registered');

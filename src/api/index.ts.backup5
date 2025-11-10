@@ -1,0 +1,230 @@
+﻿import 'dotenv/config';
+import express from 'express';
+import { calcShippingHandler, getZoneHandler } from './routes/shipping.js';
+import { woocommerceWebhookHandler } from './routes/webhooks.js';
+import { getOrdersHandler, getOrderByIdHandler, createOrderHandler, updateOrderStatusHandler } from './routes/orders.js';
+import { getTrackingHandler, updateTrackingHandler } from './routes/tracking.js';
+import { getHubsHandler, createHubHandler, updateHubHandler, deleteHubHandler, getCouriersHandler, getZonesWithRatesHandler, getDashboardStatsHandler, createCourierHandler, updateCourierHandler, deleteCourierHandler } from './routes/admin.js';
+import { getShippingRatesHandler, getShippingRateByIdHandler, createShippingRateHandler, updateShippingRateHandler, deleteShippingRateHandler } from './routes/shippingRates.js';
+import { authenticate, requireRole } from './middleware/auth.js';
+import { 
+  getUsersHandler, 
+  getUserByIdHandler, 
+  createUserHandler, 
+  updateUserHandler, 
+  deleteUserHandler,
+  getRolesHandler,
+  getActivityLogsHandler,
+  getCurrentUserHandler
+} from './routes/users.js';
+import { 
+  createCourierShipmentHandler, 
+  getCourierTrackingHandler, 
+  generateLabelHandler,
+  updateCourierCredentialsHandler,
+  getCourierAPILogsHandler
+} from './routes/courierOperations.js';
+import {
+  getPendingPaymentsHandler,
+  getSettlementsHandler,
+  createSettlementHandler,
+  markSettlementPaidHandler,
+  getSettlementDetailsHandler,
+  getCourierPaymentStatsHandler
+} from './routes/settlements.js';
+
+console.log('🔧 Starting JLO API Server...');
+console.log('📊 Environment Check:');
+console.log('  - VITE_SUPABASE_URL:', process.env.VITE_SUPABASE_URL ? '✅ Set' : '❌ Missing');
+console.log('  - SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? '✅ Set' : '❌ Missing');
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// CORS
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// Request logging
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
+});
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    supabaseConfigured: !!process.env.VITE_SUPABASE_URL,
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Root route
+app.get('/', (req, res) => {
+  res.json({
+    message: 'JulineMart Logistics Orchestrator API',
+    version: '2.0.0',
+    status: 'running',
+    endpoints: {
+      health: 'GET /health',
+      root: 'GET /',
+      // Shipping
+      shipping: 'POST /api/calc-shipping',
+      zones: 'GET /api/zones/:state',
+      // Orders
+      orders: 'GET /api/orders',
+      createOrder: 'POST /api/orders',
+      orderById: 'GET /api/orders/:id',
+      // Webhooks
+      webhooks: 'POST /api/webhooks/woocommerce',
+      // Tracking
+      tracking: 'GET /api/tracking/:id',
+      // Admin
+      hubs: 'GET /api/hubs',
+      couriers: 'GET /api/couriers',
+      stats: 'GET /api/stats',
+      // Shipping Rates
+      shippingRates: 'GET /api/shipping-rates',
+      // User Management
+      currentUser: 'GET /api/me (authenticated)',
+      users: 'GET /api/users (admin only)',
+      roles: 'GET /api/roles (authenticated)',
+      activityLogs: 'GET /api/activity-logs (admin/manager)'
+    },
+    documentation: 'See README.md for API documentation'
+  });
+});
+
+// Shipping routes (public)
+app.post('/api/calc-shipping', calcShippingHandler);
+app.get('/api/zones/:state', getZoneHandler);
+console.log('✅ Shipping routes registered');
+
+// Webhook routes (public)
+app.post('/api/webhooks/woocommerce', woocommerceWebhookHandler);
+console.log('✅ Webhook routes registered');
+
+// Orders routes (public for now - add auth later)
+app.get('/api/orders', getOrdersHandler);
+app.post('/api/orders', createOrderHandler);
+app.get('/api/orders/:id', getOrderByIdHandler);
+app.put('/api/orders/:id/status', updateOrderStatusHandler);
+console.log('✅ Orders routes registered');
+
+// Tracking routes (public for now)
+app.get('/api/tracking/:id', getTrackingHandler);
+app.post('/api/tracking/:subOrderId', updateTrackingHandler);
+console.log('✅ Tracking routes registered');
+
+// Admin routes (public for now - add auth later)
+app.get('/api/hubs', getHubsHandler);
+app.post('/api/hubs', createHubHandler);
+app.put('/api/hubs/:id', updateHubHandler);
+app.delete('/api/hubs/:id', deleteHubHandler);
+app.get('/api/couriers', getCouriersHandler);
+app.post('/api/couriers', createCourierHandler);
+app.put('/api/couriers/:id', updateCourierHandler);
+app.delete('/api/couriers/:id', deleteCourierHandler);
+app.get('/api/zones', getZonesWithRatesHandler);
+app.get('/api/stats', getDashboardStatsHandler);
+console.log('✅ Admin routes registered');
+
+// Shipping Rates routes (public for now)
+app.get('/api/shipping-rates', getShippingRatesHandler);
+app.get('/api/shipping-rates/:id', getShippingRateByIdHandler);
+app.post('/api/shipping-rates', createShippingRateHandler);
+app.put('/api/shipping-rates/:id', updateShippingRateHandler);
+app.delete('/api/shipping-rates/:id', deleteShippingRateHandler);
+console.log('✅ Shipping rates routes registered');
+
+// User Management routes (protected with authentication)
+app.get('/api/me', authenticate, getCurrentUserHandler);
+app.get('/api/users', authenticate, requireRole('admin'), getUsersHandler);
+app.get('/api/users/:id', authenticate, requireRole('admin', 'manager'), getUserByIdHandler);
+app.post('/api/users', authenticate, requireRole('admin'), createUserHandler);
+app.put('/api/users/:id', authenticate, requireRole('admin'), updateUserHandler);
+app.delete('/api/users/:id', authenticate, requireRole('admin'), deleteUserHandler);
+
+// Roles routes (accessible to authenticated users)
+// Make roles public so the dashboard role dropdown works without a token
+app.get('/api/roles', getRolesHandler);
+
+// Activity logs routes (admin and manager only)
+app.get('/api/activity-logs', authenticate, requireRole('admin', 'manager'), getActivityLogsHandler);
+
+console.log('✅ User management routes registered');
+
+// Courier Integration routes
+app.post('/api/courier/create-shipment', createCourierShipmentHandler);
+app.get('/api/courier/tracking/:subOrderId', getCourierTrackingHandler);
+app.get('/api/courier/label/:subOrderId', generateLabelHandler);
+app.put('/api/couriers/:courierId/credentials', updateCourierCredentialsHandler);
+app.get('/api/courier/logs', getCourierAPILogsHandler);
+
+console.log('✅ Courier integration routes registered');
+
+// Settlement routes
+app.get('/api/settlements/pending', getPendingPaymentsHandler);
+app.get('/api/settlements', getSettlementsHandler);
+app.post('/api/settlements', createSettlementHandler);
+app.put('/api/settlements/:id/mark-paid', markSettlementPaidHandler);
+app.get('/api/settlements/:id', getSettlementDetailsHandler);
+app.get('/api/settlements/stats/:courier_id?', getCourierPaymentStatsHandler);
+
+console.log('✅ Settlement routes registered');
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Not Found',
+    message: `Cannot ${req.method} ${req.path}`,
+    hint: 'Visit / for available endpoints'
+  });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('❌ Error:', err);
+  res.status(500).json({
+    error: 'Internal server error',
+    message: err.message,
+  });
+});
+
+// Start server
+const server = app.listen(PORT, () => {
+  console.log('\n═══════════════════════════════════════════════════════');
+  console.log('🚀 JLO API Server Started Successfully!');
+  console.log('═══════════════════════════════════════════════════════');
+  console.log(`📍 Server URL: http://localhost:${PORT}`);
+  console.log(`📊 Health: http://localhost:${PORT}/health`);
+  console.log(`📋 Endpoints: http://localhost:${PORT}/`);
+  console.log(`🔗 Supabase: ${process.env.VITE_SUPABASE_URL || 'NOT SET'}`);
+  console.log('═══════════════════════════════════════════════════════\n');
+});
+
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use!`);
+  } else {
+    console.error('❌ Server error:', error);
+  }
+  process.exit(1);
+});
+
+export default app;
+
+

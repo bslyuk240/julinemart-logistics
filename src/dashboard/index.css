@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    /* Use a standard Tailwind color to avoid custom token lookup issues */
+    @apply border-gray-200;
+  }
+  body {
+    @apply bg-gray-50 text-gray-900;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 transition-colors;
+  }
+  .btn-secondary {
+    @apply text-white px-4 py-2 rounded-lg transition-colors;
+    background-color: theme('colors.secondary.600');
+  }
+  .btn-secondary:hover {
+    background-color: theme('colors.secondary.700');
+  }
+
+  /* Orange brand button for destructive/alternate actions */
+  .btn-orange {
+    @apply text-white px-4 py-2 rounded-lg transition-colors;
+    background-color: theme('colors.secondary.600');
+  }
+  .btn-orange:hover {
+    background-color: theme('colors.secondary.700');
+  }
+  .card {
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6;
+  }
+}

@@ -1,0 +1,141 @@
+﻿import 'dotenv/config';
+import express from 'express';
+import { calcShippingHandler, getZoneHandler } from './routes/shipping.js';
+import { woocommerceWebhookHandler } from './routes/webhooks.js';
+import { getOrdersHandler, getOrderByIdHandler, createOrderHandler, updateOrderStatusHandler } from './routes/orders.js';
+import { getTrackingHandler, updateTrackingHandler } from './routes/tracking.js';
+import { getShippingRatesHandler, getShippingRateByIdHandler, createShippingRateHandler, updateShippingRateHandler, deleteShippingRateHandler } from './routes/shippingRates.js';
+import { getHubsHandler, getCouriersHandler, getZonesWithRatesHandler, getDashboardStatsHandler } from './routes/admin.js';
+
+console.log('🔧 Starting JLO API Server...');
+console.log('📊 Environment Check:');
+console.log('  - VITE_SUPABASE_URL:', process.env.VITE_SUPABASE_URL ? '✅ Set' : '❌ Missing');
+console.log('  - SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? '✅ Set' : '❌ Missing');
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+// Middleware
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// CORS
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// Request logging
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
+});
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    supabaseConfigured: !!process.env.VITE_SUPABASE_URL,
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Root route
+app.get('/', (req, res) => {
+  res.json({
+    message: 'JulineMart Logistics Orchestrator API',
+    version: '1.0.0',
+    status: 'running',
+    endpoints: {
+      health: 'GET /health',
+      root: 'GET /',
+      shipping: 'POST /api/calc-shipping',
+      zones: 'GET /api/zones/:state',
+      orders: 'GET /api/orders',
+      orderById: 'GET /api/orders/:id',
+      webhooks: 'POST /api/webhooks/woocommerce',
+      tracking: 'GET /api/tracking/:id',
+      hubs: 'GET /api/hubs',
+      couriers: 'GET /api/couriers',
+      stats: 'GET /api/stats'
+    },
+    documentation: 'See README.md for API documentation'
+  });
+});
+
+// Shipping routes
+app.post('/api/calc-shipping', calcShippingHandler);
+app.get('/api/zones/:state', getZoneHandler);
+console.log('✅ Shipping routes registered');
+
+// Webhook routes
+app.post('/api/webhooks/woocommerce', woocommerceWebhookHandler);
+console.log('✅ Webhook routes registered');
+
+// Orders routes
+app.get('/api/orders', getOrdersHandler);
+app.post('/api/orders', createOrderHandler);
+app.get('/api/orders/:id', getOrderByIdHandler);
+app.put('/api/orders/:id/status', updateOrderStatusHandler);
+console.log('✅ Orders routes registered');
+
+// Tracking routes
+app.get('/api/tracking/:id', getTrackingHandler);
+app.post('/api/tracking/:subOrderId', updateTrackingHandler);
+console.log('✅ Tracking routes registered');
+
+// Admin routes
+app.get('/api/hubs', getHubsHandler);
+app.get('/api/couriers', getCouriersHandler);
+app.get('/api/zones', getZonesWithRatesHandler);
+app.get('/api/stats', getDashboardStatsHandler);
+console.log('✅ Admin routes registered');
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    error: 'Not Found',
+    message: `Cannot ${req.method} ${req.path}`,
+    hint: 'Visit / for available endpoints'
+  });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('❌ Error:', err);
+  res.status(500).json({
+    error: 'Internal server error',
+    message: err.message,
+  });
+});
+
+// Start server
+const server = app.listen(PORT, () => {
+  console.log('\n═══════════════════════════════════════════════════════');
+  console.log('🚀 JLO API Server Started Successfully!');
+  console.log('═══════════════════════════════════════════════════════');
+  console.log(`📍 Server URL: http://localhost:${PORT}`);
+  console.log(`📊 Health: http://localhost:${PORT}/health`);
+  console.log(`📋 Endpoints: http://localhost:${PORT}/`);
+  console.log(`🔗 Supabase: ${process.env.VITE_SUPABASE_URL || 'NOT SET'}`);
+  console.log('═══════════════════════════════════════════════════════\n');
+});
+
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use!`);
+  } else {
+    console.error('❌ Server error:', error);
+  }
+  process.exit(1);
+});
+
+export default app;
+
+

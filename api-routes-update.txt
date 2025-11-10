@@ -1,0 +1,29 @@
+﻿// Add these imports at the top with other imports
+import { authenticate, authorize, requireRole } from './middleware/auth.js';
+import { 
+  getUsersHandler, 
+  getUserByIdHandler, 
+  createUserHandler, 
+  updateUserHandler, 
+  deleteUserHandler,
+  getRolesHandler,
+  getActivityLogsHandler,
+  getCurrentUserHandler
+} from './routes/users.js';
+
+// Add these routes before the 404 handler
+// User Management routes (protected)
+app.get('/api/me', authenticate, getCurrentUserHandler);
+app.get('/api/users', authenticate, requireRole('admin'), getUsersHandler);
+app.get('/api/users/:id', authenticate, requireRole('admin', 'manager'), getUserByIdHandler);
+app.post('/api/users', authenticate, requireRole('admin'), createUserHandler);
+app.put('/api/users/:id', authenticate, requireRole('admin'), updateUserHandler);
+app.delete('/api/users/:id', authenticate, requireRole('admin'), deleteUserHandler);
+
+// Roles routes (accessible to authenticated users)
+app.get('/api/roles', authenticate, getRolesHandler);
+
+// Activity logs routes (admin and manager)
+app.get('/api/activity-logs', authenticate, requireRole('admin', 'manager'), getActivityLogsHandler);
+
+console.log('✅ User management routes registered');

@@ -1,0 +1,229 @@
+-- Ensure hub_couriers has required columns if it already exists
+ALTER TABLE IF EXISTS hub_couriers
+  ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true,
+  ADD COLUMN IF NOT EXISTS priority integer DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now();
+
+-- Ensure zones has is_active before any summaries that reference it
+ALTER TABLE IF EXISTS zones
+  ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+
+-- Create hub_couriers if not present
+CREATE TABLE IF NOT EXISTS hub_couriers (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  hub_id uuid REFERENCES hubs(id) ON DELETE CASCADE,
+  courier_id uuid REFERENCES couriers(id) ON DELETE CASCADE,
+  is_primary boolean DEFAULT false,
+  is_active boolean DEFAULT true,
+  priority integer DEFAULT 1,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  UNIQUE(hub_id, courier_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hub_couriers_lookup
+ON hub_couriers(hub_id, is_primary);
+
+-- Step 2: Link all hubs to all couriers
+INSERT INTO hub_couriers (hub_id, courier_id, is_primary, is_active, priority)
+SELECT h.id, c.id, true, true, 1
+FROM hubs h
+CROSS JOIN couriers c
+ON CONFLICT (hub_id, courier_id) DO UPDATE 
+SET is_primary = EXCLUDED.is_primary, 
+    is_active = EXCLUDED.is_active;
+
+-- Step 3: Create comprehensive shipping rates for all combinations
+INSERT INTO shipping_rates (
+  hub_id, 
+  zone_id, 
+  courier_id,
+  flat_rate,
+  per_kg_rate,
+  min_weight_kg,
+  max_weight_kg,
+  min_order_value,
+  max_order_value,
+  free_shipping_threshold,
+  priority,
+  is_active,
+  effective_from
+)
+SELECT 
+  h.id,
+  z.id,
+  c.id,
+  CASE 
+    WHEN z.code = 'SS' THEN 2800
+    WHEN z.code = 'SW' THEN 3500
+    WHEN z.code = 'SE' THEN 3800
+    WHEN z.code = 'NC' THEN 4000
+    WHEN z.code IN ('NW', 'NE') THEN 4500
+    ELSE 3500
+  END AS flat_rate,
+  500 AS per_kg_rate,
+  0.5 AS min_weight_kg,
+  4.0 AS max_weight_kg,
+  0 AS min_order_value,
+  0 AS max_order_value,
+  0 AS free_shipping_threshold,
+  1 AS priority,
+  true AS is_active,
+  now() AS effective_from
+FROM hubs h
+CROSS JOIN zones z
+CROSS JOIN couriers c
+WHERE NOT EXISTS (
+  SELECT 1 FROM shipping_rates sr
+  WHERE sr.hub_id = h.id 
+  AND sr.zone_id = z.id
+  AND sr.courier_id = c.id
+);
+
+-- Step 4: Summary
+SELECT '=== SETUP COMPLETE ===' AS status;
+
+SELECT 'Hubs', COUNT(*), COUNT(*) FILTER (WHERE is_active = true) FROM public.hubs
+UNION ALL
+SELECT 'Couriers', COUNT(*), COUNT(*) FILTER (WHERE is_active = true) FROM public.couriers
+UNION ALL
+SELECT 'Zones', COUNT(*), COUNT(*) FILTER (WHERE is_active = true) FROM public.zones
+UNION ALL
+SELECT 'Hub-Courier Links', COUNT(*), COUNT(*) FILTER (WHERE is_active = true) FROM public.hub_couriers
+UNION ALL
+SELECT 'Shipping Rates', COUNT(*), COUNT(*) FILTER (WHERE is_active = true) FROM public.shipping_rates;
+
+-- Step 5: Show sample rates by zone
+SELECT 
+  z.name AS zone,
+  z.code,
+  COUNT(DISTINCT sr.hub_id) AS hubs_configured,
+  COUNT(DISTINCT sr.courier_id) AS couriers_configured,
+  MIN(sr.flat_rate) AS min_rate,
+  MAX(sr.flat_rate) AS max_rate
+FROM public.zones z
+LEFT JOIN public.shipping_rates sr 
+  ON sr.zone_id = z.id AND sr.is_active = true
+GROUP BY z.name, z.code
+ORDER BY z.code;
+
+-- =====================================================
+--  AUTO-SEEDING: ZONES, HUBS, COURIERS, AND RATE MATRIX
+-- =====================================================
+
+-- Ensure zones has is_active column before seed
+ALTER TABLE IF EXISTS zones
+  ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+
+-- Step 6: Seed Nigerian Zones
+-- Step 6: Seed Nigerian Zones (fixed)
+INSERT INTO zones (name, code, states, is_active) VALUES
+  ('South South', 'SS', ARRAY['Akwa Ibom','Bayelsa','Cross River','Delta','Edo','Rivers'], true),
+  ('South West', 'SW', ARRAY['Lagos','Ogun','Oyo','Osun','Ondo','Ekiti'], true),
+  ('South East', 'SE', ARRAY['Abia','Anambra','Ebonyi','Enugu','Imo'], true),
+  ('North Central', 'NC', ARRAY['Benue','Kogi','Kwara','Nasarawa','Niger','Plateau','FCT'], true),
+  ('North West', 'NW', ARRAY['Jigawa','Kaduna','Kano','Katsina','Kebbi','Sokoto','Zamfara'], true),
+  ('North East', 'NE', ARRAY['Adamawa','Bauchi','Borno','Gombe','Taraba','Yobe'], true)
+ON CONFLICT (code) DO NOTHING;
+
+
+-- Step 7: Ensure unique hub names before inserting
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'hubs_name_unique'
+  ) THEN
+    ALTER TABLE hubs ADD CONSTRAINT hubs_name_unique UNIQUE (name);
+  END IF;
+END $$;
+
+-- Step 7: Seed Hubs
+INSERT INTO zones (name, code, states, is_active) VALUES
+  ('South South', 'SS', ARRAY['Akwa Ibom','Bayelsa','Cross River','Delta','Edo','Rivers'], true),
+  ('South West', 'SW', ARRAY['Lagos','Ogun','Oyo','Osun','Ondo','Ekiti'], true),
+  ('South East', 'SE', ARRAY['Abia','Anambra','Ebonyi','Enugu','Imo'], true),
+  ('North Central', 'NC', ARRAY['Benue','Kogi','Kwara','Nasarawa','Niger','Plateau','FCT'], true),
+  ('North West', 'NW', ARRAY['Jigawa','Kaduna','Kano','Katsina','Kebbi','Sokoto','Zamfara'], true),
+  ('North East', 'NE', ARRAY['Adamawa','Bauchi','Borno','Gombe','Taraba','Yobe'], true)
+ON CONFLICT (code) DO NOTHING;
+
+-- Step 8: Ensure unique courier names before inserting
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'couriers_name_unique'
+  ) THEN
+    ALTER TABLE couriers ADD CONSTRAINT couriers_name_unique UNIQUE (name);
+  END IF;
+END $$;
+
+-- Step 8: Seed Couriers
+INSERT INTO couriers (name, code, type, is_active) VALUES
+  ('Fez Delivery', 'FEZ', 'fez', true),
+  ('GIGL', 'GIGL', 'gigl', true),
+  ('DHL', 'DHL', 'dhl', true),
+  ('Lily Cargo', 'LILY', 'other', true)
+ON CONFLICT (name) DO NOTHING;
+
+
+
+-- Step 9: Map Hubs to Couriers
+INSERT INTO hub_couriers (hub_id, courier_id, is_primary, is_active, priority)
+SELECT h.id, c.id, true, true, 1
+FROM hubs h
+CROSS JOIN couriers c
+ON CONFLICT (hub_id, courier_id) DO UPDATE
+SET is_active = EXCLUDED.is_active;
+
+-- Step 10: Generate Complete Shipping Rates
+INSERT INTO shipping_rates (
+  hub_id, zone_id, courier_id,
+  flat_rate, per_kg_rate, min_weight_kg, max_weight_kg,
+  min_order_value, max_order_value, free_shipping_threshold,
+  priority, is_active, effective_from
+)
+SELECT 
+  h.id,
+  z.id,
+  c.id,
+  CASE 
+    WHEN z.code = 'SS' THEN 2800
+    WHEN z.code = 'SW' THEN 3500
+    WHEN z.code = 'SE' THEN 3800
+    WHEN z.code = 'NC' THEN 4000
+    WHEN z.code IN ('NW','NE') THEN 4500
+    ELSE 3500
+  END AS flat_rate,
+  500 AS per_kg_rate,
+  0.5 AS min_weight_kg,
+  4.0 AS max_weight_kg,
+  0 AS min_order_value,
+  0 AS max_order_value,
+  0 AS free_shipping_threshold,
+  1 AS priority,
+  true AS is_active,
+  now() AS effective_from
+FROM hubs h
+CROSS JOIN zones z
+CROSS JOIN couriers c
+WHERE NOT EXISTS (
+  SELECT 1 FROM shipping_rates sr
+  WHERE sr.hub_id = h.id 
+  AND sr.zone_id = z.id
+  AND sr.courier_id = c.id
+);
+
+-- Step 11: Verify counts
+SELECT
+  'Hubs' AS entity, COUNT(*) AS total FROM hubs
+UNION ALL
+SELECT 'Couriers', COUNT(*) FROM couriers
+UNION ALL
+SELECT 'Zones', COUNT(*) FROM zones
+UNION ALL
+SELECT 'Hub-Courier Links', COUNT(*) FROM hub_couriers
+UNION ALL
+SELECT 'Shipping Rates', COUNT(*) FROM shipping_rates;
+
+-- Step 12: Confirmation message
+SELECT 'Auto-seeding complete: Hubs, Couriers, and Rates generated successfully!' AS status;

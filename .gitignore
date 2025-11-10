@@ -1,0 +1,65 @@
+# =====================================================
+# 🚀 JULINEMART LOGISTICS ORCHESTRATOR - .gitignore
+# =====================================================
+
+# === Dependencies ===
+node_modules/
+.pnp
+.pnp.js
+
+# === Build / Production ===
+dist/
+build/
+.supabase/.temp/
+.supabase/.branches/
+.supabase/.snapshots/
+.supabase/.shadow/
+.supabase/.cache/
+
+# === Environment Files ===
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# === Testing & Coverage ===
+coverage/
+*.lcov
+
+# === Logs ===
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# === Supabase CLI Generated Files ===
+.supabase/temp/
+.supabase/config.json
+.supabase/.env
+supabase/.temp/
+supabase/.branches/
+supabase/.snapshots/
+
+# === Netlify / Deployment ===
+.netlify/
+.vercel/
+.cache/
+
+# === Editors / IDEs ===
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+
+# === OS System Files ===
+.DS_Store
+Thumbs.db
+
+# === Miscellaneous ===
+*.pem

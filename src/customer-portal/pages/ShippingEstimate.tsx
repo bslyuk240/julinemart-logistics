@@ -1,6 +1,7 @@
 ﻿import { useState } from 'react';
 import { Calculator, MapPin, Package, TrendingUp, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { BrandLogo } from '../../shared/BrandLogo';
 
 const NIGERIAN_STATES = [
   'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
@@ -75,7 +76,7 @@ export function ShippingEstimatePage() {
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-primary-600">JulineMart</h1>
+            <BrandLogo withText size={28} textClassName="text-2xl font-bold text-primary-600" />
             <button
               onClick={() => navigate('/')}
               className="text-gray-600 hover:text-primary-600 flex items-center gap-2"

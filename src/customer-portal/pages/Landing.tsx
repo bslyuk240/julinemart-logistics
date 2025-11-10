@@ -1,6 +1,7 @@
 ﻿import { useState } from 'react';
 import { Search, Package, TrendingUp, Shield } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { BrandLogo } from '../../shared/BrandLogo';
 
 export function CustomerPortalLanding() {
   const navigate = useNavigate();
@@ -20,7 +21,7 @@ export function CustomerPortalLanding() {
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-primary-600">JulineMart</h1>
+            <BrandLogo withText size={28} textClassName="text-2xl font-bold text-primary-600" />
             <nav className="flex gap-6">
               <a href="#track" className="text-gray-600 hover:text-primary-600">Track Order</a>
               <a href="#estimate" className="text-gray-600 hover:text-primary-600">Shipping Estimate</a>

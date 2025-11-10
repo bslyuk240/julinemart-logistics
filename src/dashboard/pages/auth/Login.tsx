@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { LogIn, Mail, Lock, AlertCircle, Loader } from 'lucide-react';
+import { BrandLogo } from '../../../shared/BrandLogo';
 import { useAuth } from '../../contexts/AuthContext';
 
 export function LoginPage() {
@@ -60,10 +61,9 @@ export function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo/Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-600 rounded-full mb-4">
-            <LogIn className="w-8 h-8 text-white" />
+          <div className="flex justify-center mb-3">
+            <BrandLogo withText size={48} textClassName="text-3xl font-bold text-gray-900" gapClassName="gap-3" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">JulineMart Logistics</h1>
           <p className="text-gray-600 mt-2">Sign in to your account</p>
         </div>
 

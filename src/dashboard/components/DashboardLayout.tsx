@@ -18,6 +18,7 @@ import {
   Mail
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
+import { BrandLogo } from '../../shared/BrandLogo';
 import { useAuth } from '../contexts/AuthContext';
 
 interface DashboardLayoutProps {
@@ -81,19 +82,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
-          <div className="flex items-center gap-3">
-            {import.meta.env.VITE_LOGO_URL ? (
-              <img
-                src={import.meta.env.VITE_LOGO_URL}
-                alt="Logo"
-                className="h-8 w-8 rounded-md object-contain"
-                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-              />
-            ) : (
-              <div className="h-8 w-8 rounded-md bg-primary-600 text-white flex items-center justify-center font-bold">JM</div>
-            )}
-            <h1 className="text-xl font-bold text-primary-600">JulineMart</h1>
-          </div>
+          <BrandLogo withText size={32} />
           <button
             onClick={() => setSidebarOpen(false)}
             className="lg:hidden text-gray-500 hover:text-gray-700"

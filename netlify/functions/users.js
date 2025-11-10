@@ -1,10 +1,9 @@
 // Netlify Function: /api/users and /api/users/:id
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
 
 const headers = {
   'Content-Type': 'application/json',
@@ -22,6 +21,10 @@ export async function handler(event) {
   const id = idx >= 0 && parts.length > idx + 1 ? parts[idx + 1] : undefined;
 
   try {
+    if (!SUPABASE_URL || !SERVICE_KEY) {
+      console.error('Users function misconfigured: missing Supabase env');
+      return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Server not configured' }) };
+    }
     if (event.httpMethod === 'GET' && !id) {
       const { data, error } = await supabase
         .from('users')
@@ -60,7 +63,7 @@ export async function handler(event) {
 
     return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };
   } catch (e) {
+    console.error('Users function error:', e);
     return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Failed to handle users' }) };
   }
 }
-

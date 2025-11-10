@@ -1,10 +1,9 @@
 // Netlify Function: /api/activity-logs
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
 
 const headers = {
   'Content-Type': 'application/json',
@@ -18,6 +17,10 @@ export async function handler(event) {
   }
 
   try {
+    if (!SUPABASE_URL || !SERVICE_KEY) {
+      console.error('Activity logs function misconfigured: missing Supabase env');
+      return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Server not configured' }) };
+    }
     const url = new URL(event.rawUrl);
     const limit = Number(url.searchParams.get('limit') || 100);
     const action = url.searchParams.get('action') || undefined;
@@ -47,7 +50,7 @@ export async function handler(event) {
 
     return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: data || [] }) };
   } catch (e) {
+    console.error('Activity logs function error:', e);
     return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Failed to fetch activity logs' }) };
   }
 }
-

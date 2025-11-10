@@ -63,11 +63,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUserProfile = async (userId: string) => {
     try {
-      const { data, error } = await supabase
+      let { data, error }: any = await supabase
         .from('users')
         .select('id, email, full_name, role, is_active')
         .eq('id', userId)
         .single();
+
+      // If no row found, try to bootstrap a profile for the authenticated user
+      if (error && (error as any).code === 'PGRST116') {
+        const { data: authData } = await supabase.auth.getUser();
+        const email = authData.user?.email || null;
+        const insert = await supabase.from('users').insert({
+          id: userId,
+          email,
+          full_name: null,
+          role: 'viewer',
+          is_active: true,
+        }).select('id, email, full_name, role, is_active').single();
+        data = insert.data;
+        error = insert.error;
+      }
 
       if (error) throw error;
 
@@ -114,8 +129,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) return { error };
 
-      // Create user profile
-      if (data.user) {
+      // If email confirmation is enabled, session will be null here.
+      // Only attempt profile creation when we have a session (user is authenticated),
+      // otherwise RLS may block inserts. The first login will finalize profile if policy allows.
+      if (data.user && data.session) {
         const { error: profileError } = await supabase
           .from('users')
           .insert({
@@ -127,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
 
         if (profileError) {
-          console.error('Error creating user profile:', profileError);
+          console.error('Error creating user profile:', (profileError as any)?.message || profileError);
         }
       }
 

@@ -20,7 +20,6 @@ import { CouriersPage } from './pages/Couriers';
 import { ShippingRatesPage } from './pages/ShippingRates';
 import { AnalyticsPage } from './pages/Analytics';
 import { UsersPage } from './pages/Users';
-import { ActivityLogsPage } from './pages/ActivityLogs';
 import { CourierSettingsPage } from './pages/CourierSettings';
 import { SettingsPage } from './pages/Settings';
 import { EmailSettingsPage } from './pages/EmailSettings';
@@ -141,16 +140,6 @@ function App() {
               }
             />
             
-            <Route
-              path="/dashboard/activity"
-              element={
-                <ProtectedRoute allowedRoles={['admin', 'manager']}>
-                  <DashboardLayout>
-                    <ActivityLogsPage />
-                  </DashboardLayout>
-                </ProtectedRoute>
-              }
-            />
 
                         
             <Route

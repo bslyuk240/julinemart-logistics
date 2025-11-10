@@ -33,7 +33,6 @@ const navigation = [
   { name: 'Settlements', href: '/dashboard/settlements', icon: DollarSign, roles: ['admin', 'manager'] },
   { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3, roles: ['admin', 'manager', 'viewer'] },
   { name: 'Users', href: '/dashboard/users', icon: Users, roles: ['admin'] },
-  { name: 'Activity Logs', href: '/dashboard/activity', icon: Activity, roles: ['admin', 'manager'] },
   { name: 'Courier Settings', href: '/dashboard/courier-settings', icon: Settings, roles: ['admin'] },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings, roles: ['admin'] },
   { name: 'Email Settings', href: '/dashboard/email-settings', icon: Mail, roles: ['admin'] },

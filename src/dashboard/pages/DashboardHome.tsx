@@ -165,7 +165,7 @@ export function DashboardHome() {
               <div key={zone.code} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
                 <span className="font-medium">{zone.name}</span>
                 <span className="text-primary-600">
-                  ₦{zone.shipping_rates[0]?.flat_rate?.toLocaleString() || 'N/A'}
+                  ₦{zone.shipping_rates?.[0]?.flat_rate?.toLocaleString() || 'N/A'}
                 </span>
               </div>
             ))}

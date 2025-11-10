@@ -8,7 +8,19 @@ const supabase = createClient(
 
 export async function handler(_event, _context) {
   try {
-    const { data, error } = await supabase.from('zones').select('*').order('name');
+    const { data, error } = await supabase
+      .from('zones')
+      .select(`
+        *,
+        shipping_rates (
+          id,
+          flat_rate,
+          per_kg_rate,
+          free_shipping_threshold,
+          is_active
+        )
+      `)
+      .order('name');
     if (error) throw error;
     return {
       statusCode: 200,

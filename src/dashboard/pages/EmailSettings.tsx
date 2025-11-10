@@ -59,7 +59,7 @@ export function EmailSettingsPage() {
 
   const fetchConfig = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/email/config');
+      const response = await fetch('/api/email/config');
       const data = await response.json();
       if (data.success) {
         setConfig(data.data);
@@ -71,7 +71,7 @@ export function EmailSettingsPage() {
 
   const fetchTemplates = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/email/templates');
+      const response = await fetch('/api/email/templates');
       const data = await response.json();
       if (data.success) {
         setTemplates(data.data);
@@ -84,7 +84,7 @@ export function EmailSettingsPage() {
   const handleSaveConfig = async () => {
     setSaving(true);
     try {
-      const response = await fetch('http://localhost:3001/api/email/config', {
+      const response = await fetch('/api/email/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
@@ -107,7 +107,7 @@ export function EmailSettingsPage() {
   const handleTestConnection = async () => {
     setTesting(true);
     try {
-      const response = await fetch('http://localhost:3001/api/email/test-connection', {
+      const response = await fetch('/api/email/test-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
@@ -137,7 +137,7 @@ export function EmailSettingsPage() {
 
     setTesting(true);
     try {
-      const response = await fetch('http://localhost:3001/api/emails/test', {
+      const response = await fetch('/api/emails/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: testEmail }),

@@ -75,7 +75,7 @@ export function CreateOrderPage() {
 
   const fetchHubs = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/hubs');
+      const response = await fetch('/api/hubs');
       const data = await response.json();
       setHubs(data.data || []);
     } catch (error) {
@@ -130,7 +130,7 @@ export function CreateOrderPage() {
     setCalculating(true);
 
     try {
-      const response = await fetch('http://localhost:3001/api/calc-shipping', {
+      const response = await fetch('/api/calc-shipping', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -196,7 +196,7 @@ export function CreateOrderPage() {
         shipping_breakdown: shippingCalculation.subOrders
       };
 
-      const response = await fetch('http://localhost:3001/api/orders', {
+      const response = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(orderData)

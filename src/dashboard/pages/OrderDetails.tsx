@@ -61,7 +61,7 @@ export function OrderDetailsPage() {
 
   const fetchOrderDetails = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${id}`);
+      const response = await fetch(`/api/orders/${id}`);
       const data = await response.json();
       
       if (data.success) {
@@ -80,7 +80,7 @@ export function OrderDetailsPage() {
     setCreatingShipment(subOrderId);
     
     try {
-      const response = await fetch('http://localhost:3001/api/courier/create-shipment', {
+      const response = await fetch('/api/courier/create-shipment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subOrderId }),
@@ -108,7 +108,7 @@ export function OrderDetailsPage() {
     setFetchingTracking(subOrderId);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/courier/tracking/${subOrderId}`);
+      const response = await fetch(`/api/courier/tracking/${subOrderId}`);
       const data = await response.json();
 
       if (data.success) {

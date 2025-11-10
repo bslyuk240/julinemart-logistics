@@ -25,7 +25,7 @@ export function EmailLogs({ orderId }: EmailLogsProps) {
 
   const fetchLogs = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/api/orders/${orderId}/emails`);
+      const response = await fetch(`/api/orders/${orderId}/emails`);
       const data = await response.json();
       if (data.success) {
         setLogs(data.data);
@@ -40,7 +40,7 @@ export function EmailLogs({ orderId }: EmailLogsProps) {
   const resendEmail = async (emailType: string) => {
     setResending(emailType);
     try {
-      const response = await fetch('http://localhost:3001/api/emails/resend', {
+      const response = await fetch('/api/emails/resend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderId, emailType }),

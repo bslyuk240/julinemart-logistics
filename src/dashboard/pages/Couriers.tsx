@@ -27,7 +27,7 @@ export function CouriersPage() {
 
   const fetchCouriers = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/couriers');
+      const response = await fetch('/api/couriers');
       const data = await response.json();
       setCouriers(data.data || []);
       notification.success('Data Loaded', `${data.data?.length || 0} couriers found`);
@@ -58,7 +58,7 @@ export function CouriersPage() {
     if (!confirm('Are you sure you want to delete this courier?')) return;
 
     try {
-      const response = await fetch(`http://localhost:3001/api/couriers/${id}`, {
+      const response = await fetch(`/api/couriers/${id}`, {
         method: 'DELETE'
       });
 
@@ -225,8 +225,8 @@ function CourierForm({ courier, onClose, onSave }: CourierFormProps) {
 
     try {
       const url = courier
-        ? `http://localhost:3001/api/couriers/${courier.id}`
-        : 'http://localhost:3001/api/couriers';
+        ? `/api/couriers/${courier.id}`
+        : '/api/couriers';
 
       const method = courier ? 'PUT' : 'POST';
 

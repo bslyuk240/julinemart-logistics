@@ -18,7 +18,7 @@ export function SettlementsSummaryWidget() {
 
   const fetchSummary = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/settlements/pending');
+      const response = await fetch('/api/settlements/pending');
       const data = await response.json();
 
       if (data.success) {

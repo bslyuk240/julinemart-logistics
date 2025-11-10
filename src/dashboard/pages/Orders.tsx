@@ -28,7 +28,7 @@ export function OrdersPage() {
 
   const fetchOrders = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/orders?limit=100');
+      const response = await fetch('/api/orders?limit=100');
       const data = await response.json();
       
       if (data.success) {

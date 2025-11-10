@@ -22,7 +22,7 @@ export function AnalyticsPage() {
   const [activeHubs, setActiveHubs] = useState(0);
   const [activeCouriers, setActiveCouriers] = useState(0);
   const [avgDeliveryDays, setAvgDeliveryDays] = useState(0);
-  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
   useEffect(() => {
     fetchAnalytics();

@@ -60,10 +60,10 @@ export function ShippingRatesPage() {
     try {
       // Fetch all data in parallel
       const [ratesRes, hubsRes, zonesRes, couriersRes] = await Promise.all([
-        fetch('http://localhost:3001/api/shipping-rates'),
-        fetch('http://localhost:3001/api/hubs'),
-        fetch('http://localhost:3001/api/zones'),
-        fetch('http://localhost:3001/api/couriers')
+        fetch('/api/shipping-rates'),
+        fetch('/api/hubs'),
+        fetch('/api/zones'),
+        fetch('/api/couriers')
       ]);
 
       const [ratesData, hubsData, zonesData, couriersData] = await Promise.all([
@@ -101,7 +101,7 @@ export function ShippingRatesPage() {
     if (!confirm('Are you sure you want to delete this rate?')) return;
 
     try {
-      const response = await fetch(`http://localhost:3001/api/shipping-rates/${rateId}`, {
+      const response = await fetch(`/api/shipping-rates/${rateId}`, {
         method: 'DELETE'
       });
 
@@ -327,8 +327,8 @@ function ShippingRateForm({ rate, hubs, zones, couriers, onClose, onSave }: Rate
 
     try {
       const url = rate
-        ? `http://localhost:3001/api/shipping-rates/${rate.id}`
-        : 'http://localhost:3001/api/shipping-rates';
+        ? `/api/shipping-rates/${rate.id}`
+        : '/api/shipping-rates';
 
       const method = rate ? 'PUT' : 'POST';
 

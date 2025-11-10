@@ -27,7 +27,7 @@ export function HubsPage() {
 
   const fetchHubs = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/hubs');
+      const response = await fetch('/api/hubs');
       const data = await response.json();
       setHubs(data.data || []);
     } catch (error) {
@@ -41,8 +41,8 @@ export function HubsPage() {
   const handleSaveHub = async (hubData: any) => {
     try {
       const url = editingHub 
-        ? `http://localhost:3001/api/hubs/${editingHub.id}`
-        : 'http://localhost:3001/api/hubs';
+        ? `/api/hubs/${editingHub.id}`
+        : '/api/hubs';
       
       const method = editingHub ? 'PUT' : 'POST';
 

@@ -257,7 +257,7 @@ NODE_ENV=production
 
 // Webhooks Tab Component
 function WebhooksTab({ copyToClipboard, copiedItem }: any) {
-  const webhookUrl = `${window.location.origin.replace('3000', '3001')}/api/webhooks/woocommerce`;
+  const webhookUrl = `${window.location.origin}/api/webhooks/woocommerce`;
 
   return (
     <div className="space-y-6">

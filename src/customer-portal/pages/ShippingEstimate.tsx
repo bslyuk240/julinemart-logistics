@@ -40,7 +40,7 @@ export function ShippingEstimatePage() {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:3001/api/shipping-estimate', {
+      const response = await fetch('/api/shipping-estimate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

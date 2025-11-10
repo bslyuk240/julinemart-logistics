@@ -27,7 +27,7 @@ export function CourierSettingsPage() {
 
   const fetchCouriers = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/couriers');
+      const response = await fetch('/api/couriers');
       const data = await response.json();
       setCouriers(data.data || []);
       
@@ -60,7 +60,7 @@ export function CourierSettingsPage() {
 
   const handleToggleAPI = async (courierId: string, enabled: boolean) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/couriers/${courierId}/credentials`, {
+      const response = await fetch(`/api/couriers/${courierId}/credentials`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_enabled: enabled }),
@@ -93,7 +93,7 @@ export function CourierSettingsPage() {
         payload.api_secret = creds.api_secret;
       }
 
-      const response = await fetch(`http://localhost:3001/api/couriers/${courierId}/credentials`, {
+      const response = await fetch(`/api/couriers/${courierId}/credentials`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

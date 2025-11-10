@@ -107,7 +107,7 @@ export async function getShippingEstimatePublicHandler(req: Request, res: Respon
 
     // Calculate shipping (reuse existing logic)
     // This would call your existing shipping calculation
-    const response = await fetch('http://localhost:3001/api/calc-shipping', {
+    const response = await fetch('/api/calc-shipping', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

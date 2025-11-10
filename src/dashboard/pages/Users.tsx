@@ -22,7 +22,7 @@ interface Role {
 export function UsersPage() {
   const notification = useNotification();
   const { session } = useAuth();
-  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
@@ -258,7 +258,7 @@ interface UserFormProps {
 
 function UserForm({ user, roles, onClose, onSave }: UserFormProps) {
   const notification = useNotification();
-  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
   const { session } = useAuth();
   const [formData, setFormData] = useState({
     email: user?.email || '',

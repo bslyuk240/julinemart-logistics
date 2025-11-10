@@ -71,7 +71,7 @@ export function OrderTrackingPage() {
   const fetchOrder = async () => {
     try {
       const response = await fetch(
-        `http://localhost:3001/api/track-order?orderNumber=${orderNumber}&email=${email}`
+        `/api/track-order?orderNumber=${orderNumber}&email=${email}`
       );
       const data = await response.json();
 

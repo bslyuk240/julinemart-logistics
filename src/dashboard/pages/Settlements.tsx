@@ -48,8 +48,8 @@ export function SettlementsPage() {
   const fetchData = async () => {
     try {
       const [pendingRes, settlementsRes] = await Promise.all([
-        fetch('http://localhost:3001/api/settlements/pending'),
-        fetch('http://localhost:3001/api/settlements'),
+        fetch('/api/settlements/pending'),
+        fetch('/api/settlements'),
       ]);
 
       const pendingData = await pendingRes.json();
@@ -391,7 +391,7 @@ function CreateSettlementModal({ courier, onClose, onSuccess, notification }: an
   const handleCreate = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/settlements', {
+      const response = await fetch('/api/settlements', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -493,7 +493,7 @@ function MarkPaidModal({ settlement, onClose, onSuccess, notification }: any) {
 
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/settlements/${settlement.id}/mark-paid`, {
+      const response = await fetch(`/api/settlements/${settlement.id}/mark-paid`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

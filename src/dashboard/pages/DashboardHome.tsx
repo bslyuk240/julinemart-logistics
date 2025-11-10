@@ -26,7 +26,7 @@ export function DashboardHome() {
   const [loading, setLoading] = useState(true);
 
   // Prefer env-based API base URL, fallback to localhost:3001
-  const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
   const fetchData = useCallback(async () => {
     try {

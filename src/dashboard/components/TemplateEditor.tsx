@@ -55,7 +55,7 @@ export function TemplateEditor({ template: initialTemplate, onSave }: TemplateEd
   const handleSave = async () => {
     setSaving(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/email/templates/${template.id}`, {
+      const response = await fetch(`/api/email/templates/${template.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -81,7 +81,7 @@ export function TemplateEditor({ template: initialTemplate, onSave }: TemplateEd
 
   const handlePreview = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/api/email/templates/${template.id}/preview`, {
+      const response = await fetch(`/api/email/templates/${template.id}/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(sampleData),

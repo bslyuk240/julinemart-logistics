@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect } from 'react';
-import { Save, Eye, Code, TestTube, RefreshCw } from 'lucide-react';
+import { Save, Eye, Code, RefreshCw } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 
 interface EmailTemplate {
@@ -165,7 +165,7 @@ export function TemplateEditor({ template: initialTemplate, onSave }: TemplateEd
               placeholder="Order Confirmed - #{{orderNumber}}"
             />
             <p className="text-xs text-gray-500 mt-1">
-              Use {{`{{variableName}}`}} for dynamic content
+              Use {'{{variableName}}'} for dynamic content
             </p>
           </div>
 
@@ -213,8 +213,8 @@ export function TemplateEditor({ template: initialTemplate, onSave }: TemplateEd
                   }}
                   className="text-left p-2 bg-gray-50 hover:bg-gray-100 rounded border border-gray-200 text-sm"
                 >
-                  <code className="text-primary-600">{{`{{${variable}}}`}}</code>
-                  <div className="text-xs text-gray-500 mt-1">{sampleData[variable]}</div>
+                  <code className="text-primary-600">{`{{${variable}}}`}</code>
+                <div className="text-xs text-gray-500 mt-1">{sampleData[variable]}</div>
                 </button>
               ))}
             </div>

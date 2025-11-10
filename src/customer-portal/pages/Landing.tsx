@@ -1,5 +1,5 @@
 ﻿import { useState } from 'react';
-import { Search, Package, TrendingUp, Shield, Clock } from 'lucide-react';
+import { Search, Package, TrendingUp, Shield } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export function CustomerPortalLanding() {

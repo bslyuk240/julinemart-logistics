@@ -1,13 +1,13 @@
 ﻿import { Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
-import type { Database } from '../types/supabase.js';
+import type { Database } from '../../types/supabase';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const supabase = createClient<Database>(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Get all shipping rates with related data
-export async function getShippingRatesHandler(req: Request, res: Response) {
+export async function getShippingRatesHandler(_req: Request, res: Response) {
   try {
     const { data: rates, error } = await supabase
       .from('shipping_rates')

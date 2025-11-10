@@ -181,7 +181,7 @@ export async function markSettlementPaidHandler(req: AuthRequest, res: Response)
         .from('sub_orders')
         .update({
           settlement_status: 'paid',
-          courier_paid_amount: supabase.raw('shipping_cost'),
+          courier_paid_amount: (supabase as any).raw('shipping_cost'),
           settlement_date: payment_date || new Date().toISOString(),
           payment_reference,
         })

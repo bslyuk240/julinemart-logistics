@@ -1,13 +1,13 @@
 ﻿import { Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
-import type { Database } from '../types/supabase.js';
+import type { Database } from '../../types/supabase';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const supabase = createClient<Database>(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Get all hubs
-export async function getHubsHandler(req: Request, res: Response) {
+export async function getHubsHandler(_req: Request, res: Response) {
   try {
     const { data: hubs, error } = await supabase
       .from('hubs')
@@ -123,7 +123,7 @@ export async function deleteHubHandler(req: Request, res: Response) {
 }
 
 // Get all couriers
-export async function getCouriersHandler(req: Request, res: Response) {
+export async function getCouriersHandler(_req: Request, res: Response) {
   try {
     const { data: couriers, error } = await supabase
       .from('couriers')
@@ -238,7 +238,7 @@ export async function deleteCourierHandler(req: Request, res: Response) {
 }
 
 // Get all zones with rates
-export async function getZonesWithRatesHandler(req: Request, res: Response) {
+export async function getZonesWithRatesHandler(_req: Request, res: Response) {
   try {
     const { data: zones, error } = await supabase
       .from('zones')
@@ -270,7 +270,7 @@ export async function getZonesWithRatesHandler(req: Request, res: Response) {
 }
 
 // Get dashboard stats
-export async function getDashboardStatsHandler(req: Request, res: Response) {
+export async function getDashboardStatsHandler(_req: Request, res: Response) {
   try {
     // Get total orders count
     const { count: ordersCount } = await supabase

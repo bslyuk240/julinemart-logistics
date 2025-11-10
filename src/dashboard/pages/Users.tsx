@@ -35,7 +35,7 @@ export function UsersPage() {
 
   const fetchData = async () => {
     try {
-      const authHeaders = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+      const authHeaders: HeadersInit = session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
       const [usersRes, rolesRes] = await Promise.all([
         fetch(`${apiBase}/api/users`, { headers: authHeaders }),
         fetch(`${apiBase}/api/roles`, { headers: authHeaders })

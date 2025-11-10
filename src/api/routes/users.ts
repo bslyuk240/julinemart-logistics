@@ -1,11 +1,11 @@
 ﻿import { Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
-import type { Database } from '../types/supabase.js';
+import type { Database } from '../../types/supabase';
 import { AuthRequest, logActivity } from '../middleware/auth.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const supabase = createClient<Database>(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Get all users
 export async function getUsersHandler(req: AuthRequest, res: Response) {

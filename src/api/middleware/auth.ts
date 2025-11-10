@@ -166,4 +166,4 @@ export async function logActivity(
   }
 }
 
-export { AuthRequest };
+export type { AuthRequest };

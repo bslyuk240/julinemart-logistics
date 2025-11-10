@@ -36,7 +36,7 @@ export async function handler(event) {
       }
       const { data, error } = await supabase
         .from('couriers')
-        .select('id, name, code, contact_person, contact_phone, contact_email, is_active, created_at')
+        .select('id, name, code, is_active, api_enabled, api_base_url, api_key_encrypted, supports_live_tracking, supports_label_generation, created_at')
         .order('name');
       if (error) throw error;
       return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: data || [] }) };

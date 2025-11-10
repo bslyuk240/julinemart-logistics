@@ -1,10 +1,9 @@
 // Netlify Function: /api/hubs
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
 
 const headers = {
   'Content-Type': 'application/json',
@@ -27,4 +26,3 @@ export async function handler(event) {
     return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Failed to fetch hubs' }) };
   }
 }
-

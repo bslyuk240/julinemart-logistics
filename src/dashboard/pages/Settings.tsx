@@ -545,7 +545,15 @@ function APIReferenceTab({ copyToClipboard, copiedItem }: any) {
       if (includeAuth && session?.access_token) headers['Authorization'] = 'Bearer ' + session.access_token;
       const init: RequestInit = { method: testMethod, headers } as any;
       if (testMethod !== 'GET' && testMethod !== 'DELETE' && testBody.trim()) {
-        init.body = testBody;
+        try {
+          const parsed = JSON.parse(testBody);
+          init.body = JSON.stringify(parsed);
+        } catch (e) {
+          setRespStatus('Invalid JSON');
+          setRespText('Please provide a valid JSON body.');
+          setSending(false);
+          return;
+        }
       }
       const res = await fetch(url, init);
       const ct = res.headers.get('content-type') || '';

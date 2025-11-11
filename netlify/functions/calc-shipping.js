@@ -20,7 +20,12 @@ export async function handler(event) {
     return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };
   }
   try {
-    const payload = JSON.parse(event.body || '{}');
+    let payload;
+    try {
+      payload = JSON.parse(event.body || '{}');
+    } catch (e) {
+      return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Invalid JSON body' }) };
+    }
     const state = payload.state || payload.deliveryState || payload.delivery_state;
     const city = payload.city || payload.deliveryCity || payload.delivery_city;
     const items = Array.isArray(payload.items) ? payload.items : [];
@@ -65,4 +70,3 @@ export async function handler(event) {
     return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Failed to calculate shipping' }) };
   }
 }
-

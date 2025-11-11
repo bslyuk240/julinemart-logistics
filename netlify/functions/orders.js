@@ -8,7 +8,8 @@ const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
 const headers = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
 };
 
 export async function handler(event) {
@@ -19,6 +20,7 @@ export async function handler(event) {
   const parts = event.path.split('/');
   const idx = parts.findIndex((p) => p === 'orders');
   const id = idx >= 0 && parts.length > idx + 1 ? parts[idx + 1] : undefined;
+  const tail = idx >= 0 && parts.length > idx + 2 ? parts[idx + 2] : undefined; // e.g., 'status'
 
   try {
     if (event.httpMethod === 'GET' && id) {
@@ -111,6 +113,25 @@ export async function handler(event) {
       }
 
       return { statusCode: 201, headers, body: JSON.stringify({ success: true, data: order, message: 'Order created successfully' }) };
+    }
+
+    // Update order status: /api/orders/:id/status
+    if (event.httpMethod === 'PUT' && id && tail === 'status') {
+      const payload = JSON.parse(event.body || '{}');
+      const updateData = {};
+      if (payload.overall_status !== undefined) updateData.overall_status = payload.overall_status;
+      if (payload.payment_status !== undefined) updateData.payment_status = payload.payment_status;
+      if (Object.keys(updateData).length === 0) {
+        return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'No fields to update' }) };
+      }
+      const { data, error } = await supabase
+        .from('orders')
+        .update(updateData)
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) throw error;
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data, message: 'Status updated' }) };
     }
 
     return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };

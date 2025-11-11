@@ -50,7 +50,15 @@ export async function getShippingRateByIdHandler(req: Request, res: Response) {
       .eq('id', id)
       .single();
 
-    if (error) throw error;
+    // Return 404 for non-existent IDs instead of 500
+    if (error) {
+      const msg = (error as any)?.message?.toString().toLowerCase() || '';
+      const code = (error as any)?.code || '';
+      if (code === 'PGRST116' || msg.includes('no rows')) {
+        return res.status(404).json({ success: false, error: 'Shipping rate not found' });
+      }
+      throw error;
+    }
 
     return res.status(200).json({
       success: true,
@@ -130,7 +138,15 @@ export async function updateShippingRateHandler(req: Request, res: Response) {
       .select()
       .single();
 
-    if (error) throw error;
+    // Return 404 if the rate does not exist
+    if (error) {
+      const msg = (error as any)?.message?.toString().toLowerCase() || '';
+      const code = (error as any)?.code || '';
+      if (code === 'PGRST116' || msg.includes('no rows')) {
+        return res.status(404).json({ success: false, error: 'Shipping rate not found' });
+      }
+      throw error;
+    }
 
     return res.status(200).json({
       success: true,

@@ -29,9 +29,16 @@ export async function getShippingRatesHandler(_req: Request, res: Response) {
 
     if (error) throw error;
 
+    // Mirror UI-friendly keys expected by dashboard
+    const mapped = (rates || []).map((r: any) => ({
+      ...r,
+      origin_hub_id: r.hub_id,
+      destination_zone_id: r.zone_id,
+    }));
+
     return res.status(200).json({
       success: true,
-      data: rates || [],
+      data: mapped,
     });
   } catch (error) {
     console.error('Get shipping rates error:', error);
@@ -70,7 +77,11 @@ export async function getShippingRateByIdHandler(req: Request, res: Response) {
 
     return res.status(200).json({
       success: true,
-      data: rate,
+      data: {
+        ...rate,
+        origin_hub_id: (rate as any).hub_id,
+        destination_zone_id: (rate as any).zone_id,
+      },
     });
   } catch (error) {
     console.error('Get shipping rate error:', error);
@@ -197,6 +208,9 @@ export async function updateShippingRateHandler(req: Request, res: Response) {
       }
       if (code === '23503') { // foreign_key_violation
         return res.status(400).json({ success: false, error: 'Invalid hub/zone/courier reference' });
+      }
+      if (code === '23502' || msg.includes('null value in column')) { // not_null_violation
+        return res.status(400).json({ success: false, error: 'Missing required field(s)' });
       }
       throw error;
     }

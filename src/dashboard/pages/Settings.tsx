@@ -1,9 +1,10 @@
 ﻿import { useState } from 'react';
 import { 
   Settings, Book, Webhook, Key, Database, Server, Code, 
-  ExternalLink, Copy, Check, FileText, Zap
+  ExternalLink, Copy, Check, FileText, Zap, Play
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
+import { useAuth } from '../contexts/AuthContext';
 
 type TabType = 'documentation' | 'webhooks' | 'api' | 'database';
 
@@ -258,6 +259,8 @@ NODE_ENV=production
 // Webhooks Tab Component
 function WebhooksTab({ copyToClipboard, copiedItem }: any) {
   const webhookUrl = `${window.location.origin}/api/webhooks/woocommerce`;
+  const [secretVisible, setSecretVisible] = useState(false);
+  const [secretValue, setSecretValue] = useState('');
 
   return (
     <div className="space-y-6">
@@ -325,6 +328,51 @@ function WebhooksTab({ copyToClipboard, copiedItem }: any) {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50"
               />
             </div>
+          </div>
+
+          {/* Webhook Secret (client-side helper only) */}
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+              Webhook Secret
+              <span className="text-xs text-gray-500 font-normal">(kept secret, reveal to view)</span>
+            </label>
+            <div className="flex gap-2">
+              <input
+                type={secretVisible ? 'text' : 'password'}
+                value={secretValue}
+                onChange={(e) => setSecretValue(e.target.value)}
+                placeholder="Set this in Netlify as WEBHOOK_SECRET"
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm"
+              />
+              <button
+                onClick={() => setSecretVisible(!secretVisible)}
+                className="btn-secondary text-sm"
+                type="button"
+              >
+                {secretVisible ? 'Hide' : 'Reveal'}
+              </button>
+              <button
+                onClick={() => secretValue && copyToClipboard(secretValue, 'Webhook Secret')}
+                className="btn-secondary text-sm flex items-center gap-2"
+                type="button"
+              >
+                {copiedItem === 'Webhook Secret' ? (
+                  <>
+                    <Check className="w-4 h-4" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-4 h-4" />
+                    Copy
+                  </>
+                )}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              For security, this UI does not fetch server-stored secrets. Set the same value in your hosting environment as
+              <code className="mx-1 px-1 py-0.5 bg-gray-100 rounded">WEBHOOK_SECRET</code> and paste it here for reference when needed.
+            </p>
           </div>
         </div>
       </div>
@@ -428,7 +476,16 @@ function WebhooksTab({ copyToClipboard, copiedItem }: any) {
 
 // API Reference Tab Component
 function APIReferenceTab({ copyToClipboard, copiedItem }: any) {
-  const baseUrl = window.location.origin.replace('3000', '3001');
+  const defaultBase = window.location.origin.replace('3000', '3001');
+  const [apiBase, setApiBase] = useState(defaultBase);
+  const [testMethod, setTestMethod] = useState<'GET'|'POST'|'PUT'|'DELETE'>('GET');
+  const [testPath, setTestPath] = useState('/api/orders');
+  const [testBody, setTestBody] = useState('');
+  const [includeAuth, setIncludeAuth] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [respStatus, setRespStatus] = useState<string>('');
+  const [respText, setRespText] = useState<string>('');
+  const { session } = useAuth();
 
   const endpoints = [
     {
@@ -478,6 +535,37 @@ function APIReferenceTab({ copyToClipboard, copiedItem }: any) {
     return colors[method] || 'bg-gray-100 text-gray-800';
   };
 
+  const sendRequest = async () => {
+    setSending(true);
+    setRespStatus('');
+    setRespText('');
+    try {
+      const url = apiBase.replace(/\/$/, '') + testPath;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (includeAuth && session?.access_token) headers['Authorization'] = 'Bearer ' + session.access_token;
+      const init: RequestInit = { method: testMethod, headers } as any;
+      if (testMethod !== 'GET' && testMethod !== 'DELETE' && testBody.trim()) {
+        init.body = testBody;
+      }
+      const res = await fetch(url, init);
+      const ct = res.headers.get('content-type') || '';
+      let bodyText = '';
+      if (ct.includes('application/json')) {
+        const json = await res.json();
+        bodyText = JSON.stringify(json, null, 2);
+      } else {
+        bodyText = await res.text();
+      }
+      setRespStatus(`${res.status} ${res.statusText}`);
+      setRespText(bodyText);
+    } catch (e: any) {
+      setRespStatus('Request failed');
+      setRespText(e?.message || String(e));
+    } finally {
+      setSending(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="card">
@@ -485,12 +573,12 @@ function APIReferenceTab({ copyToClipboard, copiedItem }: any) {
         <div className="flex gap-2">
           <input
             type="text"
-            value={baseUrl}
-            readOnly
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono"
+            value={apiBase}
+            onChange={(e) => setApiBase(e.target.value)}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg font-mono"
           />
           <button
-            onClick={() => copyToClipboard(baseUrl, 'Base URL')}
+            onClick={() => copyToClipboard(apiBase, 'Base URL')}
             className="btn-secondary flex items-center gap-2"
           >
             {copiedItem === 'Base URL' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
@@ -512,41 +600,93 @@ function APIReferenceTab({ copyToClipboard, copiedItem }: any) {
                 </span>
                 <code className="flex-1 text-sm font-mono text-gray-700">{endpoint.path}</code>
                 <span className="text-sm text-gray-600">{endpoint.description}</span>
+                <button
+                  className="btn-secondary btn-sm flex items-center gap-1 ml-3"
+                  onClick={() => {
+                    setTestMethod(endpoint.method as any);
+                    setTestPath(endpoint.path);
+                    const el = document.getElementById('api-tester');
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                >
+                  <Play className="w-4 h-4" />
+                  Test
+                </button>
               </div>
             ))}
           </div>
         </div>
       ))}
 
-      {/* Example Request */}
-      <div className="card">
-        <h2 className="text-xl font-bold mb-4">Example API Call</h2>
-        <div className="bg-gray-900 text-gray-100 p-4 rounded-lg">
-          <pre className="text-sm font-mono whitespace-pre-wrap">
-{`// Calculate Shipping
-fetch('${baseUrl}/api/calc-shipping', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    deliveryState: 'Lagos',
-    deliveryCity: 'Ikeja',
-    items: [
-      {
-        productId: 'PROD-001',
-        vendorId: 'VENDOR-1',
-        hubId: 'hub-uuid',
-        quantity: 2,
-        weight: 1.5
-      }
-    ],
-    totalOrderValue: 50000
-  })
-})
-.then(res => res.json())
-.then(data => console.log(data));`}
-          </pre>
+      {/* Request Tester */}
+      <div className="card" id="api-tester">
+        <h2 className="text-xl font-bold mb-4">Request Tester</h2>
+        <div className="space-y-3">
+          <div className="flex flex-col md:flex-row gap-2">
+            <select
+              value={testMethod}
+              onChange={(e) => setTestMethod(e.target.value as any)}
+              className="w-32 px-3 py-2 border border-gray-300 rounded"
+            >
+              <option>GET</option>
+              <option>POST</option>
+              <option>PUT</option>
+              <option>DELETE</option>
+            </select>
+            <input
+              value={testPath}
+              onChange={(e) => setTestPath(e.target.value)}
+              placeholder="/api/orders or /api/orders/:id"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded font-mono"
+            />
+          </div>
+
+          {(testMethod === 'POST' || testMethod === 'PUT') && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Request Body (JSON)</label>
+              <textarea
+                rows={8}
+                value={testBody}
+                onChange={(e) => setTestBody(e.target.value)}
+                placeholder="{ }"
+                className="w-full px-3 py-2 border border-gray-300 rounded font-mono text-sm"
+              />
+            </div>
+          )}
+
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={includeAuth}
+                onChange={(e) => setIncludeAuth(e.target.checked)}
+              />
+              Include session token (Authorization)
+            </label>
+            {includeAuth && !session?.access_token && (
+              <span className="text-xs text-red-600">No session token available</span>
+            )}
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={sendRequest}
+              disabled={sending}
+              className="btn-primary flex items-center gap-2"
+            >
+              <Play className="w-4 h-4" />
+              {sending ? 'Sending...' : 'Send Request'}
+            </button>
+          </div>
+
+          {respStatus && (
+            <div className="mt-4">
+              <div className="text-sm text-gray-700 mb-2">Response: {respStatus}</div>
+              <pre className="bg-gray-900 text-gray-100 p-4 rounded text-xs overflow-auto max-h-96">
+{respText}
+              </pre>
+            </div>
+          )}
         </div>
       </div>
     </div>

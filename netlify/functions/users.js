@@ -2,7 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
 
 const headers = {
@@ -64,6 +64,6 @@ export async function handler(event) {
     return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };
   } catch (e) {
     console.error('Users function error:', e);
-    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Failed to handle users' }) };
+    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Failed to handle users', message: e?.message || 'Unknown error' }) };
   }
 }

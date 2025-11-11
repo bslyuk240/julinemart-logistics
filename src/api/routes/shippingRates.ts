@@ -6,6 +6,14 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Utilities
+const isUUID = (v: unknown) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+const toNullableNumber = (v: unknown) => {
+  if (v === undefined || v === null || v === '') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
 // Get all shipping rates with related data
 export async function getShippingRatesHandler(_req: Request, res: Response) {
   try {
@@ -79,19 +87,23 @@ export async function createShippingRateHandler(req: Request, res: Response) {
     const body = req.body || {};
     // Map UI fields -> DB schema
     const rateData: any = {
-      hub_id: body.origin_hub_id,
-      zone_id: body.destination_zone_id,
-      courier_id: body.courier_id,
-      flat_rate: body.flat_rate,
-      per_kg_rate: body.additional_weight_rate ?? body.per_kg_rate ?? null,
-      min_weight_kg: body.min_weight ?? body.min_weight_kg ?? null,
-      max_weight_kg: body.max_weight ?? body.max_weight_kg ?? null,
-      free_shipping_threshold: body.free_shipping_threshold ?? null,
+      hub_id: body.origin_hub_id || null,
+      zone_id: body.destination_zone_id || null,
+      courier_id: body.courier_id || null,
+      flat_rate: toNullableNumber(body.flat_rate),
+      per_kg_rate: toNullableNumber(body.additional_weight_rate ?? body.per_kg_rate),
+      min_weight_kg: toNullableNumber(body.min_weight ?? body.min_weight_kg),
+      max_weight_kg: toNullableNumber(body.max_weight ?? body.max_weight_kg),
+      free_shipping_threshold: toNullableNumber(body.free_shipping_threshold),
       is_active: body.is_active ?? true,
     };
 
-    if (!rateData.hub_id || !rateData.zone_id || rateData.flat_rate === undefined) {
+    if (!rateData.hub_id || !rateData.zone_id || rateData.flat_rate === null) {
       return res.status(400).json({ success: false, error: 'hub_id, zone_id and flat_rate are required' });
+    }
+
+    if (!isUUID(rateData.hub_id) || !isUUID(rateData.zone_id) || (rateData.courier_id && !isUUID(rateData.courier_id))) {
+      return res.status(400).json({ success: false, error: 'Invalid hub_id/zone_id/courier_id' });
     }
 
     const { data: rate, error } = await supabase
@@ -121,15 +133,50 @@ export async function updateShippingRateHandler(req: Request, res: Response) {
     const { id } = req.params;
     const body = req.body || {};
     const updateData: any = {};
-    if (body.origin_hub_id !== undefined) updateData.hub_id = body.origin_hub_id;
-    if (body.destination_zone_id !== undefined) updateData.zone_id = body.destination_zone_id;
-    if (body.courier_id !== undefined) updateData.courier_id = body.courier_id;
-    if (body.flat_rate !== undefined) updateData.flat_rate = body.flat_rate;
-    if (body.additional_weight_rate !== undefined || body.per_kg_rate !== undefined) updateData.per_kg_rate = body.additional_weight_rate ?? body.per_kg_rate;
-    if (body.min_weight !== undefined || body.min_weight_kg !== undefined) updateData.min_weight_kg = body.min_weight ?? body.min_weight_kg;
-    if (body.max_weight !== undefined || body.max_weight_kg !== undefined) updateData.max_weight_kg = body.max_weight ?? body.max_weight_kg;
-    if (body.free_shipping_threshold !== undefined) updateData.free_shipping_threshold = body.free_shipping_threshold;
-    if (body.is_active !== undefined) updateData.is_active = body.is_active;
+
+    // Validate ID format early
+    if (!isUUID(id)) {
+      return res.status(400).json({ success: false, error: 'Invalid shipping rate id' });
+    }
+
+    // Map and sanitize fields
+    if (body.origin_hub_id !== undefined) {
+      if (body.origin_hub_id !== null && !isUUID(body.origin_hub_id)) {
+        return res.status(400).json({ success: false, error: 'Invalid origin_hub_id' });
+      }
+      updateData.hub_id = body.origin_hub_id || null;
+    }
+    if (body.destination_zone_id !== undefined) {
+      if (body.destination_zone_id !== null && !isUUID(body.destination_zone_id)) {
+        return res.status(400).json({ success: false, error: 'Invalid destination_zone_id' });
+      }
+      updateData.zone_id = body.destination_zone_id || null;
+    }
+    if (body.courier_id !== undefined) {
+      if (body.courier_id !== null && !isUUID(body.courier_id)) {
+        return res.status(400).json({ success: false, error: 'Invalid courier_id' });
+      }
+      updateData.courier_id = body.courier_id || null;
+    }
+    if (body.flat_rate !== undefined) updateData.flat_rate = toNullableNumber(body.flat_rate);
+    if (body.additional_weight_rate !== undefined || body.per_kg_rate !== undefined) {
+      updateData.per_kg_rate = toNullableNumber(body.additional_weight_rate ?? body.per_kg_rate);
+    }
+    if (body.min_weight !== undefined || body.min_weight_kg !== undefined) {
+      updateData.min_weight_kg = toNullableNumber(body.min_weight ?? body.min_weight_kg);
+    }
+    if (body.max_weight !== undefined || body.max_weight_kg !== undefined) {
+      updateData.max_weight_kg = toNullableNumber(body.max_weight ?? body.max_weight_kg);
+    }
+    if (body.free_shipping_threshold !== undefined) {
+      updateData.free_shipping_threshold = toNullableNumber(body.free_shipping_threshold);
+    }
+    if (body.is_active !== undefined) updateData.is_active = !!body.is_active;
+
+    // If no valid fields provided
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ success: false, error: 'No valid fields to update' });
+    }
 
     const { data: rate, error } = await supabase
       .from('shipping_rates')
@@ -144,6 +191,12 @@ export async function updateShippingRateHandler(req: Request, res: Response) {
       const code = (error as any)?.code || '';
       if (code === 'PGRST116' || msg.includes('no rows')) {
         return res.status(404).json({ success: false, error: 'Shipping rate not found' });
+      }
+      if (code === '22P02' || msg.includes('invalid input syntax for type uuid')) {
+        return res.status(400).json({ success: false, error: 'Invalid UUID provided' });
+      }
+      if (code === '23503') { // foreign_key_violation
+        return res.status(400).json({ success: false, error: 'Invalid hub/zone/courier reference' });
       }
       throw error;
     }
@@ -165,6 +218,9 @@ export async function updateShippingRateHandler(req: Request, res: Response) {
 export async function deleteShippingRateHandler(req: Request, res: Response) {
   try {
     const { id } = req.params;
+    if (!isUUID(id)) {
+      return res.status(400).json({ success: false, error: 'Invalid shipping rate id' });
+    }
 
     const { error } = await supabase
       .from('shipping_rates')

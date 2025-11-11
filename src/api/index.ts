@@ -82,7 +82,7 @@ app.get('/health', (_req: Request, res: Response) => {
   res.json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
-    supabaseConfigured: !!process.env.VITE_SUPABASE_URL,
+    supabaseConfigured: !!(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL),
     environment: process.env.NODE_ENV || 'development'
   });
 });

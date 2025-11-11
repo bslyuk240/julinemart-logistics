@@ -1,10 +1,19 @@
 ﻿import { Request, Response } from 'express';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type PostgrestError } from '@supabase/supabase-js';
 import type { Database } from '../../types/supabase';
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY || '';
+const supabase = createClient<Database>(supabaseUrl, supabaseKey);
+
+// Types
+type ShippingRateRow = Database['public']['Tables']['shipping_rates']['Row'];
+type ShippingRateInsert = Database['public']['Tables']['shipping_rates']['Insert'];
+type ShippingRateUpdate = Database['public']['Tables']['shipping_rates']['Update'];
+type HubRef = Pick<Database['public']['Tables']['hubs']['Row'], 'id' | 'name' | 'code'>;
+type ZoneRef = Pick<Database['public']['Tables']['zones']['Row'], 'id' | 'name' | 'code'>;
+type CourierRef = Pick<Database['public']['Tables']['couriers']['Row'], 'id' | 'name' | 'code'>;
+type RateWithRels = ShippingRateRow & { hubs?: HubRef | null; zones?: ZoneRef | null; couriers?: CourierRef | null };
 
 // Utilities
 const isUUID = (v: unknown) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
@@ -13,24 +22,34 @@ const toNullableNumber = (v: unknown) => {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isFinite(n) ? n : null;
 };
+// Optional number (undefined when not provided or invalid)
+const toNumberOptional = (v: unknown): number | undefined => {
+  if (v === undefined || v === null || v === '') return undefined;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : undefined;
+};
 
 // Get all shipping rates with related data
 export async function getShippingRatesHandler(_req: Request, res: Response) {
   try {
-    const { data: rates, error } = await supabase
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ success: false, error: 'Supabase not configured on server' });
+    }
+
+    const { data: rates, error }: { data: RateWithRels[] | null; error: PostgrestError | null } = await supabase
       .from('shipping_rates')
       .select(`
         *,
-        hubs:hub_id(id, name, code),
-        zones:zone_id(id, name, code),
-        couriers:courier_id(id, name, code)
+        hubs(id, name, code),
+        zones(id, name, code),
+        couriers(id, name, code)
       `)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
     // Mirror UI-friendly keys expected by dashboard
-    const mapped = (rates || []).map((r: any) => ({
+    const mapped = (rates || []).map((r) => ({
       ...r,
       origin_hub_id: r.hub_id,
       destination_zone_id: r.zone_id,
@@ -54,21 +73,25 @@ export async function getShippingRateByIdHandler(req: Request, res: Response) {
   try {
     const { id } = req.params;
 
-    const { data: rate, error } = await supabase
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ success: false, error: 'Supabase not configured on server' });
+    }
+
+    const { data: rate, error }: { data: RateWithRels | null; error: PostgrestError | null } = await supabase
       .from('shipping_rates')
       .select(`
         *,
-        hubs:hub_id(id, name, code),
-        zones:zone_id(id, name, code),
-        couriers:courier_id(id, name, code)
+        hubs(id, name, code),
+        zones(id, name, code),
+        couriers(id, name, code)
       `)
       .eq('id', id)
       .single();
 
     // Return 404 for non-existent IDs instead of 500
     if (error) {
-      const msg = (error as any)?.message?.toString().toLowerCase() || '';
-      const code = (error as any)?.code || '';
+      const msg = (error.message || '').toLowerCase();
+      const code = error.code || '';
       if (code === 'PGRST116' || msg.includes('no rows')) {
         return res.status(404).json({ success: false, error: 'Shipping rate not found' });
       }
@@ -77,11 +100,7 @@ export async function getShippingRateByIdHandler(req: Request, res: Response) {
 
     return res.status(200).json({
       success: true,
-      data: {
-        ...rate,
-        origin_hub_id: (rate as any).hub_id,
-        destination_zone_id: (rate as any).zone_id,
-      },
+      data: rate ? { ...rate, origin_hub_id: rate.hub_id, destination_zone_id: rate.zone_id } : null,
     });
   } catch (error) {
     console.error('Get shipping rate error:', error);
@@ -95,13 +114,19 @@ export async function getShippingRateByIdHandler(req: Request, res: Response) {
 // Create shipping rate
 export async function createShippingRateHandler(req: Request, res: Response) {
   try {
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ success: false, error: 'Supabase not configured on server' });
+    }
     const body = req.body || {};
+    // Coerce and validate required numeric first
+    const flatRateNum = toNumberOptional(body.flat_rate);
+
     // Map UI fields -> DB schema
-    const rateData: any = {
+    const rateData: ShippingRateInsert = {
       hub_id: body.origin_hub_id || null,
       zone_id: body.destination_zone_id || null,
       courier_id: body.courier_id || null,
-      flat_rate: toNullableNumber(body.flat_rate),
+      flat_rate: flatRateNum as number,
       per_kg_rate: toNullableNumber(body.additional_weight_rate ?? body.per_kg_rate),
       min_weight_kg: toNullableNumber(body.min_weight ?? body.min_weight_kg),
       max_weight_kg: toNullableNumber(body.max_weight ?? body.max_weight_kg),
@@ -109,7 +134,7 @@ export async function createShippingRateHandler(req: Request, res: Response) {
       is_active: body.is_active ?? true,
     };
 
-    if (!rateData.hub_id || !rateData.zone_id || rateData.flat_rate === null) {
+    if (!rateData.hub_id || !rateData.zone_id || flatRateNum === undefined) {
       return res.status(400).json({ success: false, error: 'hub_id, zone_id and flat_rate are required' });
     }
 
@@ -117,13 +142,26 @@ export async function createShippingRateHandler(req: Request, res: Response) {
       return res.status(400).json({ success: false, error: 'Invalid hub_id/zone_id/courier_id' });
     }
 
-    const { data: rate, error } = await supabase
+    const { data: rate, error }: { data: ShippingRateRow | null; error: PostgrestError | null } = await supabase
       .from('shipping_rates')
       .insert([rateData])
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      const msg = (error.message || '').toLowerCase();
+      const code = error.code || '';
+      if (code === '23503') {
+        return res.status(400).json({ success: false, error: 'Invalid hub/zone/courier reference' });
+      }
+      if (code === '23505' || msg.includes('duplicate key value')) {
+        return res.status(409).json({ success: false, error: 'A shipping rate for this hub/zone/courier already exists' });
+      }
+      if (code === '23502' || msg.includes('null value in column')) {
+        return res.status(400).json({ success: false, error: 'Missing required field(s)' });
+      }
+      throw error;
+    }
 
     return res.status(201).json({
       success: true,
@@ -141,9 +179,12 @@ export async function createShippingRateHandler(req: Request, res: Response) {
 // Update shipping rate
 export async function updateShippingRateHandler(req: Request, res: Response) {
   try {
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ success: false, error: 'Supabase not configured on server' });
+    }
     const { id } = req.params;
     const body = req.body || {};
-    const updateData: any = {};
+    const updateData: ShippingRateUpdate = {};
 
     // Validate ID format early
     if (!isUUID(id)) {
@@ -169,7 +210,7 @@ export async function updateShippingRateHandler(req: Request, res: Response) {
       }
       updateData.courier_id = body.courier_id || null;
     }
-    if (body.flat_rate !== undefined) updateData.flat_rate = toNullableNumber(body.flat_rate);
+    if (body.flat_rate !== undefined) updateData.flat_rate = toNumberOptional(body.flat_rate);
     if (body.additional_weight_rate !== undefined || body.per_kg_rate !== undefined) {
       updateData.per_kg_rate = toNullableNumber(body.additional_weight_rate ?? body.per_kg_rate);
     }
@@ -189,7 +230,7 @@ export async function updateShippingRateHandler(req: Request, res: Response) {
       return res.status(400).json({ success: false, error: 'No valid fields to update' });
     }
 
-    const { data: rate, error } = await supabase
+    const { data: rate, error }: { data: ShippingRateRow | null; error: PostgrestError | null } = await supabase
       .from('shipping_rates')
       .update(updateData)
       .eq('id', id)
@@ -198,8 +239,8 @@ export async function updateShippingRateHandler(req: Request, res: Response) {
 
     // Return 404 if the rate does not exist
     if (error) {
-      const msg = (error as any)?.message?.toString().toLowerCase() || '';
-      const code = (error as any)?.code || '';
+      const msg = (error.message || '').toLowerCase();
+      const code = error.code || '';
       if (code === 'PGRST116' || msg.includes('no rows')) {
         return res.status(404).json({ success: false, error: 'Shipping rate not found' });
       }
@@ -211,6 +252,9 @@ export async function updateShippingRateHandler(req: Request, res: Response) {
       }
       if (code === '23502' || msg.includes('null value in column')) { // not_null_violation
         return res.status(400).json({ success: false, error: 'Missing required field(s)' });
+      }
+      if (code === '23505' || msg.includes('duplicate key value')) { // unique_violation
+        return res.status(409).json({ success: false, error: 'A shipping rate for this hub/zone/courier already exists' });
       }
       throw error;
     }
@@ -231,6 +275,9 @@ export async function updateShippingRateHandler(req: Request, res: Response) {
 // Delete shipping rate
 export async function deleteShippingRateHandler(req: Request, res: Response) {
   try {
+    if (!supabaseUrl || !supabaseKey) {
+      return res.status(500).json({ success: false, error: 'Supabase not configured on server' });
+    }
     const { id } = req.params;
     if (!isUUID(id)) {
       return res.status(400).json({ success: false, error: 'Invalid shipping rate id' });

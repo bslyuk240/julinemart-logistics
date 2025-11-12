@@ -57,8 +57,9 @@ export function ShippingEstimatePage() {
       });
 
       const data = await response.json();
+      console.log('Shipping estimate response', data);
 
-      if (data.success) {
+      if (data.success && data.data) {
         setEstimate(data.data);
       } else {
         setError(data.error || 'Failed to calculate shipping');

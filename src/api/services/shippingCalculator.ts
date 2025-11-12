@@ -3,7 +3,13 @@ import type { Database } from '../../types/supabase';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient<Database>(supabaseUrl, supabaseKey);
+
+type ZoneRow = Database['public']['Tables']['zones']['Row'];
+type HubRow = Database['public']['Tables']['hubs']['Row'];
+type CourierRow = Database['public']['Tables']['couriers']['Row'];
+type RateRow = Database['public']['Tables']['shipping_rates']['Row'];
+type HubCourierRow = Database['public']['Tables']['hub_couriers']['Row'];
 
 interface CartItem {
   productId: string;
@@ -122,7 +128,7 @@ export async function calculateShipping(
 /**
  * Get zone by state name
  */
-async function getZoneByState(state: string): Promise<any | null> {
+async function getZoneByState(state: string): Promise<ZoneRow | null> {
   const { data: zones } = await supabase
     .from('zones')
     .select('*');
@@ -219,7 +225,7 @@ async function calculateHubShipping(
     const totalWeight = items.reduce((sum, item) => sum + (item.weight * item.quantity), 0);
 
     // Calculate costs
-    let baseRate = rate.flat_rate || rate.base_rate || 0;
+    const baseRate = rate.flat_rate || rate.base_rate || 0;
     let additionalWeightCharge = 0;
 
     // If weight exceeds the base weight threshold, add extra charges
@@ -263,8 +269,7 @@ async function calculateHubShipping(
 /**
  * Get primary courier for a hub (or fallback to available courier)
  */
-async function getPrimaryCourier(hubId: string): Promise<any | null> {
-  // First: fetch courier_id from hub_couriers to avoid relationship naming issues
+async function getPrimaryCourier(hubId: string): Promise<CourierRow | null> {
   const { data: primaryLink } = await supabase
     .from('hub_couriers')
     .select('courier_id')
@@ -273,10 +278,9 @@ async function getPrimaryCourier(hubId: string): Promise<any | null> {
     .eq('is_active', true)
     .single();
 
-  let courierId = primaryLink?.courier_id as string | undefined;
+  let courierId = primaryLink?.courier_id ?? undefined;
 
   if (!courierId) {
-    // Fallback: any active courier for this hub (highest priority first)
     const { data: anyLink } = await supabase
       .from('hub_couriers')
       .select('courier_id, priority')
@@ -286,11 +290,10 @@ async function getPrimaryCourier(hubId: string): Promise<any | null> {
       .order('priority', { ascending: false })
       .limit(1)
       .single();
-    courierId = anyLink?.courier_id as string | undefined;
+    courierId = anyLink?.courier_id ?? undefined;
   }
 
   if (!courierId) {
-    // Final fallback: any active courier globally
     const { data: anyCourier } = await supabase
       .from('couriers')
       .select('id, name')
@@ -316,7 +319,7 @@ async function getShippingRate(
   originHubId: string,
   destinationZoneId: string,
   courierId: string
-): Promise<any | null> {
+): Promise<RateRow | null> {
   // Try exact match first (schema: hub_id, zone_id, courier_id)
   const { data: exactRate } = await supabase
     .from('shipping_rates')

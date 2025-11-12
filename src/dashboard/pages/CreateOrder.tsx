@@ -148,10 +148,12 @@ export function CreateOrderPage() {
       });
 
       const data = await response.json();
+      console.log('Shipping API response', data);
 
-      if (data.success) {
+      if (data.success && data.data) {
         setShippingCalculation(data.data);
-        notification.success('Shipping Calculated', `Total: ${data.data.totalShippingFee.toLocaleString()}`);
+        const shippingTotal = data.data.totalShippingFee ?? 0;
+        notification.success('Shipping Calculated', `Total: ${shippingTotal.toLocaleString()}`);
       } else {
         notification.error('Calculation Failed', data.error || 'Unable to calculate shipping');
       }

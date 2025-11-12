@@ -54,7 +54,21 @@ export async function handler(event) {
     }
 
     // Parse payload
-    const payload = typeof event.body === 'string' ? JSON.parse(event.body) : (event.body || {});
+    const parseBody = (body) => {
+      if (typeof body !== 'string') return body || {};
+      try {
+        return JSON.parse(body);
+      } catch {
+        const params = new URLSearchParams(body);
+        const result = {};
+        for (const [key, value] of params) {
+          result[key] = value;
+        }
+        return result;
+      }
+    };
+
+    const payload = parseBody(event.body);
 
     // Minimal field mapping from Woo payload
     const wooId = String(payload?.id ?? '');
@@ -131,4 +145,3 @@ export async function handler(event) {
     return { statusCode: 200, headers, body: JSON.stringify({ success: false, message: 'Received but not processed' }) };
   }
 }
-

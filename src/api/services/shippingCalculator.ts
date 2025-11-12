@@ -6,10 +6,9 @@ const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient<Database>(supabaseUrl, supabaseKey);
 
 type ZoneRow = Database['public']['Tables']['zones']['Row'];
-type HubRow = Database['public']['Tables']['hubs']['Row'];
 type CourierRow = Database['public']['Tables']['couriers']['Row'];
 type RateRow = Database['public']['Tables']['shipping_rates']['Row'];
-type HubCourierRow = Database['public']['Tables']['hub_couriers']['Row'];
+type MinimalCourier = Pick<CourierRow, 'id' | 'name' | 'average_delivery_time_days'>;
 
 interface CartItem {
   productId: string;
@@ -158,11 +157,11 @@ async function groupItemsByHub(items: CartItem[]): Promise<Record<string, CartIt
     if (!hubId && item.vendorId) {
       const { data: vendor } = await supabase
         .from('vendors')
-        .select('primary_hub_id')
+        .select('hub_id')
         .eq('id', item.vendorId)
         .single();
 
-      hubId = vendor?.primary_hub_id;
+      hubId = vendor?.hub_id ?? undefined;
     }
 
     // Fallback to default hub if still not found
@@ -225,7 +224,7 @@ async function calculateHubShipping(
     const totalWeight = items.reduce((sum, item) => sum + (item.weight * item.quantity), 0);
 
     // Calculate costs
-    const baseRate = rate.flat_rate || rate.base_rate || 0;
+    const baseRate = rate.flat_rate || 0;
     let additionalWeightCharge = 0;
 
     // If weight exceeds the base weight threshold, add extra charges
@@ -238,8 +237,7 @@ async function calculateHubShipping(
 
     const subtotal = baseRate + additionalWeightCharge;
     // Our schema does not store VAT per rate; apply a default 7.5%
-    const vatPercentage = 7.5;
-    const vat = (subtotal * vatPercentage) / 100;
+    const vat = (subtotal * 7.5) / 100;
     const totalShippingFee = subtotal + vat;
 
     // Check for free shipping threshold
@@ -258,7 +256,7 @@ async function calculateHubShipping(
       subtotal,
       vat,
       totalShippingFee: finalShippingFee,
-      deliveryTimelineDays: rate.delivery_timeline_days || 3
+      deliveryTimelineDays: courier.average_delivery_time_days ?? 3
     };
   } catch (error) {
     console.error('Hub shipping calculation error:', error);
@@ -269,7 +267,7 @@ async function calculateHubShipping(
 /**
  * Get primary courier for a hub (or fallback to available courier)
  */
-async function getPrimaryCourier(hubId: string): Promise<CourierRow | null> {
+async function getPrimaryCourier(hubId: string): Promise<MinimalCourier | null> {
   const { data: primaryLink } = await supabase
     .from('hub_couriers')
     .select('courier_id')
@@ -296,7 +294,7 @@ async function getPrimaryCourier(hubId: string): Promise<CourierRow | null> {
   if (!courierId) {
     const { data: anyCourier } = await supabase
       .from('couriers')
-      .select('id, name')
+      .select('id, name, average_delivery_time_days')
       .eq('is_active', true)
       .limit(1)
       .single();
@@ -306,7 +304,7 @@ async function getPrimaryCourier(hubId: string): Promise<CourierRow | null> {
 
   const { data: courier } = await supabase
     .from('couriers')
-    .select('id, name')
+    .select('id, name, average_delivery_time_days')
     .eq('id', courierId)
     .single();
   return courier || null;

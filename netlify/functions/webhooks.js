@@ -118,30 +118,159 @@ export async function handler(event) {
 
     if (orderError) throw orderError;
 
-    // Optionally insert order_items for visibility
     const lineItems = Array.isArray(payload?.line_items) ? payload.line_items : [];
     if (lineItems.length > 0) {
-      const items = lineItems.map((item) => {
+      const orderItemsData = lineItems.map((item) => {
         const unit = Number(item?.price || 0);
         const qty = Number(item?.quantity || 1);
+        const vendorId = String(item?.meta_data?.find((m) => m.key === 'vendor_id')?.value ?? 'default');
+        const hubId = String(item?.meta_data?.find((m) => m.key === 'hub_id')?.value ?? 'default');
         return {
-          order_id: order.id,
           product_id: String(item?.product_id ?? ''),
           product_name: String(item?.name ?? ''),
           product_sku: item?.sku ? String(item.sku) : null,
           unit_price: unit,
           quantity: qty,
-          subtotal: Number((unit * qty).toFixed(2))
+          subtotal: Number((unit * qty).toFixed(2)),
+          vendor_id: vendorId,
+          hub_id: hubId,
+          order_id: order.id,
         };
       });
-      // Ignore failures here to avoid failing webhook delivery
-      await supabase.from('order_items').insert(items);
+      await supabase.from('order_items').insert(orderItemsData);
     }
 
+    // Auto-create sub-orders and courier assignments
+    await ensureSubOrdersAndAssignments(order.id, lineItems, shippingTotal);
+
+    // Optionally insert order_items for visibility
     return { statusCode: 200, headers, body: JSON.stringify({ success: true, message: 'Order received', order_id: order.id }) };
   } catch (e) {
     console.error('Webhook error:', e);
     // Reply 200 to prevent repeated retries, but include message
     return { statusCode: 200, headers, body: JSON.stringify({ success: false, message: 'Received but not processed' }) };
+  }
+}
+
+async function ensureSubOrdersAndAssignments(orderId, lineItems, shippingTotal) {
+  if (!lineItems.length) return;
+
+  const groupKey = (item) => {
+    const vendorId = String(item?.meta_data?.find((m) => m.key === 'vendor_id')?.value ?? 'default');
+    const hubId = String(item?.meta_data?.find((m) => m.key === 'hub_id')?.value ?? 'default');
+    return `${hubId}::${vendorId}`;
+  };
+
+  const subOrderGroups = new Map();
+  for (const item of lineItems) {
+    const vendorId = String(item?.meta_data?.find((m) => m.key === 'vendor_id')?.value ?? 'default');
+    const hubId = String(item?.meta_data?.find((m) => m.key === 'hub_id')?.value ?? 'default');
+    const key = `${hubId}::${vendorId}`;
+    const product = {
+      product_id: String(item?.product_id ?? ''),
+      product_name: String(item?.name ?? ''),
+      product_sku: item?.sku ? String(item.sku) : null,
+      unit_price: Number(item?.price || 0),
+      quantity: Number(item?.quantity || 1),
+      subtotal: Number((Number(item?.price || 0) * Number(item?.quantity || 1)).toFixed(2)),
+      vendor_id: vendorId,
+      hub_id: hubId,
+    };
+
+    if (!subOrderGroups.has(key)) {
+      subOrderGroups.set(key, {
+        hubId,
+        vendorId,
+        items: [],
+        subtotal: 0,
+      });
+    }
+
+    const subOrder = subOrderGroups.get(key);
+    subOrder.items.push(product);
+    subOrder.subtotal += product.subtotal;
+  }
+
+  const shippingPerSubOrder = shippingTotal / Math.max(1, subOrderGroups.size);
+
+  for (const subOrder of subOrderGroups.values()) {
+    const { data: createdSubOrder, error: subOrderError } = await supabase
+      .from('sub_orders')
+      .insert({
+        main_order_id: orderId,
+        hub_id: subOrder.hubId,
+        vendor_id: subOrder.vendorId,
+        items: subOrder.items,
+        subtotal: subOrder.subtotal,
+        allocated_shipping_fee: shippingPerSubOrder,
+        status: 'pending',
+      })
+      .select()
+      .single();
+
+    if (subOrderError || !createdSubOrder) {
+      console.error('Failed to create sub-order', subOrderError);
+      continue;
+    }
+
+    const orderItems = subOrder.items.map((product) => ({
+      ...product,
+      order_id: orderId,
+      sub_order_id: createdSubOrder.id,
+    }));
+
+    await supabase.from('order_items').insert(orderItems);
+
+    await assignCourierToSubOrder(createdSubOrder.id, subOrder.hubId);
+  }
+}
+
+async function assignCourierToSubOrder(subOrderId, hubId) {
+  if (!hubId) return;
+  try {
+    const { data: hubCourier } = await supabase
+      .from('hub_couriers')
+      .select(`
+        courier_id,
+        is_primary,
+        priority,
+        couriers (
+          id,
+          name
+        )
+      `)
+      .eq('hub_id', hubId)
+      .filter('couriers.is_active', 'eq', true)
+      .order('is_primary', { ascending: false })
+      .order('priority', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!hubCourier) return;
+
+    const { data: updatedSubOrder, error } = await supabase
+      .from('sub_orders')
+      .update({
+        courier_id: hubCourier.courier_id,
+        status: 'assigned',
+      })
+      .eq('id', subOrderId)
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    await supabase.from('tracking_events').insert({
+      sub_order_id: subOrderId,
+      status: 'assigned',
+      description: `Assigned to ${hubCourier.couriers?.name || 'courier'}`,
+      actor_type: 'system',
+      source: 'webhook',
+    });
+    return updatedSubOrder;
+  } catch (error) {
+    console.error('Failed to assign courier', error);
   }
 }

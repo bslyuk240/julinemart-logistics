@@ -90,7 +90,9 @@ export async function handler(event) {
         const found = (zones || []).find((z) => Array.isArray(z.states) && z.states.includes(shipping.state));
         if (found?.code) deliveryZone = found.code;
       }
-    } catch {}
+    } catch (err) {
+      console.error('Unable to lookup zone for webhook state', shipping?.state, err);
+    }
 
     // Insert or upsert the order
     const orderInsert = {
@@ -154,12 +156,6 @@ export async function handler(event) {
 
 async function ensureSubOrdersAndAssignments(orderId, lineItems, shippingTotal) {
   if (!lineItems.length) return;
-
-  const groupKey = (item) => {
-    const vendorId = String(item?.meta_data?.find((m) => m.key === 'vendor_id')?.value ?? 'default');
-    const hubId = String(item?.meta_data?.find((m) => m.key === 'hub_id')?.value ?? 'default');
-    return `${hubId}::${vendorId}`;
-  };
 
   const subOrderGroups = new Map();
   for (const item of lineItems) {

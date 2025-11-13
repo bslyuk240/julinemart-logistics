@@ -57,6 +57,11 @@ export function OrderTrackingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const formatCurrency = (value?: number | null) => {
+    const amount = typeof value === 'number' ? value : 0;
+    return amount.toLocaleString();
+  };
+
   const orderNumber = searchParams.get('order');
   const email = searchParams.get('email');
 
@@ -218,15 +223,15 @@ export function OrderTrackingPage() {
               <div className="space-y-1">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Subtotal:</span>
-                  <span className="font-medium">₦{(order.total_amount - order.shipping_fee_paid).toLocaleString()}</span>
+                  <span className="font-medium">₦{formatCurrency((order.total_amount ?? 0) - (order.shipping_fee_paid ?? 0))}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Shipping:</span>
-                  <span className="font-medium">₦{order.shipping_fee_paid.toLocaleString()}</span>
+                  <span className="font-medium">₦{formatCurrency(order.shipping_fee_paid)}</span>
                 </div>
                 <div className="flex justify-between text-lg font-bold pt-2 border-t">
                   <span>Total:</span>
-                  <span className="text-primary-600">₦{order.total_amount.toLocaleString()}</span>
+                  <span className="text-primary-600">₦{formatCurrency(order.total_amount)}</span>
                 </div>
               </div>
             </div>

@@ -66,6 +66,11 @@ export function CreateOrderPage() {
     subOrders: ShippingBreakdown[];
   } | null>(null);
 
+  const formatCurrency = (value?: number | null) => {
+    const amount = typeof value === 'number' ? value : 0;
+    return amount.toLocaleString();
+  };
+
   const [calculating, setCalculating] = useState(false);
   const [creating, setCreating] = useState(false);
 
@@ -414,7 +419,7 @@ export function CreateOrderPage() {
 
                     <div className="flex items-end">
                       <div className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded text-sm">
-                        Total: {(item.price * item.quantity).toLocaleString()}
+                        Total: {formatCurrency(item.price * item.quantity)}
                       </div>
                     </div>
                   </div>
@@ -441,13 +446,13 @@ export function CreateOrderPage() {
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Subtotal</span>
-                <span className="font-medium">{calculateSubtotal().toLocaleString()}</span>
+                <span className="font-medium">{formatCurrency(calculateSubtotal())}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Shipping</span>
                 <span className="font-medium">
                   {shippingCalculation 
-                    ? `${shippingCalculation.totalShippingFee.toLocaleString()}`
+                    ? `${formatCurrency(shippingCalculation.totalShippingFee)}`
                     : 'Not calculated'
                   }
                 </span>
@@ -455,7 +460,7 @@ export function CreateOrderPage() {
               <div className="pt-3 border-t flex justify-between">
                 <span className="font-semibold">Total</span>
                 <span className="font-bold text-lg text-primary-600">
-                  {(calculateSubtotal() + (shippingCalculation?.totalShippingFee || 0)).toLocaleString()}
+                  {formatCurrency(calculateSubtotal() + (shippingCalculation?.totalShippingFee || 0))}
                 </span>
               </div>
             </div>
@@ -476,7 +481,7 @@ export function CreateOrderPage() {
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm font-medium">{sub.hubName}</span>
                       <span className="text-sm font-bold text-primary-600">
-                        {sub.totalShippingFee.toLocaleString()}
+                        {formatCurrency(sub.totalShippingFee)}
                       </span>
                     </div>
                     <div className="text-xs text-gray-600 space-y-1">

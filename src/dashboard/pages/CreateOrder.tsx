@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, Calculator, Package } from 'lucide-react';
-import { useNotification } from '../contexts/NotificationContext';
+import { useNotification } from '../../contexts/NotificationContext';
 
 interface OrderItem {
   id: string;
@@ -10,7 +10,7 @@ interface OrderItem {
   vendorId: string;
   hubId: string;
   quantity: number;
-  weight: number; // per unit in kg
+  weight: number;
   price: number;
 }
 
@@ -32,9 +32,10 @@ interface ShippingBreakdown {
   vat: number;
   totalShippingFee: number;
   deliveryTimelineDays: number;
+  items?: any[];
 }
 
-export function CreateOrderPage() {
+export function CreateOrder() {
   const navigate = useNavigate();
   const notification = useNotification();
   
@@ -65,11 +66,6 @@ export function CreateOrderPage() {
     totalShippingFee: number;
     subOrders: ShippingBreakdown[];
   } | null>(null);
-
-  const formatCurrency = (value?: number | null) => {
-    const amount = typeof value === 'number' ? value : 0;
-    return amount.toLocaleString();
-  };
 
   const [calculating, setCalculating] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -119,8 +115,13 @@ export function CreateOrderPage() {
     return items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   };
 
+  // ✅ Safe helper function to format currency
+  const formatCurrency = (value: any): string => {
+    const num = Number(value);
+    return isNaN(num) ? '0' : num.toLocaleString('en-NG', { minimumFractionDigits: 0 });
+  };
+
   const calculateShipping = async () => {
-    // Validation
     if (!customerInfo.state) {
       notification.warning('Missing Information', 'Please enter delivery state');
       return;
@@ -152,15 +153,15 @@ export function CreateOrderPage() {
         })
       });
 
-      const data = await response.json();
-      console.log('Shipping API response', data);
+      const result = await response.json();
+      console.log('Shipping API response:', result);
 
-      if (data.success && data.data) {
-        setShippingCalculation(data.data);
-        const shippingTotal = data.data.totalShippingFee ?? 0;
-        notification.success('Shipping Calculated', `Total: ${shippingTotal.toLocaleString()}`);
+      if (result.success && result.data) {
+        setShippingCalculation(result.data);
+        const shippingTotal = result.data.totalShippingFee ?? 0;
+        notification.success('Shipping Calculated', `Total: ₦${formatCurrency(shippingTotal)}`);
       } else {
-        notification.error('Calculation Failed', data.error || 'Unable to calculate shipping');
+        notification.error('Calculation Failed', result.error || 'Unable to calculate shipping');
       }
     } catch (error) {
       console.error('Shipping calculation error:', error);
@@ -195,8 +196,8 @@ export function CreateOrderPage() {
         delivery_country: customerInfo.country,
         delivery_zone: shippingCalculation.zoneName,
         subtotal: calculateSubtotal(),
-        total_amount: calculateSubtotal() + shippingCalculation.totalShippingFee,
-        shipping_fee_paid: shippingCalculation.totalShippingFee,
+        total_amount: calculateSubtotal() + (shippingCalculation.totalShippingFee || 0),
+        shipping_fee_paid: shippingCalculation.totalShippingFee || 0,
         payment_status: 'pending',
         overall_status: 'pending',
         items: items,
@@ -405,7 +406,7 @@ export function CreateOrderPage() {
 
                     <div>
                       <label className="block text-xs font-medium text-gray-700 mb-1">
-                        Price ()
+                        Price (₦)
                       </label>
                       <input
                         type="number"
@@ -419,7 +420,7 @@ export function CreateOrderPage() {
 
                     <div className="flex items-end">
                       <div className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded text-sm">
-                        Total: {formatCurrency(item.price * item.quantity)}
+                        Total: ₦{formatCurrency(item.price * item.quantity)}
                       </div>
                     </div>
                   </div>
@@ -446,13 +447,13 @@ export function CreateOrderPage() {
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Subtotal</span>
-                <span className="font-medium">{formatCurrency(calculateSubtotal())}</span>
+                <span className="font-medium">₦{formatCurrency(calculateSubtotal())}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Shipping</span>
                 <span className="font-medium">
                   {shippingCalculation 
-                    ? `${formatCurrency(shippingCalculation.totalShippingFee)}`
+                    ? `₦${formatCurrency(shippingCalculation.totalShippingFee)}`
                     : 'Not calculated'
                   }
                 </span>
@@ -460,7 +461,7 @@ export function CreateOrderPage() {
               <div className="pt-3 border-t flex justify-between">
                 <span className="font-semibold">Total</span>
                 <span className="font-bold text-lg text-primary-600">
-                  {formatCurrency(calculateSubtotal() + (shippingCalculation?.totalShippingFee || 0))}
+                  ₦{formatCurrency(calculateSubtotal() + (shippingCalculation?.totalShippingFee || 0))}
                 </span>
               </div>
             </div>
@@ -473,24 +474,28 @@ export function CreateOrderPage() {
               <div className="space-y-3">
                 <div className="text-sm">
                   <span className="text-gray-600">Destination Zone:</span>
-                  <span className="ml-2 font-medium">{shippingCalculation.zoneName}</span>
+                  <span className="ml-2 font-medium">{shippingCalculation.zoneName || 'N/A'}</span>
                 </div>
                 
-                {shippingCalculation.subOrders.map((sub, index) => (
-                  <div key={index} className="p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">{sub.hubName}</span>
-                      <span className="text-sm font-bold text-primary-600">
-                        {formatCurrency(sub.totalShippingFee)}
-                      </span>
+                {shippingCalculation.subOrders && shippingCalculation.subOrders.length > 0 ? (
+                  shippingCalculation.subOrders.map((sub, index) => (
+                    <div key={index} className="p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium">{sub.hubName || 'Unknown Hub'}</span>
+                        <span className="text-sm font-bold text-primary-600">
+                          ₦{formatCurrency(sub.totalShippingFee)}
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-600 space-y-1">
+                        <div>Courier: {sub.courierName || 'N/A'}</div>
+                        <div>Weight: {formatCurrency(sub.totalWeight)}kg</div>
+                        <div>Delivery: {sub.deliveryTimelineDays || 'N/A'} days</div>
+                      </div>
                     </div>
-                    <div className="text-xs text-gray-600 space-y-1">
-                      <div>Courier: {sub.courierName}</div>
-                      <div>Weight: {sub.totalWeight}kg</div>
-                      <div>Delivery: {sub.deliveryTimelineDays} days</div>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <div className="text-sm text-gray-500">No shipping breakdown available</div>
+                )}
               </div>
             </div>
           )}
@@ -500,7 +505,7 @@ export function CreateOrderPage() {
             <button
               onClick={createOrder}
               disabled={!shippingCalculation || creating}
-              className="w-full btn-primary flex items-center justify-center"
+              className="w-full btn-primary flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Package className="w-5 h-5 mr-2" />
               {creating ? 'Creating Order...' : 'Create Order'}

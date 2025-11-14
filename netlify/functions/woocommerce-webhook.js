@@ -14,7 +14,10 @@ const missingEnvVars = Object.entries(requiredEnvVars)
   .map(([key]) => key);
 
 if (missingEnvVars.length > 0) {
-  console.error('Missing required environment variables:', missingEnvVars.join(', '));
+  console.error(
+    'Missing required environment variables:',
+    missingEnvVars.join(', ')
+  );
 }
 
 const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
@@ -26,7 +29,10 @@ const headers = {
 // Verify WooCommerce signature
 function verifyWebhookSignature(body, signature, secret) {
   if (!secret || !signature) return true;
-  const hash = crypto.createHmac('sha256', secret).update(body).digest('base64');
+  const hash = crypto
+    .createHmac('sha256', secret)
+    .update(body)
+    .digest('base64');
   return hash === signature;
 }
 
@@ -79,7 +85,10 @@ export async function handler(event) {
     }
 
     const signature = event.headers['x-wc-webhook-signature'];
-    if (WC_SECRET && !verifyWebhookSignature(event.body, signature, WC_SECRET)) {
+    if (
+      WC_SECRET &&
+      !verifyWebhookSignature(event.body, signature, WC_SECRET)
+    ) {
       console.error('Invalid webhook signature');
       return {
         statusCode: 401,
@@ -107,7 +116,7 @@ export async function handler(event) {
 
     const missingFields = requiredFields.filter(({ value }) => !value);
     if (missingFields.length > 0) {
-      const missing = missingFields.map((f) => f.field).join(', ');
+      const missing = missingFields.map(f => f.field).join(', ');
       console.error('Missing required fields:', missing);
       return {
         statusCode: 400,
@@ -161,8 +170,8 @@ export async function handler(event) {
     const itemsByHub = {};
 
     for (const item of wcOrder.line_items || []) {
-      const hubId = item.meta_data?.find((m) => m.key === 'hub_id')?.value;
-      const vendorId = item.meta_data?.find((m) => m.key === 'vendor_id')?.value;
+      const hubId = item.meta_data?.find(m => m.key === 'hub_id')?.value;
+      const vendorId = item.meta_data?.find(m => m.key === 'vendor_id')?.value;
       const weightValue = parseFloat(item.weight || 0);
       const sanitizedWeight = weightValue > 0 ? weightValue : 0.5;
 
@@ -182,7 +191,10 @@ export async function handler(event) {
 
       const resolvedHubId = orderItem.hubId || defaultHubId;
       if (!resolvedHubId) {
-        console.warn('Skipping item without a hub assignment:', orderItem.productId);
+        console.warn(
+          'Skipping item without a hub assignment:',
+          orderItem.productId
+        );
         continue;
       }
 
@@ -192,7 +204,11 @@ export async function handler(event) {
       itemsByHub[resolvedHubId].push(orderItem);
     }
 
-    console.log('Items grouped by hub:', Object.keys(itemsByHub).length, 'hubs');
+    console.log(
+      'Items grouped by hub:',
+      Object.keys(itemsByHub).length,
+      'hubs'
+    );
     Object.entries(itemsByHub).forEach(([hubKey, items]) => {
       console.log(`  Hub ${hubKey}:`, items.length, 'items');
     });
@@ -200,15 +216,18 @@ export async function handler(event) {
     const { data: hubs } = await supabase
       .from('hubs')
       .select('id, name, city, state');
-    const hubMap = new Map((hubs || []).map((h) => [h.id, h]));
+    const hubMap = new Map((hubs || []).map(h => [h.id, h]));
 
     const { data: zones } = await supabase
       .from('zones')
       .select('id, code, name, states');
 
-    let zone = zones?.find((z) =>
-      Array.isArray(z.states) &&
-      z.states.some((s) => s.toLowerCase() === customerInfo.state?.toLowerCase())
+    let zone = zones?.find(
+      z =>
+        Array.isArray(z.states) &&
+        z.states.some(
+          s => s.toLowerCase() === customerInfo.state?.toLowerCase()
+        )
     );
 
     if (!zone && zones && zones.length > 0) {
@@ -252,10 +271,10 @@ export async function handler(event) {
           continue;
         }
 
-        const baseRate = Number(rate.base_rate || 0);
-        const ratePerKg = Number(rate.rate_per_kg || 0);
+        const baseRate = Number(rate.flat_rate || 0); // ← Returns 3500
+        const ratePerKg = Number(rate.per_kg_rate || 0);
         const vatPercentage = Number(rate.vat_percentage || 7.5);
-        const shippingCost = baseRate + (totalWeight * ratePerKg);
+        const shippingCost = baseRate + totalWeight * ratePerKg;
         const vatAmount = shippingCost * (vatPercentage / 100);
         const totalShippingFee = shippingCost + vatAmount;
         const courier = rate.couriers || couriers?.[0] || null;
@@ -275,7 +294,10 @@ export async function handler(event) {
     }
 
     console.log('Total calculated shipping:', totalCalculatedShipping);
-    console.log('Customer paid shipping:', parseFloat(wcOrder.shipping_total || 0));
+    console.log(
+      'Customer paid shipping:',
+      parseFloat(wcOrder.shipping_total || 0)
+    );
 
     const orderData = {
       woocommerce_order_id: wcOrder.id.toString(),
@@ -287,7 +309,8 @@ export async function handler(event) {
       delivery_state: customerInfo.state,
       delivery_zone: zone?.name || 'Unknown',
       subtotal:
-        parseFloat(wcOrder.total || 0) - parseFloat(wcOrder.shipping_total || 0),
+        parseFloat(wcOrder.total || 0) -
+        parseFloat(wcOrder.shipping_total || 0),
       total_amount: parseFloat(wcOrder.total || 0),
       shipping_fee_paid: parseFloat(wcOrder.shipping_total || 0),
       payment_status: wcOrder.status === 'processing' ? 'paid' : 'pending',
@@ -309,7 +332,7 @@ export async function handler(event) {
     console.log('✅ Sub-orders created:', shippingBreakdown.length);
 
     if (shippingBreakdown.length > 0) {
-      const subOrdersData = shippingBreakdown.map((breakdown) => ({
+      const subOrdersData = shippingBreakdown.map(breakdown => ({
         main_order_id: order.id,
         hub_id: breakdown.hubId,
         courier_id: breakdown.courierId || null,
@@ -336,7 +359,7 @@ export async function handler(event) {
       } else {
         console.log('Created', subOrders.length, 'sub-orders');
 
-        const trackingEvents = subOrders.map((subOrder) => ({
+        const trackingEvents = subOrders.map(subOrder => ({
           sub_order_id: subOrder.id,
           status: 'pending',
           description: 'Order received from WooCommerce',

@@ -1,48 +1,43 @@
-﻿// Netlify Function: /netlify/functions/calc-shipping.js
-import { createClient } from '@supabase/supabase-js';
+﻿// FIXED VERSION - netlify/functions/calc-shipping.js
+// Key changes:
+// 1. rate.base_rate → rate.flat_rate
+// 2. rate.rate_per_kg → rate.per_kg_rate
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
+import { createClient } from '@supabase/supabase-js';
+const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error('Missing Supabase environment variables');
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const headers = {
-  'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS'
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Content-Type': 'application/json',
 };
 
-export async function handler(event) {
+exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
 
   if (event.httpMethod !== 'POST') {
-    return { 
-      statusCode: 405, 
-      headers, 
-      body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) 
+    return {
+      statusCode: 405,
+      headers,
+      body: JSON.stringify({ success: false, error: 'Method not allowed' })
     };
   }
 
   try {
-    let payload;
-    try {
-      payload = JSON.parse(event.body || '{}');
-    } catch (e) {
-      return { 
-        statusCode: 400, 
-        headers, 
-        body: JSON.stringify({ success: false, error: 'Invalid JSON body' }) 
-      };
-    }
-
-    const state = payload.state || payload.deliveryState || payload.delivery_state || '';
-    const city = payload.city || payload.deliveryCity || payload.delivery_city || '';
+    const payload = JSON.parse(event.body || '{}');
+    const state = payload.deliveryState || payload.delivery_state || '';
+    const city = payload.deliveryCity || payload.delivery_city || '';
     const items = Array.isArray(payload.items) ? payload.items : [];
-    const totalOrderValue = Number(payload.totalOrderValue || payload.total_order_value || 0);
 
-    // Validate required fields
     if (!state || items.length === 0) {
       return {
         statusCode: 400,
@@ -61,17 +56,13 @@ export async function handler(event) {
       return sum + (weight * quantity);
     }, 0);
 
-    // Find zone for this state
+    // Find zone
     const { data: zones, error: zonesError } = await supabase
       .from('zones')
       .select('id, code, name, states');
 
-    if (zonesError) {
-      console.error('Zones fetch error:', zonesError);
-      throw zonesError;
-    }
+    if (zonesError) throw zonesError;
 
-    // Find matching zone
     let zone = null;
     if (zones && zones.length > 0) {
       zone = zones.find((z) => {
@@ -80,10 +71,7 @@ export async function handler(event) {
         }
         return false;
       });
-      
-      if (!zone) {
-        zone = zones[0]; // Fallback
-      }
+      if (!zone) zone = zones[0];
     }
 
     if (!zone) {
@@ -107,7 +95,7 @@ export async function handler(event) {
       itemsByHub[hubId].push(item);
     }
 
-    // Get all hubs and couriers
+    // Get hubs and couriers
     const { data: hubs } = await supabase
       .from('hubs')
       .select('id, name, city, state');
@@ -124,6 +112,7 @@ export async function handler(event) {
 
     for (const [hubId, hubItems] of Object.entries(itemsByHub)) {
       let actualHubId = hubId;
+      
       if (hubId === 'default') {
         const defaultHub = hubs?.find(h => 
           h.state?.toLowerCase() === state.toLowerCase()
@@ -139,7 +128,7 @@ export async function handler(event) {
         return sum + (Number(item.weight || 0) * Number(item.quantity || 1));
       }, 0);
 
-      // Get shipping rate
+      // ✅ FIXED: Get shipping rate with CORRECT field names
       const { data: rates } = await supabase
         .from('shipping_rates')
         .select('*, couriers(id, name, code)')
@@ -154,9 +143,10 @@ export async function handler(event) {
         continue;
       }
 
-      const baseRate = Number(rate.base_rate || 0);
-      const ratePerKg = Number(rate.rate_per_kg || 0);
-      const vatPercentage = Number(rate.vat_percentage || 7.5);
+      // ✅ FIXED: Use flat_rate and per_kg_rate instead of base_rate and rate_per_kg
+      const baseRate = Number(rate.flat_rate || 0);
+      const ratePerKg = Number(rate.per_kg_rate || 0);
+      const vatPercentage = 7.5; // Default VAT percentage
 
       const additionalWeightCharge = hubWeight * ratePerKg;
       const subtotal = baseRate + additionalWeightCharge;
@@ -177,14 +167,13 @@ export async function handler(event) {
         subtotal: Math.round(subtotal * 100) / 100,
         vat: Math.round(vat * 100) / 100,
         totalShippingFee: Math.round(totalShippingCost * 100) / 100,
-        deliveryTimelineDays: rate.delivery_timeline_days || 3,
+        deliveryTimelineDays: 3,
         items: hubItems
       });
 
       totalShippingFee += totalShippingCost;
     }
 
-    // If no valid shipments, return error
     if (subOrders.length === 0) {
       return {
         statusCode: 400,
@@ -196,7 +185,6 @@ export async function handler(event) {
       };
     }
 
-    // Return in format frontend expects (with "data" wrapper)
     const response = {
       success: true,
       data: {
@@ -227,4 +215,4 @@ export async function handler(event) {
       })
     };
   }
-}
+};

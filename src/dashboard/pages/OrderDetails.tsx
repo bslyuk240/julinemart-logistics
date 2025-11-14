@@ -49,6 +49,12 @@ export function OrderDetailsPage() {
   const navigate = useNavigate();
   const notification = useNotification();
   
+  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+  const formatCurrency = (value?: number | null) => {
+    const amount = typeof value === 'number' ? value : 0;
+    return amount.toLocaleString();
+  };
+
   const [order, setOrder] = useState<Order | null>(null);
   const [subOrders, setSubOrders] = useState<SubOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,7 +67,7 @@ export function OrderDetailsPage() {
 
   const fetchOrderDetails = async () => {
     try {
-      const response = await fetch(`/api/orders/${id}`);
+      const response = await fetch(`${apiBase}/api/orders/${id}`);
       const data = await response.json();
       
       if (data.success) {
@@ -80,7 +86,7 @@ export function OrderDetailsPage() {
     setCreatingShipment(subOrderId);
     
     try {
-      const response = await fetch('/api/courier/create-shipment', {
+      const response = await fetch(`${apiBase}/api/courier/create-shipment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subOrderId }),
@@ -108,7 +114,7 @@ export function OrderDetailsPage() {
     setFetchingTracking(subOrderId);
     
     try {
-      const response = await fetch(`/api/courier/tracking/${subOrderId}`);
+      const response = await fetch(`${apiBase}/api/courier/tracking/${subOrderId}`);
       const data = await response.json();
 
       if (data.success) {
@@ -226,15 +232,15 @@ export function OrderDetailsPage() {
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-600">Subtotal:</span>
-              <span className="font-medium">₦{(order.total_amount - order.shipping_fee_paid).toLocaleString()}</span>
+              <span className="font-medium">₦{formatCurrency((order.total_amount ?? 0) - (order.shipping_fee_paid ?? 0))}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600">Shipping:</span>
-              <span className="font-medium">₦{order.shipping_fee_paid.toLocaleString()}</span>
+              <span className="font-medium">₦{formatCurrency(order.shipping_fee_paid)}</span>
             </div>
             <div className="flex justify-between pt-2 border-t">
               <span className="font-semibold">Total:</span>
-              <span className="font-bold text-lg text-primary-600">₦{order.total_amount.toLocaleString()}</span>
+              <span className="font-bold text-lg text-primary-600">₦{formatCurrency(order.total_amount)}</span>
             </div>
           </div>
         </div>
@@ -254,7 +260,7 @@ export function OrderDetailsPage() {
                     {subOrder.hubs.name} → {subOrder.couriers.name}
                   </h3>
                   <p className="text-sm text-gray-600 mt-1">
-                    {subOrder.hubs.city} • Shipping: ₦{subOrder.shipping_cost.toLocaleString()}
+                    {subOrder.hubs.city} • Shipping: ₦{formatCurrency(subOrder.shipping_cost)}
                   </p>
                 </div>
                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(subOrder.status)}`}>

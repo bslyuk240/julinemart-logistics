@@ -2,7 +2,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { calcShippingHandler, getZoneHandler } from './routes/shipping.js';
 import { woocommerceWebhookHandler } from './routes/webhooks.js';
-import { getOrdersHandler, getOrderByIdHandler, createOrderHandler, updateOrderStatusHandler } from './routes/orders.js';
+import { getOrdersHandler, getOrderByIdHandler, createOrderHandler, updateOrderStatusHandler, deleteOrderHandler } from './routes/orders.js';
 import { getTrackingHandler, updateTrackingHandler } from './routes/tracking.js';
 import { getHubsHandler, createHubHandler, updateHubHandler, deleteHubHandler, getCouriersHandler, getZonesWithRatesHandler, getDashboardStatsHandler, createCourierHandler, updateCourierHandler, deleteCourierHandler } from './routes/admin.js';
 import { getShippingRatesHandler, getShippingRateByIdHandler, createShippingRateHandler, updateShippingRateHandler, deleteShippingRateHandler } from './routes/shippingRates.js';
@@ -137,6 +137,7 @@ app.get('/api/orders', getOrdersHandler);
 app.post('/api/orders', createOrderHandler);
 app.get('/api/orders/:id', getOrderByIdHandler);
 app.put('/api/orders/:id/status', updateOrderStatusHandler);
+app.delete('/api/orders/:id', deleteOrderHandler);
 console.log('? Orders routes registered');
 
 // Tracking routes (public for now)

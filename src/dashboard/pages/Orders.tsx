@@ -21,6 +21,8 @@ export function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
+  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
   useEffect(() => {
     fetchOrders();
@@ -28,7 +30,7 @@ export function OrdersPage() {
 
   const fetchOrders = async () => {
     try {
-      const response = await fetch('/api/orders?limit=100');
+      const response = await fetch(`${apiBase}/api/orders?limit=100`);
       const data = await response.json();
       
       if (data.success) {
@@ -63,6 +65,33 @@ export function OrdersPage() {
       cancelled: 'bg-red-100 text-red-800',
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
+  };
+
+  const handleDeleteOrder = async (orderId: string) => {
+    if (!window.confirm('Are you sure you want to delete this order? This cannot be undone.')) {
+      return;
+    }
+
+    setDeletingOrderId(orderId);
+
+    try {
+      const response = await fetch(`${apiBase}/api/orders/${orderId}`, {
+        method: 'DELETE',
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        setOrders(prev => prev.filter(order => order.id !== orderId));
+        notification.success('Order Deleted', 'The order was removed successfully.');
+      } else {
+        notification.error('Delete Failed', data.error || 'Unable to delete order');
+      }
+    } catch (error) {
+      console.error('Error deleting order:', error);
+      notification.error('Delete Failed', 'Unable to delete order');
+    } finally {
+      setDeletingOrderId(null);
+    }
   };
 
   return (
@@ -241,6 +270,17 @@ export function OrdersPage() {
                   <button className="mt-2 text-primary-600 hover:text-primary-700 flex items-center gap-1 text-sm font-medium">
                     <Eye className="w-4 h-4" />
                     View Details
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleDeleteOrder(order.id);
+                    }}
+                    disabled={deletingOrderId === order.id}
+                    className="mt-2 text-red-600 hover:text-red-700 flex items-center gap-1 text-sm font-medium"
+                  >
+                    Delete
                   </button>
                 </div>
               </div>

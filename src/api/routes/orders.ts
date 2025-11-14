@@ -183,3 +183,56 @@ export async function updateOrderStatusHandler(req: Request, res: Response) {
     });
   }
 }
+
+// Delete order and related records
+export async function deleteOrderHandler(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+
+    // fetch sub-order ids to clean up child records if needed
+    const { data: subOrders, error: subOrdersError } = await supabase
+      .from('sub_orders')
+      .select('id')
+      .eq('main_order_id', id);
+
+    if (subOrdersError) throw subOrdersError;
+
+    const subOrderIds = subOrders?.map((sub) => sub.id) || [];
+
+    if (subOrderIds.length > 0) {
+      const { error: trackingError } = await supabase
+        .from('tracking_events')
+        .delete()
+        .in('sub_order_id', subOrderIds);
+
+      if (trackingError) throw trackingError;
+
+      const { error: subOrdersDeleteError } = await supabase
+        .from('sub_orders')
+        .delete()
+        .in('id', subOrderIds);
+
+      if (subOrdersDeleteError) throw subOrdersDeleteError;
+    }
+
+    const { data: deletedOrder, error } = await supabase
+      .from('orders')
+      .delete()
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      success: true,
+      data: deletedOrder,
+    });
+  } catch (error) {
+    console.error('Delete order error:', error);
+    return res.status(500).json({
+      error: 'Failed to delete order',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+}

@@ -1,7 +1,7 @@
-﻿import { useState, useEffect } from 'react';
+﻿import { Calculator, Package, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2, Calculator, Package } from 'lucide-react';
-import { useNotification } from '../../contexts/NotificationContext';
+import { useNotification } from '../contexts/NotificationContext';
 
 interface OrderItem {
   id: string;
@@ -35,22 +35,24 @@ interface ShippingBreakdown {
   items?: any[];
 }
 
-export function CreateOrder() {
+export function CreateOrderPage() {
   const navigate = useNavigate();
   const notification = useNotification();
-  
+
   const [hubs, setHubs] = useState<Hub[]>([]);
-  const [items, setItems] = useState<OrderItem[]>([{
-    id: '1',
-    productId: '',
-    productName: '',
-    vendorId: '',
-    hubId: '',
-    quantity: 1,
-    weight: 1,
-    price: 0
-  }]);
-  
+  const [items, setItems] = useState<OrderItem[]>([
+    {
+      id: '1',
+      productId: '',
+      productName: '',
+      vendorId: '',
+      hubId: '',
+      quantity: 1,
+      weight: 1,
+      price: 0,
+    },
+  ]);
+
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
     email: '',
@@ -58,7 +60,7 @@ export function CreateOrder() {
     address: '',
     city: '',
     state: 'Lagos',
-    country: 'Nigeria'
+    country: 'Nigeria',
   });
 
   const [shippingCalculation, setShippingCalculation] = useState<{
@@ -85,16 +87,19 @@ export function CreateOrder() {
   };
 
   const addItem = () => {
-    setItems([...items, {
-      id: Date.now().toString(),
-      productId: '',
-      productName: '',
-      vendorId: '',
-      hubId: '',
-      quantity: 1,
-      weight: 1,
-      price: 0
-    }]);
+    setItems([
+      ...items,
+      {
+        id: Date.now().toString(),
+        productId: '',
+        productName: '',
+        vendorId: '',
+        hubId: '',
+        quantity: 1,
+        weight: 1,
+        price: 0,
+      },
+    ]);
   };
 
   const removeItem = (id: string) => {
@@ -105,31 +110,39 @@ export function CreateOrder() {
   };
 
   const updateItem = (id: string, field: keyof OrderItem, value: any) => {
-    setItems(items.map(item => 
-      item.id === id ? { ...item, [field]: value } : item
-    ));
+    setItems(
+      items.map(item => (item.id === id ? { ...item, [field]: value } : item))
+    );
     setShippingCalculation(null);
   };
 
   const calculateSubtotal = () => {
-    return items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    return items.reduce((sum, item) => sum + item.price * item.quantity, 0);
   };
 
   // ✅ Safe helper function to format currency
   const formatCurrency = (value: any): string => {
     const num = Number(value);
-    return isNaN(num) ? '0' : num.toLocaleString('en-NG', { minimumFractionDigits: 0 });
+    return isNaN(num)
+      ? '0'
+      : num.toLocaleString('en-NG', { minimumFractionDigits: 0 });
   };
 
   const calculateShipping = async () => {
     if (!customerInfo.state) {
-      notification.warning('Missing Information', 'Please enter delivery state');
+      notification.warning(
+        'Missing Information',
+        'Please enter delivery state'
+      );
       return;
     }
 
     const invalidItems = items.filter(item => !item.hubId || item.weight <= 0);
     if (invalidItems.length > 0) {
-      notification.warning('Invalid Items', 'Please assign hubs and weights to all items');
+      notification.warning(
+        'Invalid Items',
+        'Please assign hubs and weights to all items'
+      );
       return;
     }
 
@@ -147,10 +160,10 @@ export function CreateOrder() {
             vendorId: item.vendorId,
             hubId: item.hubId,
             quantity: item.quantity,
-            weight: item.weight
+            weight: item.weight,
           })),
-          totalOrderValue: calculateSubtotal()
-        })
+          totalOrderValue: calculateSubtotal(),
+        }),
       });
 
       const result = await response.json();
@@ -159,9 +172,15 @@ export function CreateOrder() {
       if (result.success && result.data) {
         setShippingCalculation(result.data);
         const shippingTotal = result.data.totalShippingFee ?? 0;
-        notification.success('Shipping Calculated', `Total: ₦${formatCurrency(shippingTotal)}`);
+        notification.success(
+          'Shipping Calculated',
+          `Total: ₦${formatCurrency(shippingTotal)}`
+        );
       } else {
-        notification.error('Calculation Failed', result.error || 'Unable to calculate shipping');
+        notification.error(
+          'Calculation Failed',
+          result.error || 'Unable to calculate shipping'
+        );
       }
     } catch (error) {
       console.error('Shipping calculation error:', error);
@@ -173,12 +192,18 @@ export function CreateOrder() {
 
   const createOrder = async () => {
     if (!shippingCalculation) {
-      notification.warning('Calculate Shipping', 'Please calculate shipping first');
+      notification.warning(
+        'Calculate Shipping',
+        'Please calculate shipping first'
+      );
       return;
     }
 
     if (!customerInfo.name || !customerInfo.email || !customerInfo.phone) {
-      notification.warning('Missing Information', 'Please fill all customer details');
+      notification.warning(
+        'Missing Information',
+        'Please fill all customer details'
+      );
       return;
     }
 
@@ -196,29 +221,36 @@ export function CreateOrder() {
         delivery_country: customerInfo.country,
         delivery_zone: shippingCalculation.zoneName,
         subtotal: calculateSubtotal(),
-        total_amount: calculateSubtotal() + (shippingCalculation.totalShippingFee || 0),
+        total_amount:
+          calculateSubtotal() + (shippingCalculation.totalShippingFee || 0),
         shipping_fee_paid: shippingCalculation.totalShippingFee || 0,
         payment_status: 'pending',
         overall_status: 'pending',
         items: items,
-        shipping_breakdown: shippingCalculation.subOrders
+        shipping_breakdown: shippingCalculation.subOrders,
       };
 
       const response = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(orderData)
+        body: JSON.stringify(orderData),
       });
 
       const data = await response.json();
 
       if (data.success) {
-        notification.success('Order Created!', `Order #${data.data.woocommerce_order_id} created successfully`);
+        notification.success(
+          'Order Created!',
+          `Order #${data.data.woocommerce_order_id} created successfully`
+        );
         setTimeout(() => {
           navigate(`/dashboard/orders/${data.data.id}`);
         }, 1500);
       } else {
-        notification.error('Creation Failed', data.error || 'Unable to create order');
+        notification.error(
+          'Creation Failed',
+          data.error || 'Unable to create order'
+        );
       }
     } catch (error) {
       console.error('Order creation error:', error);
@@ -232,7 +264,9 @@ export function CreateOrder() {
     <div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Create Order</h1>
-        <p className="text-gray-600 mt-2">Manual order creation with automatic hub splitting</p>
+        <p className="text-gray-600 mt-2">
+          Manual order creation with automatic hub splitting
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -249,7 +283,9 @@ export function CreateOrder() {
                 <input
                   type="text"
                   value={customerInfo.name}
-                  onChange={(e) => setCustomerInfo({...customerInfo, name: e.target.value})}
+                  onChange={e =>
+                    setCustomerInfo({ ...customerInfo, name: e.target.value })
+                  }
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                   placeholder="John Doe"
                 />
@@ -262,7 +298,9 @@ export function CreateOrder() {
                 <input
                   type="email"
                   value={customerInfo.email}
-                  onChange={(e) => setCustomerInfo({...customerInfo, email: e.target.value})}
+                  onChange={e =>
+                    setCustomerInfo({ ...customerInfo, email: e.target.value })
+                  }
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                   placeholder="john@example.com"
                 />
@@ -275,7 +313,9 @@ export function CreateOrder() {
                 <input
                   type="tel"
                   value={customerInfo.phone}
-                  onChange={(e) => setCustomerInfo({...customerInfo, phone: e.target.value})}
+                  onChange={e =>
+                    setCustomerInfo({ ...customerInfo, phone: e.target.value })
+                  }
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                   placeholder="+234 800 000 0000"
                 />
@@ -288,7 +328,9 @@ export function CreateOrder() {
                 <input
                   type="text"
                   value={customerInfo.state}
-                  onChange={(e) => setCustomerInfo({...customerInfo, state: e.target.value})}
+                  onChange={e =>
+                    setCustomerInfo({ ...customerInfo, state: e.target.value })
+                  }
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                   placeholder="Lagos"
                 />
@@ -301,7 +343,9 @@ export function CreateOrder() {
                 <input
                   type="text"
                   value={customerInfo.city}
-                  onChange={(e) => setCustomerInfo({...customerInfo, city: e.target.value})}
+                  onChange={e =>
+                    setCustomerInfo({ ...customerInfo, city: e.target.value })
+                  }
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                   placeholder="Ikeja"
                 />
@@ -314,7 +358,12 @@ export function CreateOrder() {
                 <input
                   type="text"
                   value={customerInfo.address}
-                  onChange={(e) => setCustomerInfo({...customerInfo, address: e.target.value})}
+                  onChange={e =>
+                    setCustomerInfo({
+                      ...customerInfo,
+                      address: e.target.value,
+                    })
+                  }
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                   placeholder="123 Main Street"
                 />
@@ -326,7 +375,10 @@ export function CreateOrder() {
           <div className="card">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-semibold">Order Items</h2>
-              <button onClick={addItem} className="btn-secondary flex items-center text-sm">
+              <button
+                onClick={addItem}
+                className="btn-secondary flex items-center text-sm"
+              >
                 <Plus className="w-4 h-4 mr-2" />
                 Add Item
               </button>
@@ -334,9 +386,14 @@ export function CreateOrder() {
 
             <div className="space-y-4">
               {items.map((item, index) => (
-                <div key={item.id} className="p-4 border border-gray-200 rounded-lg">
+                <div
+                  key={item.id}
+                  className="p-4 border border-gray-200 rounded-lg"
+                >
                   <div className="flex items-center justify-between mb-3">
-                    <span className="font-medium text-gray-900">Item {index + 1}</span>
+                    <span className="font-medium text-gray-900">
+                      Item {index + 1}
+                    </span>
                     {items.length > 1 && (
                       <button
                         onClick={() => removeItem(item.id)}
@@ -355,7 +412,9 @@ export function CreateOrder() {
                       <input
                         type="text"
                         value={item.productName}
-                        onChange={(e) => updateItem(item.id, 'productName', e.target.value)}
+                        onChange={e =>
+                          updateItem(item.id, 'productName', e.target.value)
+                        }
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
                         placeholder="Product name"
                       />
@@ -367,12 +426,16 @@ export function CreateOrder() {
                       </label>
                       <select
                         value={item.hubId}
-                        onChange={(e) => updateItem(item.id, 'hubId', e.target.value)}
+                        onChange={e =>
+                          updateItem(item.id, 'hubId', e.target.value)
+                        }
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
                       >
                         <option value="">Select Hub</option>
                         {hubs.map(hub => (
-                          <option key={hub.id} value={hub.id}>{hub.name}</option>
+                          <option key={hub.id} value={hub.id}>
+                            {hub.name}
+                          </option>
                         ))}
                       </select>
                     </div>
@@ -384,7 +447,13 @@ export function CreateOrder() {
                       <input
                         type="number"
                         value={item.quantity}
-                        onChange={(e) => updateItem(item.id, 'quantity', parseInt(e.target.value) || 1)}
+                        onChange={e =>
+                          updateItem(
+                            item.id,
+                            'quantity',
+                            parseInt(e.target.value) || 1
+                          )
+                        }
                         min="1"
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
                       />
@@ -397,7 +466,13 @@ export function CreateOrder() {
                       <input
                         type="number"
                         value={item.weight}
-                        onChange={(e) => updateItem(item.id, 'weight', parseFloat(e.target.value) || 0)}
+                        onChange={e =>
+                          updateItem(
+                            item.id,
+                            'weight',
+                            parseFloat(e.target.value) || 0
+                          )
+                        }
                         min="0"
                         step="0.1"
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
@@ -411,7 +486,13 @@ export function CreateOrder() {
                       <input
                         type="number"
                         value={item.price}
-                        onChange={(e) => updateItem(item.id, 'price', parseFloat(e.target.value) || 0)}
+                        onChange={e =>
+                          updateItem(
+                            item.id,
+                            'price',
+                            parseFloat(e.target.value) || 0
+                          )
+                        }
                         min="0"
                         step="0.01"
                         className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
@@ -447,21 +528,26 @@ export function CreateOrder() {
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Subtotal</span>
-                <span className="font-medium">₦{formatCurrency(calculateSubtotal())}</span>
+                <span className="font-medium">
+                  ₦{formatCurrency(calculateSubtotal())}
+                </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Shipping</span>
                 <span className="font-medium">
-                  {shippingCalculation 
+                  {shippingCalculation
                     ? `₦${formatCurrency(shippingCalculation.totalShippingFee)}`
-                    : 'Not calculated'
-                  }
+                    : 'Not calculated'}
                 </span>
               </div>
               <div className="pt-3 border-t flex justify-between">
                 <span className="font-semibold">Total</span>
                 <span className="font-bold text-lg text-primary-600">
-                  ₦{formatCurrency(calculateSubtotal() + (shippingCalculation?.totalShippingFee || 0))}
+                  ₦
+                  {formatCurrency(
+                    calculateSubtotal() +
+                      (shippingCalculation?.totalShippingFee || 0)
+                  )}
                 </span>
               </div>
             </div>
@@ -474,14 +560,19 @@ export function CreateOrder() {
               <div className="space-y-3">
                 <div className="text-sm">
                   <span className="text-gray-600">Destination Zone:</span>
-                  <span className="ml-2 font-medium">{shippingCalculation.zoneName || 'N/A'}</span>
+                  <span className="ml-2 font-medium">
+                    {shippingCalculation.zoneName || 'N/A'}
+                  </span>
                 </div>
-                
-                {shippingCalculation.subOrders && shippingCalculation.subOrders.length > 0 ? (
+
+                {shippingCalculation.subOrders &&
+                shippingCalculation.subOrders.length > 0 ? (
                   shippingCalculation.subOrders.map((sub, index) => (
                     <div key={index} className="p-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium">{sub.hubName || 'Unknown Hub'}</span>
+                        <span className="text-sm font-medium">
+                          {sub.hubName || 'Unknown Hub'}
+                        </span>
                         <span className="text-sm font-bold text-primary-600">
                           ₦{formatCurrency(sub.totalShippingFee)}
                         </span>
@@ -489,12 +580,16 @@ export function CreateOrder() {
                       <div className="text-xs text-gray-600 space-y-1">
                         <div>Courier: {sub.courierName || 'N/A'}</div>
                         <div>Weight: {formatCurrency(sub.totalWeight)}kg</div>
-                        <div>Delivery: {sub.deliveryTimelineDays || 'N/A'} days</div>
+                        <div>
+                          Delivery: {sub.deliveryTimelineDays || 'N/A'} days
+                        </div>
                       </div>
                     </div>
                   ))
                 ) : (
-                  <div className="text-sm text-gray-500">No shipping breakdown available</div>
+                  <div className="text-sm text-gray-500">
+                    No shipping breakdown available
+                  </div>
                 )}
               </div>
             </div>

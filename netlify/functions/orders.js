@@ -134,6 +134,48 @@ export async function handler(event) {
       return { statusCode: 200, headers, body: JSON.stringify({ success: true, data, message: 'Status updated' }) };
     }
 
+    if (event.httpMethod === 'DELETE' && id) {
+      const { data: subOrders, error: subOrdersError } = await supabase
+        .from('sub_orders')
+        .select('id')
+        .eq('main_order_id', id);
+
+      if (subOrdersError) throw subOrdersError;
+
+      const subOrderIds = subOrders?.map((sub) => sub.id) || [];
+
+      if (subOrderIds.length > 0) {
+        const { error: trackingError } = await supabase
+          .from('tracking_events')
+          .delete()
+          .in('sub_order_id', subOrderIds);
+
+        if (trackingError) throw trackingError;
+
+        const { error: subsDeleteError } = await supabase
+          .from('sub_orders')
+          .delete()
+          .in('id', subOrderIds);
+
+        if (subsDeleteError) throw subsDeleteError;
+      }
+
+      const { data: deletedOrder, error } = await supabase
+        .from('orders')
+        .delete()
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true, data: deletedOrder, message: 'Order deleted' })
+      };
+    }
+
     return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };
   } catch (e) {
     return {

@@ -1,7 +1,6 @@
 ﻿import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import { calcShippingHandler, getZoneHandler } from './routes/shipping.js';
-import { woocommerceWebhookHandler } from './routes/webhooks.js';
 import { getOrdersHandler, getOrderByIdHandler, createOrderHandler, updateOrderStatusHandler, deleteOrderHandler } from './routes/orders.js';
 import { getTrackingHandler, updateTrackingHandler } from './routes/tracking.js';
 import { getHubsHandler, createHubHandler, updateHubHandler, deleteHubHandler, getCouriersHandler, getZonesWithRatesHandler, getDashboardStatsHandler, createCourierHandler, updateCourierHandler, deleteCourierHandler } from './routes/admin.js';
@@ -103,8 +102,6 @@ app.get('/', (_req: Request, res: Response) => {
       orders: 'GET /api/orders',
       createOrder: 'POST /api/orders',
       orderById: 'GET /api/orders/:id',
-      // Webhooks
-      webhooks: 'POST /api/webhooks/woocommerce',
       // Tracking
       tracking: 'GET /api/tracking/:id',
       // Admin
@@ -129,7 +126,6 @@ app.get('/api/zones/:state', getZoneHandler);
 console.log('? Shipping routes registered');
 
 // Webhook routes (public)
-app.post('/api/webhooks/woocommerce', woocommerceWebhookHandler);
 console.log('? Webhook routes registered');
 
 // Orders routes (public for now - add auth later)

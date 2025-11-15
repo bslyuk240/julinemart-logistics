@@ -29,11 +29,20 @@ const headers = {
 // Verify WooCommerce signature
 function verifyWebhookSignature(body, signature, secret) {
   if (!secret || !signature) return true;
-  const hash = crypto
+
+  // WooCommerce default = HEX
+  const hexHash = crypto
+    .createHmac('sha256', secret)
+    .update(body)
+    .digest('hex');
+
+  // Your old method (Base64)
+  const base64Hash = crypto
     .createHmac('sha256', secret)
     .update(body)
     .digest('base64');
-  return hash === signature;
+
+  return signature === hexHash || signature === base64Hash;
 }
 
 async function getDefaultHubId(supabaseClient) {

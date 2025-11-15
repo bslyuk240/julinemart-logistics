@@ -1,7 +1,5 @@
 ﻿// FIXED VERSION - netlify/functions/calc-shipping.js
-// Key changes:
-// 1. rate.base_rate → rate.flat_rate
-// 2. rate.rate_per_kg → rate.per_kg_rate
+// KEY FIX: Removed VAT calculation to prevent double-charging
 
 import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
@@ -39,6 +37,12 @@ exports.handler = async event => {
     const city = payload.deliveryCity || payload.delivery_city || '';
     const items = Array.isArray(payload.items) ? payload.items : [];
 
+    console.log('Calc shipping request:', {
+      state,
+      city,
+      itemCount: items.length,
+    });
+
     if (!state || items.length === 0) {
       return {
         statusCode: 400,
@@ -57,6 +61,8 @@ exports.handler = async event => {
       const quantity = Number(item.quantity || 1);
       return sum + weight * quantity;
     }, 0);
+
+    console.log('Total weight:', totalWeight);
 
     // Find zone
     const { data: zones, error: zonesError } = await supabase
@@ -86,6 +92,8 @@ exports.handler = async event => {
         }),
       };
     }
+
+    console.log('Zone found:', zone.name);
 
     // Group items by hub
     const itemsByHub = {};
@@ -123,14 +131,17 @@ exports.handler = async event => {
       }
 
       const hub = hubMap.get(actualHubId);
-      if (!hub) continue;
+      if (!hub) {
+        console.warn('Hub not found:', actualHubId);
+        continue;
+      }
 
       // Calculate weight for this hub
       const hubWeight = hubItems.reduce((sum, item) => {
         return sum + Number(item.weight || 0) * Number(item.quantity || 1);
       }, 0);
 
-      // ✅ FIXED: Get shipping rate with CORRECT field names
+      // Get shipping rate
       const { data: rates } = await supabase
         .from('shipping_rates')
         .select('*, couriers(id, name, code)')
@@ -145,17 +156,21 @@ exports.handler = async event => {
         continue;
       }
 
-      // ✅ FIXED: Use flat_rate and per_kg_rate instead of base_rate and rate_per_kg
-      // NEW CODE - NO VAT:
+      // ✅ FIXED: Calculate shipping WITHOUT VAT
       const baseRate = Number(rate.flat_rate || 0);
       const ratePerKg = Number(rate.per_kg_rate || 0);
 
       const additionalWeightCharge = hubWeight * ratePerKg;
-      const totalShippingCost = baseRate + additionalWeightCharge; // No VAT added
+      const totalShippingCost = baseRate + additionalWeightCharge; // NO VAT ADDED
 
-      // For logging/display purposes only:
-      const subtotal = totalShippingCost;
-      const vat = 0; // Not adding VAT in API
+      console.log('Hub calculation:', {
+        hub: hub.name,
+        baseRate,
+        ratePerKg,
+        weight: hubWeight,
+        additionalCharge: additionalWeightCharge,
+        total: totalShippingCost,
+      });
 
       // Get courier info
       const courier = rate.couriers || (couriers ? couriers[0] : null);
@@ -168,8 +183,8 @@ exports.handler = async event => {
         totalWeight: Math.round(hubWeight * 100) / 100,
         baseRate: Math.round(baseRate * 100) / 100,
         additionalWeightCharge: Math.round(additionalWeightCharge * 100) / 100,
-        subtotal: Math.round(subtotal * 100) / 100,
-        vat: Math.round(vat * 100) / 100,
+        subtotal: Math.round(totalShippingCost * 100) / 100,
+        vat: 0, // Not adding VAT
         totalShippingFee: Math.round(totalShippingCost * 100) / 100,
         deliveryTimelineDays: 3,
         items: hubItems,
@@ -189,6 +204,14 @@ exports.handler = async event => {
       };
     }
 
+    const finalTotal = Math.round(totalShippingFee * 100) / 100;
+
+    console.log('Final calculation:', {
+      zone: zone.name,
+      totalWeight,
+      totalShippingFee: finalTotal,
+    });
+
     const response = {
       success: true,
       data: {
@@ -196,7 +219,7 @@ exports.handler = async event => {
         deliveryState: state,
         deliveryCity: city,
         totalWeight: Math.round(totalWeight * 100) / 100,
-        totalShippingFee: Math.round(totalShippingFee * 100) / 100,
+        totalShippingFee: finalTotal,
         subOrders: subOrders,
       },
     };

@@ -3,8 +3,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables');
@@ -18,7 +17,7 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
-exports.handler = async event => {
+exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
@@ -27,7 +26,7 @@ exports.handler = async event => {
     return {
       statusCode: 405,
       headers,
-      body: JSON.stringify({ success: false, error: 'Method not allowed' }),
+      body: JSON.stringify({ success: false, error: 'Method not allowed' })
     };
   }
 
@@ -37,21 +36,16 @@ exports.handler = async event => {
     const city = payload.deliveryCity || payload.delivery_city || '';
     const items = Array.isArray(payload.items) ? payload.items : [];
 
-    console.log('Calc shipping request:', {
-      state,
-      city,
-      itemCount: items.length,
-    });
+    console.log('Calc shipping request:', { state, city, itemCount: items.length });
 
     if (!state || items.length === 0) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({
-          success: false,
-          error:
-            'Missing required fields: deliveryState and items are required',
-        }),
+        body: JSON.stringify({ 
+          success: false, 
+          error: 'Missing required fields: deliveryState and items are required' 
+        })
       };
     }
 
@@ -59,7 +53,7 @@ exports.handler = async event => {
     const totalWeight = items.reduce((sum, item) => {
       const weight = Number(item.weight || 0);
       const quantity = Number(item.quantity || 1);
-      return sum + weight * quantity;
+      return sum + (weight * quantity);
     }, 0);
 
     console.log('Total weight:', totalWeight);
@@ -73,7 +67,7 @@ exports.handler = async event => {
 
     let zone = null;
     if (zones && zones.length > 0) {
-      zone = zones.find(z => {
+      zone = zones.find((z) => {
         if (Array.isArray(z.states)) {
           return z.states.some(s => s.toLowerCase() === state.toLowerCase());
         }
@@ -86,10 +80,10 @@ exports.handler = async event => {
       return {
         statusCode: 404,
         headers,
-        body: JSON.stringify({
-          success: false,
-          error: `No delivery zone found for ${state}`,
-        }),
+        body: JSON.stringify({ 
+          success: false, 
+          error: `No delivery zone found for ${state}` 
+        })
       };
     }
 
@@ -122,11 +116,11 @@ exports.handler = async event => {
 
     for (const [hubId, hubItems] of Object.entries(itemsByHub)) {
       let actualHubId = hubId;
-
+      
       if (hubId === 'default') {
-        const defaultHub =
-          hubs?.find(h => h.state?.toLowerCase() === state.toLowerCase()) ||
-          hubs?.[0];
+        const defaultHub = hubs?.find(h => 
+          h.state?.toLowerCase() === state.toLowerCase()
+        ) || hubs?.[0];
         actualHubId = defaultHub?.id || '';
       }
 
@@ -138,7 +132,7 @@ exports.handler = async event => {
 
       // Calculate weight for this hub
       const hubWeight = hubItems.reduce((sum, item) => {
-        return sum + Number(item.weight || 0) * Number(item.quantity || 1);
+        return sum + (Number(item.weight || 0) * Number(item.quantity || 1));
       }, 0);
 
       // Get shipping rate
@@ -169,7 +163,7 @@ exports.handler = async event => {
         ratePerKg,
         weight: hubWeight,
         additionalCharge: additionalWeightCharge,
-        total: totalShippingCost,
+        total: totalShippingCost
       });
 
       // Get courier info
@@ -187,7 +181,7 @@ exports.handler = async event => {
         vat: 0, // Not adding VAT
         totalShippingFee: Math.round(totalShippingCost * 100) / 100,
         deliveryTimelineDays: 3,
-        items: hubItems,
+        items: hubItems
       });
 
       totalShippingFee += totalShippingCost;
@@ -199,17 +193,17 @@ exports.handler = async event => {
         headers,
         body: JSON.stringify({
           success: false,
-          error: 'Unable to calculate shipping for the given items',
-        }),
+          error: 'Unable to calculate shipping for the given items'
+        })
       };
     }
 
     const finalTotal = Math.round(totalShippingFee * 100) / 100;
-
+    
     console.log('Final calculation:', {
       zone: zone.name,
       totalWeight,
-      totalShippingFee: finalTotal,
+      totalShippingFee: finalTotal
     });
 
     const response = {
@@ -220,25 +214,26 @@ exports.handler = async event => {
         deliveryCity: city,
         totalWeight: Math.round(totalWeight * 100) / 100,
         totalShippingFee: finalTotal,
-        subOrders: subOrders,
-      },
+        subOrders: subOrders
+      }
     };
 
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify(response),
+      body: JSON.stringify(response)
     };
+
   } catch (error) {
     console.error('calc-shipping error:', error);
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({
-        success: false,
+      body: JSON.stringify({ 
+        success: false, 
         error: 'Failed to calculate shipping',
-        message: error.message,
-      }),
+        message: error.message 
+      })
     };
   }
 };

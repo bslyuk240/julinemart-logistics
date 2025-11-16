@@ -88,8 +88,9 @@ exports.handler = async (event) => {
 
   try {
     // Get courier ID from path
-    const pathParts = event.path.split('/');
-    const courierId = pathParts[pathParts.indexOf('couriers') + 1];
+    const pathParts = event.path.split('/').filter(Boolean);
+    const fnIndex = pathParts.findIndex((segment) => segment === 'save-courier-credentials');
+    const courierId = fnIndex >= 0 ? pathParts[fnIndex + 1] : undefined;
 
     if (!courierId) {
       return {

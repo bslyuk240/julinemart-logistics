@@ -29,6 +29,7 @@ export function CourierSettingsPage() {
   }>>({});
 
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+  const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
   useEffect(() => {
     fetchCouriers();
@@ -79,7 +80,7 @@ export function CourierSettingsPage() {
 
   const handleToggleAPI = async (courierId: string, enabled: boolean) => {
     try {
-      const response = await fetch(`${apiBase}/.netlify/functions/save-courier-credentials/${courierId}`, {
+      const response = await fetch(`${functionsBase}/save-courier-credentials/${courierId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_enabled: enabled }),
@@ -113,7 +114,7 @@ export function CourierSettingsPage() {
         return;
       }
 
-      const response = await fetch(`${apiBase}/.netlify/functions/save-courier-credentials/${courierId}`, {
+      const response = await fetch(`${functionsBase}/save-courier-credentials/${courierId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -163,7 +164,7 @@ export function CourierSettingsPage() {
         payload.api_password = creds.api_password;
       }
 
-      const response = await fetch(`${apiBase}/.netlify/functions/save-courier-credentials/${courierId}`, {
+      const response = await fetch(`${functionsBase}/save-courier-credentials/${courierId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

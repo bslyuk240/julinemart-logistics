@@ -15,6 +15,14 @@ interface Zone {
   shipping_rates: Array<{ flat_rate: number }>;
 }
 
+interface RecentOrder {
+  id: string;
+  woocommerce_order_id: string;
+  customer_name: string;
+  created_at: string;
+  total_amount: number;
+}
+
 export function DashboardHome() {
   const [stats, setStats] = useState<Stats>({
     totalOrders: 0,
@@ -24,6 +32,7 @@ export function DashboardHome() {
   });
   const [zones, setZones] = useState<Zone[]>([]);
   const [loading, setLoading] = useState(true);
+  const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
 
   // Prefer env-based API base URL, fallback to localhost:3001
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
@@ -31,9 +40,10 @@ export function DashboardHome() {
   const fetchData = useCallback(async () => {
     try {
       // Fetch in parallel
-      const [statsRes, zonesRes] = await Promise.all([
+      const [statsRes, zonesRes, ordersRes] = await Promise.all([
         fetch(`${apiBase}/api/stats`),
         fetch(`${apiBase}/api/zones`),
+        fetch(`${apiBase}/api/orders?limit=5&offset=0`),
       ]);
 
       if (!statsRes.ok) throw new Error(`Stats fetch failed: ${statsRes.status}`);
@@ -63,6 +73,14 @@ export function DashboardHome() {
           setZones(zonesJson.data);
         } else if (Array.isArray(zonesJson)) {
           setZones(zonesJson);
+        }
+      }
+      if (ordersRes.ok) {
+        const ordersJson = await ordersRes.json();
+        if (ordersJson?.success && Array.isArray(ordersJson.data)) {
+          setRecentOrders(ordersJson.data);
+        } else if (Array.isArray(ordersJson)) {
+          setRecentOrders(ordersJson);
         }
       }
     } catch (error) {
@@ -151,11 +169,28 @@ export function DashboardHome() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="card">
           <h2 className="text-xl font-semibold mb-4">Recent Orders</h2>
-          <div className="text-center py-12 text-gray-500">
-            {stats.totalOrders === 0 
-              ? 'No orders yet. Orders will appear here once created.' 
-              : 'View all orders in the Orders page'}
-          </div>
+          {recentOrders.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              {stats.totalOrders === 0 
+                ? 'No orders yet. Orders will appear here once created.' 
+                : 'View all orders in the Orders page'}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {recentOrders.map((order) => (
+                <div key={order.id} className="flex items-center justify-between border-b border-gray-100 pb-2">
+                  <div>
+                    <p className="text-sm text-gray-600">#{order.woocommerce_order_id}</p>
+                    <p className="text-sm text-gray-800 font-medium">{order.customer_name}</p>
+                  </div>
+                  <div className="text-right text-xs text-gray-500">
+                    <p>{new Date(order.created_at).toLocaleDateString()}</p>
+                    <p>₦{order.total_amount?.toLocaleString()}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="card">

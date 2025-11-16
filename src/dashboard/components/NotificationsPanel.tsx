@@ -1,5 +1,5 @@
-﻿import { useState, useEffect } from 'react';
-import { Bell, X, Check, Package, Truck, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Bell, X, Package, Truck, AlertCircle } from 'lucide-react';
 
 interface Notification {
   id: string;
@@ -11,54 +11,76 @@ interface Notification {
   icon?: 'success' | 'warning' | 'error' | 'info';
 }
 
+interface ActivityLog {
+  id: string;
+  action: string;
+  resource_type: string;
+  details: Record<string, unknown> | string;
+  created_at: string;
+}
+
 export function NotificationsPanel() {
   const [isOpen, setIsOpen] = useState(false);
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: '1',
-      type: 'order',
-      title: 'New Order Received',
-      message: 'Order #12345 has been placed',
-      timestamp: new Date(Date.now() - 5 * 60 * 1000),
-      read: false,
-    },
-    {
-      id: '2',
-      type: 'shipment',
-      title: 'Shipment Out for Delivery',
-      message: 'Tracking #FEZ-2024-001 is out for delivery',
-      timestamp: new Date(Date.now() - 30 * 60 * 1000),
-      read: false,
-    },
-    {
-      id: '3',
-      type: 'system',
-      title: 'System Update',
-      message: 'New features have been added to the dashboard',
-      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      read: true,
-      icon: 'info',
-    },
-  ]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  useEffect(() => {
+    let mounted = true;
+    const fetchNotifications = async () => {
+      try {
+        const response = await fetch(`${functionsBase}/activity-logs?limit=5`);
+        if (!response.ok) throw new Error(`Activity logs ${response.status}`);
+        const data = await response.json();
+        if (mounted && data.success && Array.isArray(data.data)) {
+          const mapped = (data.data as ActivityLog[]).map((log) => {
+            const detailPayload =
+              typeof log.details === 'string'
+                ? log.details
+                : JSON.stringify(log.details || {});
+            const actionLower = log.action?.toLowerCase() || '';
+            const resourceLower = log.resource_type?.toLowerCase() || '';
+            const type: Notification['type'] =
+              actionLower.includes('shipment') || resourceLower.includes('shipment')
+                ? 'shipment'
+                : actionLower.includes('order') || resourceLower.includes('order')
+                ? 'order'
+                : 'system';
+            const title = log.action?.replace(/_/g, ' ') || 'System Event';
+            return {
+              id: log.id,
+              type,
+              title,
+              message: detailPayload,
+              timestamp: new Date(log.created_at),
+              read: false,
+            };
+          });
+          setNotifications(mapped);
+        }
+      } catch (error) {
+        console.error('Failed to load notifications', error);
+      }
+    };
+    fetchNotifications();
+    return () => {
+      mounted = false;
+    };
+  }, [functionsBase]);
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   const markAsRead = (id: string) => {
-    setNotifications(prev =>
-      prev.map(notif =>
-        notif.id === id ? { ...notif, read: true } : notif
-      )
+    setNotifications((prev) =>
+      prev.map((notif) => (notif.id === id ? { ...notif, read: true } : notif))
     );
   };
 
   const markAllAsRead = () => {
-    setNotifications(prev =>
-      prev.map(notif => ({ ...notif, read: true }))
-    );
+    setNotifications((prev) => prev.map((notif) => ({ ...notif, read: true })));
   };
 
   const clearNotification = (id: string) => {
-    setNotifications(prev => prev.filter(notif => notif.id !== id));
+    setNotifications((prev) => prev.filter((notif) => notif.id !== id));
   };
 
   const clearAll = () => {
@@ -99,10 +121,7 @@ export function NotificationsPanel() {
       {isOpen && (
         <>
           {/* Backdrop */}
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setIsOpen(false)}
-          />
+          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
 
           {/* Panel */}
           <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-[600px] flex flex-col">
@@ -138,9 +157,7 @@ export function NotificationsPanel() {
                 <div className="p-8 text-center">
                   <Bell className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                   <p className="text-gray-500">No notifications</p>
-                  <p className="text-sm text-gray-400 mt-1">
-                    You're all caught up!
-                  </p>
+                  <p className="text-sm text-gray-400 mt-1">You're all caught up!</p>
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100">
@@ -153,14 +170,10 @@ export function NotificationsPanel() {
                       onClick={() => markAsRead(notification.id)}
                     >
                       <div className="flex items-start gap-3">
-                        <div className="flex-shrink-0 mt-1">
-                          {getIcon(notification)}
-                        </div>
+                        <div className="flex-shrink-0 mt-1">{getIcon(notification)}</div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
-                            <p className="text-sm font-medium text-gray-900">
-                              {notification.title}
-                            </p>
+                            <p className="text-sm font-medium text-gray-900">{notification.title}</p>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -171,12 +184,8 @@ export function NotificationsPanel() {
                               <X className="w-4 h-4" />
                             </button>
                           </div>
-                          <p className="text-sm text-gray-600 mt-1">
-                            {notification.message}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-2">
-                            {getTimeAgo(notification.timestamp)}
-                          </p>
+                          <p className="text-sm text-gray-600 mt-1">{notification.message}</p>
+                          <p className="text-xs text-gray-500 mt-2">{getTimeAgo(notification.timestamp)}</p>
                         </div>
                         {!notification.read && (
                           <div className="w-2 h-2 bg-primary-600 rounded-full flex-shrink-0 mt-2"></div>

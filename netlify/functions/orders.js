@@ -31,7 +31,7 @@ export async function handler(event) {
           sub_orders(
             *,
             hubs(id, name, city),
-            couriers(id, name, code),
+            couriers(id, name, code, api_enabled),
             tracking_events(*)
           )
         `)

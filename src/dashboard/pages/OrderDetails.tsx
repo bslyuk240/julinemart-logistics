@@ -2,7 +2,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, Package, MapPin, User, Phone, Mail, Calendar,
-  Truck, Download, ExternalLink, Send, Loader, CheckCircle
+  Truck, Download, ExternalLink, Send, Loader, CheckCircle, Box
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 
@@ -32,6 +32,13 @@ interface SubOrder {
   label_url: string;
   waybill_url: string;
   last_tracking_update: string;
+  items: Array<{
+    sku: string;
+    name: string;
+    quantity: number;
+    weight: number;
+    price: number;
+  }>;
   hubs: {
     name: string;
     city: string;
@@ -268,6 +275,47 @@ export function OrderDetailsPage() {
                 </span>
               </div>
 
+              {/* 📦 NEW: ITEMS TO PACK SECTION */}
+              {subOrder.items && subOrder.items.length > 0 && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Box className="w-5 h-5 text-green-600" />
+                    <h4 className="font-semibold text-green-900">Items to Pack for {subOrder.hubs.name}</h4>
+                  </div>
+                  <div className="space-y-2">
+                    {subOrder.items.map((item, idx) => (
+                      <div key={idx} className="flex items-center justify-between bg-white p-3 rounded-md border border-green-100">
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">
+                            <span className="inline-block bg-green-600 text-white text-xs font-bold px-2 py-1 rounded mr-2">
+                              {item.quantity}x
+                            </span>
+                            {item.name}
+                          </p>
+                          <p className="text-xs text-gray-600 mt-1">SKU: {item.sku}</p>
+                        </div>
+                        <div className="text-right ml-4">
+                          <p className="text-sm font-semibold text-gray-900">{item.weight}kg</p>
+                          <p className="text-xs text-gray-600">per unit</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-green-200 flex justify-between text-sm">
+                    <span className="font-semibold text-green-900">Total Items:</span>
+                    <span className="font-bold text-green-900">
+                      {subOrder.items.reduce((sum, item) => sum + item.quantity, 0)} pieces
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="font-semibold text-green-900">Total Weight:</span>
+                    <span className="font-bold text-green-900">
+                      {subOrder.items.reduce((sum, item) => sum + (item.weight * item.quantity), 0).toFixed(2)}kg
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Courier Integration Section */}
               {subOrder.couriers.api_enabled && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
@@ -292,7 +340,7 @@ export function OrderDetailsPage() {
                       ) : (
                         <>
                           <Send className="w-4 h-4 mr-2" />
-                          Create Shipment on {subOrder.couriers.name}
+                          Send to {subOrder.couriers.name}
                         </>
                       )}
                     </button>

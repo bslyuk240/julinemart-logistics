@@ -93,7 +93,7 @@ export function OrderDetailsPage() {
     setCreatingShipment(subOrderId);
     
     try {
-      const response = await fetch(`${apiBase}/api/courier/create-shipment`, {
+      const response = await fetch(`${apiBase}/.netlify/functions/fez-create-shipment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ subOrderId }),
@@ -121,7 +121,7 @@ export function OrderDetailsPage() {
     setFetchingTracking(subOrderId);
     
     try {
-      const response = await fetch(`${apiBase}/api/courier/tracking/${subOrderId}`);
+      const response = await fetch(`${apiBase}/.netlify/functions/fez-fetch-tracking?subOrderId=${subOrderId}`);
       const data = await response.json();
 
       if (data.success) {

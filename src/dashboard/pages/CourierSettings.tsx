@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
-import { Settings, Key, CheckCircle, XCircle, AlertCircle, Save } from 'lucide-react';
+import { Settings, Key, CheckCircle, XCircle, AlertCircle, Save, Zap } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 
 interface Courier {
@@ -9,6 +9,8 @@ interface Courier {
   api_enabled: boolean;
   api_base_url: string;
   api_key_encrypted: string;
+  api_user_id: string;
+  api_password: string;
   supports_live_tracking: boolean;
   supports_label_generation: boolean;
   is_active: boolean;
@@ -19,7 +21,14 @@ export function CourierSettingsPage() {
   const [couriers, setCouriers] = useState<Courier[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
-  const [credentials, setCredentials] = useState<Record<string, { api_key: string; api_secret: string }>>({});
+  const [testing, setTesting] = useState<string | null>(null);
+  const [credentials, setCredentials] = useState<Record<string, { 
+    api_user_id: string; 
+    api_password: string;
+    api_base_url: string;
+  }>>({});
+
+  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
   useEffect(() => {
     fetchCouriers();
@@ -27,16 +36,22 @@ export function CourierSettingsPage() {
 
   const fetchCouriers = async () => {
     try {
-      const response = await fetch('/api/couriers');
+      const response = await fetch(`${apiBase}/api/couriers`);
       const data = await response.json();
       setCouriers(data.data || []);
       
       // Initialize credentials state
-      const initialCredentials: Record<string, { api_key: string; api_secret: string }> = {};
+      const initialCredentials: Record<string, { 
+        api_user_id: string; 
+        api_password: string;
+        api_base_url: string;
+      }> = {};
+      
       data.data?.forEach((courier: Courier) => {
         initialCredentials[courier.id] = {
-          api_key: courier.api_key_encrypted ? '••••••••••••' : '',
-          api_secret: '',
+          api_user_id: courier.api_user_id || '',
+          api_password: courier.api_password ? '••••••••••••' : '',
+          api_base_url: courier.api_base_url || 'https://apisandbox.fezdelivery.co/v1',
         };
       });
       setCredentials(initialCredentials);
@@ -48,7 +63,11 @@ export function CourierSettingsPage() {
     }
   };
 
-  const handleCredentialChange = (courierId: string, field: 'api_key' | 'api_secret', value: string) => {
+  const handleCredentialChange = (
+    courierId: string, 
+    field: 'api_user_id' | 'api_password' | 'api_base_url', 
+    value: string
+  ) => {
     setCredentials(prev => ({
       ...prev,
       [courierId]: {
@@ -60,7 +79,7 @@ export function CourierSettingsPage() {
 
   const handleToggleAPI = async (courierId: string, enabled: boolean) => {
     try {
-      const response = await fetch(`/api/couriers/${courierId}/credentials`, {
+      const response = await fetch(`${apiBase}/.netlify/functions/save-courier-credentials/${courierId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_enabled: enabled }),
@@ -78,22 +97,73 @@ export function CourierSettingsPage() {
     }
   };
 
+  const handleTestConnection = async (courierId: string) => {
+    setTesting(courierId);
+    
+    try {
+      const creds = credentials[courierId];
+      
+      // Validate inputs
+      if (!creds.api_user_id || !creds.api_password || creds.api_password === '••••••••••••') {
+        notification.error(
+          'Missing Credentials', 
+          'Please enter User ID and Password before testing'
+        );
+        setTesting(null);
+        return;
+      }
+
+      const response = await fetch(`${apiBase}/.netlify/functions/save-courier-credentials/${courierId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'test_connection',
+          api_user_id: creds.api_user_id,
+          api_password: creds.api_password,
+          api_base_url: creds.api_base_url,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        notification.success(
+          'Connection Successful! ✅',
+          `Connected to ${data.orgName || 'Fez Delivery'}`
+        );
+      } else {
+        notification.error(
+          'Connection Failed',
+          data.message || 'Unable to connect to Fez API'
+        );
+      }
+    } catch (error) {
+      notification.error('Test Failed', 'Failed to test connection');
+    } finally {
+      setTesting(null);
+    }
+  };
+
   const handleSaveCredentials = async (courierId: string) => {
     setSaving(courierId);
     
     try {
       const creds = credentials[courierId];
       
+      // Build payload
+      const payload: any = {
+        api_base_url: creds.api_base_url,
+      };
+
       // Only send if not masked
-      const payload: any = {};
-      if (creds.api_key && !creds.api_key.includes('•')) {
-        payload.api_key = creds.api_key;
+      if (creds.api_user_id) {
+        payload.api_user_id = creds.api_user_id;
       }
-      if (creds.api_secret) {
-        payload.api_secret = creds.api_secret;
+      if (creds.api_password && !creds.api_password.includes('•')) {
+        payload.api_password = creds.api_password;
       }
 
-      const response = await fetch(`/api/couriers/${courierId}/credentials`, {
+      const response = await fetch(`${apiBase}/.netlify/functions/save-courier-credentials/${courierId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -214,69 +284,113 @@ export function CourierSettingsPage() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    API Key
+                    API Base URL
                   </label>
-                  <input
-                    type="text"
-                    value={credentials[courier.id]?.api_key || ''}
-                    onChange={(e) => handleCredentialChange(courier.id, 'api_key', e.target.value)}
-                    placeholder="Enter your API key"
+                  <select
+                    value={credentials[courier.id]?.api_base_url || ''}
+                    onChange={(e) => handleCredentialChange(courier.id, 'api_base_url', e.target.value)}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                  />
+                  >
+                    <option value="https://apisandbox.fezdelivery.co/v1">
+                      Sandbox (Testing) - https://apisandbox.fezdelivery.co/v1
+                    </option>
+                    <option value="https://api.fezdelivery.co/v1">
+                      Production (Live) - https://api.fezdelivery.co/v1
+                    </option>
+                  </select>
                   <p className="text-xs text-gray-500 mt-1">
-                    {courier.api_key_encrypted 
-                      ? 'API key is configured. Enter a new value to update.' 
-                      : 'No API key configured yet.'}
+                    Use Sandbox for testing, Production for live orders
                   </p>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    API Secret (Optional)
+                    User ID
                   </label>
                   <input
-                    type="password"
-                    value={credentials[courier.id]?.api_secret || ''}
-                    onChange={(e) => handleCredentialChange(courier.id, 'api_secret', e.target.value)}
-                    placeholder="Enter API secret if required"
+                    type="text"
+                    value={credentials[courier.id]?.api_user_id || ''}
+                    onChange={(e) => handleCredentialChange(courier.id, 'api_user_id', e.target.value)}
+                    placeholder="e.g., G-4568-3493"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Some couriers require an additional secret key
+                    {courier.api_user_id 
+                      ? `Current: ${courier.api_user_id}` 
+                      : 'No User ID configured yet.'}
                   </p>
                 </div>
 
-                <button
-                  onClick={() => handleSaveCredentials(courier.id)}
-                  disabled={saving === courier.id}
-                  className="btn-primary flex items-center"
-                >
-                  {saving === courier.id ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-4 h-4 mr-2" />
-                      Save Credentials
-                    </>
-                  )}
-                </button>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Password
+                  </label>
+                  <input
+                    type="password"
+                    value={credentials[courier.id]?.api_password || ''}
+                    onChange={(e) => handleCredentialChange(courier.id, 'api_password', e.target.value)}
+                    placeholder="Enter your API password"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {courier.api_password 
+                      ? 'Password is configured. Enter a new value to update.' 
+                      : 'No password configured yet.'}
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => handleSaveCredentials(courier.id)}
+                    disabled={saving === courier.id}
+                    className="btn-primary flex items-center"
+                  >
+                    {saving === courier.id ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4 mr-2" />
+                        Save Credentials
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => handleTestConnection(courier.id)}
+                    disabled={testing === courier.id}
+                    className="btn-secondary flex items-center"
+                  >
+                    {testing === courier.id ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin mr-2" />
+                        Testing...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4 mr-2" />
+                        Test Connection
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
 
-              {/* Instructions */}
+              {/* Instructions for Fez */}
               {courier.code === 'FEZ' && (
                 <div className="mt-6 p-4 bg-gray-50 rounded-lg">
                   <h4 className="font-semibold text-sm text-gray-900 mb-2">
                     📋 How to get Fez Delivery API Credentials:
                   </h4>
                   <ol className="text-sm text-gray-700 space-y-1 list-decimal list-inside">
-                    <li>Visit <a href="https://fezdispatch.com" target="_blank" className="text-primary-600 hover:underline">fezdispatch.com</a></li>
-                    <li>Log in to your Fez account</li>
-                    <li>Navigate to Settings → API Settings</li>
-                    <li>Generate or copy your API key</li>
-                    <li>Paste it above and click Save</li>
+                    <li>Contact Fez support at <a href="mailto:support@fezdelivery.co" className="text-primary-600 hover:underline">support@fezdelivery.co</a></li>
+                    <li>Request "Corporate API credentials for integration"</li>
+                    <li>They will provide your User ID and Password</li>
+                    <li>Enter credentials above</li>
+                    <li>Click "Test Connection" to verify</li>
+                    <li>Click "Save Credentials" to activate</li>
                   </ol>
                 </div>
               )}

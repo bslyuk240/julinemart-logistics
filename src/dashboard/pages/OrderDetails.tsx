@@ -1,9 +1,16 @@
-﻿import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  ArrowLeft, Package, MapPin, User, Phone, Mail, Calendar,
-  Truck, Download, ExternalLink, Send, Loader, CheckCircle, Box
+﻿import {
+  ArrowLeft,
+  Box,
+  CheckCircle,
+  Download, ExternalLink,
+  Loader,
+  MapPin,
+  Send,
+  Truck,
+  User
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useNotification } from '../contexts/NotificationContext';
 
 interface Order {
@@ -275,7 +282,7 @@ export function OrderDetailsPage() {
                 </span>
               </div>
 
-              {/* 📦 NEW: ITEMS TO PACK SECTION */}
+              {/* ITEMS TO PACK SECTION - FIXED WITH PRICES */}
               {subOrder.items && subOrder.items.length > 0 && (
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
                   <div className="flex items-center gap-2 mb-3">
@@ -284,7 +291,7 @@ export function OrderDetailsPage() {
                   </div>
                   <div className="space-y-2">
                     {subOrder.items.map((item, idx) => (
-                      <div key={idx} className="flex items-center justify-between bg-white p-3 rounded-md border border-green-100">
+                      <div key={idx} className="flex items-start justify-between bg-white p-3 rounded-md border border-green-100">
                         <div className="flex-1">
                           <p className="font-medium text-gray-900">
                             <span className="inline-block bg-green-600 text-white text-xs font-bold px-2 py-1 rounded mr-2">
@@ -292,26 +299,67 @@ export function OrderDetailsPage() {
                             </span>
                             {item.name}
                           </p>
-                          <p className="text-xs text-gray-600 mt-1">SKU: {item.sku}</p>
+                          <div className="text-xs text-gray-600 mt-1 space-y-1">
+                            <p>SKU: {item.sku}</p>
+                            <p>Weight: {item.weight}kg per unit</p>
+                            {/* ✅ FIXED: Show price per unit */}
+                            {item.price && (
+                              <p className="text-blue-600 font-semibold">
+                                ₦{item.price.toLocaleString()} per unit
+                              </p>
+                            )}
+                          </div>
                         </div>
+                        {/* ✅ FIXED: Show total price */}
                         <div className="text-right ml-4">
-                          <p className="text-sm font-semibold text-gray-900">{item.weight}kg</p>
-                          <p className="text-xs text-gray-600">per unit</p>
+                          {item.price && (
+                            <>
+                              <p className="text-lg font-bold text-gray-900">
+                                ₦{(item.price * item.quantity).toLocaleString()}
+                              </p>
+                              <p className="text-xs text-gray-600">Total</p>
+                            </>
+                          )}
                         </div>
                       </div>
                     ))}
                   </div>
-                  <div className="mt-3 pt-3 border-t border-green-200 flex justify-between text-sm">
-                    <span className="font-semibold text-green-900">Total Items:</span>
-                    <span className="font-bold text-green-900">
-                      {subOrder.items.reduce((sum, item) => sum + item.quantity, 0)} pieces
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="font-semibold text-green-900">Total Weight:</span>
-                    <span className="font-bold text-green-900">
-                      {subOrder.items.reduce((sum, item) => sum + (item.weight * item.quantity), 0).toFixed(2)}kg
-                    </span>
+                  
+                  {/* ✅ FIXED: Enhanced Summary with Prices */}
+                  <div className="mt-3 pt-3 border-t border-green-200 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="font-semibold text-green-900">Total Items:</span>
+                      <span className="font-bold text-green-900">
+                        {subOrder.items.reduce((sum, item) => sum + item.quantity, 0)} pieces
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="font-semibold text-green-900">Total Weight:</span>
+                      <span className="font-bold text-green-900">
+                        {subOrder.items.reduce((sum, item) => sum + (item.weight * item.quantity), 0).toFixed(2)}kg
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="font-semibold text-green-900">Items Subtotal:</span>
+                      <span className="font-bold text-lg text-green-900">
+                        ₦{subOrder.items.reduce((sum, item) => sum + (item.price * item.quantity), 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="font-semibold text-green-900">Shipping Fee:</span>
+                      <span className="font-bold text-lg text-green-900">
+                        ₦{formatCurrency(subOrder.shipping_cost)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between pt-2 border-t border-green-300">
+                      <span className="font-bold text-green-900">Sub-Order Total:</span>
+                      <span className="font-bold text-xl text-green-600">
+                        ₦{(
+                          subOrder.items.reduce((sum, item) => sum + (item.price * item.quantity), 0) + 
+                          (subOrder.shipping_cost || 0)
+                        ).toLocaleString()}
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}

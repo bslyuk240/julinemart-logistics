@@ -359,12 +359,12 @@ export function OrderDetailsPage() {
               )}
 
               {/* Courier Integration Section */}
-              {subOrder.couriers?.api_enabled && (
+              {(subOrder.couriers?.api_enabled || subOrder.couriers?.code === 'fez') && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
                   <div className="flex items-center gap-2 mb-3">
                     <CheckCircle className="w-4 h-4 text-blue-600" />
                     <span className="text-sm font-medium text-blue-900">
-                      Courier API Integration Available
+                      Courier API Integration Available ({subOrder.couriers?.name || 'Fez Delivery'})
                     </span>
                   </div>
 
@@ -382,7 +382,7 @@ export function OrderDetailsPage() {
                       ) : (
                         <>
                           <Send className="w-4 h-4 mr-2" />
-                          Send to {subOrder.couriers?.name || 'Courier'}
+                          Send to {subOrder.couriers?.name || 'Fez Delivery'}
                         </>
                       )}
                     </button>
@@ -452,7 +452,7 @@ export function OrderDetailsPage() {
               )}
 
               {/* Manual Tracking (if API not enabled) */}
-              {!subOrder.couriers?.api_enabled && (
+              {!(subOrder.couriers?.api_enabled || subOrder.couriers?.code === 'fez') && (
                 <div className="bg-gray-50 rounded-lg p-4">
                   <p className="text-sm text-gray-600 mb-2">Manual Tracking Number:</p>
                   <p className="font-mono font-semibold text-lg">{subOrder.tracking_number || 'Not assigned'}</p>

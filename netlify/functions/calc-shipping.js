@@ -172,7 +172,7 @@ exports.handler = async (event) => {
       subOrders.push({
         hubId: actualHubId,
         hubName: hub.name,
-        courierId: courier?.id || '',
+        courierId: rate.courier_id || courier?.id || null,
         courierName: courier?.name || 'Standard Courier',
         totalWeight: Math.round(hubWeight * 100) / 100,
         baseRate: Math.round(baseRate * 100) / 100,

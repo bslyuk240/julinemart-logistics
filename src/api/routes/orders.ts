@@ -49,7 +49,7 @@ export async function getOrderByIdHandler(req: Request, res: Response) {
         sub_orders(
           *,
           hubs(id, name, city),
-          couriers(id, name, code),
+        couriers(id, name, code, api_enabled, supports_live_tracking, supports_label_generation),
           tracking_events(*)
         )
       `)

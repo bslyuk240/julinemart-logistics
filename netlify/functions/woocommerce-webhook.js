@@ -179,7 +179,7 @@ export async function handler(event) {
     const itemsByHub = {};
 
     for (const item of wcOrder.line_items || []) {
-      const hubId = item.meta_data?.find(m => m.key === 'hub_id')?.value;
+      const hubId = item.meta_data?.find(m => m.key === '_hub_id' || m.key === 'hub_id')?.value;
       const vendorId = item.meta_data?.find(m => m.key === 'vendor_id')?.value;
       const weightValue = parseFloat(item.weight || 0);
       const sanitizedWeight = weightValue > 0 ? weightValue : 0.5;

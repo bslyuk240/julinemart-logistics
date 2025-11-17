@@ -1,16 +1,9 @@
-﻿import {
-  ArrowLeft,
-  Box,
-  CheckCircle,
-  Download, ExternalLink,
-  Loader,
-  MapPin,
-  Send,
-  Truck,
-  User
+﻿import { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { 
+  ArrowLeft, Package, MapPin, User, Phone, Mail, Calendar,
+  Truck, Download, ExternalLink, Send, Loader, CheckCircle, Box
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
 import { useNotification } from '../contexts/NotificationContext';
 
 interface Order {
@@ -32,7 +25,8 @@ interface SubOrder {
   id: string;
   tracking_number: string;
   status: string;
-  shipping_cost: number;
+  real_shipping_cost: number;
+  allocated_shipping_fee: number;
   estimated_delivery_date: string;
   courier_shipment_id: string;
   courier_tracking_url: string;
@@ -274,7 +268,7 @@ export function OrderDetailsPage() {
                     {subOrder.hubs.name} → {subOrder.couriers.name}
                   </h3>
                   <p className="text-sm text-gray-600 mt-1">
-                    {subOrder.hubs.city} • Shipping: ₦{formatCurrency(subOrder.shipping_cost)}
+                    {subOrder.hubs.city} • Shipping: ₦{formatCurrency(subOrder.real_shipping_cost)}
                   </p>
                 </div>
                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(subOrder.status)}`}>
@@ -348,7 +342,7 @@ export function OrderDetailsPage() {
                     <div className="flex justify-between text-sm">
                       <span className="font-semibold text-green-900">Shipping Fee:</span>
                       <span className="font-bold text-lg text-green-900">
-                        ₦{formatCurrency(subOrder.shipping_cost)}
+                        ₦{formatCurrency(subOrder.real_shipping_cost)}
                       </span>
                     </div>
                     <div className="flex justify-between pt-2 border-t border-green-300">
@@ -356,7 +350,7 @@ export function OrderDetailsPage() {
                       <span className="font-bold text-xl text-green-600">
                         ₦{(
                           subOrder.items.reduce((sum, item) => sum + (item.price * item.quantity), 0) + 
-                          (subOrder.shipping_cost || 0)
+                          (subOrder.real_shipping_cost || 0)
                         ).toLocaleString()}
                       </span>
                     </div>

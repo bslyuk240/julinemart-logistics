@@ -2,6 +2,16 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../../types/supabase';
 
+type ShippingBreakdownInput = {
+  hubId?: string | null;
+  hub_id?: string | null;
+  courierId?: string | null;
+  courier_id?: string | null;
+  courierName?: string | null;
+  totalShippingFee?: number;
+  items?: any[];
+};
+
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -110,8 +120,8 @@ export async function createOrderHandler(req: Request, res: Response) {
       const hubIds = Array.from(
         new Set(
           shippingBreakdown
-            .map((b: any) => b.hubId || b.hub_id || null)
-            .filter((hubId) => !!hubId)
+            .map((b: ShippingBreakdownInput) => b.hubId || b.hub_id || null)
+            .filter((hubId): hubId is string => Boolean(hubId))
         )
       );
 
@@ -131,7 +141,7 @@ export async function createOrderHandler(req: Request, res: Response) {
         });
       }
 
-      const subOrdersData = shippingBreakdown.map((breakdown: any) => {
+      const subOrdersData = shippingBreakdown.map((breakdown: ShippingBreakdownInput) => {
         const hubId = breakdown.hubId || breakdown.hub_id;
         const courierId =
           breakdown.courierId ||

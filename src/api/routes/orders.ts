@@ -102,20 +102,57 @@ export async function createOrderHandler(req: Request, res: Response) {
     if (orderError) throw orderError;
 
     // Step 2: Create sub-orders based on shipping breakdown
-    if (orderData.shipping_breakdown && Array.isArray(orderData.shipping_breakdown)) {
-      const subOrdersData = orderData.shipping_breakdown.map((breakdown: any) => ({
-        main_order_id: order.id,
-        hub_id: breakdown.hubId,
-        courier_id: breakdown.courierId,
-        status: 'pending',
-        tracking_number: `${(breakdown.courierName || 'CR').substring(0, 3).toUpperCase()}-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-        // Schema requires items JSONB and subtotal
-        items: breakdown.items || [],
-        subtotal: 0,
-        // Store shipping cost in real_shipping_cost (schema column)
-        real_shipping_cost: breakdown.totalShippingFee || 0,
-        allocated_shipping_fee: breakdown.totalShippingFee || 0,
-      }));
+    const shippingBreakdown = Array.isArray(orderData.shipping_breakdown)
+      ? orderData.shipping_breakdown
+      : [];
+
+    if (shippingBreakdown.length > 0) {
+      const hubIds = Array.from(
+        new Set(
+          shippingBreakdown
+            .map((b: any) => b.hubId || b.hub_id || null)
+            .filter((hubId) => !!hubId)
+        )
+      );
+
+      let hubCourierMap: Record<string, string> = {};
+      if (hubIds.length > 0) {
+        const { data: hubCouriers } = await supabase
+          .from('hub_couriers')
+          .select('hub_id, courier_id')
+          .in('hub_id', hubIds)
+          .order('is_primary', { ascending: false })
+          .order('priority', { ascending: false });
+
+        (hubCouriers || []).forEach((row) => {
+          if (row?.hub_id && row?.courier_id && !hubCourierMap[row.hub_id]) {
+            hubCourierMap[row.hub_id] = row.courier_id;
+          }
+        });
+      }
+
+      const subOrdersData = shippingBreakdown.map((breakdown: any) => {
+        const hubId = breakdown.hubId || breakdown.hub_id;
+        const courierId =
+          breakdown.courierId ||
+          breakdown.courier_id ||
+          (hubId ? hubCourierMap[hubId] : null) ||
+          null;
+
+        return {
+          main_order_id: order.id,
+          hub_id: hubId,
+          courier_id: courierId,
+          status: 'pending',
+          tracking_number: `${(breakdown.courierName || 'CR').substring(0, 3).toUpperCase()}-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
+          // Schema requires items JSONB and subtotal
+          items: breakdown.items || [],
+          subtotal: 0,
+          // Store shipping cost in real_shipping_cost (schema column)
+          real_shipping_cost: breakdown.totalShippingFee || 0,
+          allocated_shipping_fee: breakdown.totalShippingFee || 0,
+        };
+      });
 
       const { data: subOrders, error: subOrdersError } = await supabase
         .from('sub_orders')

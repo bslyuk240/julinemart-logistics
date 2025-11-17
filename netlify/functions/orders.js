@@ -82,18 +82,55 @@ export async function handler(event) {
         .single();
       if (orderError) throw orderError;
 
-      if (payload.shipping_breakdown && Array.isArray(payload.shipping_breakdown)) {
-        const subOrdersData = payload.shipping_breakdown.map((b) => ({
-          main_order_id: order.id,
-          hub_id: b.hubId,
-          courier_id: b.courierId,
-          status: 'pending',
-          tracking_number: `${(b.courierName || 'CR').substring(0, 3).toUpperCase()}-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
-          items: b.items || [],
-          subtotal: 0,
-          real_shipping_cost: b.totalShippingFee || 0,
-          allocated_shipping_fee: b.totalShippingFee || 0
-        }));
+      const shippingBreakdown = Array.isArray(payload.shipping_breakdown)
+        ? payload.shipping_breakdown
+        : [];
+
+      if (shippingBreakdown.length > 0) {
+        const hubIds = Array.from(
+          new Set(
+            shippingBreakdown
+              .map((b) => b.hubId || b.hub_id || null)
+              .filter((hubId) => !!hubId)
+          )
+        );
+
+        let hubCourierMap = {};
+        if (hubIds.length > 0) {
+          const { data: hubCouriers } = await supabase
+            .from('hub_couriers')
+            .select('hub_id, courier_id')
+            .in('hub_id', hubIds)
+            .order('is_primary', { ascending: false })
+            .order('priority', { ascending: false });
+
+          (hubCouriers || []).forEach((row) => {
+            if (row?.hub_id && row?.courier_id && !hubCourierMap[row.hub_id]) {
+              hubCourierMap[row.hub_id] = row.courier_id;
+            }
+          });
+        }
+
+        const subOrdersData = shippingBreakdown.map((b) => {
+          const hubId = b.hubId || b.hub_id;
+          const courierId =
+            b.courierId ||
+            b.courier_id ||
+            (hubId ? hubCourierMap[hubId] : null) ||
+            null;
+
+          return {
+            main_order_id: order.id,
+            hub_id: hubId,
+            courier_id: courierId,
+            status: 'pending',
+            tracking_number: `${(b.courierName || 'CR').substring(0, 3).toUpperCase()}-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
+            items: b.items || [],
+            subtotal: 0,
+            real_shipping_cost: b.totalShippingFee || 0,
+            allocated_shipping_fee: b.totalShippingFee || 0
+          };
+        });
 
         const { data: subOrders } = await supabase
           .from('sub_orders')

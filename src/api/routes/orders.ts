@@ -112,7 +112,7 @@ export async function createOrderHandler(req: Request, res: Response) {
     if (orderError) throw orderError;
 
     // Step 2: Create sub-orders based on shipping breakdown
-    const shippingBreakdown = Array.isArray(orderData.shipping_breakdown)
+    const shippingBreakdown: ShippingBreakdownInput[] = Array.isArray(orderData.shipping_breakdown)
       ? orderData.shipping_breakdown
       : [];
 
@@ -120,8 +120,8 @@ export async function createOrderHandler(req: Request, res: Response) {
       const hubIds = Array.from(
         new Set(
           shippingBreakdown
-            .map((b: ShippingBreakdownInput) => b.hubId || b.hub_id || null)
-            .filter((hubId): hubId is string => Boolean(hubId))
+          .map((b: ShippingBreakdownInput) => b.hubId || b.hub_id || null)
+          .filter((hubId: string | null): hubId is string => Boolean(hubId))
         )
       );
 

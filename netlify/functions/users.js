@@ -4,7 +4,14 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-const supabase = createClient(SUPABASE_URL || '', SERVICE_ROLE_KEY || '');
+const READ_ONLY_KEY =
+  process.env.SUPABASE_KEY ||
+  process.env.VITE_SUPABASE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  SERVICE_ROLE_KEY;
+const supabaseAnon = createClient(SUPABASE_URL || '', READ_ONLY_KEY || '');
+const supabaseAdmin = SERVICE_ROLE_KEY ? createClient(SUPABASE_URL || '', SERVICE_ROLE_KEY) : null;
 
 const headers = {
   'Content-Type': 'application/json',
@@ -22,20 +29,20 @@ export async function handler(event) {
   const id = idx >= 0 && parts.length > idx + 1 ? parts[idx + 1] : undefined;
 
   try {
-    if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-      console.error('Users function misconfigured: missing Supabase service role key');
+    if (!SUPABASE_URL || !READ_ONLY_KEY) {
+      console.error('Users function misconfigured: missing Supabase credentials');
       return {
         statusCode: 500,
         headers,
         body: JSON.stringify({
           success: false,
           error: 'Server not configured',
-          message: 'Supabase service role key is missing for the users function'
+          message: 'Supabase URL or API key is missing for the users function'
         })
       };
     }
     if (event.httpMethod === 'GET' && !id) {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAnon
         .from('users')
         .select('id, email, full_name, role, is_active, last_login, created_at')
         .order('created_at', { ascending: false });
@@ -46,6 +53,17 @@ export async function handler(event) {
     if (event.httpMethod === 'POST' && !id) {
       const payload = JSON.parse(event.body || '{}');
       const { email, password, full_name, role } = payload;
+
+      if (!supabaseAdmin) {
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'Service role key is required to create users'
+          })
+        };
+      }
 
       if (!email || !password) {
         return {
@@ -58,7 +76,7 @@ export async function handler(event) {
         };
       }
 
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email,
         password,
         email_confirm: true
@@ -70,7 +88,7 @@ export async function handler(event) {
         throw new Error('Failed to resolve created user');
       }
 
-      const { data: user, error: userError } = await supabase
+      const { data: user, error: userError } = await supabaseAdmin
         .from('users')
         .insert({
           id: authData.user.id,
@@ -92,8 +110,18 @@ export async function handler(event) {
     }
 
     if (event.httpMethod === 'DELETE' && id) {
+      if (!supabaseAdmin) {
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'Service role key is required to delete users'
+          })
+        };
+      }
       // Soft-delete: deactivate user
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('users')
         .update({ is_active: false })
         .eq('id', id);
@@ -102,13 +130,23 @@ export async function handler(event) {
     }
 
     if (event.httpMethod === 'PUT' && id) {
+      if (!supabaseAdmin) {
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'Service role key is required to update users'
+          })
+        };
+      }
       const payload = JSON.parse(event.body || '{}');
       const updateData = {};
       if (payload.full_name !== undefined) updateData.full_name = payload.full_name;
       if (payload.role !== undefined) updateData.role = payload.role;
       if (payload.is_active !== undefined) updateData.is_active = payload.is_active;
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from('users')
         .update(updateData)
         .eq('id', id)

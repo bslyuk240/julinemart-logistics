@@ -44,8 +44,8 @@ export async function handler(event) {
     if (event.httpMethod === 'GET' && !id) {
       const { data, error } = await supabaseAnon
         .from('users')
-        .select('id, email, full_name, role, is_active, last_login, created_at')
-        .order('created_at', { ascending: false });
+        .select('id, email, full_name, role, is_active, last_login, updated_at')
+        .order('updated_at', { ascending: false });
       if (error) throw error;
       return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: data || [] }) };
     }

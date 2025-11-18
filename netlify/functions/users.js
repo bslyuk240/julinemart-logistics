@@ -2,7 +2,14 @@
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
+const ADMIN_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
+const SERVICE_KEY =
+  ADMIN_KEY ||
+  process.env.SUPABASE_KEY ||
+  process.env.VITE_SUPABASE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
 
 const headers = {
@@ -32,6 +39,65 @@ export async function handler(event) {
         .order('created_at', { ascending: false });
       if (error) throw error;
       return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: data || [] }) };
+    }
+
+    if (event.httpMethod === 'POST' && !id) {
+      const payload = JSON.parse(event.body || '{}');
+      const { email, password, full_name, role } = payload;
+
+      if (!ADMIN_KEY) {
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'Service role key is required to create users'
+          })
+        };
+      }
+
+      if (!email || !password) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'Email and password are required'
+          })
+        };
+      }
+
+      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true
+      });
+
+      if (authError) throw authError;
+
+      if (!authData?.user) {
+        throw new Error('Failed to resolve created user');
+      }
+
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .insert({
+          id: authData.user.id,
+          email,
+          full_name: full_name || null,
+          role: role || 'viewer',
+          is_active: true
+        })
+        .select()
+        .single();
+
+      if (userError) throw userError;
+
+      return {
+        statusCode: 201,
+        headers,
+        body: JSON.stringify({ success: true, data: user })
+      };
     }
 
     if (event.httpMethod === 'DELETE' && id) {

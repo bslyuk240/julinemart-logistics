@@ -108,21 +108,52 @@ exports.handler = async (event) => {
       .from('couriers')
       .select('id, name, code');
 
-    const hubMap = new Map((hubs || []).map(h => [h.id, h]));
+    const normalizedState = state.toLowerCase();
+    const defaultHub =
+      hubs?.find((h) => h.state?.toLowerCase() === normalizedState) || hubs?.[0];
+
+    const hubMap = new Map((hubs || []).map((h) => [h.id, h]));
+
+    const hubIdResolution: Record<string, string> = {};
+    Object.keys(itemsByHub).forEach((hubKey) => {
+      let actualHubId = hubKey;
+      if (hubKey === 'default') {
+        actualHubId = defaultHub?.id || hubKey;
+      }
+      if (actualHubId && hubMap.has(actualHubId)) {
+        hubIdResolution[hubKey] = actualHubId;
+      }
+    });
+
+    // Get courier assignments for hubs
+    const hubIds = Array.from(
+      new Set(Object.values(hubIdResolution).filter((id) => Boolean(id)))
+    );
+    const hubCourierAssignments =
+      hubIds.length > 0
+        ? (
+            await supabase
+              .from('hub_couriers')
+              .select('hub_id, courier_id')
+              .in('hub_id', hubIds)
+              .order('is_primary', { ascending: false })
+              .order('priority', { ascending: false })
+          ).data
+        : [];
+
+    const hubCourierMap = {};
+    (hubCourierAssignments || []).forEach((row) => {
+      if (row?.hub_id && row?.courier_id && !hubCourierMap[row.hub_id]) {
+        hubCourierMap[row.hub_id] = row.courier_id;
+      }
+    });
 
     // Calculate shipping for each hub
     const subOrders = [];
     let totalShippingFee = 0;
 
     for (const [hubId, hubItems] of Object.entries(itemsByHub)) {
-      let actualHubId = hubId;
-      
-      if (hubId === 'default') {
-        const defaultHub = hubs?.find(h => 
-          h.state?.toLowerCase() === state.toLowerCase()
-        ) || hubs?.[0];
-        actualHubId = defaultHub?.id || '';
-      }
+      const actualHubId = hubIdResolution[hubId] || hubId;
 
       const hub = hubMap.get(actualHubId);
       if (!hub) {
@@ -168,11 +199,16 @@ exports.handler = async (event) => {
 
       // Get courier info
       const courier = rate.couriers || (couriers ? couriers[0] : null);
+      const courierId =
+        rate.courier_id ||
+        hubCourierMap[actualHubId] ||
+        courier?.id ||
+        null;
 
       subOrders.push({
         hubId: actualHubId,
         hubName: hub.name,
-        courierId: rate.courier_id || courier?.id || null,
+        courierId,
         courierName: courier?.name || 'Standard Courier',
         totalWeight: Math.round(hubWeight * 100) / 100,
         baseRate: Math.round(baseRate * 100) / 100,

@@ -2,15 +2,9 @@
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const ADMIN_KEY =
+const SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY;
-const SERVICE_KEY =
-  ADMIN_KEY ||
-  process.env.SUPABASE_KEY ||
-  process.env.VITE_SUPABASE_KEY ||
-  process.env.SUPABASE_ANON_KEY ||
-  process.env.VITE_SUPABASE_ANON_KEY;
-const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
+const supabase = createClient(SUPABASE_URL || '', SERVICE_ROLE_KEY || '');
 
 const headers = {
   'Content-Type': 'application/json',
@@ -28,9 +22,17 @@ export async function handler(event) {
   const id = idx >= 0 && parts.length > idx + 1 ? parts[idx + 1] : undefined;
 
   try {
-    if (!SUPABASE_URL || !SERVICE_KEY) {
-      console.error('Users function misconfigured: missing Supabase env');
-      return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Server not configured' }) };
+    if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+      console.error('Users function misconfigured: missing Supabase service role key');
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'Server not configured',
+          message: 'Supabase service role key is missing for the users function'
+        })
+      };
     }
     if (event.httpMethod === 'GET' && !id) {
       const { data, error } = await supabase
@@ -44,17 +46,6 @@ export async function handler(event) {
     if (event.httpMethod === 'POST' && !id) {
       const payload = JSON.parse(event.body || '{}');
       const { email, password, full_name, role } = payload;
-
-      if (!ADMIN_KEY) {
-        return {
-          statusCode: 500,
-          headers,
-          body: JSON.stringify({
-            success: false,
-            error: 'Service role key is required to create users'
-          })
-        };
-      }
 
       if (!email || !password) {
         return {

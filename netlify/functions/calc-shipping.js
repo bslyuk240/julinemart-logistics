@@ -114,7 +114,7 @@ exports.handler = async (event) => {
 
     const hubMap = new Map((hubs || []).map((h) => [h.id, h]));
 
-    const hubIdResolution: Record<string, string> = {};
+    const hubIdResolution = {};
     Object.keys(itemsByHub).forEach((hubKey) => {
       let actualHubId = hubKey;
       if (hubKey === 'default') {

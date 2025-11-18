@@ -263,7 +263,7 @@ export async function handler(event) {
         shippingBreakdown.push({
           hubId,
           hubName: hub.name,
-          courierId: courier?.id || '',
+          courierId: courier?.id || null,
           courierName: courier?.name || 'Fez Delivery',
           totalWeight: Math.round(totalWeight * 100) / 100,
           realShippingCost: Math.round(realShippingCost * 100) / 100,

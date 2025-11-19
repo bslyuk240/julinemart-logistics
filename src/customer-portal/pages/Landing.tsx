@@ -1,6 +1,6 @@
 ﻿import { useState } from 'react';
 import { Search, Package, TrendingUp, Shield } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { BrandLogo } from '../../shared/BrandLogo';
 
 export function CustomerPortalLanding() {
@@ -23,9 +23,9 @@ export function CustomerPortalLanding() {
           <div className="flex items-center justify-between">
             <BrandLogo withText size={28} textClassName="text-2xl font-bold text-primary-600" />
             <nav className="flex gap-6">
-              <a href="#track" className="text-gray-600 hover:text-primary-600">Track Order</a>
-              <a href="#estimate" className="text-gray-600 hover:text-primary-600">Shipping Estimate</a>
-              <a href="#contact" className="text-gray-600 hover:text-primary-600">Contact</a>
+              <Link to="/track" className="text-gray-600 hover:text-primary-600">Track Order</Link>
+              <Link to="/estimate" className="text-gray-600 hover:text-primary-600">Shipping Estimate</Link>
+              <Link to="/contact" className="text-gray-600 hover:text-primary-600">Contact</Link>
             </nav>
           </div>
         </div>
@@ -193,9 +193,9 @@ export function CustomerPortalLanding() {
             <div>
               <h4 className="font-semibold mb-4">Quick Links</h4>
               <ul className="space-y-2 text-gray-400">
-                <li><a href="#track" className="hover:text-white">Track Order</a></li>
-                <li><a href="#estimate" className="hover:text-white">Shipping Rates</a></li>
-                <li><a href="#contact" className="hover:text-white">Contact Us</a></li>
+              <li><Link to="/track" className="hover:text-white">Track Order</Link></li>
+              <li><Link to="/estimate" className="hover:text-white">Shipping Rates</Link></li>
+              <li><Link to="/contact" className="hover:text-white">Contact Us</Link></li>
               </ul>
             </div>
             <div>

@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { CustomerPortalLanding } from './customer-portal/pages/Landing';
 import { OrderTrackingPage } from './customer-portal/pages/Track';
 import { ShippingEstimatePage } from './customer-portal/pages/ShippingEstimate';
+import { CustomerContactPage } from './customer-portal/pages/Contact';
 
 import { DashboardLayout } from './dashboard/components/DashboardLayout';
 import { LoginPage } from './dashboard/pages/auth/Login';
@@ -58,6 +59,7 @@ export function AppRoutes() {
         <Route path="/customer" element={<CustomerPortalLanding />} />
         <Route path="/customer/track" element={<OrderTrackingPage />} />
         <Route path="/customer/shipping-estimate" element={<ShippingEstimatePage />} />
+        <Route path="/customer/contact" element={<CustomerContactPage />} />
         <Route path="/customer/order/:id" element={<OrderTrackingPage />} />
 
         {/* Auth */}

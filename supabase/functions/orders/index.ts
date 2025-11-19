@@ -16,14 +16,14 @@ function getCorsHeaders(req: Request) {
       : "https://jlo.julinemart.com",
     "Access-Control-Allow-Headers":
       "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
     "Access-Control-Allow-Credentials": "true",
   };
 }
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
 serve(async (req: Request) => {
   const headers = getCorsHeaders(req);
@@ -33,7 +33,35 @@ serve(async (req: Request) => {
   }
 
   try {
+    // Verify authorization header
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ code: 401, message: "Missing authorization header" }),
+        { status: 401, headers }
+      );
+    }
+
+    // Create client with user's token for RLS
+    const token = authHeader.replace("Bearer ", "");
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+      global: {
+        headers: { authorization: authHeader },
+      },
+    });
+
+    // Verify the token is valid
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return new Response(
+        JSON.stringify({ code: 401, message: "Invalid authorization token" }),
+        { status: 401, headers }
+      );
+    }
+
     const url = new URL(req.url);
+     const pathParts = url.pathname.split('/').filter(Boolean);
+    const orderId = pathParts[pathParts.length - 1];
 
     if (req.method === "GET") {
       const limit = Number(url.searchParams.get("limit") || 20);
@@ -62,6 +90,22 @@ serve(async (req: Request) => {
       if (error) throw error;
 
       return new Response(JSON.stringify({ success: true, data }), {
+        headers,
+      });
+    }
+
+    if (req.method === "DELETE") {
+      // Use service role for delete operations
+      const supabaseService = createClient(supabaseUrl, supabaseServiceKey);
+
+      const { error } = await supabaseService
+        .from("orders")
+        .delete()
+        .eq("id", orderId);
+
+      if (error) throw error;
+
+      return new Response(JSON.stringify({ success: true }), {
         headers,
       });
     }

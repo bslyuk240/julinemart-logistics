@@ -1,11 +1,25 @@
+import { supabase } from '../dashboard/contexts/AuthContext';
+
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 const SUPABASE_FUNCTIONS_BASE =
   (import.meta.env.VITE_SUPABASE_FUNCTIONS_URL || `${SUPABASE_URL}`) || "";
 
 function normalizeBase(base: string) {
   return base.replace(/\/$/, "");
 }
+async function getAuthHeaders() {
+  const { data: { session } } = await supabase.auth.getSession();
+  const headers: Record<string, string> = {
+    'apikey': SUPABASE_ANON_KEY,
+  };
 
+  if (session?.access_token) {
+    headers['Authorization'] = `Bearer ${session.access_token}`;
+  }
+
+  return headers;
+}
 export function buildFunctionUrl(functionName: string, query?: Record<string, string>) {
   if (!SUPABASE_FUNCTIONS_BASE) {
     throw new Error("VITE_SUPABASE_FUNCTIONS_URL or VITE_SUPABASE_URL is required");
@@ -42,8 +56,10 @@ export async function callSupabaseFunction(
   options: Omit<RequestInit, "body"> & { body?: unknown } = {}
 ) {
   const url = buildFunctionUrl(functionName);
+  const authHeaders = await getAuthHeaders();
   const headers = new Headers({
     "Content-Type": "application/json",
+      ...authHeaders,
     ...options.headers,
   });
   const res = await fetch(url, {
@@ -60,8 +76,10 @@ export async function callSupabaseFunctionWithQuery(
   options: Omit<RequestInit, "body"> = {}
 ) {
   const url = buildFunctionUrl(functionName, query);
+  const authHeaders = await getAuthHeaders();
   const headers = new Headers({
     "Content-Type": "application/json",
+    ...authHeaders,
     ...options.headers,
   });
 

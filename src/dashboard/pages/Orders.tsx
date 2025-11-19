@@ -104,7 +104,7 @@ export function OrdersPage() {
           </p>
         </div>
         <button 
-          onClick={() => navigate('/dashboard/orders/create')}
+          onClick={() => navigate('/admin/orders/create')}
           className="btn-primary flex items-center"
         >
           <Plus className="w-5 h-5 mr-2" />
@@ -173,7 +173,7 @@ export function OrdersPage() {
               
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <button
-                  onClick={() => navigate('/dashboard/orders/create')}
+                  onClick={() => navigate('/admin/orders/create')}
                   className="btn-primary flex items-center justify-center"
                 >
                   <Plus className="w-5 h-5 mr-2" />
@@ -181,7 +181,7 @@ export function OrdersPage() {
                 </button>
                 
                 <button
-                  onClick={() => navigate('/dashboard/settings')}
+                  onClick={() => navigate('/admin/settings')}
                   className="btn-secondary flex items-center justify-center"
                 >
                   <Filter className="w-5 h-5 mr-2" />
@@ -230,7 +230,7 @@ export function OrdersPage() {
           {filteredOrders.map((order) => (
             <div
               key={order.id}
-              onClick={() => navigate(`/dashboard/orders/${order.id}`)}
+              onClick={() => navigate(`/admin/orders/${order.id}`)}
               className="card hover:shadow-lg transition-shadow cursor-pointer"
             >
               <div className="flex items-center justify-between">

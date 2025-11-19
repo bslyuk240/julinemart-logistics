@@ -20,7 +20,7 @@ export function SignUpPage() {
   // Redirect if already logged in
   useEffect(() => {
     if (!loading && user) {
-      navigate('/dashboard');
+      navigate('/admin/dashboard');
     }
   }, [user, loading, navigate]);
 

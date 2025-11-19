@@ -43,7 +43,7 @@ export function SettlementsSummaryWidget() {
   return (
     <div 
       className="card hover:shadow-lg transition-shadow cursor-pointer"
-      onClick={() => navigate('/dashboard/settlements')}
+      onClick={() => navigate('/admin/settlements')}
     >
       <div className="flex items-start justify-between mb-4">
         <div>

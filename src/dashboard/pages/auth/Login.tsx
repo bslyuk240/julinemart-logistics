@@ -17,7 +17,7 @@ export function LoginPage() {
   // Redirect if already logged in
   useEffect(() => {
     if (!loading && user) {
-      navigate('/dashboard');
+      navigate('/admin/dashboard');
     }
   }, [user, loading, navigate]);
 
@@ -155,24 +155,6 @@ export function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600">
-              Don't have an account?{' '}
-              <Link to="/signup" className="font-medium text-primary-600 hover:text-primary-700">
-                Sign up
-              </Link>
-            </p>
-          </div>
-        </div>
-
-        {/* Demo Credentials */}
-        <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <p className="text-sm font-medium text-yellow-800 mb-2">Demo Credentials:</p>
-          <div className="text-xs text-yellow-700 space-y-1">
-            <p>Admin: admin@julinemart.com / admin123</p>
-            <p>Manager: manager@julinemart.com / manager123</p>
-            <p>Viewer: viewer@julinemart.com / viewer123</p>
-          </div>
         </div>
       </div>
     </div>

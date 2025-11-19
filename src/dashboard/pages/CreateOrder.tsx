@@ -244,7 +244,7 @@ export function CreateOrderPage() {
           `Order #${data.data.woocommerce_order_id} created successfully`
         );
         setTimeout(() => {
-          navigate(`/dashboard/orders/${data.data.id}`);
+          navigate(`/admin/orders/${data.data.id}`);
         }, 1500);
       } else {
         notification.error(
@@ -606,7 +606,7 @@ export function CreateOrderPage() {
               {creating ? 'Creating Order...' : 'Create Order'}
             </button>
             <button
-              onClick={() => navigate('/dashboard/orders')}
+              onClick={() => navigate('/admin/orders')}
               className="w-full btn-secondary"
             >
               Cancel

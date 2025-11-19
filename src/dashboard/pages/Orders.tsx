@@ -1,7 +1,8 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Package, Plus, Search, Filter, Download, Eye } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
+import { callSupabaseFunction, callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
 
 interface Order {
   id: string;
@@ -22,19 +23,22 @@ export function OrdersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
-  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
-
   useEffect(() => {
     fetchOrders();
   }, []);
 
   const fetchOrders = async () => {
     try {
-      const response = await fetch(`${apiBase}/api/orders?limit=100`);
-      const data = await response.json();
-      
-      if (data.success) {
-        setOrders(data.data || []);
+      const data = await callSupabaseFunctionWithQuery(
+        'orders',
+        { limit: '100' },
+        { method: 'GET' }
+      );
+
+      if (Array.isArray(data?.data)) {
+        setOrders(data.data);
+      } else if (Array.isArray(data)) {
+        setOrders(data);
       }
     } catch (error) {
       console.error('Error fetching orders:', error);
@@ -75,16 +79,15 @@ export function OrdersPage() {
     setDeletingOrderId(orderId);
 
     try {
-      const response = await fetch(`${apiBase}/api/orders/${orderId}`, {
+      const data = await callSupabaseFunction('orders/' + orderId, {
         method: 'DELETE',
       });
-      const data = await response.json();
 
-      if (data.success) {
+      if (data?.success) {
         setOrders(prev => prev.filter(order => order.id !== orderId));
         notification.success('Order Deleted', 'The order was removed successfully.');
       } else {
-        notification.error('Delete Failed', data.error || 'Unable to delete order');
+        notification.error('Delete Failed', data?.error || 'Unable to delete order');
       }
     } catch (error) {
       console.error('Error deleting order:', error);
@@ -100,7 +103,7 @@ export function OrdersPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Orders</h1>
           <p className="text-gray-600 mt-2">
-            Manage all customer orders • {filteredOrders.length} of {orders.length} orders
+            Manage all customer orders � {filteredOrders.length} of {orders.length} orders
           </p>
         </div>
         <button 
@@ -262,7 +265,7 @@ export function OrdersPage() {
 
                 <div className="text-right ml-6">
                   <div className="text-2xl font-bold text-gray-900">
-                    ₦{order.total_amount.toLocaleString()}
+                    ?{order.total_amount.toLocaleString()}
                   </div>
                   <div className="text-sm text-gray-600">
                     {new Date(order.created_at).toLocaleDateString()}
@@ -291,3 +294,4 @@ export function OrdersPage() {
     </div>
   );
 }
+

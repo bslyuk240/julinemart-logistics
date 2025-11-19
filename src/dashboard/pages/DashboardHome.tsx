@@ -38,57 +38,36 @@ export function DashboardHome() {
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
   const fetchData = useCallback(async () => {
-    try {
-      // Fetch in parallel
-      const [statsRes, zonesRes, ordersRes] = await Promise.all([
-        fetch(`${apiBase}/api/stats`),
-        fetch(`${apiBase}/api/zones`),
-        fetch(`${apiBase}/api/orders?limit=5&offset=0`),
-      ]);
+  try {
+    const [statsData, zonesData, ordersData] = await Promise.all([
+      callSupabaseFunction('stats', { method: 'GET' }),
+      callSupabaseFunction('zones', { method: 'GET' }),
+      callSupabaseFunctionWithQuery('orders', { limit: '5', offset: '0' }, { method: 'GET' }),
+    ]);
 
-      if (!statsRes.ok) throw new Error(`Stats fetch failed: ${statsRes.status}`);
-      if (!zonesRes.ok) throw new Error(`Zones fetch failed: ${zonesRes.status}`);
-
-      const statsType = statsRes.headers.get('content-type') || '';
-      const zonesType = zonesRes.headers.get('content-type') || '';
-
-      // Handle stats JSON
-      if (!statsType.includes('application/json')) {
-        console.error('Stats returned non-JSON:', await statsRes.text());
-      } else {
-        const statsJson = await statsRes.json();
-        if (statsJson?.success && statsJson?.data) {
-          setStats(statsJson.data);
-        } else if (statsJson?.data) {
-          setStats(statsJson.data);
-        }
-      }
-
-      // Handle zones JSON
-      if (!zonesType.includes('application/json')) {
-        console.error('Zones returned non-JSON:', await zonesRes.text());
-      } else {
-        const zonesJson = await zonesRes.json();
-        if (zonesJson?.success && zonesJson?.data) {
-          setZones(zonesJson.data);
-        } else if (Array.isArray(zonesJson)) {
-          setZones(zonesJson);
-        }
-      }
-      if (ordersRes.ok) {
-        const ordersJson = await ordersRes.json();
-        if (ordersJson?.success && Array.isArray(ordersJson.data)) {
-          setRecentOrders(ordersJson.data);
-        } else if (Array.isArray(ordersJson)) {
-          setRecentOrders(ordersJson);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-    } finally {
-      setLoading(false);
+    if (statsData?.success && statsData?.data) {
+      setStats(statsData.data);
+    } else if (statsData?.data) {
+      setStats(statsData.data);
     }
-  }, [apiBase]);
+
+    if (zonesData?.success && Array.isArray(zonesData.data)) {
+      setZones(zonesData.data);
+    } else if (Array.isArray(zonesData)) {
+      setZones(zonesData);
+    }
+
+    if (ordersData?.success && Array.isArray(ordersData.data)) {
+      setRecentOrders(ordersData.data);
+    } else if (Array.isArray(ordersData)) {
+      setRecentOrders(ordersData);
+    }
+  } catch (error) {
+    console.error('Error fetching dashboard data:', error);
+  } finally {
+    setLoading(false);
+  }
+}, []);
 
   useEffect(() => {
     fetchData();
@@ -210,3 +189,7 @@ export function DashboardHome() {
     </div>
   );
 }
+
+
+
+

@@ -1,16 +1,24 @@
 import { BrandLogo } from '../../shared/BrandLogo';
+import { Link } from 'react-router-dom';
 
 export function CustomerContactPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-blue-50">
       <header className="bg-white shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col gap-4">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-wrap items-center justify-between gap-4">
           <BrandLogo withText size={32} textClassName="text-2xl font-bold text-primary-600" />
-          <p className="text-gray-600">
-            Need a hand? Our logistics experts are on standby to help you track orders, calculate shipping, or answer general questions.
-          </p>
+          <Link
+            to="/customer"
+            className="px-5 py-2 rounded-full border border-primary-600 text-primary-600 font-semibold hover:bg-primary-50 transition-colors text-sm"
+          >
+            Back to Customer Home
+          </Link>
         </div>
       </header>
+
+      <section className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-lg text-gray-600">
+        Need a hand? Our logistics experts are on standby to help you track orders, calculate shipping, or answer general questions.
+      </section>
 
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-8">
         <div className="bg-white p-8 rounded-2xl shadow-xl border border-gray-200">
@@ -22,16 +30,16 @@ export function CustomerContactPage() {
 
           <div className="mt-8 grid gap-6 sm:grid-cols-3">
             <div className="border border-gray-100 rounded-2xl p-5 text-center">
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Email</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Customer Support</p>
               <p className="text-lg font-semibold text-gray-900">support@julinemart.com</p>
             </div>
             <div className="border border-gray-100 rounded-2xl p-5 text-center">
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Phone</p>
-              <p className="text-lg font-semibold text-gray-900">+234 800 000 0000</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Operations Email</p>
+              <p className="text-lg font-semibold text-gray-900">admin@julinemart.com</p>
             </div>
             <div className="border border-gray-100 rounded-2xl p-5 text-center">
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Hours</p>
-              <p className="text-lg font-semibold text-gray-900">Mon–Sat · 9AM–6PM</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Phone</p>
+              <p className="text-lg font-semibold text-gray-900">+2347075825761</p>
             </div>
           </div>
         </div>
@@ -44,11 +52,11 @@ export function CustomerContactPage() {
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <p className="text-sm text-gray-500">Customer Care</p>
-              <p className="text-lg font-semibold text-primary-600">care@julinemart.com</p>
+              <p className="text-lg font-semibold text-primary-600">support@julinemart.com</p>
             </div>
             <div>
               <p className="text-sm text-gray-500">Operations Hotline</p>
-              <p className="text-lg font-semibold text-primary-600">+234 700 000 0000</p>
+              <p className="text-lg font-semibold text-primary-600">+2347075825761</p>
             </div>
           </div>
         </section>

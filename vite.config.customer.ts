@@ -12,10 +12,22 @@ export default defineConfig({
   server: {
     port: 3002, // Different port for customer portal
     open: '/customer-portal.html', // Open the customer portal entry, not admin
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
   },
   preview: {
     port: 5002,
     open: '/customer-portal.html',
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
   },
   build: {
     outDir: 'dist/customer-portal',

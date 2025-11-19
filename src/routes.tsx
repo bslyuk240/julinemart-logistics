@@ -59,6 +59,7 @@ export function AppRoutes() {
         <Route path="/customer" element={<CustomerPortalLanding />} />
         <Route path="/customer/track" element={<OrderTrackingPage />} />
         <Route path="/customer/shipping-estimate" element={<ShippingEstimatePage />} />
+        <Route path="/customer/estimate" element={<ShippingEstimatePage />} />
         <Route path="/customer/contact" element={<CustomerContactPage />} />
         <Route path="/customer/order/:id" element={<OrderTrackingPage />} />
 

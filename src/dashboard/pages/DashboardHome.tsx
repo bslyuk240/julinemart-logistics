@@ -1,5 +1,5 @@
+﻿import { MapPin, Package, TrendingUp, Truck } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { Package, MapPin, Truck, TrendingUp } from 'lucide-react';
 import { callSupabaseFunction, callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
 
 interface Stats {
@@ -35,35 +35,36 @@ export function DashboardHome() {
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
 
   const fetchData = useCallback(async () => {
-    const [statsData, zonesData, ordersData] = await Promise.all([
-      callSupabaseFunction('stats', { method: 'GET' }),
-      callSupabaseFunction('zones', { method: 'GET' }),
-      callSupabaseFunctionWithQuery('orders', { limit: '5', offset: '0' }, { method: 'GET' }),
-    ]);
+    try {
+      const [statsData, zonesData, ordersData] = await Promise.all([
+        callSupabaseFunction('stats', { method: 'GET' }),
+        callSupabaseFunction('zones', { method: 'GET' }),
+        callSupabaseFunctionWithQuery('orders', { limit: '5', offset: '0' }, { method: 'GET' }),
+      ]);
 
-    if (statsData?.success && statsData?.data) {
-      setStats(statsData.data);
-    } else if (statsData?.data) {
-      setStats(statsData.data);
-    }
+      if (statsData?.success && statsData?.data) {
+        setStats(statsData.data);
+      } else if (statsData?.data) {
+        setStats(statsData.data);
+      }
 
-    if (zonesData?.success && Array.isArray(zonesData.data)) {
-      setZones(zonesData.data);
-    } else if (Array.isArray(zonesData)) {
-      setZones(zonesData);
-    }
+      if (zonesData?.success && Array.isArray(zonesData.data)) {
+        setZones(zonesData.data);
+      } else if (Array.isArray(zonesData)) {
+        setZones(zonesData);
+      }
 
-    if (ordersData?.success && Array.isArray(ordersData.data)) {
-      setRecentOrders(ordersData.data);
-    } else if (Array.isArray(ordersData)) {
-      setRecentOrders(ordersData);
+      if (ordersData?.success && Array.isArray(ordersData.data)) {
+        setRecentOrders(ordersData.data);
+      } else if (Array.isArray(ordersData)) {
+        setRecentOrders(ordersData);
+      }
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+    } finally {
+      setLoading(false);
     }
-  } catch (error) {
-    console.error('Error fetching dashboard data:', error);
-  } finally {
-    setLoading(false);
-  }
-}, []);
+  }, []);
 
   useEffect(() => {
     fetchData();

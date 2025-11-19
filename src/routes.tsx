@@ -1,5 +1,4 @@
-import { ReactNode } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
 
 import { CustomerPortalLanding } from './customer-portal/pages/Landing';
 import { OrderTrackingPage } from './customer-portal/pages/Track';
@@ -33,71 +32,94 @@ import {
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { UnauthorizedPage } from './shared/UnauthorizedPage';
 
-function wrapAdmin(element: ReactNode) {
-  return (
-    <ProtectedRoute role="admin">
-      <DashboardLayout>{element}</DashboardLayout>
-    </ProtectedRoute>
-  );
-}
+const adminRoutes = [
+  { path: '', element: <DashboardHome /> },
+  { path: 'dashboard', element: <DashboardHome /> },
+  { path: 'orders', element: <OrdersPage /> },
+  { path: 'orders/create', element: <CreateOrderPage /> },
+  { path: 'orders/:id', element: <OrderDetailsPage /> },
+  { path: 'hubs', element: <HubsPage /> },
+  { path: 'couriers', element: <CouriersPage /> },
+  { path: 'rates', element: <ShippingRatesPage /> },
+  { path: 'analytics', element: <AnalyticsPage /> },
+  { path: 'users', element: <UsersPage /> },
+  { path: 'courier-settings', element: <CourierSettingsPage /> },
+  { path: 'settings', element: <SettingsPage /> },
+  { path: 'email-settings', element: <EmailSettingsPage /> },
+  { path: 'settlements', element: <SettlementsPage /> },
+  { path: 'activity-logs', element: <ActivityLogsPage /> },
+];
 
-function wrapManager(element: ReactNode) {
-  return (
-    <ProtectedRoute role="manager">
-      <DashboardLayout>{element}</DashboardLayout>
-    </ProtectedRoute>
-  );
-}
+const managerRoutes = [
+  { path: '', element: <ManagerHome /> },
+  { path: 'attendance', element: <ManagerAttendance /> },
+  { path: 'performance', element: <ManagerPerformance /> },
+];
 
-export function AppRoutes() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Navigate to="/customer" replace />} />
+const customerRoutes = [
+  { path: '/', element: <CustomerPortalLanding /> },
+  { path: '/track', element: <OrderTrackingPage /> },
+  { path: '/shipping-estimate', element: <ShippingEstimatePage /> },
+  { path: '/order/:id', element: <OrderTrackingPage /> },
+  { path: '/contact', element: <CustomerContactPage /> },
+];
 
-        {/* Customer portal */}
-        <Route path="/customer" element={<CustomerPortalLanding />} />
-        <Route path="/customer/track" element={<OrderTrackingPage />} />
-        <Route path="/customer/shipping-estimate" element={<ShippingEstimatePage />} />
-        <Route path="/customer/estimate" element={<ShippingEstimatePage />} />
-        <Route path="/customer/contact" element={<CustomerContactPage />} />
-        <Route path="/customer/order/:id" element={<OrderTrackingPage />} />
+const formatCustomerPath = (routePath: string) =>
+  routePath === '/' ? '/customer' : `/customer${routePath}`;
 
-        {/* Auth */}
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/signup" element={<SignUpPage />} />
-        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/unauthorized" element={<UnauthorizedPage />} />
-
-        {/* Admin portal */}
-        <Route path="/admin" element={wrapAdmin(<DashboardHome />)} />
-        <Route path="/admin/dashboard" element={wrapAdmin(<DashboardHome />)} />
-        <Route path="/admin/orders" element={wrapAdmin(<OrdersPage />)} />
-        <Route path="/admin/orders/create" element={wrapAdmin(<CreateOrderPage />)} />
-        <Route path="/admin/orders/:id" element={wrapAdmin(<OrderDetailsPage />)} />
-        <Route path="/admin/hubs" element={wrapAdmin(<HubsPage />)} />
-        <Route path="/admin/couriers" element={wrapAdmin(<CouriersPage />)} />
-        <Route path="/admin/rates" element={wrapAdmin(<ShippingRatesPage />)} />
-        <Route path="/admin/analytics" element={wrapAdmin(<AnalyticsPage />)} />
-        <Route path="/admin/users" element={wrapAdmin(<UsersPage />)} />
-        <Route path="/admin/courier-settings" element={wrapAdmin(<CourierSettingsPage />)} />
-        <Route path="/admin/settings" element={wrapAdmin(<SettingsPage />)} />
-        <Route path="/admin/email-settings" element={wrapAdmin(<EmailSettingsPage />)} />
-        <Route path="/admin/settlements" element={wrapAdmin(<SettlementsPage />)} />
-        <Route path="/admin/activity-logs" element={wrapAdmin(<ActivityLogsPage />)} />
-
-        {/* Manager portal */}
-        <Route path="/manager" element={wrapManager(<ManagerHome />)} />
-        <Route path="/manager/attendance" element={wrapManager(<ManagerAttendance />)} />
-        <Route path="/manager/performance" element={wrapManager(<ManagerPerformance />)} />
-
-        {/* Legacy redirect */}
-        <Route path="/dashboard/*" element={<Navigate to="/admin/dashboard" replace />} />
-
-        {/* Catch-all */}
-        <Route path="*" element={<Navigate to="/customer" replace />} />
-      </Routes>
-    </BrowserRouter>
-  );
-}
+export const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <Navigate to="/customer" replace />,
+  },
+  ...customerRoutes.map((route) => ({
+    path: formatCustomerPath(route.path),
+    element: route.element,
+  })),
+  {
+    path: '/login',
+    element: <LoginPage />,
+  },
+  {
+    path: '/signup',
+    element: <SignUpPage />,
+  },
+  {
+    path: '/forgot-password',
+    element: <ForgotPasswordPage />,
+  },
+  {
+    path: '/reset-password',
+    element: <ResetPasswordPage />,
+  },
+  {
+    path: '/unauthorized',
+    element: <UnauthorizedPage />,
+  },
+  {
+    path: '/admin',
+    element: (
+      <ProtectedRoute allowedRoles={['admin']}>
+        <DashboardLayout>
+          <Outlet />
+        </DashboardLayout>
+      </ProtectedRoute>
+    ),
+    children: adminRoutes,
+  },
+  {
+    path: '/manager',
+    element: (
+      <ProtectedRoute allowedRoles={['manager']}>
+        <DashboardLayout>
+          <Outlet />
+        </DashboardLayout>
+      </ProtectedRoute>
+    ),
+    children: managerRoutes,
+  },
+  {
+    path: '*',
+    element: <Navigate to="/customer" replace />,
+  },
+]);

@@ -1,13 +1,14 @@
 import '../dashboard/index.css';
+import { RouterProvider } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
-import { AppRoutes } from '../routes';
+import { router } from '../routes';
 
 function App() {
   return (
     <AuthProvider>
       <NotificationProvider>
-        <AppRoutes />
+        <RouterProvider router={router} />
       </NotificationProvider>
     </AuthProvider>
   );

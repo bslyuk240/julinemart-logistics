@@ -1,7 +1,7 @@
-﻿// FIXED VERSION - netlify/functions/calc-shipping.js
+// FIXED VERSION - netlify/functions/calc-shipping.js
 // KEY FIX: Removed VAT calculation to prevent double-charging
 
-const { createClient } = require('@supabase/supabase-js');
+import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 
@@ -17,7 +17,7 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
-exports.handler = async (event) => {
+export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
@@ -181,7 +181,7 @@ exports.handler = async (event) => {
         continue;
       }
 
-      // ✅ FIXED: Calculate shipping WITHOUT VAT
+      // ? FIXED: Calculate shipping WITHOUT VAT
       const baseRate = Number(rate.flat_rate || 0);
       const ratePerKg = Number(rate.per_kg_rate || 0);
 

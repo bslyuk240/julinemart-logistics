@@ -2,6 +2,7 @@
 import { Calculator, MapPin, Package, TrendingUp, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { BrandLogo } from '../../shared/BrandLogo';
+import { callSupabaseFunction } from '../../lib/supabaseFunctions';
 
 const NIGERIAN_STATES = [
   'Abia', 'Adamawa', 'Akwa Ibom', 'Anambra', 'Bauchi', 'Bayelsa', 'Benue', 'Borno',
@@ -34,7 +35,6 @@ export function ShippingEstimatePage() {
   const [estimate, setEstimate] = useState<ShippingEstimate | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
 
   const calculateShipping = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,22 +42,21 @@ export function ShippingEstimatePage() {
     setError('');
 
     try {
-      const response = await fetch(`${apiBaseUrl}/shipping-estimate`, {
+      const data = await callSupabaseFunction('shipping-estimate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: {
           state,
           city,
-          items: [{
-            hubId: 'default', // Will use default hub for estimate
-            quantity: 1,
-            weight: parseFloat(weight),
-            price: parseFloat(orderValue),
-          }],
-        }),
+          items: [
+            {
+              hubId: 'default',
+              quantity: 1,
+              weight: parseFloat(weight),
+              price: parseFloat(orderValue),
+            },
+          ],
+        },
       });
-
-      const data = await response.json();
       console.log('Shipping estimate response', data);
 
       if (data.success && data.data) {

@@ -1,10 +1,11 @@
-﻿import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ComponentType, type SVGProps } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { 
   Package, MapPin, Truck, CheckCircle, Clock, 
   ArrowLeft, Phone, Mail, Home, AlertCircle, ExternalLink
 } from 'lucide-react';
 import { BrandLogo } from '../../shared/BrandLogo';
+import { callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
 
 interface Order {
   id: string;
@@ -58,7 +59,6 @@ export function OrderTrackingPage() {
   const [error, setError] = useState('');
   const { id: routeOrderId } = useParams<{ id?: string }>();
   const searchParamsString = searchParams.toString();
-  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
 
   const formatCurrency = (value?: number | null) => {
     const amount = typeof value === 'number' ? value : 0;
@@ -74,7 +74,30 @@ export function OrderTrackingPage() {
       params.set('order', routeOrderId);
       setSearchParams(params, { replace: true });
     }
-  }, [routeOrderId, orderNumber, searchParamsString, setSearchParams]);
+  }, [routeOrderId, orderNumber, searchParams, setSearchParams]);
+
+  const fetchOrder = useCallback(async () => {
+    try {
+      const data = await callSupabaseFunctionWithQuery(
+        'track-order',
+        {
+          orderNumber: orderNumber ?? '',
+          email: email ?? '',
+        },
+        { method: 'GET' }
+      );
+
+      if (data.success) {
+      setOrder(data.data);
+    } else {
+      setError(data.error || 'Order not found');
+    }
+  } catch (err) {
+    setError('Failed to fetch order information');
+  } finally {
+    setLoading(false);
+  }
+}, [orderNumber, email]);
 
   useEffect(() => {
     if (orderNumber && email) {
@@ -83,26 +106,7 @@ export function OrderTrackingPage() {
       setError('Missing order number or email');
       setLoading(false);
     }
-  }, [orderNumber, email]);
-
-  const fetchOrder = async () => {
-    try {
-      const response = await fetch(
-        `${apiBaseUrl}/track-order?orderNumber=${orderNumber}&email=${email}`
-      );
-      const data = await response.json();
-
-      if (data.success) {
-        setOrder(data.data);
-      } else {
-        setError(data.error || 'Order not found');
-      }
-    } catch (err) {
-      setError('Failed to fetch order information');
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [orderNumber, email, fetchOrder]);
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
@@ -116,7 +120,7 @@ export function OrderTrackingPage() {
   };
 
   const getStatusIcon = (status: string) => {
-    const icons: Record<string, any> = {
+    const icons: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
       pending: Clock,
       processing: Package,
       in_transit: Truck,
@@ -234,15 +238,15 @@ export function OrderTrackingPage() {
               <div className="space-y-1">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Subtotal:</span>
-                  <span className="font-medium">₦{formatCurrency((order.total_amount ?? 0) - (order.shipping_fee_paid ?? 0))}</span>
+                  <span className="font-medium">?{formatCurrency((order.total_amount ?? 0) - (order.shipping_fee_paid ?? 0))}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Shipping:</span>
-                  <span className="font-medium">₦{formatCurrency(order.shipping_fee_paid)}</span>
+                  <span className="font-medium">?{formatCurrency(order.shipping_fee_paid)}</span>
                 </div>
                 <div className="flex justify-between text-lg font-bold pt-2 border-t">
                   <span>Total:</span>
-                  <span className="text-primary-600">₦{formatCurrency(order.total_amount)}</span>
+                  <span className="text-primary-600">?{formatCurrency(order.total_amount)}</span>
                 </div>
               </div>
             </div>

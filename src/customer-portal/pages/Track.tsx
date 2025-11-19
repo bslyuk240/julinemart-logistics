@@ -58,6 +58,7 @@ export function OrderTrackingPage() {
   const [error, setError] = useState('');
   const { id: routeOrderId } = useParams<{ id?: string }>();
   const searchParamsString = searchParams.toString();
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
 
   const formatCurrency = (value?: number | null) => {
     const amount = typeof value === 'number' ? value : 0;
@@ -87,7 +88,7 @@ export function OrderTrackingPage() {
   const fetchOrder = async () => {
     try {
       const response = await fetch(
-        `/api/track-order?orderNumber=${orderNumber}&email=${email}`
+        `${apiBaseUrl}/track-order?orderNumber=${orderNumber}&email=${email}`
       );
       const data = await response.json();
 

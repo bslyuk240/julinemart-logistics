@@ -34,6 +34,7 @@ export function ShippingEstimatePage() {
   const [estimate, setEstimate] = useState<ShippingEstimate | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '/api';
 
   const calculateShipping = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,7 +42,7 @@ export function ShippingEstimatePage() {
     setError('');
 
     try {
-      const response = await fetch('/api/shipping-estimate', {
+      const response = await fetch(`${apiBaseUrl}/shipping-estimate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

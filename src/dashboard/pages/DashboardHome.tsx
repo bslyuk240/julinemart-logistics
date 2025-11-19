@@ -42,10 +42,18 @@ export function DashboardHome() {
         callSupabaseFunctionWithQuery('orders', { limit: '5', offset: '0' }, { method: 'GET' }),
       ]);
 
+      console.log('[DEBUG] Raw statsData response:', JSON.stringify(statsData, null, 2));
+      console.log('[DEBUG] statsData.success:', statsData?.success);
+      console.log('[DEBUG] statsData.data:', statsData?.data);
+
       if (statsData?.success && statsData?.data) {
+        console.log('[DEBUG] Setting stats from statsData.data:', statsData.data);
         setStats(statsData.data);
       } else if (statsData?.data) {
+        console.log('[DEBUG] Setting stats from statsData.data (no success flag):', statsData.data);
         setStats(statsData.data);
+      } else {
+        console.warn('[DEBUG] No valid stats data found in response');
       }
 
       if (zonesData?.success && Array.isArray(zonesData.data)) {

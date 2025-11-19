@@ -61,7 +61,7 @@ serve(async (req: Request) => {
     const { data: couriers } = await supabase
       .from("couriers")
       .select("id")
-      .eq("status", "active");
+      .eq("is_active", true);
 
     // Calculate average delivery time (in days) for delivered orders
     let avgDeliveryTime = 0;

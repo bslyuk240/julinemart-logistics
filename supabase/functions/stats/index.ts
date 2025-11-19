@@ -41,31 +41,32 @@ serve(async (req: Request) => {
       );
     }
 
-    const { data: orders } = await supabase
+    const { count: totalOrdersCount } = await supabase
       .from("orders")
-      .select("id, overall_status, created_at")
-      .neq("overall_status", "cancelled");
-    const { data: delivered } = await supabase
+      .select("id", { count: "exact", head: true });
+    const { count: pendingCount } = await supabase
       .from("orders")
-      .select("id")
-      .eq("overall_status", "delivered");
-    const { data: pending } = await supabase
-      .from("orders")
-      .select("id")
+      .select("id", { count: "exact", head: true })
       .eq("overall_status", "processing");
-    const { data: zones } = await supabase.from("zones").select("id");
-    const { data: hubs } = await supabase
+    const { count: shippedCount } = await supabase
+      .from("orders")
+      .select("id", { count: "exact", head: true })
+      .eq("overall_status", "delivered");
+    const { data: zones } = await supabase
+      .from("zones")
+      .select("id, name, shipping_rates( flat_rate )");
+    const { count: hubsCount } = await supabase
       .from("hubs")
-      .select("id")
+      .select("id", { count: "exact", head: true })
       .eq("is_active", true);
-    const { data: couriers } = await supabase
+    const { count: couriersCount } = await supabase
       .from("couriers")
-      .select("id")
+      .select("id", { count: "exact", head: true })
       .eq("is_active", true);
 
     // Calculate average delivery time (in days) for delivered orders
     let avgDeliveryTime = 0;
-    if (delivered && delivered.length > 0) {
+    if (shippedCount && shippedCount > 0) {
       const { data: deliveredOrders } = await supabase
         .from("orders")
         .select("created_at, updated_at")
@@ -86,12 +87,12 @@ serve(async (req: Request) => {
     const payload = {
       success: true,
       data: {
-        totalOrders: orders?.length ?? 0,
-        shippedToday: delivered?.length ?? 0,
-        pending: pending?.length ?? 0,
+        totalOrders: totalOrdersCount ?? 0,
+        shippedToday: shippedCount ?? 0,
+        pending: pendingCount ?? 0,
         activeZones: zones?.length ?? 0,
-        activeHubs: hubs?.length ?? 0,
-        activeCouriers: couriers?.length ?? 0,
+        activeHubs: hubsCount ?? 0,
+        activeCouriers: couriersCount ?? 0,
         avgDeliveryTime: avgDeliveryTime,
       },
     };

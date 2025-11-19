@@ -1,6 +1,6 @@
-﻿import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Package, MapPin, Truck, TrendingUp } from 'lucide-react';
-import { useCallback } from 'react';
+import { callSupabaseFunction, callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
 
 interface Stats {
   totalOrders: number;
@@ -164,7 +164,7 @@ export function DashboardHome() {
                   </div>
                   <div className="text-right text-xs text-gray-500">
                     <p>{new Date(order.created_at).toLocaleDateString()}</p>
-                    <p>₦{order.total_amount?.toLocaleString()}</p>
+                    <p>?{order.total_amount?.toLocaleString()}</p>
                   </div>
                 </div>
               ))}
@@ -179,7 +179,7 @@ export function DashboardHome() {
               <div key={zone.code} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
                 <span className="font-medium">{zone.name}</span>
                 <span className="text-primary-600">
-                  ₦{zone.shipping_rates?.[0]?.flat_rate?.toLocaleString() || 'N/A'}
+                  ?{zone.shipping_rates?.[0]?.flat_rate?.toLocaleString() || 'N/A'}
                 </span>
               </div>
             ))}
@@ -189,6 +189,7 @@ export function DashboardHome() {
     </div>
   );
 }
+
 
 
 

@@ -1,3 +1,4 @@
+import '../dashboard/index.css';
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import { AppRoutes } from '../routes';

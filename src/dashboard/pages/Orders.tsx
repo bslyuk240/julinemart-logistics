@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Package, Plus, Search, Filter, Download, Eye } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
-import { callSupabaseFunction, callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
 
 interface Order {
   id: string;
@@ -23,22 +22,19 @@ export function OrdersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
+  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+
   useEffect(() => {
     fetchOrders();
   }, []);
 
   const fetchOrders = async () => {
     try {
-      const data = await callSupabaseFunctionWithQuery(
-        'orders',
-        { limit: '100' },
-        { method: 'GET' }
-      );
+      const response = await fetch(`${apiBase}/api/orders?limit=100`);
+      const data = await response.json();
 
-      if (Array.isArray(data?.data)) {
-        setOrders(data.data);
-      } else if (Array.isArray(data)) {
-        setOrders(data);
+      if (data.success) {
+        setOrders(data.data || []);
       }
     } catch (error) {
       console.error('Error fetching orders:', error);
@@ -79,15 +75,16 @@ export function OrdersPage() {
     setDeletingOrderId(orderId);
 
     try {
-      const data = await callSupabaseFunction('orders/' + orderId, {
+      const response = await fetch(`${apiBase}/api/orders/${orderId}`, {
         method: 'DELETE',
       });
+      const data = await response.json();
 
-      if (data?.success) {
+      if (data.success) {
         setOrders(prev => prev.filter(order => order.id !== orderId));
         notification.success('Order Deleted', 'The order was removed successfully.');
       } else {
-        notification.error('Delete Failed', data?.error || 'Unable to delete order');
+        notification.error('Delete Failed', data.error || 'Unable to delete order');
       }
     } catch (error) {
       console.error('Error deleting order:', error);

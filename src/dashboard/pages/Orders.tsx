@@ -265,7 +265,7 @@ export function OrdersPage() {
 
                 <div className="text-right ml-6">
                   <div className="text-2xl font-bold text-gray-900">
-                    ?{order.total_amount.toLocaleString()}
+                    ₦{order.total_amount.toLocaleString()}
                   </div>
                   <div className="text-sm text-gray-600">
                     {new Date(order.created_at).toLocaleDateString()}

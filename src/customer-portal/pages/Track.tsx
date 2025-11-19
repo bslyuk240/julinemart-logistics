@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { 
   Package, MapPin, Truck, CheckCircle, Clock, 
   ArrowLeft, Phone, Mail, Home, AlertCircle, ExternalLink
@@ -51,11 +51,13 @@ interface TrackingEvent {
 }
 
 export function OrderTrackingPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const { id: routeOrderId } = useParams<{ id?: string }>();
+  const searchParamsString = searchParams.toString();
 
   const formatCurrency = (value?: number | null) => {
     const amount = typeof value === 'number' ? value : 0;
@@ -64,6 +66,14 @@ export function OrderTrackingPage() {
 
   const orderNumber = searchParams.get('order');
   const email = searchParams.get('email');
+ 
+  useEffect(() => {
+    if (routeOrderId && !orderNumber) {
+      const params = new URLSearchParams(searchParams);
+      params.set('order', routeOrderId);
+      setSearchParams(params, { replace: true });
+    }
+  }, [routeOrderId, orderNumber, searchParamsString, setSearchParams]);
 
   useEffect(() => {
     if (orderNumber && email) {

@@ -26,17 +26,17 @@ interface DashboardLayoutProps {
 }
 
 const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: ['admin', 'manager', 'viewer'] },
-  { name: 'Orders', href: '/dashboard/orders', icon: Package, roles: ['admin', 'manager', 'viewer'] },
-  { name: 'Hubs', href: '/dashboard/hubs', icon: MapPin, roles: ['admin', 'manager', 'viewer'] },
-  { name: 'Couriers', href: '/dashboard/couriers', icon: Truck, roles: ['admin', 'manager', 'viewer'] },
-  { name: 'Shipping Rates', href: '/dashboard/rates', icon: DollarSign, roles: ['admin', 'manager'] },
-  { name: 'Settlements', href: '/dashboard/settlements', icon: DollarSign, roles: ['admin', 'manager'] },
-  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3, roles: ['admin', 'manager', 'viewer'] },
-  { name: 'Users', href: '/dashboard/users', icon: Users, roles: ['admin'] },
-  { name: 'Courier Settings', href: '/dashboard/courier-settings', icon: Settings, roles: ['admin'] },
-  { name: 'Settings', href: '/dashboard/settings', icon: Settings, roles: ['admin'] },
-  { name: 'Email Settings', href: '/dashboard/email-settings', icon: Mail, roles: ['admin'] },
+  { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'manager', 'viewer'] },
+  { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'manager', 'viewer'] },
+  { name: 'Hubs', href: '/admin/hubs', icon: MapPin, roles: ['admin', 'manager', 'viewer'] },
+  { name: 'Couriers', href: '/admin/couriers', icon: Truck, roles: ['admin', 'manager', 'viewer'] },
+  { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'manager'] },
+  { name: 'Settlements', href: '/admin/settlements', icon: DollarSign, roles: ['admin', 'manager'] },
+  { name: 'Analytics', href: '/admin/analytics', icon: BarChart3, roles: ['admin', 'manager', 'viewer'] },
+  { name: 'Users', href: '/admin/users', icon: Users, roles: ['admin'] },
+  { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
+  { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },
+  { name: 'Email Settings', href: '/admin/email-settings', icon: Mail, roles: ['admin'] },
 ];
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
@@ -93,7 +93,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
         <nav className="px-4 py-6 space-y-1">
           {filteredNavigation.map((item) => {
-            const isActive = location.pathname === item.href;
+            const isActive =
+              location.pathname === item.href ||
+              (item.href !== '/admin/dashboard' && location.pathname.startsWith(`${item.href}/`)) ||
+              (item.href === '/admin/dashboard' && location.pathname.startsWith('/admin/dashboard'));
             const Icon = item.icon;
             
             return (
@@ -170,7 +173,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
                       onClick={() => {
                         setUserMenuOpen(false);
-                        navigate('/dashboard/profile');
+                        navigate('/admin/profile');
                       }}
                     >
                       <User className="w-4 h-4" />
@@ -181,7 +184,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
                       onClick={() => {
                         setUserMenuOpen(false);
-                        navigate('/dashboard/settings');
+                        navigate('/admin/settings');
                       }}
                     >
                       <Settings className="w-4 h-4" />

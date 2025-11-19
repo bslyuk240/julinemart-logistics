@@ -54,6 +54,34 @@ serve(async (req: Request) => {
       .select("id")
       .eq("overall_status", "processing");
     const { data: zones } = await supabase.from("zones").select("id");
+    const { data: hubs } = await supabase
+      .from("hubs")
+      .select("id")
+      .eq("is_active", true);
+    const { data: couriers } = await supabase
+      .from("couriers")
+      .select("id")
+      .eq("status", "active");
+
+    // Calculate average delivery time (in days) for delivered orders
+    let avgDeliveryTime = 0;
+    if (delivered && delivered.length > 0) {
+      const { data: deliveredOrders } = await supabase
+        .from("orders")
+        .select("created_at, updated_at")
+        .eq("overall_status", "delivered")
+        .limit(100); // Sample last 100 delivered orders for performance
+
+      if (deliveredOrders && deliveredOrders.length > 0) {
+        const totalDays = deliveredOrders.reduce((sum, order) => {
+          const created = new Date(order.created_at);
+          const delivered = new Date(order.updated_at);
+          const days = (delivered.getTime() - created.getTime()) / (1000 * 60 * 60 * 24);
+          return sum + days;
+        }, 0);
+        avgDeliveryTime = Math.round(totalDays / deliveredOrders.length);
+      }
+    }
 
     const payload = {
       success: true,
@@ -62,6 +90,9 @@ serve(async (req: Request) => {
         shippedToday: delivered?.length ?? 0,
         pending: pending?.length ?? 0,
         activeZones: zones?.length ?? 0,
+        activeHubs: hubs?.length ?? 0,
+        activeCouriers: couriers?.length ?? 0,
+        avgDeliveryTime: avgDeliveryTime,
       },
     };
 

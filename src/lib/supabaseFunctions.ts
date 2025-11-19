@@ -40,7 +40,7 @@ export function buildFunctionUrl(functionName: string, query?: Record<string, st
 
 async function parseResponse(res: Response, functionName: string, url: URL) {
   const text = await res.text();
-  console.error("[Supabase Function]", functionName, url.toString(), res.status);
+  console.log("[Supabase Function]", functionName, url.toString(), res.status);
   if (!res.ok) {
     throw new Error(text || `Failed ${functionName}`);
   }

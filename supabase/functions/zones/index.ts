@@ -34,45 +34,27 @@ serve(async (req: Request) => {
   }
 
   try {
-    if (req.method !== "POST") {
-      return new Response(
-        JSON.stringify({ error: `${req.method} not supported` }),
-        { status: 405, headers }
-      );
+    if (req.method === "GET") {
+      const { data, error } = await supabase.from("zones").select("*");
+      if (error) throw error;
+      return new Response(JSON.stringify({ success: true, data }), { headers });
     }
 
-    const body = (await req.json().catch(() => null)) || {};
-    const { state, city, items } = body;
-    if (!state || !items?.length) {
-      return new Response(
-        JSON.stringify({ error: "Missing state or items" }),
-        { status: 400, headers }
-      );
+    if (req.method === "POST") {
+      const payload = (await req.json().catch(() => null)) || {};
+      const upsert = await supabase.from("zones").upsert(payload, {
+        onConflict: "id",
+      });
+      if (upsert.error) throw upsert.error;
+      return new Response(JSON.stringify({ success: true, data: upsert.data }), {
+        headers,
+      });
     }
 
-    const { data: zones, error: zonesError } = await supabase
-      .from("zones")
-      .select("id, name, states")
-      .match({ code: body.zone || null });
-    if (zonesError) throw zonesError;
-
-    const payload = {
-      success: true,
-      data: {
-        state,
-        city,
-        zone: zones?.[0]?.name || "Default",
-        items,
-        estimate: items.reduce((sum: number, item: any) => {
-          const weight = Number(item.weight ?? 0);
-          const quantity = Number(item.quantity ?? 1);
-          const rate = Number(item.rate ?? 500);
-          return sum + weight * quantity * rate;
-        }, 0),
-      },
-    };
-
-    return new Response(JSON.stringify(payload), { headers });
+    return new Response(
+      JSON.stringify({ error: `${req.method} not supported` }),
+      { status: 405, headers }
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return new Response(JSON.stringify({ error: message }), {

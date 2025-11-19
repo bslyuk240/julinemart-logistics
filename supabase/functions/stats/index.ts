@@ -34,41 +34,34 @@ serve(async (req: Request) => {
   }
 
   try {
-    if (req.method !== "POST") {
+    if (req.method !== "GET") {
       return new Response(
         JSON.stringify({ error: `${req.method} not supported` }),
         { status: 405, headers }
       );
     }
 
-    const body = (await req.json().catch(() => null)) || {};
-    const { state, city, items } = body;
-    if (!state || !items?.length) {
-      return new Response(
-        JSON.stringify({ error: "Missing state or items" }),
-        { status: 400, headers }
-      );
-    }
-
-    const { data: zones, error: zonesError } = await supabase
-      .from("zones")
-      .select("id, name, states")
-      .match({ code: body.zone || null });
-    if (zonesError) throw zonesError;
+    const { data: orders } = await supabase
+      .from("orders")
+      .select("id, overall_status, created_at")
+      .neq("overall_status", "cancelled");
+    const { data: delivered } = await supabase
+      .from("orders")
+      .select("id")
+      .eq("overall_status", "delivered");
+    const { data: pending } = await supabase
+      .from("orders")
+      .select("id")
+      .eq("overall_status", "processing");
+    const { data: zones } = await supabase.from("zones").select("id");
 
     const payload = {
       success: true,
       data: {
-        state,
-        city,
-        zone: zones?.[0]?.name || "Default",
-        items,
-        estimate: items.reduce((sum: number, item: any) => {
-          const weight = Number(item.weight ?? 0);
-          const quantity = Number(item.quantity ?? 1);
-          const rate = Number(item.rate ?? 500);
-          return sum + weight * quantity * rate;
-        }, 0),
+        totalOrders: orders?.length ?? 0,
+        shippedToday: delivered?.length ?? 0,
+        pending: pending?.length ?? 0,
+        activeZones: zones?.length ?? 0,
       },
     };
 

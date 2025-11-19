@@ -34,45 +34,35 @@ serve(async (req: Request) => {
   }
 
   try {
-    if (req.method !== "POST") {
+    if (req.method !== "GET") {
       return new Response(
         JSON.stringify({ error: `${req.method} not supported` }),
         { status: 405, headers }
       );
     }
 
-    const body = (await req.json().catch(() => null)) || {};
-    const { state, city, items } = body;
-    if (!state || !items?.length) {
+    const url = new URL(req.url);
+    const orderNumber = url.searchParams.get("orderNumber");
+    const email = url.searchParams.get("email");
+
+    if (!orderNumber || !email) {
       return new Response(
-        JSON.stringify({ error: "Missing state or items" }),
+        JSON.stringify({ error: "Missing orderNumber or email" }),
         { status: 400, headers }
       );
     }
 
-    const { data: zones, error: zonesError } = await supabase
-      .from("zones")
-      .select("id, name, states")
-      .match({ code: body.zone || null });
-    if (zonesError) throw zonesError;
+    const { data, error } = await supabase
+      .from("orders")
+      .select("*, tracking_events(*)")
+      .eq("tracking_number", orderNumber)
+      .eq("customer_email", email)
+      .limit(1)
+      .single();
 
-    const payload = {
-      success: true,
-      data: {
-        state,
-        city,
-        zone: zones?.[0]?.name || "Default",
-        items,
-        estimate: items.reduce((sum: number, item: any) => {
-          const weight = Number(item.weight ?? 0);
-          const quantity = Number(item.quantity ?? 1);
-          const rate = Number(item.rate ?? 500);
-          return sum + weight * quantity * rate;
-        }, 0),
-      },
-    };
+    if (error) throw error;
 
-    return new Response(JSON.stringify(payload), { headers });
+    return new Response(JSON.stringify({ success: true, data }), { headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return new Response(JSON.stringify({ error: message }), {

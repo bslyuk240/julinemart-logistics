@@ -8,15 +8,39 @@ const ALLOWED_ORIGINS = [
   "http://127.0.0.1:5173",
 ];
 
+const DEFAULT_ALLOWED_HEADERS = [
+  "authorization",
+  "x-client-info",
+  "apikey",
+  "content-type",
+];
+
+const DEFAULT_ALLOWED_METHODS = ["GET", "POST", "DELETE", "OPTIONS"];
+
 function getCorsHeaders(req: Request) {
   const origin = req.headers.get("origin") ?? "";
+  const requestHeaders = req.headers.get("access-control-request-headers");
+  const requestMethod = req.headers.get("access-control-request-method");
+
+  const allowedHeaders = new Set(DEFAULT_ALLOWED_HEADERS);
+  if (requestHeaders) {
+    requestHeaders.split(",").forEach((header) => {
+      const sanitized = header.trim();
+      if (sanitized) allowedHeaders.add(sanitized);
+    });
+  }
+
+  const allowedMethods = new Set(DEFAULT_ALLOWED_METHODS);
+  if (requestMethod) {
+    allowedMethods.add(requestMethod.toUpperCase());
+  }
+
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin)
       ? origin
       : "https://jlo.julinemart.com",
-    "Access-Control-Allow-Headers":
-      "authorization, x-client-info, apikey, content-type",
-    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": Array.from(allowedHeaders).join(", "),
+    "Access-Control-Allow-Methods": Array.from(allowedMethods).join(", "),
     "Access-Control-Allow-Credentials": "true",
   };
 }
@@ -60,7 +84,7 @@ serve(async (req: Request) => {
     }
 
     const url = new URL(req.url);
-     const pathParts = url.pathname.split('/').filter(Boolean);
+    const pathParts = url.pathname.split("/").filter(Boolean);
     const orderId = pathParts[pathParts.length - 1];
 
     if (req.method === "GET") {

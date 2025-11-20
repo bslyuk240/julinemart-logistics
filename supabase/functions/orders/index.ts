@@ -15,7 +15,7 @@ const DEFAULT_ALLOWED_HEADERS = [
   "content-type",
 ];
 
-const DEFAULT_ALLOWED_METHODS = ["GET", "POST", "DELETE", "OPTIONS"];
+const DEFAULT_ALLOWED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 
 function getCorsHeaders(req: Request) {
   const origin = req.headers.get("origin") ?? "";
@@ -42,6 +42,7 @@ function getCorsHeaders(req: Request) {
     "Access-Control-Allow-Headers": Array.from(allowedHeaders).join(", "),
     "Access-Control-Allow-Methods": Array.from(allowedMethods).join(", "),
     "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Max-Age": "86400",
   };
 }
 

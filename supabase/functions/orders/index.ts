@@ -20,19 +20,13 @@ const DEFAULT_ALLOWED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIO
 function getCorsHeaders(req: Request) {
   const origin = req.headers.get("origin") ?? "";
   const requestHeaders = req.headers.get("access-control-request-headers");
-  const requestMethod = req.headers.get("access-control-request-method");
 
   const allowedHeaders = new Set(DEFAULT_ALLOWED_HEADERS);
   if (requestHeaders) {
     requestHeaders.split(",").forEach((header) => {
-      const sanitized = header.trim();
+      const sanitized = header.trim().toLowerCase();
       if (sanitized) allowedHeaders.add(sanitized);
     });
-  }
-
-  const allowedMethods = new Set(DEFAULT_ALLOWED_METHODS);
-  if (requestMethod) {
-    allowedMethods.add(requestMethod.toUpperCase());
   }
 
   return {
@@ -40,7 +34,7 @@ function getCorsHeaders(req: Request) {
       ? origin
       : "https://jlo.julinemart.com",
     "Access-Control-Allow-Headers": Array.from(allowedHeaders).join(", "),
-    "Access-Control-Allow-Methods": Array.from(allowedMethods).join(", "),
+     "Access-Control-Allow-Methods": DEFAULT_ALLOWED_METHODS.join(", "),
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Max-Age": "86400",
   };
@@ -51,10 +45,13 @@ const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
 serve(async (req: Request) => {
-  const headers = getCorsHeaders(req);
+  const headers = {
+    "Content-Type": "application/json",
+    ...getCorsHeaders(req),
+  };
 
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 204, headers });
+    return new Response(null, { status: 200, headers });
   }
 
   try {

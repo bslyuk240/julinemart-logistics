@@ -62,7 +62,6 @@ async function createFezShipment(authToken, secretKey, baseUrl, shipmentData) {
     const data = await response.json();
 
     if (data.status === 'Success') {
-      // Extract tracking number from orderNos object
       const trackingNumber = Object.values(data.orderNos)[0];
       return {
         success: true,
@@ -104,12 +103,13 @@ exports.handler = async (event) => {
 
     console.log('Creating Fez shipment for sub-order:', subOrderId);
 
-    // 1. Get sub-order details
+    // Fetch sub-order details
     const { data: subOrder, error: subOrderError } = await supabase
       .from('sub_orders')
       .select(`
         *,
         orders (
+          id,
           customer_name,
           customer_email,
           customer_phone,
@@ -128,7 +128,6 @@ exports.handler = async (event) => {
         couriers (
           code,
           api_base_url,
-          api_credentials_encrypted,
           api_user_id,
           api_password
         )
@@ -140,23 +139,22 @@ exports.handler = async (event) => {
       throw new Error('Sub-order not found');
     }
 
-    // 2. Check if courier has API enabled
+    // Get FEZ credentials
     const courier = subOrder.couriers;
-    if (!courier.api_user_id || !courier.api_password) {
+    if (!courier?.api_user_id || !courier?.api_password) {
       return {
         statusCode: 400,
         headers,
         body: JSON.stringify({
           success: false,
-          error: 'Courier API credentials not configured. Please add them in Courier Settings.',
+          error: 'Courier API credentials not configured.',
         }),
       };
     }
 
-    // 3. Get Fez API base URL (sandbox or production)
     const baseUrl = courier.api_base_url || 'https://apisandbox.fezdelivery.co/v1';
 
-    // 4. Authenticate with Fez
+    // Authenticate
     console.log('Authenticating with Fez API...');
     const { authToken, secretKey } = await authenticateFez(
       courier.api_user_id,
@@ -166,38 +164,37 @@ exports.handler = async (event) => {
 
     console.log('Authentication successful');
 
-    // 5. Calculate total weight from items
-    const items = subOrder.items || [];
+    // Items array guard
+    const items = Array.isArray(subOrder.items) ? subOrder.items : [];
     const totalWeight = items.reduce((sum, item) => {
       return sum + (Number(item.weight || 0) * Number(item.quantity || 1));
     }, 0);
 
-    // 6. Prepare shipment data for Fez
+    // Prepare shipment
     const shipmentData = {
-      recipientAddress: subOrder.orders.delivery_address,
-      recipientState: subOrder.orders.delivery_state,
-      recipientName: subOrder.orders.customer_name,
-      recipientPhone: subOrder.orders.customer_phone,
-      recipientEmail: subOrder.orders.customer_email || '',
-      uniqueID: subOrder.id, // Use sub-order ID as unique identifier
-      BatchID: subOrder.order_id, // Use main order ID as batch
+      recipientAddress: subOrder.orders?.delivery_address || '',
+      recipientState: subOrder.orders?.delivery_state || '',
+      recipientName: subOrder.orders?.customer_name || '',
+      recipientPhone: subOrder.orders?.customer_phone || '',
+      recipientEmail: subOrder.orders?.customer_email || '',
+      uniqueID: subOrder.id,
+      BatchID: subOrder.orders?.id || subOrder.id, // FIXED
       itemDescription: items.map(i => `${i.quantity}x ${i.name}`).join(', '),
-      valueOfItem: String(Math.round(subOrder.shipping_cost + 1000)), // Estimated value
-      weight: Math.max(1, Math.round(totalWeight)), // Minimum 1kg
-      pickUpAddress: subOrder.hubs.address,
-      pickUpState: subOrder.hubs.state,
-      additionalDetails: `Hub: ${subOrder.hubs.name}, ${subOrder.hubs.city}`,
+      valueOfItem: String(Math.round((subOrder.shipping_cost || 0) + 1000)), // FIXED
+      weight: Math.max(1, Math.round(totalWeight)),
+      pickUpAddress: subOrder.hubs?.address || '',
+      pickUpState: subOrder.hubs?.state || '',
+      additionalDetails: `Hub: ${subOrder.hubs?.name || ''}, ${subOrder.hubs?.city || ''}`,
     };
 
     console.log('Creating shipment with data:', shipmentData);
 
-    // 7. Create shipment on Fez
+    // Create shipment in Fez
     const result = await createFezShipment(authToken, secretKey, baseUrl, shipmentData);
-
     console.log('Shipment created:', result.trackingNumber);
 
-    // 8. Update sub-order with tracking info
-    const { error: updateError } = await supabase
+    // Update DB
+    await supabase
       .from('sub_orders')
       .update({
         tracking_number: result.trackingNumber,
@@ -208,16 +205,16 @@ exports.handler = async (event) => {
       })
       .eq('id', subOrderId);
 
-    if (updateError) {
-      console.error('Failed to update sub-order:', updateError);
-    }
-
-    // 9. Log activity
+    // Activity log (fixed schema)
     await supabase.from('activity_logs').insert({
-      user_id: 'system',
+      user_id: null,
       action: 'courier_shipment_created',
-      description: `Fez shipment created: ${result.trackingNumber}`,
-      metadata: { subOrderId, trackingNumber: result.trackingNumber },
+      resource_type: 'sub_order',
+      resource_id: subOrderId,
+      details: {
+        courier: 'fez',
+        tracking_number: result.trackingNumber,
+      },
     });
 
     return {
@@ -233,6 +230,7 @@ exports.handler = async (event) => {
         },
       }),
     };
+
   } catch (error) {
     console.error('Error creating Fez shipment:', error);
     return {

@@ -1,4 +1,4 @@
-// Fez Delivery - Create Shipment Function (Netlify ENV Version)
+// Fez Delivery - Create Shipment Function (Final Stable Version)
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -13,27 +13,28 @@ const headers = {
   "Content-Type": "application/json"
 };
 
-// ---------------- AUTHENTICATE WITH FEZ ----------------
+// ------------------------------------------------------
+// AUTHENTICATE FEZ
+// ------------------------------------------------------
 async function authenticateFez() {
-  const apiUser = process.env.FEZ_USER_ID;
-  const apiPassword = process.env.FEZ_PASSWORD;
-  const baseUrl = process.env.FEZ_API_BASE_URL;
+  const FEZ_USER_ID = process.env.FEZ_USER_ID;
+  const FEZ_PASSWORD = process.env.FEZ_PASSWORD;
+  const FEZ_API_BASE_URL = process.env.FEZ_API_BASE_URL;
 
-  if (!apiUser || !apiPassword || !baseUrl) {
+  if (!FEZ_USER_ID || !FEZ_PASSWORD || !FEZ_API_BASE_URL) {
     throw new Error("Missing Fez API environment variables");
   }
 
-  const response = await fetch(`${baseUrl}/user/authenticate`, {
+  const res = await fetch(`${FEZ_API_BASE_URL}/user/authenticate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      user_id: apiUser,
-      password: apiPassword
+      user_id: FEZ_USER_ID,
+      password: FEZ_PASSWORD
     })
   });
 
-  const data = await response.json();
-
+  const data = await res.json();
   console.log("FEZ AUTH RESPONSE:", data);
 
   if (data.status !== "Success") {
@@ -43,13 +44,15 @@ async function authenticateFez() {
   return {
     authToken: data.authDetails.authToken,
     secretKey: data.orgDetails["secret-key"],
-    baseUrl
+    baseUrl: FEZ_API_BASE_URL
   };
 }
 
-// ---------------- CREATE SHIPMENT ON FEZ ----------------
+// ------------------------------------------------------
+// CREATE SHIPMENT ON FEZ (Handles false error responses)
+// ------------------------------------------------------
 async function createFezShipment(authToken, secretKey, baseUrl, shipmentData) {
-  const response = await fetch(`${baseUrl}/order`, {
+  const res = await fetch(`${baseUrl}/order`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -59,23 +62,29 @@ async function createFezShipment(authToken, secretKey, baseUrl, shipmentData) {
     body: JSON.stringify([shipmentData])
   });
 
-  const data = await response.json();
+  const data = await res.json();
+  console.log("FEZ ORDER RESPONSE:", data);
 
-  console.log("FEZ ORDER RESPONSE:", data); // 🔥 FULL DEBUG LOG
-
-  if (data.status !== "Success") {
-    throw new Error(data.description || "Error creating orders");
+  // If FEZ says Success -> perfect
+  if (data.status === "Success") {
+    const trackingNumber = Object.values(data.orderNos)[0];
+    return { trackingNumber };
   }
 
-  const trackingNumber = Object.values(data.orderNos)[0];
+  // If FEZ says ERROR but orderNos contains data -> treat as success
+  if (data.orderNos && Object.keys(data.orderNos).length > 0) {
+    console.log("FEZ FALSE ERROR – ORDER ACTUALLY CREATED.");
+    const trackingNumber = Object.keys(data.orderNos)[0];
+    return { trackingNumber };
+  }
 
-  return {
-    trackingNumber,
-    orderNos: data.orderNos
-  };
+  // Real error
+  throw new Error(data.description || "Error creating orders");
 }
 
-// ---------------- MAIN HANDLER ----------------
+// ------------------------------------------------------
+// HANDLER
+// ------------------------------------------------------
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 200, headers, body: "" };
@@ -100,7 +109,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // ---------------- FETCH SUB ORDER ----------------
+    // Fetch suborder
     const { data: subOrder, error } = await supabase
       .from("sub_orders")
       .select(`
@@ -112,15 +121,13 @@ exports.handler = async (event) => {
           customer_phone,
           delivery_address,
           delivery_city,
-          delivery_state,
-          total_amount
+          delivery_state
         ),
         hubs (
           name,
           address,
           city,
-          state,
-          phone
+          state
         )
       `)
       .eq("id", subOrderId)
@@ -128,54 +135,84 @@ exports.handler = async (event) => {
 
     if (error || !subOrder) throw new Error("Sub-order not found");
 
-    // ---------------- AUTH WITH FEZ ----------------
+    // ----------------------------------------------
+    // PREVENT DUPLICATE SHIPMENTS
+    // ----------------------------------------------
+    if (subOrder.tracking_number) {
+      console.log("Shipment already exists:", subOrder.tracking_number);
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          data: {
+            tracking_number: subOrder.tracking_number,
+            courier_tracking_url: subOrder.courier_tracking_url,
+            message: "Shipment already exists. Returning saved tracking number."
+          }
+        })
+      };
+    }
+
+    // ----------------------------------------------
+    // FEZ AUTH
+    // ----------------------------------------------
     const { authToken, secretKey, baseUrl } = await authenticateFez();
 
-    // ---------------- BUILD SHIPMENT DATA ----------------
+    // Items
     const items = Array.isArray(subOrder.items) ? subOrder.items : [];
-
     const totalWeight = items.reduce(
       (sum, i) => sum + (Number(i.weight || 0) * Number(i.quantity || 1)),
       0
     );
 
+    // Build shipment
     const shipmentData = {
       recipientAddress: subOrder.orders?.delivery_address || "",
       recipientState: subOrder.orders?.delivery_state || "",
       recipientName: subOrder.orders?.customer_name || "",
       recipientPhone: subOrder.orders?.customer_phone || "",
       recipientEmail: subOrder.orders?.customer_email || "",
-      uniqueID: subOrder.id,
-      BatchID: subOrder.orders?.id || subOrder.id, // ✔ FEZ requires
+      uniqueID: subOrder.id, // FEZ unique ID
+      BatchID: subOrder.orders?.id || subOrder.id,
       itemDescription: items.map(i => `${i.quantity}x ${i.name}`).join(", "),
       valueOfItem: String(Math.round((subOrder.shipping_cost || 0) + 1000)),
       weight: Math.max(1, Math.round(totalWeight)),
       pickUpAddress: subOrder.hubs?.address || "",
       pickUpState: subOrder.hubs?.state || "",
-      additionalDetails: `Hub: ${subOrder.hubs?.name || ""}, ${subOrder.hubs?.city || ""}`
+      additionalDetails: `Hub: ${subOrder.hubs?.name}, ${subOrder.hubs?.city}`
     };
 
     console.log("FINAL SHIPMENT SENT TO FEZ:", shipmentData);
 
-    // ---------------- CREATE ON FEZ ----------------
-    const result = await createFezShipment(authToken, secretKey, baseUrl, shipmentData);
+    // Create shipment
+    const { trackingNumber } = await createFezShipment(
+      authToken,
+      secretKey,
+      baseUrl,
+      shipmentData
+    );
 
-    // ---------------- UPDATE SUB ORDER ----------------
-    await supabase.from("sub_orders").update({
-      tracking_number: result.trackingNumber,
-      courier_shipment_id: result.trackingNumber,
-      courier_tracking_url: `${baseUrl}/order/track/${result.trackingNumber}`,
-      status: "pending_pickup",
-      last_tracking_update: new Date().toISOString()
-    }).eq("id", subOrderId);
+    // Update suborder
+    await supabase
+      .from("sub_orders")
+      .update({
+        tracking_number: trackingNumber,
+        courier_shipment_id: trackingNumber,
+        courier_tracking_url: `${baseUrl}/order/track/${trackingNumber}`,
+        status: "pending_pickup",
+        last_tracking_update: new Date().toISOString()
+      })
+      .eq("id", subOrderId);
 
-    // ---------------- LOG ACTIVITY ----------------
+    // Log activity
     await supabase.from("activity_logs").insert({
       user_id: null,
       action: "courier_shipment_created",
       resource_type: "sub_order",
       resource_id: subOrderId,
-      details: { courier: "fez", tracking: result.trackingNumber }
+      details: { courier: "fez", tracking: trackingNumber }
     });
 
     return {
@@ -184,8 +221,8 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         success: true,
         data: {
-          tracking_number: result.trackingNumber,
-          courier_tracking_url: `${baseUrl}/order/track/${result.trackingNumber}`,
+          tracking_number: trackingNumber,
+          courier_tracking_url: `${baseUrl}/order/track/${trackingNumber}`,
           message: "Shipment created successfully on Fez Delivery"
         }
       })

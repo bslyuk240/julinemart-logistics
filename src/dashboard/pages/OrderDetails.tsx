@@ -1,13 +1,67 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  ArrowLeft, Package, MapPin, User, Phone, Mail, Calendar,
-  Truck, Download, ExternalLink, Send, Loader, CheckCircle, Box
+import {
+  ArrowLeft,
+  MapPin,
+  User,
+  Truck,
+  Download,
+  ExternalLink,
+  Send,
+  Loader,
+  CheckCircle,
+  Box,
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 
-interface Order {
-  id: string;
+type Identifier = string | number;
+type KnownStatus =
+  | 'pending'
+  | 'assigned'
+  | 'picked_up'
+  | 'in_transit'
+  | 'out_for_delivery'
+  | 'delivered'
+  | 'failed'
+  | 'returned'
+  | 'cancelled'
+  | 'processing';
+
+type Item = {
+  sku?: string;
+  name?: string;
+  quantity?: number;
+  weight?: number;
+  price?: number;
+};
+
+type SubOrder = {
+  id: Identifier;
+  tracking_number?: string;
+  status: string;
+  real_shipping_cost?: number;
+  allocated_shipping_fee?: number;
+  courier_shipment_id?: string;
+  courier_waybill?: string;
+  courier_tracking_url?: string;
+  label_url?: string;
+  waybill_url?: string;
+  last_tracking_update?: string;
+  items?: Item[];
+  hubs?: {
+    name?: string;
+    city?: string;
+  };
+  couriers?: {
+    id?: string;
+    name?: string;
+    code?: string;
+    api_enabled?: boolean;
+  };
+};
+
+type Order = {
+  id: Identifier;
   woocommerce_order_id: string;
   customer_name: string;
   customer_email: string;
@@ -19,65 +73,31 @@ interface Order {
   shipping_fee_paid: number;
   overall_status: string;
   created_at: string;
-}
-
-interface SubOrder {
-  id: string;
-  tracking_number: string;
-  status: string;
-  real_shipping_cost: number;
-  allocated_shipping_fee: number;
-  estimated_delivery_date: string;
-  courier_shipment_id: string;
-  courier_tracking_url: string;
-  label_url: string;
-  waybill_url: string;
-  last_tracking_update: string;
-  items: Array<{
-    sku: string;
-    name: string;
-    quantity: number;
-    weight: number;
-    price: number;
-  }>;
-  hubs: {
-    name: string;
-    city: string;
-  };
-  couriers: {
-    id: string;
-    name: string;
-    code: string;
-    api_enabled: boolean;
-  };
-}
+  sub_orders?: SubOrder[];
+};
 
 export function OrderDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const notification = useNotification();
-  
+
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+  const [order, setOrder] = useState<Order | null>(null);
+  const [subOrders, setSubOrders] = useState<SubOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creatingShipment, setCreatingShipment] = useState<Identifier | null>(null);
+  const [fetchingTracking, setFetchingTracking] = useState<Identifier | null>(null);
+
   const formatCurrency = (value?: number | null) => {
     const amount = typeof value === 'number' ? value : 0;
     return amount.toLocaleString();
   };
 
-  const [order, setOrder] = useState<Order | null>(null);
-  const [subOrders, setSubOrders] = useState<SubOrder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [creatingShipment, setCreatingShipment] = useState<string | null>(null);
-  const [fetchingTracking, setFetchingTracking] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchOrderDetails();
-  }, [id]);
-
   const fetchOrderDetails = async () => {
     try {
       const response = await fetch(`${apiBase}/api/orders/${id}`);
       const data = await response.json();
-      
+
       if (data.success) {
         setOrder(data.data);
         setSubOrders(data.data.sub_orders || []);
@@ -90,9 +110,14 @@ export function OrderDetailsPage() {
     }
   };
 
-  const createCourierShipment = async (subOrderId: string) => {
+  useEffect(() => {
+    fetchOrderDetails();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const createCourierShipment = async (subOrderId: Identifier) => {
     setCreatingShipment(subOrderId);
-    
+
     try {
       const response = await fetch(`${apiBase}/.netlify/functions/fez-create-shipment`, {
         method: 'POST',
@@ -100,41 +125,58 @@ export function OrderDetailsPage() {
         body: JSON.stringify({ subOrderId }),
       });
 
+      if (!response.ok) {
+        const txt = await response.text();
+        throw new Error(txt || 'Failed to create shipment');
+      }
+
       const data = await response.json();
 
       if (data.success) {
-        notification.success(
-          'Shipment Created!',
-          `Tracking: ${data.data.tracking_number}`
+        notification.success('Shipment Created!', `Tracking: ${data.data.tracking_number}`);
+
+        // instant UI update
+        setSubOrders((prev) =>
+          prev.map((so) =>
+            so.id === subOrderId
+              ? {
+                  ...so,
+                  tracking_number: data.data.tracking_number,
+                  courier_shipment_id: data.data.courier_shipment_id,
+                  courier_tracking_url: data.data.courier_tracking_url,
+                  status: 'assigned',
+                }
+              : so
+          )
         );
-        fetchOrderDetails();
+
+        await fetchOrderDetails();
       } else {
-        notification.error('Creation Failed', data.error || 'Unable to create shipment');
+        notification.error('Creation Failed', data.error || data.message || 'Unable to create shipment');
       }
     } catch (error) {
-      notification.error('Error', 'Failed to create shipment on courier platform');
+      console.error('Shipment Error', error);
+      notification.error('Error', error instanceof Error ? error.message : 'Failed to create shipment on courier platform');
     } finally {
       setCreatingShipment(null);
     }
   };
 
-  const fetchLiveTracking = async (subOrderId: string) => {
+  const fetchLiveTracking = async (subOrderId: Identifier) => {
     setFetchingTracking(subOrderId);
-    
+
     try {
       const response = await fetch(`${apiBase}/.netlify/functions/fez-fetch-tracking?subOrderId=${subOrderId}`);
       const data = await response.json();
 
       if (data.success) {
-        notification.success(
-          'Tracking Updated',
-          `Status: ${data.data.status || 'In Transit'}`
-        );
+        notification.success('Tracking Updated', `Status: ${data.data.status || 'In Transit'}`);
         fetchOrderDetails();
       } else {
         notification.error('Tracking Failed', data.error || 'Unable to fetch tracking');
       }
     } catch (error) {
+      console.error('Tracking error', error);
       notification.error('Error', 'Failed to fetch live tracking');
     } finally {
       setFetchingTracking(null);
@@ -162,14 +204,19 @@ export function OrderDetailsPage() {
   }
 
   const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
+    const colors: Record<KnownStatus, string> = {
       pending: 'bg-yellow-100 text-yellow-800',
+      assigned: 'bg-blue-100 text-blue-800',
+      picked_up: 'bg-blue-100 text-blue-800',
       processing: 'bg-blue-100 text-blue-800',
       in_transit: 'bg-purple-100 text-purple-800',
+      out_for_delivery: 'bg-orange-100 text-orange-800',
       delivered: 'bg-green-100 text-green-800',
+      failed: 'bg-red-100 text-red-800',
+      returned: 'bg-red-100 text-red-800',
       cancelled: 'bg-red-100 text-red-800',
     };
-    return colors[status] || 'bg-gray-100 text-gray-800';
+    return colors[status as KnownStatus] || 'bg-gray-100 text-gray-800';
   };
 
   return (
@@ -183,7 +230,7 @@ export function OrderDetailsPage() {
           <ArrowLeft className="w-5 h-5 mr-2" />
           Back to Orders
         </button>
-        
+
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">
@@ -257,7 +304,7 @@ export function OrderDetailsPage() {
       {/* Sub-Orders / Shipments */}
       <div className="mt-8">
         <h2 className="text-2xl font-bold mb-6">Shipments</h2>
-        
+
         <div className="space-y-4">
           {subOrders.map((subOrder) => (
             <div key={subOrder.id} className="card">
@@ -265,10 +312,10 @@ export function OrderDetailsPage() {
                 <div>
                   <h3 className="font-semibold text-lg flex items-center gap-2">
                     <Truck className="w-5 h-5 text-primary-600" />
-                    {subOrder.hubs?.name || 'Unknown Hub'} → {subOrder.couriers?.name || 'Courier'}
+                    {subOrder.hubs?.name || 'Unknown Hub'} - {subOrder.couriers?.name || 'Courier'}
                   </h3>
                   <p className="text-sm text-gray-600 mt-1">
-                    {subOrder.hubs?.city || 'Unknown City'} • Shipping: ₦{formatCurrency(subOrder.real_shipping_cost)}
+                    {subOrder.hubs?.city || 'Unknown City'} | Shipping: ₦{formatCurrency(subOrder.real_shipping_cost)}
                   </p>
                 </div>
                 <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(subOrder.status)}`}>
@@ -276,7 +323,7 @@ export function OrderDetailsPage() {
                 </span>
               </div>
 
-              {/* ITEMS TO PACK SECTION - FIXED WITH PRICES */}
+              {/* ITEMS TO PACK SECTION */}
               {subOrder.items && subOrder.items.length > 0 && (
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
                   <div className="flex items-center gap-2 mb-3">
@@ -289,27 +336,25 @@ export function OrderDetailsPage() {
                         <div className="flex-1">
                           <p className="font-medium text-gray-900">
                             <span className="inline-block bg-green-600 text-white text-xs font-bold px-2 py-1 rounded mr-2">
-                              {item.quantity}x
+                              {item.quantity ?? 0}x
                             </span>
                             {item.name}
                           </p>
                           <div className="text-xs text-gray-600 mt-1 space-y-1">
-                            <p>SKU: {item.sku}</p>
-                            <p>Weight: {item.weight}kg per unit</p>
-                            {/* ✅ FIXED: Show price per unit */}
-                            {item.price && (
+                            {item.sku && <p>SKU: {item.sku}</p>}
+                            {item.weight !== undefined && <p>Weight: {item.weight}kg per unit</p>}
+                            {item.price !== undefined && (
                               <p className="text-blue-600 font-semibold">
-                                ₦{item.price.toLocaleString()} per unit
+                                ₦{Number(item.price).toLocaleString()} per unit
                               </p>
                             )}
                           </div>
                         </div>
-                        {/* ✅ FIXED: Show total price */}
                         <div className="text-right ml-4">
-                          {item.price && (
+                          {item.price !== undefined && item.quantity !== undefined && (
                             <>
                               <p className="text-lg font-bold text-gray-900">
-                                ₦{(item.price * item.quantity).toLocaleString()}
+                                ₦{Number(item.price * item.quantity).toLocaleString()}
                               </p>
                               <p className="text-xs text-gray-600">Total</p>
                             </>
@@ -318,25 +363,29 @@ export function OrderDetailsPage() {
                       </div>
                     ))}
                   </div>
-                  
-                  {/* ✅ FIXED: Enhanced Summary with Prices */}
+
                   <div className="mt-3 pt-3 border-t border-green-200 space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="font-semibold text-green-900">Total Items:</span>
                       <span className="font-bold text-green-900">
-                        {subOrder.items.reduce((sum, item) => sum + item.quantity, 0)} pieces
+                        {subOrder.items.reduce((sum, item) => sum + (item.quantity || 0), 0)} pieces
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="font-semibold text-green-900">Total Weight:</span>
                       <span className="font-bold text-green-900">
-                        {subOrder.items.reduce((sum, item) => sum + (item.weight * item.quantity), 0).toFixed(2)}kg
+                        {subOrder.items
+                          .reduce((sum, item) => sum + (Number(item.weight || 0) * Number(item.quantity || 0)), 0)
+                          .toFixed(2)}
+                        kg
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="font-semibold text-green-900">Items Subtotal:</span>
                       <span className="font-bold text-lg text-green-900">
-                        ₦{subOrder.items.reduce((sum, item) => sum + (item.price * item.quantity), 0).toLocaleString()}
+                        ₦{subOrder.items
+                          .reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0), 0)
+                          .toLocaleString()}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
@@ -349,8 +398,10 @@ export function OrderDetailsPage() {
                       <span className="font-bold text-green-900">Sub-Order Total:</span>
                       <span className="font-bold text-xl text-green-600">
                         ₦{(
-                          subOrder.items.reduce((sum, item) => sum + (item.price * item.quantity), 0) + 
-                          (subOrder.real_shipping_cost || 0)
+                          subOrder.items.reduce(
+                            (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0),
+                            0
+                          ) + (subOrder.real_shipping_cost || 0)
                         ).toLocaleString()}
                       </span>
                     </div>

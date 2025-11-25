@@ -24,6 +24,7 @@ type KnownStatus =
   | 'delivered'
   | 'failed'
   | 'returned'
+  | 'cancelled'
   | 'processing';
 
 type Hub = {

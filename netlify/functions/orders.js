@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
 const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
 
 const headers = {
@@ -12,6 +13,60 @@ const headers = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
 };
 
+// =========================================================
+// HELPER – Fetch order with all nested relationships
+// =========================================================
+async function loadFullOrder(id) {
+  return supabase
+    .from('orders')
+    .select(`
+      *,
+      sub_orders (
+        id,
+        main_order_id,
+        hub_id,
+        courier_id,
+        status,
+        tracking_number,
+        courier_shipment_id,
+        courier_tracking_url,
+        last_tracking_update,
+        estimated_delivery_date,
+        real_shipping_cost,
+        allocated_shipping_fee,
+        items,
+        created_at,
+        
+        hubs (
+          id,
+          name,
+          city,
+          address,
+          state
+        ),
+        
+        couriers (
+          id,
+          name,
+          code,
+          api_enabled,
+          api_base_url
+        ),
+
+        tracking_events (
+          id,
+          status,
+          description,
+          location_name,
+          event_time,
+          created_at
+        )
+      )
+    `)
+    .eq('id', id)
+    .single();
+}
+
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
@@ -20,27 +75,26 @@ export async function handler(event) {
   const parts = event.path.split('/');
   const idx = parts.findIndex((p) => p === 'orders');
   const id = idx >= 0 && parts.length > idx + 1 ? parts[idx + 1] : undefined;
-  const tail = idx >= 0 && parts.length > idx + 2 ? parts[idx + 2] : undefined; // e.g., 'status'
+  const tail = idx >= 0 && parts.length > idx + 2 ? parts[idx + 2] : undefined;
 
   try {
+    // =====================================================
+    // GET /api/orders/:id — get one order with suborders
+    // =====================================================
     if (event.httpMethod === 'GET' && id) {
-      const { data, error } = await supabase
-        .from('orders')
-        .select(`
-          *,
-          sub_orders(
-            *,
-            hubs(id, name, city),
-            couriers(id, name, code, api_enabled),
-            tracking_events(*)
-          )
-        `)
-        .eq('id', id)
-        .single();
+      const { data, error } = await loadFullOrder(id);
       if (error) throw error;
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data }) };
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true, data })
+      };
     }
 
+    // =====================================================
+    // GET /api/orders — list orders
+    // =====================================================
     if (event.httpMethod === 'GET') {
       const url = new URL(event.rawUrl);
       const limit = Number(url.searchParams.get('limit') || 50);
@@ -51,11 +105,23 @@ export async function handler(event) {
         .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
+
       if (error) throw error;
-      const body = JSON.stringify({ success: true, data: orders || [], pagination: { total: count, limit, offset } });
-      return { statusCode: 200, headers, body };
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          data: orders || [],
+          pagination: { total: count, limit, offset }
+        })
+      };
     }
 
+    // =====================================================
+    // POST /api/orders — create WC → JLO order
+    // =====================================================
     if (event.httpMethod === 'POST') {
       const payload = JSON.parse(event.body || '{}');
 
@@ -75,6 +141,7 @@ export async function handler(event) {
         overall_status: payload.overall_status || 'pending'
       };
 
+      // INSERT Order
       const { data: order, error: orderError } = await supabase
         .from('orders')
         .insert([orderInsert])
@@ -82,20 +149,18 @@ export async function handler(event) {
         .single();
       if (orderError) throw orderError;
 
+      // Process shipping breakdown → create sub_orders
       const shippingBreakdown = Array.isArray(payload.shipping_breakdown)
         ? payload.shipping_breakdown
         : [];
 
       if (shippingBreakdown.length > 0) {
-        const hubIds = Array.from(
-          new Set(
-            shippingBreakdown
-              .map((b) => b.hubId || b.hub_id || null)
-              .filter((hubId) => !!hubId)
-          )
-        );
+        const hubIds = [
+          ...new Set(shippingBreakdown.map((b) => b.hubId || b.hub_id).filter(Boolean))
+        ];
 
         let hubCourierMap = {};
+
         if (hubIds.length > 0) {
           const { data: hubCouriers } = await supabase
             .from('hub_couriers')
@@ -105,7 +170,7 @@ export async function handler(event) {
             .order('priority', { ascending: false });
 
           (hubCouriers || []).forEach((row) => {
-            if (row?.hub_id && row?.courier_id && !hubCourierMap[row.hub_id]) {
+            if (row.hub_id && row.courier_id && !hubCourierMap[row.hub_id]) {
               hubCourierMap[row.hub_id] = row.courier_id;
             }
           });
@@ -116,7 +181,7 @@ export async function handler(event) {
           const courierId =
             b.courierId ||
             b.courier_id ||
-            (hubId ? hubCourierMap[hubId] : null) ||
+            hubCourierMap[hubId] ||
             null;
 
           return {
@@ -124,9 +189,10 @@ export async function handler(event) {
             hub_id: hubId,
             courier_id: courierId,
             status: 'pending',
-            tracking_number: `${(b.courierName || 'CR').substring(0, 3).toUpperCase()}-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
+            tracking_number: null, // FEZ will generate it later
+            courier_shipment_id: null,
+            courier_tracking_url: null,
             items: b.items || [],
-            subtotal: 0,
             real_shipping_cost: b.totalShippingFee || 0,
             allocated_shipping_fee: b.totalShippingFee || 0
           };
@@ -137,7 +203,8 @@ export async function handler(event) {
           .insert(subOrdersData)
           .select();
 
-        if (subOrders && subOrders.length > 0) {
+        // Insert initial tracking events
+        if (subOrders?.length > 0) {
           const trackingEvents = subOrders.map((s) => ({
             sub_order_id: s.id,
             status: 'pending',
@@ -145,22 +212,42 @@ export async function handler(event) {
             location_name: 'Processing Center',
             event_time: new Date().toISOString()
           }));
+
           await supabase.from('tracking_events').insert(trackingEvents);
         }
       }
 
-      return { statusCode: 201, headers, body: JSON.stringify({ success: true, data: order, message: 'Order created successfully' }) };
+      return {
+        statusCode: 201,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          data: order,
+          message: 'Order created successfully'
+        })
+      };
     }
 
-    // Update order status: /api/orders/:id/status
+    // =====================================================
+    // PUT /api/orders/:id/status — update status
+    // =====================================================
     if (event.httpMethod === 'PUT' && id && tail === 'status') {
       const payload = JSON.parse(event.body || '{}');
       const updateData = {};
-      if (payload.overall_status !== undefined) updateData.overall_status = payload.overall_status;
-      if (payload.payment_status !== undefined) updateData.payment_status = payload.payment_status;
+
+      if (payload.overall_status !== undefined)
+        updateData.overall_status = payload.overall_status;
+      if (payload.payment_status !== undefined)
+        updateData.payment_status = payload.payment_status;
+
       if (Object.keys(updateData).length === 0) {
-        return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'No fields to update' }) };
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ success: false, error: 'No fields to update' })
+        };
       }
+
       const { data, error } = await supabase
         .from('orders')
         .update(updateData)
@@ -168,9 +255,17 @@ export async function handler(event) {
         .select()
         .single();
       if (error) throw error;
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data, message: 'Status updated' }) };
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true, data, message: 'Status updated' })
+      };
     }
 
+    // =====================================================
+    // DELETE order + suborders + tracking events
+    // =====================================================
     if (event.httpMethod === 'DELETE' && id) {
       const { data: subOrders, error: subOrdersError } = await supabase
         .from('sub_orders')
@@ -179,22 +274,11 @@ export async function handler(event) {
 
       if (subOrdersError) throw subOrdersError;
 
-      const subOrderIds = subOrders?.map((sub) => sub.id) || [];
+      const subOrderIds = subOrders?.map((s) => s.id) || [];
 
       if (subOrderIds.length > 0) {
-        const { error: trackingError } = await supabase
-          .from('tracking_events')
-          .delete()
-          .in('sub_order_id', subOrderIds);
-
-        if (trackingError) throw trackingError;
-
-        const { error: subsDeleteError } = await supabase
-          .from('sub_orders')
-          .delete()
-          .in('id', subOrderIds);
-
-        if (subsDeleteError) throw subsDeleteError;
+        await supabase.from('tracking_events').delete().in('sub_order_id', subOrderIds);
+        await supabase.from('sub_orders').delete().in('id', subOrderIds);
       }
 
       const { data: deletedOrder, error } = await supabase
@@ -209,16 +293,32 @@ export async function handler(event) {
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ success: true, data: deletedOrder, message: 'Order deleted' })
+        body: JSON.stringify({
+          success: true,
+          data: deletedOrder,
+          message: 'Order deleted'
+        })
       };
     }
 
-    return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };
+    // Default – method not allowed
+    return {
+      statusCode: 405,
+      headers,
+      body: JSON.stringify({ success: false, error: 'Method Not Allowed' })
+    };
+
   } catch (e) {
+    console.error('ORDER FUNCTION ERROR:', e);
+
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ success: false, error: 'Failed to handle orders' })
+      body: JSON.stringify({
+        success: false,
+        error: 'Failed to handle orders',
+        message: e?.message || 'Unknown error'
+      })
     };
   }
 }

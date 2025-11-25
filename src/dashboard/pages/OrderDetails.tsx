@@ -15,7 +15,16 @@ import { useNotification } from '../contexts/NotificationContext';
 import { TrackingTimeline, type TrackingEvent } from '../../components/TrackingTimeline';
 
 type Identifier = string | number;
-type KnownStatus = 'pending' | 'processing' | 'in_transit' | 'pending_pickup' | 'delivered' | 'cancelled';
+type KnownStatus =
+  | 'pending'
+  | 'assigned'
+  | 'picked_up'
+  | 'in_transit'
+  | 'out_for_delivery'
+  | 'delivered'
+  | 'failed'
+  | 'returned'
+  | 'processing';
 
 type Hub = {
   name?: string;
@@ -128,7 +137,7 @@ export function OrderDetailsPage() {
                   tracking_number: track,
                   courier_waybill: track,
                   courier_tracking_url: url,
-                  status: "pending_pickup",
+                  status: "assigned",
                 }
               : so
           )
@@ -243,10 +252,14 @@ export function OrderDetailsPage() {
   const getStatusColor = (status: string) => {
     const colors: Record<KnownStatus, string> = {
       pending: 'bg-yellow-100 text-yellow-800',
+      assigned: 'bg-blue-100 text-blue-800',
+      picked_up: 'bg-blue-100 text-blue-800',
       processing: 'bg-blue-100 text-blue-800',
       in_transit: 'bg-purple-100 text-purple-800',
-      pending_pickup: 'bg-orange-100 text-orange-800',
+      out_for_delivery: 'bg-orange-100 text-orange-800',
       delivered: 'bg-green-100 text-green-800',
+      failed: 'bg-red-100 text-red-800',
+      returned: 'bg-red-100 text-red-800',
       cancelled: 'bg-red-100 text-red-800',
     };
     return colors[status as KnownStatus] || 'bg-gray-100 text-gray-800';

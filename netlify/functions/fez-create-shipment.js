@@ -214,21 +214,40 @@ exports.handler = async (event) => {
     );
 
     // Update suborder
-    const { error: updateError } = await supabase
+    const { data: updatedRows, error: updateError } = await supabase
       .from("sub_orders")
       .update({
         tracking_number: trackingNumber,
         courier_waybill: trackingNumber,
-        status: "pending_pickup"
+        status: "assigned"
       })
-      .eq("id", subOrderId);
+      .eq("id", subOrderId)
+      .select("id")
+      .single();
 
     if (updateError) {
       console.error("Sub-order update error:", updateError);
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ success: false, error: "Failed to save tracking number" })
+        body: JSON.stringify({
+          success: false,
+          error: "Failed to save tracking number",
+          details: updateError?.message,
+          code: updateError?.code
+        })
+      };
+    }
+
+    if (!updatedRows?.id) {
+      console.error("Sub-order update returned empty data");
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: "Sub-order not found when saving tracking number"
+        })
       };
     }
 

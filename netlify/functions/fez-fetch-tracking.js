@@ -103,9 +103,11 @@ exports.handler = async (event) => {
   }
 
   try {
-    // Get subOrderId from URL path
+    // Prefer query param ?subOrderId=... (front-end calls)
+    const querySubOrderId = event.queryStringParameters?.subOrderId;
     const pathParts = event.path.split('/');
-    const subOrderId = pathParts[pathParts.length - 1];
+    const pathSubOrderId = pathParts[pathParts.length - 1];
+    const subOrderId = querySubOrderId || pathSubOrderId;
 
     if (!subOrderId) {
       return {

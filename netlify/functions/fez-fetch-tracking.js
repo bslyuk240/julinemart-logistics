@@ -138,11 +138,11 @@ exports.handler = async (event) => {
       throw new Error('Sub-order not found');
     }
 
-    // Prefer the Fez order code (tracking_number/waybill), fallback to courier_shipment_id
+    // Prefer the FEZ tracking UUID, then order code/waybill
     const rawTracking =
+      subOrder.courier_shipment_id ||
       subOrder.tracking_number ||
-      subOrder.courier_waybill ||
-      subOrder.courier_shipment_id;
+      subOrder.courier_waybill;
 
     // 2. Check if tracking number exists
     if (!rawTracking) {

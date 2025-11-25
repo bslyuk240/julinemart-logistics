@@ -107,6 +107,11 @@ export function OrderDetailsPage() {
         body: JSON.stringify({ subOrderId }),
       });
 
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || 'Failed to create shipment');
+      }
+
       const data = await response.json();
 
       if (data.success) {
@@ -132,12 +137,12 @@ export function OrderDetailsPage() {
         await fetchOrderDetails();
 
       } else {
-        notification.error('Creation Failed', data.message || data.error);
+        notification.error('Creation Failed', data.message || data.error || 'Unknown error');
       }
 
     } catch (error) {
       console.error("Shipment Error", error);
-      notification.error("Error", "Failed to create shipment on FEZ");
+      notification.error("Error", error instanceof Error ? error.message : "Failed to create shipment on FEZ");
     } finally {
       setCreatingShipment(null);
     }

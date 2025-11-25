@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import PDFDocument from 'pdfkit';
-import { Readable } from 'stream';
+import { PassThrough } from 'stream';
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -37,12 +37,8 @@ export async function handler(event) {
     // Generate PDF
     const doc = new PDFDocument({ margin: 40 });
     const chunks = [];
-    const stream = doc.pipe(new Readable({
-      read() {}
-    }));
-
-    stream.on('data', chunk => chunks.push(chunk));
-    stream.on('end', () => {});
+    const stream = new PassThrough();
+    doc.pipe(stream);
 
     doc.fontSize(22).text('WAYBILL', { align: 'center' });
     doc.moveDown();
@@ -59,13 +55,18 @@ export async function handler(event) {
     doc.moveDown();
 
     doc.text("Items:", { underline: true });
-    subOrder.items.forEach(item => {
+    (subOrder.items || []).forEach(item => {
       doc.text(
-        `${item.quantity}x ${item.name} (${item.weight}kg) - ₦${item.price?.toLocaleString()}`
+        `${item.quantity}x ${item.name} (${item.weight}kg) - NGN ${Number(item.price || 0).toLocaleString()}`
       );
     });
 
-    doc.end();
+    const pdfBuffer = await new Promise((resolve, reject) => {
+      stream.on('data', chunk => chunks.push(chunk));
+      stream.on('end', () => resolve(Buffer.concat(chunks)));
+      stream.on('error', reject);
+      doc.end();
+    });
 
     return {
       statusCode: 200,
@@ -73,7 +74,7 @@ export async function handler(event) {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="waybill-${subOrderId}.pdf"`
       },
-      body: Buffer.concat(chunks).toString("base64"),
+      body: pdfBuffer.toString("base64"),
       isBase64Encoded: true
     };
 
@@ -85,3 +86,5 @@ export async function handler(event) {
     };
   }
 }
+
+

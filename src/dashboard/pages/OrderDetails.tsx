@@ -183,7 +183,8 @@ export function OrderDetailsPage() {
     }
   };
 
-  const downloadLabel = (labelUrl: string) => {
+  const downloadLabel = (labelUrl?: string) => {
+    if (!labelUrl) return;
     window.open(labelUrl, '_blank');
   };
 

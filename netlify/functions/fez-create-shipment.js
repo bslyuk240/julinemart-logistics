@@ -1,4 +1,4 @@
-// Fez Delivery - Create Shipment Function (WORKS WITH BOTH FEZ_PASSWORD AND FEZ_API_KEY)
+// Fez Delivery - Create Shipment Function
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -13,12 +13,8 @@ const headers = {
   "Content-Type": "application/json"
 };
 
-// ------------------------------------------------------
-// AUTHENTICATE FEZ
-// ------------------------------------------------------
 async function authenticateFez() {
   const FEZ_USER_ID = process.env.FEZ_USER_ID;
-  // ✅ FIXED: Support BOTH FEZ_PASSWORD and FEZ_API_KEY
   const FEZ_API_KEY = process.env.FEZ_PASSWORD || process.env.FEZ_API_KEY;
   const FEZ_API_BASE_URL = process.env.FEZ_API_BASE_URL;
 
@@ -49,9 +45,7 @@ async function authenticateFez() {
   };
 }
 
-// ------------------------------------------------------
-// CREATE SHIPMENT ON FEZ (Handles false error responses)
-// ------------------------------------------------------
+// Create shipment on FEZ, handling the "order already exists" false errors
 async function createFezShipment(authToken, secretKey, baseUrl, shipmentData) {
   const res = await fetch(`${baseUrl}/order`, {
     method: "POST",
@@ -66,28 +60,28 @@ async function createFezShipment(authToken, secretKey, baseUrl, shipmentData) {
   const data = await res.json();
   console.log("FEZ ORDER RESPONSE:", data);
 
-  // ✅ FIXED: Return BOTH Order ID and Tracking Number
-  // If FEZ says Success -> perfect
+  // Normal success
   if (data.status === "Success") {
-    const orderId = Object.values(data.orderNos)[0]; // ROY625112539
-    const trackingId = Object.keys(data.orderNos)[0]; // ed2f5924-... 
-    return { 
-      orderId,      // The one customers see on Fez
-      trackingId    // The UUID for tracking
-    };
+    const orderId = Object.values(data.orderNos || {})[0];
+    const trackingId = Object.keys(data.orderNos || {})[0];
+    return { orderId, trackingId };
   }
 
-  // If FEZ says ERROR but orderNos contains data -> check if it's a real error or false positive
-  if (data.orderNos && Object.keys(data.orderNos).length > 0) {
-    const trackingId = Object.keys(data.orderNos)[0];
-    const orderId = Object.values(data.orderNos)[0];
-    
-    // Check if the orderId is actually an error message
-    if (orderId && orderId.toLowerCase().includes('error')) {
+  // False errors with orderNos populated (duplicates etc.)
+  if (data.orderNos && Object.keys(data.orderNos || {}).length > 0) {
+    const trackingId = Object.keys(data.orderNos || {})[0];
+    let orderId = Object.values(data.orderNos || {})[0];
+
+    if (typeof orderId === "string" && orderId.toLowerCase().includes("already exists")) {
+      const match = orderId.match(/order\s+([A-Za-z0-9_-]+)/i);
+      if (match) orderId = match[1];
+    }
+
+    if (typeof orderId === "string" && orderId.toLowerCase().includes("error") && !String(orderId).match(/order\s+[A-Za-z0-9_-]+/i)) {
       throw new Error(orderId);
     }
-    
-    console.log("FEZ FALSE ERROR – ORDER ACTUALLY CREATED.");
+
+    console.log("FEZ FALSE ERROR - ORDER ACTUALLY CREATED.");
     return { orderId, trackingId };
   }
 
@@ -95,9 +89,6 @@ async function createFezShipment(authToken, secretKey, baseUrl, shipmentData) {
   throw new Error(data.description || "Error creating orders");
 }
 
-// ------------------------------------------------------
-// HANDLER
-// ------------------------------------------------------
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 200, headers, body: "" };
@@ -130,7 +121,6 @@ exports.handler = async (event) => {
       };
     }
 
-    // ✅ FIXED: Items are stored as JSONB in sub_orders.items column
     const { data: subOrder, error } = await supabase
       .from("sub_orders")
       .select(`
@@ -163,20 +153,8 @@ exports.handler = async (event) => {
       };
     }
 
-    console.log("SUB-ORDER FETCHED:", {
-      id: subOrder.id,
-      itemsRaw: subOrder.items,
-      itemCount: Array.isArray(subOrder.items) ? subOrder.items.length : 0
-    });
-
-    // ----------------------------------------------
-    // PREVENT DUPLICATE SHIPMENTS
-    // Only check courier_shipment_id (the UUID from Fez)
-    // Ignore placeholder tracking numbers from webhook
-    // ----------------------------------------------
+    // Already has a shipment
     if (subOrder.courier_shipment_id) {
-      console.log("Shipment already exists:", subOrder.tracking_number, subOrder.courier_shipment_id);
-
       return {
         statusCode: 200,
         headers,
@@ -192,13 +170,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // ----------------------------------------------
-    // FEZ AUTH
-    // ----------------------------------------------
-    const { authToken, secretKey, baseUrl } = await authenticateFez();
-
-    // ✅ FIXED: Items are stored as JSONB in sub_orders.items
-    // Handle both parsed JSON array and JSON string
+    // Parse items (JSONB or string)
     let items = [];
     if (Array.isArray(subOrder.items)) {
       items = subOrder.items;
@@ -210,8 +182,6 @@ exports.handler = async (event) => {
         items = [];
       }
     }
-    
-    console.log("ITEMS TO SHIP:", items);
 
     const totalWeight = items.reduce(
       (sum, i) => sum + (Number(i.weight || 0) * Number(i.quantity || 1)),
@@ -222,18 +192,20 @@ exports.handler = async (event) => {
       (sum, i) => sum + (Number(i.price || 0) * Number(i.quantity || 1)),
       0
     );
+
     const shippingValue = Math.round(
       (itemsValue || Number(subOrder.real_shipping_cost ?? subOrder.allocated_shipping_fee ?? subOrder.shipping_fee_paid ?? 0)) + 1000
     );
 
-    // Build shipment
+    const { authToken, secretKey, baseUrl } = await authenticateFez();
+
     const shipmentData = {
       recipientAddress: subOrder.orders?.delivery_address || "",
       recipientState: subOrder.orders?.delivery_state || "",
       recipientName: subOrder.orders?.customer_name || "",
       recipientPhone: subOrder.orders?.customer_phone || "",
       recipientEmail: subOrder.orders?.customer_email || "",
-      uniqueID: subOrder.id, // FEZ unique ID
+      uniqueID: subOrder.id,
       BatchID: subOrder.orders?.id || subOrder.id,
       itemDescription: items.map(i => `${i.quantity}x ${i.name}`).join(", "),
       valueOfItem: String(shippingValue),
@@ -245,7 +217,6 @@ exports.handler = async (event) => {
 
     console.log("FINAL SHIPMENT SENT TO FEZ:", shipmentData);
 
-    // ✅ FIXED: Get both Order ID and Tracking ID
     const { orderId, trackingId } = await createFezShipment(
       authToken,
       secretKey,
@@ -253,14 +224,12 @@ exports.handler = async (event) => {
       shipmentData
     );
 
-    console.log("FEZ SHIPMENT CREATED:", { orderId, trackingId });
-
-    // ✅ FIXED: Update suborder with BOTH IDs
+    // Update suborder with returned IDs
     const { data: updatedRows, error: updateError } = await supabase
       .from("sub_orders")
       .update({
-        tracking_number: orderId,           // ROY625112539 (customer-facing)
-        courier_shipment_id: trackingId,    // ed2f5924-... (internal tracking)
+        tracking_number: orderId,
+        courier_shipment_id: trackingId,
         courier_waybill: orderId,
         status: "assigned"
       })
@@ -283,7 +252,6 @@ exports.handler = async (event) => {
     }
 
     if (!updatedRows?.id) {
-      console.error("Sub-order update returned empty data");
       return {
         statusCode: 404,
         headers,
@@ -294,7 +262,6 @@ exports.handler = async (event) => {
       };
     }
 
-    // Log activity
     await supabase.from("activity_logs").insert({
       user_id: null,
       action: "courier_shipment_created",
@@ -313,9 +280,9 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         success: true,
         data: {
-          tracking_number: orderId,          // Customer-facing number
-          courier_shipment_id: trackingId,   // Internal tracking ID
-          courier_tracking_url: `https://b2b-dev.fezdelivery.co/dashboard/print-manifest`,
+          tracking_number: orderId,
+          courier_shipment_id: trackingId,
+          courier_tracking_url: `${baseUrl}/order/track/${trackingId || orderId}`,
           message: "Shipment created successfully on Fez Delivery"
         }
       })

@@ -138,8 +138,10 @@ exports.handler = async (event) => {
       throw new Error('Sub-order not found');
     }
 
+    const rawTracking = subOrder.tracking_number || subOrder.courier_waybill;
+
     // 2. Check if tracking number exists
-    if (!subOrder.tracking_number) {
+    if (!rawTracking) {
       return {
         statusCode: 400,
         headers,
@@ -148,6 +150,15 @@ exports.handler = async (event) => {
           error: 'No tracking number found. Please create shipment first.',
         }),
       };
+    }
+
+    // Clean tracking number for FEZ: strip "already exists" message, fallback to order code
+    let trackingNumber = rawTracking;
+    if (typeof trackingNumber === 'string' && trackingNumber.toLowerCase().includes('already exists')) {
+      const match = trackingNumber.match(/order\s+([A-Za-z0-9_-]+)/i);
+      if (match) {
+        trackingNumber = match[1];
+      }
     }
 
     // 3. Check courier credentials
@@ -175,12 +186,12 @@ exports.handler = async (event) => {
     );
 
     // 6. Fetch tracking
-    console.log('Fetching tracking for:', subOrder.tracking_number);
+    console.log('Fetching tracking for:', trackingNumber);
     const trackingData = await fetchFezTracking(
       authToken,
       secretKey,
       baseUrl,
-      subOrder.tracking_number
+      trackingNumber
     );
 
     // 7. Map status

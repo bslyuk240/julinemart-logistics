@@ -368,7 +368,7 @@ export function OrderDetailsPage() {
                     </span>
                   </div>
 
-                  {!subOrder.courier_shipment_id && !subOrder.tracking_number?.startsWith('ROY') ? (
+                  {!subOrder.courier_shipment_id ? (
                     <button
                       onClick={() => createCourierShipment(subOrder.id)}
                       disabled={creatingShipment === subOrder.id}

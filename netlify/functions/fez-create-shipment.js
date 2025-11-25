@@ -77,11 +77,17 @@ async function createFezShipment(authToken, secretKey, baseUrl, shipmentData) {
     };
   }
 
-  // If FEZ says ERROR but orderNos contains data -> treat as success
+  // If FEZ says ERROR but orderNos contains data -> check if it's a real error or false positive
   if (data.orderNos && Object.keys(data.orderNos).length > 0) {
-    console.log("FEZ FALSE ERROR – ORDER ACTUALLY CREATED.");
     const trackingId = Object.keys(data.orderNos)[0];
     const orderId = Object.values(data.orderNos)[0];
+    
+    // Check if the orderId is actually an error message
+    if (orderId && orderId.toLowerCase().includes('error')) {
+      throw new Error(orderId);
+    }
+    
+    console.log("FEZ FALSE ERROR – ORDER ACTUALLY CREATED.");
     return { orderId, trackingId };
   }
 
@@ -165,9 +171,11 @@ exports.handler = async (event) => {
 
     // ----------------------------------------------
     // PREVENT DUPLICATE SHIPMENTS
+    // Only check courier_shipment_id (the UUID from Fez)
+    // Ignore placeholder tracking numbers from webhook
     // ----------------------------------------------
-    if (subOrder.tracking_number) {
-      console.log("Shipment already exists:", subOrder.tracking_number);
+    if (subOrder.courier_shipment_id) {
+      console.log("Shipment already exists:", subOrder.tracking_number, subOrder.courier_shipment_id);
 
       return {
         statusCode: 200,

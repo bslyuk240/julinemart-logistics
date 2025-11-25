@@ -138,11 +138,11 @@ exports.handler = async (event) => {
       throw new Error('Sub-order not found');
     }
 
-    // Prefer FEZ tracking UUID if available, else order/waybill number
+    // Prefer the Fez order code (tracking_number/waybill), fallback to courier_shipment_id
     const rawTracking =
-      subOrder.courier_shipment_id ||
       subOrder.tracking_number ||
-      subOrder.courier_waybill;
+      subOrder.courier_waybill ||
+      subOrder.courier_shipment_id;
 
     // 2. Check if tracking number exists
     if (!rawTracking) {
@@ -157,13 +157,16 @@ exports.handler = async (event) => {
     }
 
     // Clean tracking number for FEZ: strip "already exists" message, fallback to order code
-    let trackingNumber = rawTracking;
-    if (typeof trackingNumber === 'string' && trackingNumber.toLowerCase().includes('already exists')) {
-      const match = trackingNumber.match(/order\s+([A-Za-z0-9_-]+)/i);
-      if (match) {
-        trackingNumber = match[1];
+    const extractOrderCode = (val) => {
+      if (typeof val !== 'string') return val;
+      if (val.toLowerCase().includes('already exists')) {
+        const match = val.match(/order\s+([A-Za-z0-9_-]+)/i);
+        if (match) return match[1];
       }
-    }
+      return val;
+    };
+
+    let trackingNumber = extractOrderCode(rawTracking);
 
     // 3. Check courier credentials
     const courier = subOrder.couriers;

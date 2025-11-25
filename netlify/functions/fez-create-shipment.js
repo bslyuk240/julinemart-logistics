@@ -218,8 +218,12 @@ exports.handler = async (event) => {
       0
     );
 
+    const itemsValue = items.reduce(
+      (sum, i) => sum + (Number(i.price || 0) * Number(i.quantity || 1)),
+      0
+    );
     const shippingValue = Math.round(
-      Number(subOrder.real_shipping_cost ?? subOrder.allocated_shipping_fee ?? subOrder.shipping_fee_paid ?? 0) + 1000
+      (itemsValue || Number(subOrder.real_shipping_cost ?? subOrder.allocated_shipping_fee ?? subOrder.shipping_fee_paid ?? 0)) + 1000
     );
 
     // Build shipment

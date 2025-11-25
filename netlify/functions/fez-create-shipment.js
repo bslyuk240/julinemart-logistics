@@ -1,4 +1,4 @@
-// Fez Delivery - Create Shipment Function (Final Stable Version)
+// Fez Delivery - Create Shipment Function (WORKS WITH BOTH FEZ_PASSWORD AND FEZ_API_KEY)
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -18,10 +18,11 @@ const headers = {
 // ------------------------------------------------------
 async function authenticateFez() {
   const FEZ_USER_ID = process.env.FEZ_USER_ID;
-  const FEZ_PASSWORD = process.env.FEZ_PASSWORD;
+  // ✅ FIXED: Support BOTH FEZ_PASSWORD and FEZ_API_KEY
+  const FEZ_API_KEY = process.env.FEZ_PASSWORD || process.env.FEZ_API_KEY;
   const FEZ_API_BASE_URL = process.env.FEZ_API_BASE_URL;
 
-  if (!FEZ_USER_ID || !FEZ_PASSWORD || !FEZ_API_BASE_URL) {
+  if (!FEZ_USER_ID || !FEZ_API_KEY || !FEZ_API_BASE_URL) {
     throw new Error("Missing Fez API environment variables");
   }
 
@@ -30,7 +31,7 @@ async function authenticateFez() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       user_id: FEZ_USER_ID,
-      password: FEZ_PASSWORD
+      password: FEZ_API_KEY
     })
   });
 
@@ -65,17 +66,23 @@ async function createFezShipment(authToken, secretKey, baseUrl, shipmentData) {
   const data = await res.json();
   console.log("FEZ ORDER RESPONSE:", data);
 
+  // ✅ FIXED: Return BOTH Order ID and Tracking Number
   // If FEZ says Success -> perfect
   if (data.status === "Success") {
-    const trackingNumber = Object.values(data.orderNos)[0];
-    return { trackingNumber };
+    const orderId = Object.values(data.orderNos)[0]; // ROY625112539
+    const trackingId = Object.keys(data.orderNos)[0]; // ed2f5924-... 
+    return { 
+      orderId,      // The one customers see on Fez
+      trackingId    // The UUID for tracking
+    };
   }
 
   // If FEZ says ERROR but orderNos contains data -> treat as success
   if (data.orderNos && Object.keys(data.orderNos).length > 0) {
     console.log("FEZ FALSE ERROR – ORDER ACTUALLY CREATED.");
-    const trackingNumber = Object.keys(data.orderNos)[0];
-    return { trackingNumber };
+    const trackingId = Object.keys(data.orderNos)[0];
+    const orderId = Object.values(data.orderNos)[0];
+    return { orderId, trackingId };
   }
 
   // Real error
@@ -117,7 +124,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // Fetch suborder
+    // ✅ FIXED: Fetch suborder WITH ITEMS
     const { data: subOrder, error } = await supabase
       .from("sub_orders")
       .select(`
@@ -136,6 +143,14 @@ exports.handler = async (event) => {
           address,
           city,
           state
+        ),
+        sub_order_items (
+          id,
+          sku,
+          name,
+          quantity,
+          weight,
+          price
         )
       `)
       .eq("id", subOrderId)
@@ -150,6 +165,11 @@ exports.handler = async (event) => {
       };
     }
 
+    console.log("SUB-ORDER FETCHED WITH ITEMS:", {
+      id: subOrder.id,
+      itemCount: subOrder.sub_order_items?.length || 0
+    });
+
     // ----------------------------------------------
     // PREVENT DUPLICATE SHIPMENTS
     // ----------------------------------------------
@@ -163,6 +183,7 @@ exports.handler = async (event) => {
           success: true,
           data: {
             tracking_number: subOrder.tracking_number,
+            courier_shipment_id: subOrder.courier_shipment_id,
             courier_tracking_url: subOrder.courier_tracking_url,
             message: "Shipment already exists. Returning saved tracking number."
           }
@@ -175,8 +196,11 @@ exports.handler = async (event) => {
     // ----------------------------------------------
     const { authToken, secretKey, baseUrl } = await authenticateFez();
 
-    // Items
-    const items = Array.isArray(subOrder.items) ? subOrder.items : [];
+    // ✅ FIXED: Use sub_order_items instead of items
+    const items = Array.isArray(subOrder.sub_order_items) ? subOrder.sub_order_items : [];
+    
+    console.log("ITEMS TO SHIP:", items);
+
     const totalWeight = items.reduce(
       (sum, i) => sum + (Number(i.weight || 0) * Number(i.quantity || 1)),
       0
@@ -205,20 +229,23 @@ exports.handler = async (event) => {
 
     console.log("FINAL SHIPMENT SENT TO FEZ:", shipmentData);
 
-    // Create shipment
-    const { trackingNumber } = await createFezShipment(
+    // ✅ FIXED: Get both Order ID and Tracking ID
+    const { orderId, trackingId } = await createFezShipment(
       authToken,
       secretKey,
       baseUrl,
       shipmentData
     );
 
-    // Update suborder
+    console.log("FEZ SHIPMENT CREATED:", { orderId, trackingId });
+
+    // ✅ FIXED: Update suborder with BOTH IDs
     const { data: updatedRows, error: updateError } = await supabase
       .from("sub_orders")
       .update({
-        tracking_number: trackingNumber,
-        courier_waybill: trackingNumber,
+        tracking_number: orderId,           // ROY625112539 (customer-facing)
+        courier_shipment_id: trackingId,    // ed2f5924-... (internal tracking)
+        courier_waybill: orderId,
         status: "assigned"
       })
       .eq("id", subOrderId)
@@ -257,7 +284,11 @@ exports.handler = async (event) => {
       action: "courier_shipment_created",
       resource_type: "sub_order",
       resource_id: subOrderId,
-      details: { courier: "fez", tracking: trackingNumber }
+      details: { 
+        courier: "fez", 
+        order_id: orderId,
+        tracking_id: trackingId 
+      }
     });
 
     return {
@@ -266,8 +297,9 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         success: true,
         data: {
-          tracking_number: trackingNumber,
-          courier_tracking_url: `${baseUrl}/order/track/${trackingNumber}`,
+          tracking_number: orderId,          // Customer-facing number
+          courier_shipment_id: trackingId,   // Internal tracking ID
+          courier_tracking_url: `https://b2b-dev.fezdelivery.co/dashboard/print-manifest`,
           message: "Shipment created successfully on Fez Delivery"
         }
       })

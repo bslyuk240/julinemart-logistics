@@ -194,6 +194,11 @@ export function OrderDetailsPage() {
     return match ? match[1] : value;
   };
 
+  const getDisplayTracking = (subOrder: SubOrder) => {
+    const primary = extractOrderCode(subOrder.tracking_number || subOrder.courier_waybill);
+    return primary || subOrder.courier_shipment_id || subOrder.tracking_number || subOrder.courier_waybill;
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -449,9 +454,7 @@ export function OrderDetailsPage() {
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
                           <span className="text-gray-600">Courier Tracking:</span>
-                          <p className="font-medium">
-                            {extractOrderCode(subOrder.tracking_number || subOrder.courier_waybill) || 'Not available'}
-                          </p>
+                          <p className="font-medium">{getDisplayTracking(subOrder) || 'Not available'}</p>
                         </div>
                         <div>
                           <span className="text-gray-600">Shipment ID:</span>

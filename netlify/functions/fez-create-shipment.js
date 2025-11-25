@@ -78,7 +78,8 @@ async function createFezShipment(authToken, secretKey, baseUrl, shipmentData) {
     }
 
     if (typeof orderId === "string" && orderId.toLowerCase().includes("error") && !String(orderId).match(/order\s+[A-Za-z0-9_-]+/i)) {
-      throw new Error(orderId);
+      // Treat as success but fall back to tracking UUID as order code
+      orderId = trackingId;
     }
 
     console.log("FEZ FALSE ERROR - ORDER ACTUALLY CREATED.");

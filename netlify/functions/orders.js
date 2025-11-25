@@ -82,7 +82,25 @@ export async function handler(event) {
     // GET /api/orders/:id — get one order with suborders
     // =====================================================
     if (event.httpMethod === 'GET' && id) {
+      if (!SUPABASE_URL || !SERVICE_KEY) {
+        console.error('ORDER FUNCTION ERROR: Missing Supabase env vars');
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ success: false, error: 'Server misconfigured' })
+        };
+      }
+
       const { data, error } = await loadFullOrder(id);
+
+      if (error?.code === 'PGRST116') {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({ success: false, error: 'Order not found' })
+        };
+      }
+
       if (error) throw error;
 
       return {
@@ -317,7 +335,8 @@ export async function handler(event) {
       body: JSON.stringify({
         success: false,
         error: 'Failed to handle orders',
-        message: e?.message || 'Unknown error'
+        message: e?.message || 'Unknown error',
+        code: e?.code || undefined
       })
     };
   }

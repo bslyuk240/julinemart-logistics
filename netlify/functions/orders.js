@@ -28,10 +28,12 @@ async function loadFullOrder(id) {
         courier_id,
         status,
         tracking_number,
+        courier_waybill,
         courier_shipment_id,
         courier_tracking_url,
+        waybill_url,
+        label_url,
         last_tracking_update,
-        estimated_delivery_date,
         real_shipping_cost,
         allocated_shipping_fee,
         items,
@@ -93,6 +95,7 @@ export async function handler(event) {
 
       const { data, error } = await loadFullOrder(id);
 
+      // Supabase "row not found"
       if (error?.code === 'PGRST116') {
         return {
           statusCode: 404,
@@ -207,9 +210,13 @@ export async function handler(event) {
             hub_id: hubId,
             courier_id: courierId,
             status: 'pending',
-            tracking_number: null, // FEZ will generate it later
+            tracking_number: null,              // FEZ will generate it later
+            courier_waybill: null,
             courier_shipment_id: null,
             courier_tracking_url: null,
+            waybill_url: null,
+            label_url: null,
+            last_tracking_update: null,
             items: b.items || [],
             real_shipping_cost: b.totalShippingFee || 0,
             allocated_shipping_fee: b.totalShippingFee || 0

@@ -188,6 +188,12 @@ export function OrderDetailsPage() {
     window.open(labelUrl, '_blank');
   };
 
+  const extractOrderCode = (value?: string) => {
+    if (!value) return undefined;
+    const match = value.match(/order\s+([A-Za-z0-9_-]+)/i);
+    return match ? match[1] : value;
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -443,11 +449,15 @@ export function OrderDetailsPage() {
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
                           <span className="text-gray-600">Courier Tracking:</span>
-                          <p className="font-medium">{subOrder.tracking_number}</p>
+                          <p className="font-medium">
+                            {extractOrderCode(subOrder.tracking_number || subOrder.courier_waybill) || 'Not available'}
+                          </p>
                         </div>
                         <div>
                           <span className="text-gray-600">Shipment ID:</span>
-                          <p className="font-medium text-xs">{subOrder.courier_shipment_id}</p>
+                          <p className="font-medium text-xs">
+                            {subOrder.courier_shipment_id || extractOrderCode(subOrder.tracking_number || subOrder.courier_waybill)}
+                          </p>
                         </div>
                       </div>
 

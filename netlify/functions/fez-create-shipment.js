@@ -124,7 +124,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // ✅ FIXED: Fetch suborder WITH ITEMS
+    // ✅ FIXED: Items are stored as JSONB in sub_orders.items column
     const { data: subOrder, error } = await supabase
       .from("sub_orders")
       .select(`
@@ -143,14 +143,6 @@ exports.handler = async (event) => {
           address,
           city,
           state
-        ),
-        sub_order_items (
-          id,
-          sku,
-          name,
-          quantity,
-          weight,
-          price
         )
       `)
       .eq("id", subOrderId)
@@ -165,9 +157,10 @@ exports.handler = async (event) => {
       };
     }
 
-    console.log("SUB-ORDER FETCHED WITH ITEMS:", {
+    console.log("SUB-ORDER FETCHED:", {
       id: subOrder.id,
-      itemCount: subOrder.sub_order_items?.length || 0
+      itemsRaw: subOrder.items,
+      itemCount: Array.isArray(subOrder.items) ? subOrder.items.length : 0
     });
 
     // ----------------------------------------------
@@ -196,8 +189,19 @@ exports.handler = async (event) => {
     // ----------------------------------------------
     const { authToken, secretKey, baseUrl } = await authenticateFez();
 
-    // ✅ FIXED: Use sub_order_items instead of items
-    const items = Array.isArray(subOrder.sub_order_items) ? subOrder.sub_order_items : [];
+    // ✅ FIXED: Items are stored as JSONB in sub_orders.items
+    // Handle both parsed JSON array and JSON string
+    let items = [];
+    if (Array.isArray(subOrder.items)) {
+      items = subOrder.items;
+    } else if (typeof subOrder.items === 'string') {
+      try {
+        items = JSON.parse(subOrder.items);
+      } catch (e) {
+        console.error("Failed to parse items JSON:", e);
+        items = [];
+      }
+    }
     
     console.log("ITEMS TO SHIP:", items);
 

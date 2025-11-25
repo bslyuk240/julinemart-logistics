@@ -109,6 +109,14 @@ exports.handler = async (event) => {
       };
     }
 
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY || !(process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL)) {
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ success: false, error: "Server missing Supabase configuration" })
+      };
+    }
+
     // Fetch suborder
     const { data: subOrder, error } = await supabase
       .from("sub_orders")
@@ -133,7 +141,14 @@ exports.handler = async (event) => {
       .eq("id", subOrderId)
       .single();
 
-    if (error || !subOrder) throw new Error("Sub-order not found");
+    if (error || !subOrder) {
+      console.error("Sub-order fetch error:", error);
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ success: false, error: "Sub-order not found" })
+      };
+    }
 
     // ----------------------------------------------
     // PREVENT DUPLICATE SHIPMENTS
@@ -167,6 +182,10 @@ exports.handler = async (event) => {
       0
     );
 
+    const shippingValue = Math.round(
+      Number(subOrder.real_shipping_cost ?? subOrder.allocated_shipping_fee ?? subOrder.shipping_fee_paid ?? 0) + 1000
+    );
+
     // Build shipment
     const shipmentData = {
       recipientAddress: subOrder.orders?.delivery_address || "",
@@ -177,7 +196,7 @@ exports.handler = async (event) => {
       uniqueID: subOrder.id, // FEZ unique ID
       BatchID: subOrder.orders?.id || subOrder.id,
       itemDescription: items.map(i => `${i.quantity}x ${i.name}`).join(", "),
-      valueOfItem: String(Math.round((subOrder.shipping_cost || 0) + 1000)),
+      valueOfItem: String(shippingValue),
       weight: Math.max(1, Math.round(totalWeight)),
       pickUpAddress: subOrder.hubs?.address || "",
       pickUpState: subOrder.hubs?.state || "",
@@ -205,7 +224,12 @@ exports.handler = async (event) => {
       .eq("id", subOrderId);
 
     if (updateError) {
-      throw updateError;
+      console.error("Sub-order update error:", updateError);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ success: false, error: "Failed to save tracking number" })
+      };
     }
 
     // Log activity

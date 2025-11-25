@@ -32,10 +32,9 @@ type SubOrder = {
   couriers?: Courier;
   real_shipping_cost?: number;
   status: string;
-  courier_shipment_id?: string;
   tracking_number?: string;
+  courier_waybill?: string;
   courier_tracking_url?: string;
-  last_tracking_update?: string;
   tracking_events?: TrackingEvent[];
 };
 
@@ -122,7 +121,7 @@ export function OrderDetailsPage() {
               ? {
                   ...so,
                   tracking_number: track,
-                  courier_shipment_id: track,
+                  courier_waybill: track,
                   courier_tracking_url: url,
                   status: "pending_pickup",
                 }
@@ -248,6 +247,15 @@ export function OrderDetailsPage() {
     return colors[status as KnownStatus] || 'bg-gray-100 text-gray-800';
   };
 
+  const getLastUpdate = (subOrder: SubOrder): string | undefined => {
+    const events = subOrder.tracking_events || [];
+    const latest = events.reduce<TrackingEvent | null>((acc, curr) => {
+      if (!acc) return curr;
+      return new Date(curr.event_time) > new Date(acc.event_time) ? curr : acc;
+    }, null);
+    return latest?.event_time;
+  };
+
   return (
     <div className="order-details-container">
 
@@ -358,7 +366,7 @@ export function OrderDetailsPage() {
                 </div>
 
                 {/* IF NOT YET SENT TO FEZ */}
-                {!subOrder.courier_shipment_id ? (
+                {!subOrder.tracking_number ? (
                   <button
                     onClick={() => createCourierShipment(subOrder.id)}
                     disabled={creatingShipment === subOrder.id}
@@ -388,7 +396,7 @@ export function OrderDetailsPage() {
 
                       <div>
                         <span className="text-gray-600">Shipment ID:</span>
-                        <p className="font-medium">{subOrder.courier_shipment_id}</p>
+                        <p className="font-medium">{subOrder.courier_waybill || subOrder.tracking_number}</p>
                       </div>
                     </div>
 
@@ -461,8 +469,8 @@ export function OrderDetailsPage() {
                     </div>
 
                     <p className="text-xs text-gray-500">
-                      Last updated: {subOrder.last_tracking_update 
-                        ? new Date(subOrder.last_tracking_update).toLocaleString()
+                      Last updated: {getLastUpdate(subOrder)
+                        ? new Date(getLastUpdate(subOrder) as string).toLocaleString()
                         : 'N/A'}
                     </p>
                   </div>

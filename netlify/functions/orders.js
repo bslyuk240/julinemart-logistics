@@ -29,14 +29,15 @@ async function loadFullOrder(id) {
         status,
         tracking_number,
         courier_waybill,
-        courier_shipment_id,
-        courier_tracking_url,
-        waybill_url,
-        label_url,
-        last_tracking_update,
         real_shipping_cost,
         allocated_shipping_fee,
+        subtotal,
         items,
+        rider_name,
+        rider_phone,
+        hub_notes,
+        courier_notes,
+        metadata,
         created_at,
         
         hubs (
@@ -212,12 +213,8 @@ export async function handler(event) {
             status: 'pending',
             tracking_number: null,              // FEZ will generate it later
             courier_waybill: null,
-            courier_shipment_id: null,
-            courier_tracking_url: null,
-            waybill_url: null,
-            label_url: null,
-            last_tracking_update: null,
             items: b.items || [],
+            subtotal: b.subtotal || b.subTotal || 0,
             real_shipping_cost: b.totalShippingFee || 0,
             allocated_shipping_fee: b.totalShippingFee || 0
           };

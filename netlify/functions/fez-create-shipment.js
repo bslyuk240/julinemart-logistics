@@ -195,16 +195,18 @@ exports.handler = async (event) => {
     );
 
     // Update suborder
-    await supabase
+    const { error: updateError } = await supabase
       .from("sub_orders")
       .update({
         tracking_number: trackingNumber,
-        courier_shipment_id: trackingNumber,
-        courier_tracking_url: `${baseUrl}/order/track/${trackingNumber}`,
-        status: "pending_pickup",
-        last_tracking_update: new Date().toISOString()
+        courier_waybill: trackingNumber,
+        status: "pending_pickup"
       })
       .eq("id", subOrderId);
+
+    if (updateError) {
+      throw updateError;
+    }
 
     // Log activity
     await supabase.from("activity_logs").insert({

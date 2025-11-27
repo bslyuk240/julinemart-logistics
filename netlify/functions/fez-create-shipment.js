@@ -307,8 +307,8 @@ exports.handler = async (event) => {
       };
     }
 
-    // Build tracking URL
-    const trackingUrl = `${baseUrl}/order/track/${orderId}`;
+    // Build tracking URL - use the public Fez tracking page, not the API endpoint
+    const trackingUrl = `https://web.fezdelivery.co/track-delivery?tracking=${orderId}`;
 
     // Update suborder with returned IDs
     const { data: updatedRows, error: updateError } = await supabase

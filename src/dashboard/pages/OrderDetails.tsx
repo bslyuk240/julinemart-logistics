@@ -13,6 +13,7 @@ import {
   Box,
   AlertTriangle,
   RefreshCw,
+  Printer,
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 
@@ -109,12 +110,17 @@ function isValidTrackingNumber(value?: string): boolean {
  * Check if a suborder has a valid courier shipment
  */
 function hasValidShipment(subOrder: SubOrder): boolean {
-  // Must have courier_shipment_id AND a valid tracking number
-  const hasShipmentId = !!subOrder.courier_shipment_id;
-  const hasValidTracking = isValidTrackingNumber(subOrder.tracking_number) || 
-                           isValidTrackingNumber(subOrder.courier_waybill);
+  // Check if we have a tracking number that's valid (not an error message)
+  const tracking = subOrder.tracking_number || subOrder.courier_waybill;
   
-  return hasShipmentId && hasValidTracking;
+  // If there's no tracking at all, no valid shipment
+  if (!tracking) return false;
+  
+  // If tracking contains error indicators, it's not valid
+  if (!isValidTrackingNumber(tracking)) return false;
+  
+  // We have a valid tracking number
+  return true;
 }
 
 /**
@@ -146,11 +152,27 @@ export function OrderDetailsPage() {
 
   const fetchOrderDetails = async () => {
     try {
+      console.log('Fetching order details for:', id);
       const response = await fetch(`${apiBase}/api/orders/${id}`);
       const data = await response.json();
+      
+      console.log('Order details response:', data);
 
       if (data.success) {
         setOrder(data.data);
+        
+        // Log sub_orders to debug
+        if (data.data.sub_orders) {
+          data.data.sub_orders.forEach((so: SubOrder) => {
+            console.log(`SubOrder ${so.id}:`, {
+              tracking_number: so.tracking_number,
+              courier_shipment_id: so.courier_shipment_id,
+              courier_tracking_url: so.courier_tracking_url,
+              status: so.status
+            });
+          });
+        }
+        
         setSubOrders(data.data.sub_orders || []);
       }
     } catch (error) {
@@ -177,33 +199,47 @@ export function OrderDetailsPage() {
       });
 
       const data = await response.json();
+      
+      console.log('Fez Create Shipment Response:', data);
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || data.message || 'Failed to create shipment');
       }
 
-      notification.success('Shipment Created!', `Tracking: ${data.data.tracking_number}`);
+      const trackingNumber = data.data.tracking_number;
+      const shipmentId = data.data.courier_shipment_id;
+      const trackingUrl = data.data.courier_tracking_url;
 
-      // Instant UI update with validated data
+      notification.success('Shipment Created!', `Tracking: ${trackingNumber}`);
+
+      // Instant UI update with the response data - DON'T refetch immediately
+      // This prevents race conditions with the database update
       setSubOrders((prev) =>
         prev.map((so) =>
           so.id === subOrderId
             ? {
                 ...so,
-                tracking_number: data.data.tracking_number,
-                courier_shipment_id: data.data.courier_shipment_id,
-                courier_tracking_url: data.data.courier_tracking_url,
+                tracking_number: trackingNumber,
+                courier_shipment_id: shipmentId,
+                courier_tracking_url: trackingUrl,
+                courier_waybill: trackingNumber,
                 status: 'assigned',
               }
             : so
         )
       );
 
-      // Refresh to get latest data
+      // Small delay to ensure database update is committed before refetching
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Refresh to get latest data from database
       await fetchOrderDetails();
     } catch (error) {
       console.error('Shipment Error', error);
       notification.error('Creation Failed', error instanceof Error ? error.message : 'Failed to create shipment on courier platform');
+      
+      // Refresh to show current state
+      await fetchOrderDetails();
     } finally {
       setCreatingShipment(null);
     }
@@ -232,6 +268,12 @@ export function OrderDetailsPage() {
 
   const downloadLabel = (labelUrl?: string) => {
     if (!labelUrl) return;
+    window.open(labelUrl, '_blank');
+  };
+
+  const printLabel = (subOrderId: Identifier) => {
+    // Open the generate-label function in a new window with print=true
+    const labelUrl = `${apiBase}/.netlify/functions/generate-label?subOrderId=${subOrderId}&print=true`;
     window.open(labelUrl, '_blank');
   };
 
@@ -533,15 +575,16 @@ export function OrderDetailsPage() {
                         </div>
 
                         <div className="flex flex-wrap gap-2">
-                          {subOrder.courier_tracking_url && (
+                          {/* Track on Fez public tracking page */}
+                          {displayTracking && (
                             <a
-                              href={subOrder.courier_tracking_url}
+                              href={`https://web.fezdelivery.co/track-delivery?tracking=${displayTracking}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="btn-secondary text-sm flex items-center"
                             >
                               <ExternalLink className="w-4 h-4 mr-2" />
-                              Track on Courier Site
+                              Track on Fez
                             </a>
                           )}
 
@@ -563,6 +606,16 @@ export function OrderDetailsPage() {
                             )}
                           </button>
 
+                          {/* Print Label - always available when shipment exists */}
+                          <button
+                            onClick={() => printLabel(subOrder.id)}
+                            className="btn-primary text-sm flex items-center"
+                          >
+                            <Printer className="w-4 h-4 mr-2" />
+                            Print Label
+                          </button>
+
+                          {/* Download Label if URL exists */}
                           {subOrder.label_url && (
                             <button
                               onClick={() => downloadLabel(subOrder.label_url)}
@@ -573,6 +626,7 @@ export function OrderDetailsPage() {
                             </button>
                           )}
 
+                          {/* Download Waybill if URL exists */}
                           {subOrder.waybill_url && (
                             <button
                               onClick={() => downloadLabel(subOrder.waybill_url)}

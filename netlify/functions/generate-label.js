@@ -1,4 +1,4 @@
-// Generate Shipping Label PDF
+﻿// Generate Shipping Label PDF
 // Creates a branded PDF shipping label with barcode
 
 import { createClient } from '@supabase/supabase-js';
@@ -305,9 +305,14 @@ function generateLabelHTML(labelData) {
       
       <div class="powered-by">
         <div>POWERED BY</div>
-        <div class="powered-by-text">🚚 Fez Delivery</div>
+        <div class="powered-by-text">Fez Delivery</div>
+        <img 
+          src="${FEZ_LOGO}" 
+          alt="Fez Delivery Logo" 
+          onerror="this.style.display='none';"
+        />
       </div>
-      
+
       <div class="order-info">
         <div><strong>Order #${order_number}</strong></div>
         <div>${created_date}</div>
@@ -331,25 +336,25 @@ function generateLabelHTML(labelData) {
       <!-- Sender -->
       <div class="address-box">
         <div class="address-header from">
-          <span class="address-icon">📦</span>
+          <span class="address-icon">ðŸ“¦</span>
           <span>From (Sender)</span>
         </div>
         <div class="address-name">${sender_name}</div>
         <div class="address-detail">${sender_address}</div>
         <div class="address-detail">${sender_city}</div>
-        <div class="address-phone">📞 ${sender_phone || 'N/A'}</div>
+        <div class="address-phone">ðŸ“ž ${sender_phone || 'N/A'}</div>
       </div>
 
       <!-- Recipient -->
       <div class="address-box">
         <div class="address-header to">
-          <span class="address-icon">📍</span>
+          <span class="address-icon">ðŸ“</span>
           <span>To (Recipient)</span>
         </div>
         <div class="address-name">${recipient_name}</div>
         <div class="address-detail">${recipient_address}</div>
         <div class="address-detail">${recipient_city}, ${recipient_state}</div>
-        <div class="address-phone">📞 ${recipient_phone}</div>
+        <div class="address-phone">ðŸ“ž ${recipient_phone}</div>
       </div>
     </div>
     
@@ -362,12 +367,12 @@ function generateLabelHTML(labelData) {
     <!-- Footer -->
     <div class="footer">
       <div class="footer-item">
-        <span>⚖️</span>
+        <span>âš–ï¸</span>
         <strong>${weight}kg</strong>
       </div>
       <div class="service-badge">STANDARD DELIVERY</div>
       <div class="footer-item">
-        <span>📅</span>
+        <span>ðŸ“…</span>
         <span>Ship Date: ${created_date}</span>
       </div>
     </div>

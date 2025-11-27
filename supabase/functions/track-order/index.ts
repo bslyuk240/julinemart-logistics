@@ -1,3 +1,4 @@
+// supabase/functions/track-order/index.ts
 import { serve } from "https://deno.land/std@0.203.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.81.1";
 
@@ -36,7 +37,7 @@ serve(async (req: Request) => {
   try {
     if (req.method !== "GET") {
       return new Response(
-        JSON.stringify({ error: `${req.method} not supported` }),
+        JSON.stringify({ success: false, error: `${req.method} not supported` }),
         { status: 405, headers }
       );
     }
@@ -47,27 +48,93 @@ serve(async (req: Request) => {
 
     if (!orderNumber || !email) {
       return new Response(
-        JSON.stringify({ error: "Missing orderNumber or email" }),
+        JSON.stringify({ success: false, error: "Missing orderNumber or email" }),
         { status: 400, headers }
       );
     }
 
+    // Query by woocommerce_order_id and include sub_orders with tracking
     const { data, error } = await supabase
       .from("orders")
-      .select("*, tracking_events(*)")
-      .eq("tracking_number", orderNumber)
+      .select(`
+        id,
+        woocommerce_order_id,
+        customer_name,
+        customer_email,
+        customer_phone,
+        delivery_address,
+        delivery_city,
+        delivery_state,
+        total_amount,
+        shipping_fee_paid,
+        overall_status,
+        created_at,
+        sub_orders (
+          id,
+          tracking_number,
+          status,
+          real_shipping_cost,
+          estimated_delivery_date,
+          courier_tracking_url,
+          created_at,
+          hubs (
+            name,
+            city,
+            state
+          ),
+          couriers (
+            name,
+            code
+          ),
+          tracking_events (
+            status,
+            location_name,
+            description,
+            event_time,
+            created_at
+          )
+        )
+      `)
+      .eq("woocommerce_order_id", orderNumber)
       .eq("customer_email", email)
-      .limit(1)
       .single();
 
-    if (error) throw error;
+    if (error || !data) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Order not found. Please check your order number and email." }),
+        { status: 404, headers }
+      );
+    }
 
-    return new Response(JSON.stringify({ success: true, data }), { headers });
+    // Transform tracking_events to match frontend expectations
+    const transformedData = {
+      ...data,
+      sub_orders: data.sub_orders?.map((subOrder: any) => ({
+        ...subOrder,
+        shipping_cost: subOrder.real_shipping_cost,
+        tracking_events: (subOrder.tracking_events || [])
+          .map((event: any) => ({
+            status: event.status,
+            location: event.location_name,
+            description: event.description,
+            timestamp: event.event_time || event.created_at,
+            created_at: event.created_at,
+          }))
+          .sort((a: any, b: any) => 
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+          ),
+      })),
+    };
+
+    return new Response(
+      JSON.stringify({ success: true, data: transformedData }), 
+      { headers }
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    return new Response(JSON.stringify({ error: message }), {
-      status: 400,
-      headers,
-    });
+    return new Response(
+      JSON.stringify({ success: false, error: message }), 
+      { status: 500, headers }
+    );
   }
 });

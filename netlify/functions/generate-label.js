@@ -17,7 +17,11 @@ const headers = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-// Generate simple HTML label (can be converted to PDF using browser print or external service)
+// Logo URLs - Replace with your actual logo URLs
+const JULINEMART_LOGO = 'https://res.cloudinary.com/dupgdbwrt/image/upload/v1759968430/icon-192.png_fukoim.png';
+const FEZ_LOGO = 'https://www.fezdelivery.co/_next/image?url=%2Fimages%2Ffez-logo.svg&w=128&q=75';
+
+// Generate simple HTML label
 function generateLabelHTML(labelData) {
   const {
     tracking_number,
@@ -44,7 +48,7 @@ function generateLabelHTML(labelData) {
   <title>Shipping Label - ${tracking_number}</title>
   <style>
     @page {
-      size: A6 landscape;
+      size: 4in 6in;
       margin: 0;
     }
     * {
@@ -53,105 +57,234 @@ function generateLabelHTML(labelData) {
       box-sizing: border-box;
     }
     body {
-      font-family: Arial, sans-serif;
-      font-size: 10px;
-      padding: 10mm;
-      width: 148mm;
-      height: 105mm;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      width: 4in;
+      min-height: 6in;
+      padding: 8px;
+      background: #fff;
     }
     .label-container {
-      border: 2px solid #000;
-      padding: 8px;
+      border: 3px solid #000;
+      border-radius: 8px;
       height: 100%;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
+    
+    /* Header */
     .header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding-bottom: 8px;
-      border-bottom: 2px solid #000;
-      margin-bottom: 8px;
+      padding: 10px 12px;
+      background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
+      color: white;
     }
-    .logo {
-      font-size: 20px;
+    .logo-section {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .logo-img {
+      height: 32px;
+      width: auto;
+      object-fit: contain;
+    }
+    .logo-fallback {
+      font-size: 18px;
       font-weight: bold;
-      color: #6366f1;
+      color: #fff;
     }
-    .fez-logo {
-      font-size: 14px;
-      color: #f59e0b;
-      font-weight: bold;
-    }
-    .tracking {
+    .powered-by {
       text-align: center;
-      margin: 8px 0;
-      padding: 8px;
-      background: #f3f4f6;
-      border-radius: 4px;
+      font-size: 8px;
+      color: rgba(255,255,255,0.8);
+    }
+    .powered-by img {
+      height: 20px;
+      margin-top: 2px;
+    }
+    .powered-by-text {
+      color: #fbbf24;
+      font-weight: bold;
+      font-size: 11px;
+    }
+    .order-info {
+      text-align: right;
+      font-size: 10px;
+    }
+    .order-info strong {
+      font-size: 12px;
+    }
+    
+    /* Tracking Section */
+    .tracking-section {
+      background: #f8fafc;
+      padding: 12px;
+      text-align: center;
+      border-bottom: 2px dashed #cbd5e1;
+    }
+    .tracking-label {
+      font-size: 9px;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
     }
     .tracking-number {
-      font-size: 24px;
-      font-weight: bold;
+      font-size: 28px;
+      font-weight: 800;
       font-family: 'Courier New', monospace;
-      letter-spacing: 2px;
+      letter-spacing: 3px;
+      color: #0f172a;
+      background: #fff;
+      padding: 8px 16px;
+      border: 2px solid #0f172a;
+      border-radius: 4px;
+      display: inline-block;
+    }
+    
+    /* Barcode Section */
+    .barcode-section {
+      padding: 8px 12px;
+      text-align: center;
+      border-bottom: 2px solid #e2e8f0;
     }
     .barcode {
-      text-align: center;
-      margin: 4px 0;
-    }
-    .barcode-lines {
       display: inline-block;
-      background: linear-gradient(90deg, #000 2px, transparent 2px, transparent 4px);
-      background-size: 4px 100%;
-      width: 200px;
-      height: 40px;
+      background: repeating-linear-gradient(
+        90deg,
+        #000 0px,
+        #000 2px,
+        #fff 2px,
+        #fff 4px,
+        #000 4px,
+        #000 5px,
+        #fff 5px,
+        #fff 8px,
+        #000 8px,
+        #000 10px,
+        #fff 10px,
+        #fff 11px
+      );
+      width: 220px;
+      height: 50px;
       border: 1px solid #000;
     }
+    .barcode-text {
+      font-size: 10px;
+      font-family: monospace;
+      margin-top: 4px;
+      color: #374151;
+    }
+    
+    /* Addresses Section */
     .addresses {
       display: flex;
-      gap: 10px;
-      margin-top: 8px;
       flex: 1;
+      border-bottom: 2px solid #e2e8f0;
     }
     .address-box {
       flex: 1;
-      border: 1px solid #000;
-      padding: 6px;
+      padding: 12px;
     }
-    .address-box h3 {
-      font-size: 11px;
-      font-weight: bold;
-      margin-bottom: 4px;
-      padding-bottom: 3px;
-      border-bottom: 1px solid #ccc;
+    .address-box:first-child {
+      border-right: 2px dashed #cbd5e1;
     }
-    .address-box p {
-      margin: 2px 0;
-      font-size: 9px;
-      line-height: 1.3;
-    }
-    .address-box .name {
-      font-weight: bold;
+    .address-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
       font-size: 10px;
+      font-weight: bold;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #e2e8f0;
     }
+    .address-header.from {
+      color: #059669;
+    }
+    .address-header.to {
+      color: #dc2626;
+    }
+    .address-icon {
+      font-size: 14px;
+    }
+    .address-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 4px;
+    }
+    .address-detail {
+      font-size: 11px;
+      color: #475569;
+      line-height: 1.4;
+      margin-bottom: 2px;
+    }
+    .address-phone {
+      font-size: 11px;
+      color: #0369a1;
+      font-weight: 600;
+      margin-top: 6px;
+    }
+    
+    /* Items Section */
+    .items-section {
+      padding: 8px 12px;
+      background: #f1f5f9;
+      border-bottom: 2px solid #e2e8f0;
+    }
+    .items-label {
+      font-size: 9px;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .items-text {
+      font-size: 11px;
+      font-weight: 600;
+      color: #334155;
+      margin-top: 2px;
+    }
+    
+    /* Footer */
     .footer {
       display: flex;
       justify-content: space-between;
-      margin-top: 8px;
-      padding-top: 6px;
-      border-top: 1px solid #000;
-      font-size: 8px;
+      align-items: center;
+      padding: 10px 12px;
+      background: #f8fafc;
+      font-size: 10px;
+      color: #475569;
     }
-    .items-list {
-      font-size: 8px;
-      margin-top: 4px;
+    .footer-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
     }
+    .footer-item strong {
+      color: #0f172a;
+    }
+    .service-badge {
+      background: #059669;
+      color: white;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 9px;
+      font-weight: bold;
+    }
+    
     @media print {
       body {
         print-color-adjust: exact;
         -webkit-print-color-adjust: exact;
+      }
+      .label-container {
+        page-break-inside: avoid;
       }
     }
   </style>
@@ -160,63 +293,88 @@ function generateLabelHTML(labelData) {
   <div class="label-container">
     <!-- Header -->
     <div class="header">
-      <div class="logo">🏪 JulineMart</div>
-      <div style="text-align: center;">
-        <div style="font-size: 8px; color: #666;">POWERED BY</div>
-        <div class="fez-logo">🚚 Fez Delivery</div>
+      <div class="logo-section">
+        <img 
+          src="${JULINEMART_LOGO}" 
+          alt="JulineMart" 
+          class="logo-img"
+          onerror="this.style.display='none'; this.nextElementSibling.style.display='block';"
+        />
+        <span class="logo-fallback" style="display:none;">JulineMart</span>
       </div>
-      <div style="text-align: right; font-size: 9px;">
-        <div><strong>Order:</strong> #${order_number}</div>
+      
+      <div class="powered-by">
+        <div>POWERED BY</div>
+        <div class="powered-by-text">🚚 Fez Delivery</div>
+      </div>
+      
+      <div class="order-info">
+        <div><strong>Order #${order_number}</strong></div>
         <div>${created_date}</div>
       </div>
     </div>
 
-    <!-- Tracking Number & Barcode -->
-    <div class="tracking">
-      <div style="font-size: 8px; color: #666; margin-bottom: 2px;">TRACKING NUMBER</div>
+    <!-- Tracking Number -->
+    <div class="tracking-section">
+      <div class="tracking-label">Tracking Number</div>
       <div class="tracking-number">${tracking_number}</div>
     </div>
-    <div class="barcode">
-      <div class="barcode-lines"></div>
-      <div style="font-size: 7px; margin-top: 2px; font-family: monospace;">${tracking_number}</div>
+    
+    <!-- Barcode -->
+    <div class="barcode-section">
+      <div class="barcode"></div>
+      <div class="barcode-text">${tracking_number}</div>
     </div>
 
     <!-- Addresses -->
     <div class="addresses">
       <!-- Sender -->
       <div class="address-box">
-        <h3>📦 FROM (SENDER)</h3>
-        <p class="name">${sender_name}</p>
-        <p>${sender_address}</p>
-        <p>${sender_city}</p>
-        <p>📞 ${sender_phone}</p>
+        <div class="address-header from">
+          <span class="address-icon">📦</span>
+          <span>From (Sender)</span>
+        </div>
+        <div class="address-name">${sender_name}</div>
+        <div class="address-detail">${sender_address}</div>
+        <div class="address-detail">${sender_city}</div>
+        <div class="address-phone">📞 ${sender_phone || 'N/A'}</div>
       </div>
 
       <!-- Recipient -->
       <div class="address-box">
-        <h3>📍 TO (RECIPIENT)</h3>
-        <p class="name">${recipient_name}</p>
-        <p>${recipient_address}</p>
-        <p>${recipient_city}, ${recipient_state}</p>
-        <p>📞 ${recipient_phone}</p>
+        <div class="address-header to">
+          <span class="address-icon">📍</span>
+          <span>To (Recipient)</span>
+        </div>
+        <div class="address-name">${recipient_name}</div>
+        <div class="address-detail">${recipient_address}</div>
+        <div class="address-detail">${recipient_city}, ${recipient_state}</div>
+        <div class="address-phone">📞 ${recipient_phone}</div>
       </div>
     </div>
-
+    
     <!-- Items -->
-    <div class="items-list">
-      <strong>Items:</strong> ${items}
+    <div class="items-section">
+      <div class="items-label">Package Contents</div>
+      <div class="items-text">${items}</div>
     </div>
 
     <!-- Footer -->
     <div class="footer">
-      <div><strong>Weight:</strong> ${weight}kg</div>
-      <div><strong>Service:</strong> Standard Delivery</div>
-      <div><strong>Scan here:</strong> →</div>
+      <div class="footer-item">
+        <span>⚖️</span>
+        <strong>${weight}kg</strong>
+      </div>
+      <div class="service-badge">STANDARD DELIVERY</div>
+      <div class="footer-item">
+        <span>📅</span>
+        <span>Ship Date: ${created_date}</span>
+      </div>
     </div>
   </div>
 
   <script>
-    // Auto-print when opened
+    // Auto-print when opened with print=true parameter
     window.onload = function() {
       if (window.location.search.includes('print=true')) {
         setTimeout(() => window.print(), 500);
@@ -320,7 +478,7 @@ exports.handler = async (event) => {
       sender_name: subOrder.hubs.name,
       sender_address: subOrder.hubs.address,
       sender_city: `${subOrder.hubs.city}, ${subOrder.hubs.state}`,
-      sender_phone: subOrder.hubs.phone,
+      sender_phone: subOrder.hubs.phone || '',
       recipient_name: subOrder.orders.customer_name,
       recipient_address: subOrder.orders.delivery_address,
       recipient_city: subOrder.orders.delivery_city,
@@ -328,7 +486,11 @@ exports.handler = async (event) => {
       recipient_phone: subOrder.orders.customer_phone,
       items: itemsText.substring(0, 100) + (itemsText.length > 100 ? '...' : ''),
       weight: totalWeight.toFixed(1),
-      created_date: new Date(subOrder.orders.created_at).toLocaleDateString(),
+      created_date: new Date(subOrder.orders.created_at).toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric'
+      }),
     };
 
     // Generate HTML

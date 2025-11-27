@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -11,6 +11,8 @@ import {
   Loader,
   CheckCircle,
   Box,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 
@@ -76,6 +78,55 @@ type Order = {
   sub_orders?: SubOrder[];
 };
 
+/**
+ * Check if a tracking number is valid (not an error message)
+ */
+function isValidTrackingNumber(value?: string): boolean {
+  if (!value || typeof value !== 'string') return false;
+  
+  const errorIndicators = [
+    'error',
+    'cannot',
+    'failed',
+    'invalid',
+    'wrong',
+    'something went wrong',
+    'already exists'
+  ];
+  
+  const lowerValue = value.toLowerCase();
+  for (const indicator of errorIndicators) {
+    if (lowerValue.includes(indicator)) {
+      return false;
+    }
+  }
+  
+  // Valid tracking numbers should be reasonably short and alphanumeric
+  return value.length < 50 && /^[A-Za-z0-9_-]+$/.test(value.trim());
+}
+
+/**
+ * Check if a suborder has a valid courier shipment
+ */
+function hasValidShipment(subOrder: SubOrder): boolean {
+  // Must have courier_shipment_id AND a valid tracking number
+  const hasShipmentId = !!subOrder.courier_shipment_id;
+  const hasValidTracking = isValidTrackingNumber(subOrder.tracking_number) || 
+                           isValidTrackingNumber(subOrder.courier_waybill);
+  
+  return hasShipmentId && hasValidTracking;
+}
+
+/**
+ * Check if a suborder has an error from a previous shipment attempt
+ */
+function hasShipmentError(subOrder: SubOrder): boolean {
+  const tracking = subOrder.tracking_number || subOrder.courier_waybill || '';
+  return tracking.toLowerCase().includes('error') || 
+         tracking.toLowerCase().includes('cannot') ||
+         tracking.toLowerCase().includes('something went wrong');
+}
+
 export function OrderDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -125,38 +176,34 @@ export function OrderDetailsPage() {
         body: JSON.stringify({ subOrderId }),
       });
 
-      if (!response.ok) {
-        const txt = await response.text();
-        throw new Error(txt || 'Failed to create shipment');
-      }
-
       const data = await response.json();
 
-      if (data.success) {
-        notification.success('Shipment Created!', `Tracking: ${data.data.tracking_number}`);
-
-        // instant UI update
-        setSubOrders((prev) =>
-          prev.map((so) =>
-            so.id === subOrderId
-              ? {
-                  ...so,
-                  tracking_number: data.data.tracking_number,
-                  courier_shipment_id: data.data.courier_shipment_id,
-                  courier_tracking_url: data.data.courier_tracking_url,
-                  status: 'assigned',
-                }
-              : so
-          )
-        );
-
-        await fetchOrderDetails();
-      } else {
-        notification.error('Creation Failed', data.error || data.message || 'Unable to create shipment');
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || 'Failed to create shipment');
       }
+
+      notification.success('Shipment Created!', `Tracking: ${data.data.tracking_number}`);
+
+      // Instant UI update with validated data
+      setSubOrders((prev) =>
+        prev.map((so) =>
+          so.id === subOrderId
+            ? {
+                ...so,
+                tracking_number: data.data.tracking_number,
+                courier_shipment_id: data.data.courier_shipment_id,
+                courier_tracking_url: data.data.courier_tracking_url,
+                status: 'assigned',
+              }
+            : so
+        )
+      );
+
+      // Refresh to get latest data
+      await fetchOrderDetails();
     } catch (error) {
       console.error('Shipment Error', error);
-      notification.error('Error', error instanceof Error ? error.message : 'Failed to create shipment on courier platform');
+      notification.error('Creation Failed', error instanceof Error ? error.message : 'Failed to create shipment on courier platform');
     } finally {
       setCreatingShipment(null);
     }
@@ -188,15 +235,13 @@ export function OrderDetailsPage() {
     window.open(labelUrl, '_blank');
   };
 
-  const extractOrderCode = (value?: string) => {
-    if (!value) return undefined;
-    const match = value.match(/order\s+([A-Za-z0-9_-]+)/i);
-    return match ? match[1] : value;
-  };
-
   const getDisplayTracking = (subOrder: SubOrder) => {
-    const primary = extractOrderCode(subOrder.tracking_number || subOrder.courier_waybill);
-    return primary || subOrder.courier_shipment_id || subOrder.tracking_number || subOrder.courier_waybill;
+    // Only return tracking if it's valid
+    const tracking = subOrder.tracking_number || subOrder.courier_waybill;
+    if (isValidTrackingNumber(tracking)) {
+      return tracking;
+    }
+    return null;
   };
 
   if (loading) {
@@ -318,216 +363,250 @@ export function OrderDetailsPage() {
         <h2 className="text-2xl font-bold mb-6">Shipments</h2>
 
         <div className="space-y-4">
-          {subOrders.map((subOrder) => (
-            <div key={subOrder.id} className="card">
-              <div className="flex items-start justify-between mb-4">
-                <div>
-                  <h3 className="font-semibold text-lg flex items-center gap-2">
-                    <Truck className="w-5 h-5 text-primary-600" />
-                    {subOrder.hubs?.name || 'Unknown Hub'} - {subOrder.couriers?.name || 'Courier'}
-                  </h3>
-                  <p className="text-sm text-gray-600 mt-1">
-                    {subOrder.hubs?.city || 'Unknown City'} | Shipping: ₦{formatCurrency(subOrder.real_shipping_cost)}
-                  </p>
-                </div>
-                <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(subOrder.status)}`}>
-                  {subOrder.status}
-                </span>
-              </div>
+          {subOrders.map((subOrder) => {
+            const validShipment = hasValidShipment(subOrder);
+            const shipmentError = hasShipmentError(subOrder);
+            const displayTracking = getDisplayTracking(subOrder);
 
-              {/* ITEMS TO PACK SECTION */}
-              {subOrder.items && subOrder.items.length > 0 && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Box className="w-5 h-5 text-green-600" />
-                    <h4 className="font-semibold text-green-900">Items to Pack for {subOrder.hubs?.name || 'Hub'}</h4>
+            return (
+              <div key={subOrder.id} className="card">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <h3 className="font-semibold text-lg flex items-center gap-2">
+                      <Truck className="w-5 h-5 text-primary-600" />
+                      {subOrder.hubs?.name || 'Unknown Hub'} - {subOrder.couriers?.name || 'Courier'}
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {subOrder.hubs?.city || 'Unknown City'} | Shipping: ₦{formatCurrency(subOrder.real_shipping_cost)}
+                    </p>
                   </div>
-                  <div className="space-y-2">
-                    {subOrder.items.map((item, idx) => (
-                      <div key={idx} className="flex items-start justify-between bg-white p-3 rounded-md border border-green-100">
-                        <div className="flex-1">
-                          <p className="font-medium text-gray-900">
-                            <span className="inline-block bg-green-600 text-white text-xs font-bold px-2 py-1 rounded mr-2">
-                              {item.quantity ?? 0}x
-                            </span>
-                            {item.name}
-                          </p>
-                          <div className="text-xs text-gray-600 mt-1 space-y-1">
-                            {item.sku && <p>SKU: {item.sku}</p>}
-                            {item.weight !== undefined && <p>Weight: {item.weight}kg per unit</p>}
-                            {item.price !== undefined && (
-                              <p className="text-blue-600 font-semibold">
-                                ₦{Number(item.price).toLocaleString()} per unit
-                              </p>
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(subOrder.status)}`}>
+                    {subOrder.status}
+                  </span>
+                </div>
+
+                {/* ITEMS TO PACK SECTION */}
+                {subOrder.items && subOrder.items.length > 0 && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Box className="w-5 h-5 text-green-600" />
+                      <h4 className="font-semibold text-green-900">Items to Pack for {subOrder.hubs?.name || 'Hub'}</h4>
+                    </div>
+                    <div className="space-y-2">
+                      {subOrder.items.map((item, idx) => (
+                        <div key={idx} className="flex items-start justify-between bg-white p-3 rounded-md border border-green-100">
+                          <div className="flex-1">
+                            <p className="font-medium text-gray-900">
+                              <span className="inline-block bg-green-600 text-white text-xs font-bold px-2 py-1 rounded mr-2">
+                                {item.quantity ?? 0}x
+                              </span>
+                              {item.name}
+                            </p>
+                            <div className="text-xs text-gray-600 mt-1 space-y-1">
+                              {item.sku && <p>SKU: {item.sku}</p>}
+                              {item.weight !== undefined && <p>Weight: {item.weight}kg per unit</p>}
+                              {item.price !== undefined && (
+                                <p className="text-blue-600 font-semibold">
+                                  ₦{Number(item.price).toLocaleString()} per unit
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right ml-4">
+                            {item.price !== undefined && item.quantity !== undefined && (
+                              <>
+                                <p className="text-lg font-bold text-gray-900">
+                                  ₦{Number(item.price * item.quantity).toLocaleString()}
+                                </p>
+                                <p className="text-xs text-gray-600">Total</p>
+                              </>
                             )}
                           </div>
                         </div>
-                        <div className="text-right ml-4">
-                          {item.price !== undefined && item.quantity !== undefined && (
-                            <>
-                              <p className="text-lg font-bold text-gray-900">
-                                ₦{Number(item.price * item.quantity).toLocaleString()}
-                              </p>
-                              <p className="text-xs text-gray-600">Total</p>
-                            </>
-                          )}
-                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-3 pt-3 border-t border-green-200 space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="font-semibold text-green-900">Total Items:</span>
+                        <span className="font-bold text-green-900">
+                          {subOrder.items.reduce((sum, item) => sum + (item.quantity || 0), 0)} pieces
+                        </span>
                       </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-3 pt-3 border-t border-green-200 space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="font-semibold text-green-900">Total Items:</span>
-                      <span className="font-bold text-green-900">
-                        {subOrder.items.reduce((sum, item) => sum + (item.quantity || 0), 0)} pieces
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="font-semibold text-green-900">Total Weight:</span>
-                      <span className="font-bold text-green-900">
-                        {subOrder.items
-                          .reduce((sum, item) => sum + (Number(item.weight || 0) * Number(item.quantity || 0)), 0)
-                          .toFixed(2)}
-                        kg
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="font-semibold text-green-900">Items Subtotal:</span>
-                      <span className="font-bold text-lg text-green-900">
-                        ₦{subOrder.items
-                          .reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0), 0)
-                          .toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="font-semibold text-green-900">Shipping Fee:</span>
-                      <span className="font-bold text-lg text-green-900">
-                        ₦{formatCurrency(subOrder.real_shipping_cost)}
-                      </span>
-                    </div>
-                    <div className="flex justify-between pt-2 border-t border-green-300">
-                      <span className="font-bold text-green-900">Sub-Order Total:</span>
-                      <span className="font-bold text-xl text-green-600">
-                        ₦{(
-                          subOrder.items.reduce(
-                            (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0),
-                            0
-                          ) + (subOrder.real_shipping_cost || 0)
-                        ).toLocaleString()}
-                      </span>
+                      <div className="flex justify-between text-sm">
+                        <span className="font-semibold text-green-900">Total Weight:</span>
+                        <span className="font-bold text-green-900">
+                          {subOrder.items
+                            .reduce((sum, item) => sum + (Number(item.weight || 0) * Number(item.quantity || 0)), 0)
+                            .toFixed(2)}
+                          kg
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="font-semibold text-green-900">Items Subtotal:</span>
+                        <span className="font-bold text-lg text-green-900">
+                          ₦{subOrder.items
+                            .reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0), 0)
+                            .toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="font-semibold text-green-900">Shipping Fee:</span>
+                        <span className="font-bold text-lg text-green-900">
+                          ₦{formatCurrency(subOrder.real_shipping_cost)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between pt-2 border-t border-green-300">
+                        <span className="font-bold text-green-900">Sub-Order Total:</span>
+                        <span className="font-bold text-xl text-green-600">
+                          ₦{(
+                            subOrder.items.reduce(
+                              (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0),
+                              0
+                            ) + (subOrder.real_shipping_cost || 0)
+                          ).toLocaleString()}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Courier Integration Section */}
-              {(subOrder.couriers?.api_enabled || subOrder.couriers?.code?.toLowerCase() === 'fez') && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <CheckCircle className="w-4 h-4 text-blue-600" />
-                    <span className="text-sm font-medium text-blue-900">
-                      Courier API Integration Available ({subOrder.couriers?.name || 'Fez Delivery'})
-                    </span>
-                  </div>
+                {/* Courier Integration Section */}
+                {(subOrder.couriers?.api_enabled || subOrder.couriers?.code?.toLowerCase() === 'fez') && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <CheckCircle className="w-4 h-4 text-blue-600" />
+                      <span className="text-sm font-medium text-blue-900">
+                        Courier API Integration Available ({subOrder.couriers?.name || 'Fez Delivery'})
+                      </span>
+                    </div>
 
-                  {!subOrder.courier_shipment_id ? (
-                    <button
-                      onClick={() => createCourierShipment(subOrder.id)}
-                      disabled={creatingShipment === subOrder.id}
-                      className="btn-primary text-sm flex items-center"
-                    >
-                      {creatingShipment === subOrder.id ? (
-                        <>
-                          <Loader className="w-4 h-4 mr-2 animate-spin" />
-                          Creating Shipment...
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-4 h-4 mr-2" />
-                          Send to {subOrder.couriers?.name || 'Fez Delivery'}
-                        </>
-                      )}
-                    </button>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-2 gap-3 text-sm">
+                    {/* Show error alert if previous attempt failed */}
+                    {shipmentError && (
+                      <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-3 flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
                         <div>
-                          <span className="text-gray-600">Courier Tracking:</span>
-                          <p className="font-medium">{getDisplayTracking(subOrder) || 'Not available'}</p>
-                        </div>
-                        <div>
-                          <span className="text-gray-600">Shipment ID:</span>
-                          <p className="font-medium text-xs">
-                            {subOrder.courier_shipment_id || extractOrderCode(subOrder.tracking_number || subOrder.courier_waybill)}
+                          <p className="text-sm font-medium text-red-800">Previous shipment creation failed</p>
+                          <p className="text-xs text-red-600 mt-1">
+                            {subOrder.tracking_number || subOrder.courier_waybill}
                           </p>
                         </div>
                       </div>
+                    )}
 
-                      <div className="flex gap-2">
-                        {subOrder.courier_tracking_url && (
-                          <a
-                            href={subOrder.courier_tracking_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="btn-secondary text-sm flex items-center"
-                          >
-                            <ExternalLink className="w-4 h-4 mr-2" />
-                            Track on Courier Site
-                          </a>
+                    {!validShipment ? (
+                      <button
+                        onClick={() => createCourierShipment(subOrder.id)}
+                        disabled={creatingShipment === subOrder.id}
+                        className="btn-primary text-sm flex items-center"
+                      >
+                        {creatingShipment === subOrder.id ? (
+                          <>
+                            <Loader className="w-4 h-4 mr-2 animate-spin" />
+                            Creating Shipment...
+                          </>
+                        ) : shipmentError ? (
+                          <>
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            Retry Send to {subOrder.couriers?.name || 'Fez Delivery'}
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-4 h-4 mr-2" />
+                            Send to {subOrder.couriers?.name || 'Fez Delivery'}
+                          </>
                         )}
+                      </button>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <span className="text-gray-600">Courier Tracking:</span>
+                            <p className="font-medium font-mono">{displayTracking || 'Not available'}</p>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Shipment ID:</span>
+                            <p className="font-medium text-xs font-mono">
+                              {subOrder.courier_shipment_id}
+                            </p>
+                          </div>
+                        </div>
 
-                        <button
-                          onClick={() => fetchLiveTracking(subOrder.id)}
-                          disabled={fetchingTracking === subOrder.id}
-                          className="btn-secondary text-sm flex items-center"
-                        >
-                          {fetchingTracking === subOrder.id ? (
-                            <>
-                              <Loader className="w-4 h-4 mr-2 animate-spin" />
-                              Fetching...
-                            </>
-                          ) : (
-                            <>
-                              <Truck className="w-4 h-4 mr-2" />
-                              Update Tracking
-                            </>
+                        <div className="flex flex-wrap gap-2">
+                          {subOrder.courier_tracking_url && (
+                            <a
+                              href={subOrder.courier_tracking_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn-secondary text-sm flex items-center"
+                            >
+                              <ExternalLink className="w-4 h-4 mr-2" />
+                              Track on Courier Site
+                            </a>
                           )}
-                        </button>
 
-                        {subOrder.label_url && (
                           <button
-                            onClick={() => downloadLabel(subOrder.label_url)}
+                            onClick={() => fetchLiveTracking(subOrder.id)}
+                            disabled={fetchingTracking === subOrder.id}
                             className="btn-secondary text-sm flex items-center"
                           >
-                            <Download className="w-4 h-4 mr-2" />
-                            Download Label
+                            {fetchingTracking === subOrder.id ? (
+                              <>
+                                <Loader className="w-4 h-4 mr-2 animate-spin" />
+                                Fetching...
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="w-4 h-4 mr-2" />
+                                Update Tracking
+                              </>
+                            )}
                           </button>
+
+                          {subOrder.label_url && (
+                            <button
+                              onClick={() => downloadLabel(subOrder.label_url)}
+                              className="btn-secondary text-sm flex items-center"
+                            >
+                              <Download className="w-4 h-4 mr-2" />
+                              Download Label
+                            </button>
+                          )}
+
+                          {subOrder.waybill_url && (
+                            <button
+                              onClick={() => downloadLabel(subOrder.waybill_url)}
+                              className="btn-secondary text-sm flex items-center"
+                            >
+                              <Download className="w-4 h-4 mr-2" />
+                              Download Waybill
+                            </button>
+                          )}
+                        </div>
+
+                        {subOrder.last_tracking_update && (
+                          <p className="text-xs text-gray-500">
+                            Last updated: {new Date(subOrder.last_tracking_update).toLocaleString()}
+                          </p>
                         )}
                       </div>
+                    )}
+                  </div>
+                )}
 
-                      {subOrder.last_tracking_update && (
-                        <p className="text-xs text-gray-500">
-                          Last updated: {new Date(subOrder.last_tracking_update).toLocaleString()}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Manual Tracking (if API not enabled) */}
-              {!(subOrder.couriers?.api_enabled || subOrder.couriers?.code?.toLowerCase() === 'fez') && (
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-sm text-gray-600 mb-2">Manual Tracking Number:</p>
-                  <p className="font-mono font-semibold text-lg">{subOrder.tracking_number || 'Not assigned'}</p>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Enable API integration in Courier Settings for automatic shipment creation
-                  </p>
-                </div>
-              )}
-            </div>
-          ))}
+                {/* Manual Tracking (if API not enabled) */}
+                {!(subOrder.couriers?.api_enabled || subOrder.couriers?.code?.toLowerCase() === 'fez') && (
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <p className="text-sm text-gray-600 mb-2">Manual Tracking Number:</p>
+                    <p className="font-mono font-semibold text-lg">{subOrder.tracking_number || 'Not assigned'}</p>
+                    <p className="text-xs text-gray-500 mt-2">
+                      Enable API integration in Courier Settings for automatic shipment creation
+                    </p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

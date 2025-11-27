@@ -32,7 +32,7 @@ async function authenticateFez() {
   });
 
   const data = await res.json();
-  console.log("FEZ AUTH RESPONSE:", data);
+  console.log("FEZ AUTH RESPONSE:", JSON.stringify(data, null, 2));
 
   if (data.status !== "Success") {
     throw new Error(data.description || "Fez authentication failed");
@@ -45,7 +45,53 @@ async function authenticateFez() {
   };
 }
 
-// Create shipment on FEZ, handling the "order already exists" false errors
+/**
+ * Helper to check if a string looks like a valid Fez order number
+ * Fez order numbers typically look like: FEZ-1764222679269-0ORIZK or JHAZ27012319
+ */
+function isValidFezOrderNumber(value) {
+  if (!value || typeof value !== 'string') return false;
+  
+  // Check if it contains error indicators
+  const errorIndicators = [
+    'error',
+    'cannot',
+    'failed',
+    'invalid',
+    'wrong',
+    'something went wrong',
+    'already exists'
+  ];
+  
+  const lowerValue = value.toLowerCase();
+  for (const indicator of errorIndicators) {
+    if (lowerValue.includes(indicator)) {
+      return false;
+    }
+  }
+  
+  // Valid Fez order numbers are typically alphanumeric with dashes
+  // They should be reasonably short (not an error message)
+  return value.length < 50 && /^[A-Za-z0-9_-]+$/.test(value.trim());
+}
+
+/**
+ * Extract order code from "already exists" messages
+ * e.g., "Error - This order already exists. Order FEZ-123456" -> "FEZ-123456"
+ */
+function extractOrderCodeFromMessage(value) {
+  if (!value || typeof value !== 'string') return null;
+  
+  // Try to extract order code from "already exists" message
+  const match = value.match(/order\s+([A-Za-z0-9_-]+)/i);
+  if (match && isValidFezOrderNumber(match[1])) {
+    return match[1];
+  }
+  
+  return null;
+}
+
+// Create shipment on FEZ with improved error handling
 async function createFezShipment(authToken, secretKey, baseUrl, shipmentData) {
   const res = await fetch(`${baseUrl}/order`, {
     method: "POST",
@@ -58,36 +104,57 @@ async function createFezShipment(authToken, secretKey, baseUrl, shipmentData) {
   });
 
   const data = await res.json();
-  console.log("FEZ ORDER RESPONSE:", data);
+  console.log("FEZ ORDER RESPONSE:", JSON.stringify(data, null, 2));
 
-  // Normal success
-  if (data.status === "Success") {
-    const orderId = Object.values(data.orderNos || {})[0];
-    const trackingId = Object.keys(data.orderNos || {})[0];
-    return { orderId, trackingId };
+  // Case 1: Clean success response
+  if (data.status === "Success" && data.orderNos) {
+    const trackingId = Object.keys(data.orderNos)[0];
+    const orderId = Object.values(data.orderNos)[0];
+    
+    // Verify orderId is a valid tracking number, not an error
+    if (isValidFezOrderNumber(orderId)) {
+      console.log("✅ FEZ SUCCESS - Valid order created:", { orderId, trackingId });
+      return { orderId, trackingId, success: true };
+    }
+    
+    // orderId might be an error message even with "Success" status
+    const extractedCode = extractOrderCodeFromMessage(orderId);
+    if (extractedCode) {
+      console.log("✅ FEZ SUCCESS - Extracted existing order:", { orderId: extractedCode, trackingId });
+      return { orderId: extractedCode, trackingId, success: true };
+    }
+    
+    // orderId is an error message - treat as failure
+    console.error("❌ FEZ returned Success but orderId is invalid:", orderId);
+    throw new Error(orderId || "Fez returned invalid order number");
   }
 
-  // False errors with orderNos populated (duplicates etc.)
-  if (data.orderNos && Object.keys(data.orderNos || {}).length > 0) {
-    const trackingId = Object.keys(data.orderNos || {})[0];
-    let orderId = Object.values(data.orderNos || {})[0];
-
-    if (typeof orderId === "string" && orderId.toLowerCase().includes("already exists")) {
-      const match = orderId.match(/order\s+([A-Za-z0-9_-]+)/i);
-      if (match) orderId = match[1];
+  // Case 2: Error response but with orderNos (might contain existing order info)
+  if (data.orderNos && Object.keys(data.orderNos).length > 0) {
+    const trackingId = Object.keys(data.orderNos)[0];
+    const orderId = Object.values(data.orderNos)[0];
+    
+    // Check if orderId is a valid order number
+    if (isValidFezOrderNumber(orderId)) {
+      console.log("⚠️ FEZ ERROR but order exists:", { orderId, trackingId });
+      return { orderId, trackingId, success: true };
     }
-
-    if (typeof orderId === "string" && orderId.toLowerCase().includes("error") && !String(orderId).match(/order\s+[A-Za-z0-9_-]+/i)) {
-      // Treat as success but fall back to tracking UUID as order code
-      orderId = trackingId;
+    
+    // Try to extract order code from "already exists" message
+    const extractedCode = extractOrderCodeFromMessage(orderId);
+    if (extractedCode) {
+      console.log("⚠️ FEZ DUPLICATE - Extracted existing order:", { orderId: extractedCode, trackingId });
+      return { orderId: extractedCode, trackingId, success: true };
     }
-
-    console.log("FEZ FALSE ERROR - ORDER ACTUALLY CREATED.");
-    return { orderId, trackingId };
+    
+    // orderId is purely an error message
+    console.error("❌ FEZ ERROR - Order creation failed:", orderId);
+    throw new Error(orderId || data.description || "Failed to create order on Fez");
   }
 
-  // Real error
-  throw new Error(data.description || "Error creating orders");
+  // Case 3: Pure error - no orderNos at all
+  console.error("❌ FEZ ERROR - No order created:", data);
+  throw new Error(data.description || data.message || "Error creating order on Fez Delivery");
 }
 
 exports.handler = async (event) => {
@@ -154,8 +221,8 @@ exports.handler = async (event) => {
       };
     }
 
-    // Already has a shipment
-    if (subOrder.courier_shipment_id) {
+    // Check if already has a VALID shipment (not an error message)
+    if (subOrder.courier_shipment_id && isValidFezOrderNumber(subOrder.tracking_number)) {
       return {
         statusCode: 200,
         headers,
@@ -216,14 +283,32 @@ exports.handler = async (event) => {
       additionalDetails: `Hub: ${subOrder.hubs?.name}, ${subOrder.hubs?.city}`
     };
 
-    console.log("FINAL SHIPMENT SENT TO FEZ:", shipmentData);
+    console.log("FINAL SHIPMENT SENT TO FEZ:", JSON.stringify(shipmentData, null, 2));
 
+    // This will throw if Fez returns an error
     const { orderId, trackingId } = await createFezShipment(
       authToken,
       secretKey,
       baseUrl,
       shipmentData
     );
+
+    // Double-check we have valid values before saving
+    if (!isValidFezOrderNumber(orderId)) {
+      console.error("Invalid orderId received:", orderId);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: "Fez returned invalid order number",
+          details: orderId
+        })
+      };
+    }
+
+    // Build tracking URL
+    const trackingUrl = `${baseUrl}/order/track/${orderId}`;
 
     // Update suborder with returned IDs
     const { data: updatedRows, error: updateError } = await supabase
@@ -232,6 +317,7 @@ exports.handler = async (event) => {
         tracking_number: orderId,
         courier_shipment_id: trackingId,
         courier_waybill: orderId,
+        courier_tracking_url: trackingUrl,
         status: "assigned"
       })
       .eq("id", subOrderId)
@@ -275,6 +361,8 @@ exports.handler = async (event) => {
       }
     });
 
+    console.log("✅ SHIPMENT CREATED SUCCESSFULLY:", { orderId, trackingId, trackingUrl });
+
     return {
       statusCode: 200,
       headers,
@@ -283,7 +371,7 @@ exports.handler = async (event) => {
         data: {
           tracking_number: orderId,
           courier_shipment_id: trackingId,
-          courier_tracking_url: `${baseUrl}/order/track/${trackingId || orderId}`,
+          courier_tracking_url: trackingUrl,
           message: "Shipment created successfully on Fez Delivery"
         }
       })
@@ -296,7 +384,7 @@ exports.handler = async (event) => {
       headers,
       body: JSON.stringify({
         success: false,
-        error: "Failed to create shipment",
+        error: error.message || "Failed to create shipment",
         message: error.message
       })
     };

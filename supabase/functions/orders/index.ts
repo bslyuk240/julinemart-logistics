@@ -61,28 +61,31 @@ serve(async (req: Request) => {
   }
 
   try {
-    // Verify authorization header
+    const supabaseService = createClient(supabaseUrl, supabaseServiceKey);
+
+    // Verify authorization header (required for POST/DELETE, optional for GET)
     const authHeader = req.headers.get("authorization");
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ code: 401, message: "Missing authorization header" }),
-        { status: 401, headers }
-      );
+    const token = authHeader?.replace("Bearer ", "");
+
+    let supabaseClient = supabaseService;
+    let isAuthenticatedUser = false;
+
+    if (authHeader) {
+      const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
+        global: { headers: { authorization: authHeader } },
+      });
+
+      const { data: { user }, error: authError } = await supabaseUser.auth.getUser(token);
+      if (!authError && user) {
+        supabaseClient = supabaseUser;
+        isAuthenticatedUser = true;
+      }
     }
 
-    // Create client with user's token for RLS
-    const token = authHeader.replace("Bearer ", "");
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: { authorization: authHeader },
-      },
-    });
-
-    // Verify the token is valid
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
+    if (!isAuthenticatedUser && req.method !== "GET") {
+      const message = authHeader ? "Invalid authorization token" : "Missing authorization header";
       return new Response(
-        JSON.stringify({ code: 401, message: "Invalid authorization token" }),
+        JSON.stringify({ code: 401, message }),
         { status: 401, headers }
       );
     }
@@ -95,7 +98,7 @@ serve(async (req: Request) => {
       const limit = Number(url.searchParams.get("limit") || 20);
       const offset = Number(url.searchParams.get("offset") || 0);
 
-      const { data, error } = await supabase
+      const { data, error } = await supabaseClient
         .from("orders")
         .select("*")
         .order("created_at", { ascending: false })
@@ -110,7 +113,7 @@ serve(async (req: Request) => {
 
     if (req.method === "POST") {
       const body = await req.json();
-      const { data, error } = await supabase
+      const { data, error } = await supabaseClient
         .from("orders")
         .insert(body)
         .select("*");
@@ -123,9 +126,6 @@ serve(async (req: Request) => {
     }
 
     if (req.method === "DELETE") {
-      // Use service role for delete operations
-      const supabaseService = createClient(supabaseUrl, supabaseServiceKey);
-
       const { error } = await supabaseService
         .from("orders")
         .delete()

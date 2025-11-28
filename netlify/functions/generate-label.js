@@ -19,7 +19,7 @@ const headers = {
 
 // Logo URLs - Replace with your actual logo URLs
 const JULINEMART_LOGO = 'https://res.cloudinary.com/dupgdbwrt/image/upload/v1759968430/icon-192.png_fukoim.png';
-const FEZ_LOGO = 'https://res.cloudinary.com/dupgdbwrt/image/upload/v1764251633/icon-512x512.png_1_jcuxcc.png';
+const FEZ_LOGO = 'https://res.cloudinary.com/dupgdbwrt/image/upload/v1764293124/icon-512x512.png_2_er5opu.png';
 
 // Generate simple HTML label
 function generateLabelHTML(labelData) {

@@ -180,11 +180,12 @@ const TrackingTimeline = ({ status }: { status: string }) => {
 };
 
 /**
- * Check if a tracking number is valid (not an error message)
+ * Check if a tracking number is a REAL Fez tracking number (not auto-generated)
  */
-function isValidTrackingNumber(value?: string): boolean {
+function isRealFezTrackingNumber(value?: string): boolean {
   if (!value || typeof value !== 'string') return false;
   
+  // Reject error messages
   const errorIndicators = [
     'error',
     'cannot',
@@ -202,25 +203,23 @@ function isValidTrackingNumber(value?: string): boolean {
     }
   }
   
-  // Valid tracking numbers should be reasonably short and alphanumeric
-  return value.length < 50 && /^[A-Za-z0-9_-]+$/.test(value.trim());
+  // Reject auto-generated tracking numbers (these are NOT from Fez)
+  // Format: FEZ-1234567890-ABCDEF or JLO-1234567890-ABCDEF
+  if (/^(FEZ|JLO|CR)-\d+-[A-Z0-9]+$/i.test(value)) {
+    return false;
+  }
+  
+  // Valid Fez tracking numbers are typically like: GWD026112514, 3N4827112532
+  // They should be alphanumeric, reasonably short, and NOT contain dashes with timestamp patterns
+  return value.length > 5 && value.length < 30 && /^[A-Za-z0-9]+$/.test(value.trim());
 }
 
 /**
- * Check if a suborder has a valid courier shipment
+ * Check if a suborder has a valid courier shipment (real Fez tracking, not auto-generated)
  */
 function hasValidShipment(subOrder: SubOrder): boolean {
-  // Check if we have a tracking number that's valid (not an error message)
   const tracking = subOrder.tracking_number || subOrder.courier_waybill;
-  
-  // If there's no tracking at all, no valid shipment
-  if (!tracking) return false;
-  
-  // If tracking contains error indicators, it's not valid
-  if (!isValidTrackingNumber(tracking)) return false;
-  
-  // We have a valid tracking number
-  return true;
+  return isRealFezTrackingNumber(tracking);
 }
 
 /**
@@ -268,7 +267,8 @@ export function OrderDetailsPage() {
               tracking_number: so.tracking_number,
               courier_shipment_id: so.courier_shipment_id,
               courier_tracking_url: so.courier_tracking_url,
-              status: so.status
+              status: so.status,
+              isRealFezTracking: isRealFezTrackingNumber(so.tracking_number)
             });
           });
         }
@@ -312,8 +312,7 @@ export function OrderDetailsPage() {
 
       notification.success('Shipment Created!', `Tracking: ${trackingNumber}`);
 
-      // Instant UI update with the response data - DON'T refetch immediately
-      // This prevents race conditions with the database update
+      // Instant UI update with the response data
       setSubOrders((prev) =>
         prev.map((so) =>
           so.id === subOrderId
@@ -395,9 +394,9 @@ export function OrderDetailsPage() {
   };
 
   const getDisplayTracking = (subOrder: SubOrder) => {
-    // Only return tracking if it's valid
+    // Only return tracking if it's a REAL Fez tracking number
     const tracking = subOrder.tracking_number || subOrder.courier_waybill;
-    if (isValidTrackingNumber(tracking)) {
+    if (isRealFezTrackingNumber(tracking)) {
       return tracking;
     }
     return null;
@@ -636,7 +635,7 @@ export function OrderDetailsPage() {
                     <div className="flex items-center gap-2 mb-3">
                       <CheckCircle className="w-4 h-4 text-blue-600" />
                       <span className="text-sm font-medium text-blue-900">
-                        Courier API Integration Available ({subOrder.couriers?.name || 'Fez Delivery'})
+                        Courier API Integration ({subOrder.couriers?.name || 'Fez Delivery'})
                       </span>
                     </div>
 
@@ -653,58 +652,67 @@ export function OrderDetailsPage() {
                       </div>
                     )}
 
-                    {!validShipment ? (
-                      <button
-                        onClick={() => createCourierShipment(subOrder.id)}
-                        disabled={creatingShipment === subOrder.id}
-                        className="btn-primary text-sm flex items-center"
-                      >
-                        {creatingShipment === subOrder.id ? (
-                          <>
-                            <Loader className="w-4 h-4 mr-2 animate-spin" />
-                            Creating Shipment...
-                          </>
-                        ) : shipmentError ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 mr-2" />
-                            Retry Send to {subOrder.couriers?.name || 'Fez Delivery'}
-                          </>
-                        ) : (
-                          <>
-                            <Send className="w-4 h-4 mr-2" />
-                            Send to {subOrder.couriers?.name || 'Fez Delivery'}
-                          </>
-                        )}
-                      </button>
-                    ) : (
-                      <div className="space-y-3">
+                    {/* Always show all buttons - simplified flow */}
+                    <div className="space-y-3">
+                      {/* Tracking Info - only show if we have a real Fez tracking number */}
+                      {displayTracking && (
                         <div className="grid grid-cols-2 gap-3 text-sm">
                           <div>
                             <span className="text-gray-600">Courier Tracking:</span>
-                            <p className="font-medium font-mono">{displayTracking || 'Not available'}</p>
+                            <p className="font-medium font-mono">{displayTracking}</p>
                           </div>
                           <div>
                             <span className="text-gray-600">Shipment ID:</span>
                             <p className="font-medium text-xs font-mono">
-                              {subOrder.courier_shipment_id}
+                              {subOrder.courier_shipment_id || 'Not yet created'}
                             </p>
                           </div>
                         </div>
+                      )}
 
-                        <div className="flex flex-wrap gap-2">
-                          {/* Track on Fez public tracking page */}
-                          {displayTracking && (
-                            <a
-                              href={`https://web.fezdelivery.co/track-delivery?tracking=${displayTracking}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn-secondary text-sm flex items-center"
-                            >
-                              <ExternalLink className="w-4 h-4 mr-2" />
-                              Track on Fez
-                            </a>
+                      {/* All Action Buttons */}
+                      <div className="flex flex-wrap gap-2">
+                        {/* Send to Fez - Always visible */}
+                        <button
+                          onClick={() => createCourierShipment(subOrder.id)}
+                          disabled={creatingShipment === subOrder.id}
+                          className={`text-sm flex items-center ${
+                            validShipment ? 'btn-secondary' : 'btn-primary'
+                          }`}
+                        >
+                          {creatingShipment === subOrder.id ? (
+                            <>
+                              <Loader className="w-4 h-4 mr-2 animate-spin" />
+                              Creating...
+                            </>
+                          ) : validShipment ? (
+                            <>
+                              <RefreshCw className="w-4 h-4 mr-2" />
+                              Resend to Fez
+                            </>
+                          ) : (
+                            <>
+                              <Send className="w-4 h-4 mr-2" />
+                              Send to Fez
+                            </>
                           )}
+                        </button>
 
+                        {/* Track on Fez - only if valid tracking exists */}
+                        {displayTracking && (
+                          <a
+                            href={`https://web.fezdelivery.co/track-delivery?tracking=${displayTracking}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn-secondary text-sm flex items-center"
+                          >
+                            <ExternalLink className="w-4 h-4 mr-2" />
+                            Track on Fez
+                          </a>
+                        )}
+
+                        {/* Update Tracking - only if valid tracking exists */}
+                        {displayTracking && (
                           <button
                             onClick={() => fetchLiveTracking(subOrder.id)}
                             disabled={fetchingTracking === subOrder.id}
@@ -722,49 +730,49 @@ export function OrderDetailsPage() {
                               </>
                             )}
                           </button>
-
-                          {/* Print Label - always available when shipment exists */}
-                          <button
-                            onClick={() => printLabel(subOrder.id)}
-                            className="btn-primary text-sm flex items-center"
-                          >
-                            <Printer className="w-4 h-4 mr-2" />
-                            Print Label
-                          </button>
-
-                          {/* Download Label if URL exists */}
-                          {subOrder.label_url && (
-                            <button
-                              onClick={() => downloadLabel(subOrder.label_url)}
-                              className="btn-secondary text-sm flex items-center"
-                            >
-                              <Download className="w-4 h-4 mr-2" />
-                              Download Label
-                            </button>
-                          )}
-
-                          {/* Download Waybill if URL exists */}
-                          {subOrder.waybill_url && (
-                            <button
-                              onClick={() => downloadLabel(subOrder.waybill_url)}
-                              className="btn-secondary text-sm flex items-center"
-                            >
-                              <Download className="w-4 h-4 mr-2" />
-                              Download Waybill
-                            </button>
-                          )}
-                        </div>
-
-                        {subOrder.last_tracking_update && (
-                          <p className="text-xs text-gray-500">
-                            Last updated: {new Date(subOrder.last_tracking_update).toLocaleString()}
-                          </p>
                         )}
 
-                        {/* Tracking Timeline - Horizontal Progress Stepper */}
-                        <TrackingTimeline status={subOrder.status} />
+                        {/* Print Label - always available */}
+                        <button
+                          onClick={() => printLabel(subOrder.id)}
+                          className="btn-primary text-sm flex items-center"
+                        >
+                          <Printer className="w-4 h-4 mr-2" />
+                          Print Label
+                        </button>
+
+                        {/* Download Label if URL exists */}
+                        {subOrder.label_url && (
+                          <button
+                            onClick={() => downloadLabel(subOrder.label_url)}
+                            className="btn-secondary text-sm flex items-center"
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            Download Label
+                          </button>
+                        )}
+
+                        {/* Download Waybill if URL exists */}
+                        {subOrder.waybill_url && (
+                          <button
+                            onClick={() => downloadLabel(subOrder.waybill_url)}
+                            className="btn-secondary text-sm flex items-center"
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            Download Waybill
+                          </button>
+                        )}
                       </div>
-                    )}
+
+                      {subOrder.last_tracking_update && (
+                        <p className="text-xs text-gray-500">
+                          Last updated: {new Date(subOrder.last_tracking_update).toLocaleString()}
+                        </p>
+                      )}
+
+                      {/* Tracking Timeline - Horizontal Progress Stepper */}
+                      <TrackingTimeline status={subOrder.status} />
+                    </div>
                   </div>
                 )}
 

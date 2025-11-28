@@ -80,6 +80,106 @@ type Order = {
 };
 
 /**
+ * Tracking Timeline Component - Shows horizontal progress stepper
+ */
+const TrackingTimeline = ({ status }: { status: string }) => {
+  const steps = [
+    { key: 'pending', label: 'Pending' },
+    { key: 'assigned', label: 'Assigned' },
+    { key: 'picked_up', label: 'Picked Up' },
+    { key: 'in_transit', label: 'In Transit' },
+    { key: 'out_for_delivery', label: 'Out for Delivery' },
+    { key: 'delivered', label: 'Delivered' },
+  ];
+
+  // Map various status names to our step keys
+  const normalizeStatus = (s: string): string => {
+    const statusMap: Record<string, string> = {
+      'pending': 'pending',
+      'pending_pickup': 'assigned',
+      'assigned': 'assigned',
+      'picked_up': 'picked_up',
+      'in_transit': 'in_transit',
+      'dispatched': 'in_transit',
+      'out_for_delivery': 'out_for_delivery',
+      'delivered': 'delivered',
+      'processing': 'pending',
+      'cancelled': 'cancelled',
+      'returned': 'returned',
+      'failed': 'failed',
+    };
+    return statusMap[s.toLowerCase()] || 'pending';
+  };
+
+  const currentStatus = normalizeStatus(status);
+  const currentIndex = steps.findIndex(step => step.key === currentStatus);
+
+  // Handle cancelled/returned/failed states
+  if (['cancelled', 'returned', 'failed'].includes(currentStatus)) {
+    return (
+      <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+        <div className="flex items-center gap-2 text-red-700">
+          <AlertTriangle className="w-4 h-4" />
+          <span className="font-medium capitalize">{status.replace('_', ' ')}</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 pt-4 border-t border-blue-200">
+      <p className="text-xs text-blue-700 mb-3 font-medium">Tracking Progress</p>
+      <div className="flex items-center justify-between">
+        {steps.map((step, index) => {
+          const isCompleted = index <= currentIndex;
+          const isCurrent = index === currentIndex;
+          
+          return (
+            <div key={step.key} className="flex items-center flex-1">
+              {/* Step Circle */}
+              <div className="flex flex-col items-center">
+                <div
+                  className={`
+                    w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold
+                    transition-all duration-300
+                    ${isCompleted 
+                      ? 'bg-green-500 text-white' 
+                      : 'bg-gray-200 text-gray-400'
+                    }
+                    ${isCurrent ? 'ring-2 ring-green-300 ring-offset-1' : ''}
+                  `}
+                >
+                  {isCompleted ? '✓' : index + 1}
+                </div>
+                <span 
+                  className={`
+                    text-[10px] mt-1 text-center leading-tight max-w-[60px]
+                    ${isCompleted ? 'text-green-600 font-medium' : 'text-gray-400'}
+                    ${isCurrent ? 'font-semibold' : ''}
+                  `}
+                >
+                  {step.label}
+                </span>
+              </div>
+              
+              {/* Connector Line */}
+              {index < steps.length - 1 && (
+                <div 
+                  className={`
+                    flex-1 h-0.5 mx-1
+                    ${index < currentIndex ? 'bg-green-500' : 'bg-gray-200'}
+                  `}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+/**
  * Check if a tracking number is valid (not an error message)
  */
 function isValidTrackingNumber(value?: string): boolean {
@@ -253,7 +353,24 @@ export function OrderDetailsPage() {
       const data = await response.json();
 
       if (data.success) {
-        notification.success('Tracking Updated', `Status: ${data.data.status || 'In Transit'}`);
+        notification.success('Tracking Updated', `Status: ${data.data.fez_status || data.data.status || 'Updated'}`);
+        
+        // Update local state immediately with the new status
+        if (data.data.status) {
+          setSubOrders((prev) =>
+            prev.map((so) =>
+              so.id === subOrderId
+                ? {
+                    ...so,
+                    status: data.data.status,
+                    last_tracking_update: data.data.last_update || new Date().toISOString(),
+                  }
+                : so
+            )
+          );
+        }
+        
+        // Also refresh from database
         fetchOrderDetails();
       } else {
         notification.error('Tracking Failed', data.error || 'Unable to fetch tracking');
@@ -643,6 +760,9 @@ export function OrderDetailsPage() {
                             Last updated: {new Date(subOrder.last_tracking_update).toLocaleString()}
                           </p>
                         )}
+
+                        {/* Tracking Timeline - Horizontal Progress Stepper */}
+                        <TrackingTimeline status={subOrder.status} />
                       </div>
                     )}
                   </div>

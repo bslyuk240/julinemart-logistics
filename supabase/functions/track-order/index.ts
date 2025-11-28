@@ -53,7 +53,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // Query by woocommerce_order_id and include sub_orders with tracking
+    // Query by woocommerce_order_id - removed estimated_delivery_date
     const { data, error } = await supabase
       .from("orders")
       .select(`
@@ -74,7 +74,6 @@ serve(async (req: Request) => {
           tracking_number,
           status,
           real_shipping_cost,
-          estimated_delivery_date,
           courier_tracking_url,
           created_at,
           hubs (
@@ -100,8 +99,12 @@ serve(async (req: Request) => {
       .single();
 
     if (error || !data) {
+      console.error("Query error:", error);
       return new Response(
-        JSON.stringify({ success: false, error: "Order not found. Please check your order number and email." }),
+        JSON.stringify({ 
+          success: false, 
+          error: "Order not found. Please check your order number and email."
+        }),
         { status: 404, headers }
       );
     }
@@ -112,6 +115,7 @@ serve(async (req: Request) => {
       sub_orders: data.sub_orders?.map((subOrder: any) => ({
         ...subOrder,
         shipping_cost: subOrder.real_shipping_cost,
+        estimated_delivery_date: null, // Add placeholder since column doesn't exist
         tracking_events: (subOrder.tracking_events || [])
           .map((event: any) => ({
             status: event.status,
@@ -132,6 +136,7 @@ serve(async (req: Request) => {
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
+    console.error("Catch error:", message);
     return new Response(
       JSON.stringify({ success: false, error: message }), 
       { status: 500, headers }

@@ -26,6 +26,28 @@ export function NotificationsPanel() {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
+  const STORAGE_KEY = 'jm_dashboard_cleared_notifications_v1';
+
+  const loadClearedIds = () => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return new Set<string>();
+      const parsed = JSON.parse(raw);
+      return new Set<string>(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      return new Set<string>();
+    }
+  };
+
+  const saveClearedIds = (ids: Set<string>) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(ids)));
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  const [clearedIds, setClearedIds] = useState<Set<string>>(() => loadClearedIds());
 
   function formatNotification(log: ActivityLog): Notification {
     const actionLower = log.action?.toLowerCase() || '';
@@ -103,7 +125,9 @@ export function NotificationsPanel() {
         if (!response.ok) throw new Error(`Activity logs ${response.status}`);
         const data = await response.json();
         if (mounted && data.success && Array.isArray(data.data)) {
-          const mapped = (data.data as ActivityLog[]).map((log) => formatNotification(log));
+          const mapped = (data.data as ActivityLog[])
+            .filter((log) => !clearedIds.has(log.id))
+            .map((log) => formatNotification(log));
           setNotifications(mapped);
         }
       } catch (error) {
@@ -114,7 +138,7 @@ export function NotificationsPanel() {
     return () => {
       mounted = false;
     };
-  }, [functionsBase]);
+  }, [functionsBase, clearedIds]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -130,10 +154,22 @@ export function NotificationsPanel() {
 
   const clearNotification = (id: string) => {
     setNotifications((prev) => prev.filter((notif) => notif.id !== id));
+    setClearedIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      saveClearedIds(next);
+      return next;
+    });
   };
 
   const clearAll = () => {
     setNotifications([]);
+    setClearedIds((prev) => {
+      const next = new Set(prev);
+      notifications.forEach((n) => next.add(n.id));
+      saveClearedIds(next);
+      return next;
+    });
   };
 
   const getIcon = (notification: Notification) => {

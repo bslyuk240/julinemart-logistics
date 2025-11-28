@@ -102,7 +102,7 @@ function generateLabelHTML(labelData) {
       color: rgba(255,255,255,0.8);
     }
     .powered-by img {
-      height: 20px;
+      height: 26px;
       margin-top: 2px;
     }
     .powered-by-text {
@@ -336,25 +336,25 @@ function generateLabelHTML(labelData) {
       <!-- Sender -->
       <div class="address-box">
         <div class="address-header from">
-          <span class="address-icon">ðŸ“¦</span>
+          <span class="address-icon">&larr;</span>
           <span>From (Sender)</span>
         </div>
         <div class="address-name">${sender_name}</div>
         <div class="address-detail">${sender_address}</div>
         <div class="address-detail">${sender_city}</div>
-        <div class="address-phone">ðŸ“ž ${sender_phone || 'N/A'}</div>
+        <div class="address-phone">Tel: ${sender_phone || 'N/A'}</div>
       </div>
 
       <!-- Recipient -->
       <div class="address-box">
         <div class="address-header to">
-          <span class="address-icon">ðŸ“</span>
+          <span class="address-icon">&rarr;</span>
           <span>To (Recipient)</span>
         </div>
         <div class="address-name">${recipient_name}</div>
         <div class="address-detail">${recipient_address}</div>
         <div class="address-detail">${recipient_city}, ${recipient_state}</div>
-        <div class="address-phone">ðŸ“ž ${recipient_phone}</div>
+        <div class="address-phone">Tel: ${recipient_phone}</div>
       </div>
     </div>
     
@@ -367,13 +367,13 @@ function generateLabelHTML(labelData) {
     <!-- Footer -->
     <div class="footer">
       <div class="footer-item">
-        <span>âš–ï¸</span>
+        <span>Weight:</span>
         <strong>${weight}kg</strong>
       </div>
       <div class="service-badge">STANDARD DELIVERY</div>
       <div class="footer-item">
-        <span>ðŸ“…</span>
-        <span>Ship Date: ${created_date}</span>
+        <span>Ship Date:</span>
+        <span>${created_date}</span>
       </div>
     </div>
   </div>
@@ -523,3 +523,6 @@ exports.handler = async (event) => {
     };
   }
 };
+
+
+

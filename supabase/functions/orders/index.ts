@@ -20,6 +20,7 @@ const DEFAULT_ALLOWED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIO
 function getCorsHeaders(req: Request) {
   const origin = req.headers.get("origin") ?? "";
   const requestHeaders = req.headers.get("access-control-request-headers");
+  const requestedMethod = req.headers.get("access-control-request-method");
 
   const allowedHeaders = new Set(DEFAULT_ALLOWED_HEADERS);
   if (requestHeaders) {
@@ -29,12 +30,17 @@ function getCorsHeaders(req: Request) {
     });
   }
 
+  const allowedMethods = new Set(DEFAULT_ALLOWED_METHODS);
+  if (requestedMethod) {
+    allowedMethods.add(requestedMethod.toUpperCase());
+  }
+
   return {
     "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin)
       ? origin
       : "https://jlo.julinemart.com",
     "Access-Control-Allow-Headers": Array.from(allowedHeaders).join(", "),
-     "Access-Control-Allow-Methods": DEFAULT_ALLOWED_METHODS.join(", "),
+    "Access-Control-Allow-Methods": Array.from(allowedMethods).join(", "),
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Max-Age": "86400",
   };

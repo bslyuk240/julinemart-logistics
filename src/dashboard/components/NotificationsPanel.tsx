@@ -15,7 +15,10 @@ interface ActivityLog {
   id: string;
   action: string;
   resource_type: string;
-  details: Record<string, unknown> | string;
+  resource_id?: string;
+  details: Record<string, unknown> | string | null;
+  description?: string | null;
+  metadata?: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -23,6 +26,74 @@ export function NotificationsPanel() {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
+
+  function formatNotification(log: ActivityLog): Notification {
+    const actionLower = log.action?.toLowerCase() || '';
+    const resourceLower = log.resource_type?.toLowerCase() || '';
+    const type: Notification['type'] =
+      actionLower.includes('shipment') || resourceLower.includes('shipment')
+        ? 'shipment'
+        : actionLower.includes('order') || resourceLower.includes('order')
+        ? 'order'
+        : 'system';
+
+    const parseDetails = () => {
+      if (log.description) return log.description;
+      if (typeof log.details === 'string') {
+        try {
+          const parsed = JSON.parse(log.details);
+          return parsed;
+        } catch {
+          return log.details;
+        }
+      }
+      return log.details ?? log.metadata ?? null;
+    };
+
+    const details = parseDetails();
+    const title =
+      log.action?.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) ||
+      'System Event';
+
+    const message = (() => {
+      if (typeof details === 'string' && details.trim()) return details;
+      if (details && typeof details === 'object') {
+        if ('message' in details && typeof (details as any).message === 'string') {
+          return (details as any).message;
+        }
+        if ('tracking_id' in details || 'tracking' in details) {
+          const tracking = (details as any).tracking_id || (details as any).tracking;
+          const orderId = (details as any).order_id || (details as any).order;
+          return `Shipment updated${tracking ? ` • Tracking ${tracking}` : ''}${
+            orderId ? ` • Order ${orderId}` : ''
+          }`;
+        }
+        if ('order_id' in details) {
+          return `Order ${details.order_id} updated`;
+        }
+        if ('provider' in details) {
+          return `Email provider set to ${(details as any).provider}`;
+        }
+        const entries = Object.entries(details)
+          .slice(0, 3)
+          .map(([key, value]) => `${key}: ${value}`);
+        if (entries.length > 0) return entries.join(' • ');
+      }
+      if (log.resource_type && log.resource_id) {
+        return `${log.resource_type} ${log.resource_id}`;
+      }
+      return 'Activity recorded';
+    })();
+
+    return {
+      id: log.id,
+      type,
+      title,
+      message,
+      timestamp: new Date(log.created_at),
+      read: false,
+    };
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -32,29 +103,7 @@ export function NotificationsPanel() {
         if (!response.ok) throw new Error(`Activity logs ${response.status}`);
         const data = await response.json();
         if (mounted && data.success && Array.isArray(data.data)) {
-          const mapped = (data.data as ActivityLog[]).map((log) => {
-            const detailPayload =
-              typeof log.details === 'string'
-                ? log.details
-                : JSON.stringify(log.details || {});
-            const actionLower = log.action?.toLowerCase() || '';
-            const resourceLower = log.resource_type?.toLowerCase() || '';
-            const type: Notification['type'] =
-              actionLower.includes('shipment') || resourceLower.includes('shipment')
-                ? 'shipment'
-                : actionLower.includes('order') || resourceLower.includes('order')
-                ? 'order'
-                : 'system';
-            const title = log.action?.replace(/_/g, ' ') || 'System Event';
-            return {
-              id: log.id,
-              type,
-              title,
-              message: detailPayload,
-              timestamp: new Date(log.created_at),
-              read: false,
-            };
-          });
+          const mapped = (data.data as ActivityLog[]).map((log) => formatNotification(log));
           setNotifications(mapped);
         }
       } catch (error) {

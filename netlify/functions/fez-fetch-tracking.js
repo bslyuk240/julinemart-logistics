@@ -80,13 +80,39 @@ function mapFezStatus(fezStatus) {
     'Pending Pick-Up': 'pending_pickup',
     'Picked-Up': 'picked_up',
     'Dispatched': 'in_transit',
-    'Out for Delivery': 'in_transit',
+    'Out for Delivery': 'out_for_delivery',
     'Delivered': 'delivered',
     'Cancelled': 'cancelled',
     'Returned': 'returned',
   };
 
   return statusMap[fezStatus] || 'processing';
+}
+
+// Check if a value looks like a valid Fez tracking number (not a UUID)
+function isValidFezTrackingNumber(value) {
+  if (!value || typeof value !== 'string') return false;
+  
+  // UUIDs have format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidPattern.test(value)) return false;
+  
+  // Check for error messages
+  if (value.toLowerCase().includes('already exists')) return false;
+  if (value.toLowerCase().includes('error')) return false;
+  
+  // Valid Fez tracking numbers are typically alphanumeric (like GWD026112514)
+  return value.length > 0 && value.length < 50;
+}
+
+// Extract order code from error message if present
+function extractOrderCode(val) {
+  if (typeof val !== 'string') return val;
+  if (val.toLowerCase().includes('already exists')) {
+    const match = val.match(/order\s+([A-Za-z0-9_-]+)/i);
+    if (match) return match[1];
+  }
+  return val;
 }
 
 exports.handler = async (event) => {
@@ -138,11 +164,30 @@ exports.handler = async (event) => {
       throw new Error('Sub-order not found');
     }
 
-    // Prefer the FEZ tracking UUID, then order code/waybill
-    const rawTracking =
-      subOrder.courier_shipment_id ||
-      subOrder.tracking_number ||
-      subOrder.courier_waybill;
+    // FIXED: Prioritize tracking_number and courier_waybill over courier_shipment_id
+    // because courier_shipment_id sometimes contains the sub-order UUID instead of Fez tracking number
+    const candidates = [
+      subOrder.tracking_number,
+      subOrder.courier_waybill,
+      subOrder.courier_shipment_id,
+    ];
+
+    // Find the first valid Fez tracking number
+    let rawTracking = null;
+    for (const candidate of candidates) {
+      const cleaned = extractOrderCode(candidate);
+      if (isValidFezTrackingNumber(cleaned)) {
+        rawTracking = cleaned;
+        break;
+      }
+    }
+
+    console.log('Tracking number candidates:', {
+      tracking_number: subOrder.tracking_number,
+      courier_waybill: subOrder.courier_waybill,
+      courier_shipment_id: subOrder.courier_shipment_id,
+      selected: rawTracking,
+    });
 
     // 2. Check if tracking number exists
     if (!rawTracking) {
@@ -151,26 +196,21 @@ exports.handler = async (event) => {
         headers,
         body: JSON.stringify({
           success: false,
-          error: 'No tracking number found. Please create shipment first.',
+          error: 'No valid Fez tracking number found. Please create shipment first.',
+          debug: {
+            tracking_number: subOrder.tracking_number,
+            courier_waybill: subOrder.courier_waybill,
+            courier_shipment_id: subOrder.courier_shipment_id,
+          },
         }),
       };
     }
 
-    // Clean tracking number for FEZ: strip "already exists" message, fallback to order code
-    const extractOrderCode = (val) => {
-      if (typeof val !== 'string') return val;
-      if (val.toLowerCase().includes('already exists')) {
-        const match = val.match(/order\s+([A-Za-z0-9_-]+)/i);
-        if (match) return match[1];
-      }
-      return val;
-    };
-
-    let trackingNumber = extractOrderCode(rawTracking);
+    const trackingNumber = rawTracking;
 
     // 3. Check courier credentials
     const courier = subOrder.couriers;
-    if (!courier.api_user_id || !courier.api_password) {
+    if (!courier || !courier.api_user_id || !courier.api_password) {
       return {
         statusCode: 400,
         headers,
@@ -217,26 +257,57 @@ exports.handler = async (event) => {
       console.error('Failed to update sub-order:', updateError);
     }
 
-    // 9. Save tracking events
+    // 9. Save tracking events (avoid duplicates by checking existing)
     if (trackingData.history && trackingData.history.length > 0) {
-      const trackingEvents = trackingData.history.map(event => ({
-        sub_order_id: subOrderId,
-        status: mapFezStatus(event.orderStatus),
-        location: event.statusDescription || event.orderStatus,
-        timestamp: event.statusCreationDate,
-        description: event.statusDescription,
-        raw_data: event,
-      }));
+      // Get existing tracking events to avoid duplicates
+      const { data: existingEvents } = await supabase
+        .from('tracking_events')
+        .select('description, event_time')
+        .eq('sub_order_id', subOrderId);
 
-      await supabase.from('tracking_events').insert(trackingEvents);
+      const existingKeys = new Set(
+        (existingEvents || []).map(e => `${e.description}-${e.event_time}`)
+      );
+
+      const newEvents = trackingData.history
+        .filter(event => {
+          const key = `${event.statusDescription}-${event.statusCreationDate}`;
+          return !existingKeys.has(key);
+        })
+        .map(event => ({
+          sub_order_id: subOrderId,
+          status: mapFezStatus(event.orderStatus),
+          location_name: event.location || 'Fez Delivery',
+          event_time: event.statusCreationDate,
+          description: event.statusDescription || event.orderStatus,
+          source: 'fez_api',
+          actor_type: 'courier',
+        }));
+
+      if (newEvents.length > 0) {
+        const { error: insertError } = await supabase
+          .from('tracking_events')
+          .insert(newEvents);
+
+        if (insertError) {
+          console.error('Failed to insert tracking events:', insertError);
+        } else {
+          console.log(`Inserted ${newEvents.length} new tracking events`);
+        }
+      }
     }
 
     // 10. Log activity
     await supabase.from('activity_logs').insert({
-      user_id: 'system',
+      user_id: null,
       action: 'tracking_updated',
-      description: `Tracking updated: ${trackingData.order.orderStatus}`,
-      metadata: { subOrderId, status: trackingData.order.orderStatus },
+      resource_type: 'sub_order',
+      resource_id: subOrderId,
+      details: { 
+        tracking_number: trackingNumber,
+        fez_status: trackingData.order.orderStatus,
+        jlo_status: jloStatus,
+      },
     });
 
     return {
@@ -247,7 +318,7 @@ exports.handler = async (event) => {
         data: {
           status: jloStatus,
           fez_status: trackingData.order.orderStatus,
-          tracking_number: subOrder.tracking_number,
+          tracking_number: trackingNumber,
           order_details: trackingData.order,
           history: trackingData.history,
           last_update: new Date().toISOString(),

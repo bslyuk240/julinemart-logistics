@@ -375,7 +375,7 @@ export async function handler(event) {
         const trackingEvents = subOrders.map(subOrder => ({
           sub_order_id: subOrder.id,
           status: 'pending',
-          description: 'Order received from WooCommerce',
+          description: 'Order received from JulineMArt',
           location_name: 'Processing Center',
           event_time: new Date().toISOString(),
         }));

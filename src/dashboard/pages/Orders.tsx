@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Package, Plus, Search, Filter, Download, Eye } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
-import { callSupabaseFunction, callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
+import { callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
 
 interface Order {
   id: string;
@@ -71,23 +71,30 @@ export function OrdersPage() {
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
+  // FIXED: Use Netlify function for delete (has proper cascade delete for sub-orders and tracking events)
   const handleDeleteOrder = async (orderId: string) => {
-    if (!window.confirm('Are you sure you want to delete this order? This cannot be undone.')) {
+    if (!window.confirm('Are you sure you want to delete this order? This will also delete all sub-orders and tracking events. This cannot be undone.')) {
       return;
     }
 
     setDeletingOrderId(orderId);
 
     try {
-      const data = await callSupabaseFunction(`orders/${orderId}`, {
+      const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+      const response = await fetch(`${apiBase}/.netlify/functions/orders/${orderId}`, {
         method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
 
-      if (data?.success) {
+      const data = await response.json();
+
+      if (response.ok && data?.success) {
         setOrders(prev => prev.filter(order => order.id !== orderId));
-        notification.success('Order Deleted', 'The order was removed successfully.');
+        notification.success('Order Deleted', 'The order and all related records were removed successfully.');
       } else {
-        notification.error('Delete Failed', data?.error || 'Unable to delete order');
+        notification.error('Delete Failed', data?.error || data?.message || 'Unable to delete order');
       }
     } catch (error) {
       console.error('Error deleting order:', error);
@@ -103,7 +110,7 @@ export function OrdersPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Orders</h1>
           <p className="text-gray-600 mt-2">
-            Manage all customer orders � {filteredOrders.length} of {orders.length} orders
+            Manage all customer orders • {filteredOrders.length} of {orders.length} orders
           </p>
         </div>
         <button 
@@ -283,7 +290,7 @@ export function OrdersPage() {
                     disabled={deletingOrderId === order.id}
                     className="mt-2 text-red-600 hover:text-red-700 flex items-center gap-1 text-sm font-medium"
                   >
-                    Delete
+                    {deletingOrderId === order.id ? 'Deleting...' : 'Delete'}
                   </button>
                 </div>
               </div>
@@ -294,4 +301,3 @@ export function OrdersPage() {
     </div>
   );
 }
-

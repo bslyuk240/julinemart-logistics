@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Plus, Search, Filter, Download, Eye, Trash2 } from 'lucide-react';
+import { Package, Plus, Search, Filter, Download, Eye } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
-import { callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
+import { callSupabaseFunction, callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
 
 interface Order {
   id: string;
@@ -23,10 +23,6 @@ export function OrdersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [deletingOrderId, setDeletingOrderId] = useState<string | null>(null);
-
-  // Use the API base URL for direct API calls
-  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
-
   useEffect(() => {
     fetchOrders();
   }, []);
@@ -68,44 +64,34 @@ export function OrdersPage() {
     const colors: Record<string, string> = {
       pending: 'bg-yellow-100 text-yellow-800',
       processing: 'bg-blue-100 text-blue-800',
-      assigned: 'bg-blue-100 text-blue-800',
       in_transit: 'bg-purple-100 text-purple-800',
-      out_for_delivery: 'bg-orange-100 text-orange-800',
       delivered: 'bg-green-100 text-green-800',
       cancelled: 'bg-red-100 text-red-800',
-      failed: 'bg-red-100 text-red-800',
-      returned: 'bg-red-100 text-red-800',
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
   const handleDeleteOrder = async (orderId: string) => {
-    if (!window.confirm('Are you sure you want to delete this order? This will also delete all sub-orders and tracking events. This cannot be undone.')) {
+    if (!window.confirm('Are you sure you want to delete this order? This cannot be undone.')) {
       return;
     }
 
     setDeletingOrderId(orderId);
 
     try {
-      // Use Netlify function which has proper cascade delete logic
-      const response = await fetch(`${apiBase}/.netlify/functions/orders/${orderId}`, {
+      const data = await callSupabaseFunction(`orders/${orderId}`, {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
       });
 
-      const data = await response.json();
-
-      if (response.ok && data?.success) {
+      if (data?.success) {
         setOrders(prev => prev.filter(order => order.id !== orderId));
-        notification.success('Order Deleted', 'The order and all related records were removed successfully.');
+        notification.success('Order Deleted', 'The order was removed successfully.');
       } else {
-        notification.error('Delete Failed', data?.error || data?.message || 'Unable to delete order');
+        notification.error('Delete Failed', data?.error || 'Unable to delete order');
       }
     } catch (error) {
       console.error('Error deleting order:', error);
-      notification.error('Delete Failed', 'Unable to delete order. Please try again.');
+      notification.error('Delete Failed', 'Unable to delete order');
     } finally {
       setDeletingOrderId(null);
     }
@@ -117,7 +103,7 @@ export function OrdersPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Orders</h1>
           <p className="text-gray-600 mt-2">
-            Manage all customer orders • {filteredOrders.length} of {orders.length} orders
+            Manage all customer orders � {filteredOrders.length} of {orders.length} orders
           </p>
         </div>
         <button 
@@ -154,10 +140,8 @@ export function OrdersPage() {
               >
                 <option value="all">All Status</option>
                 <option value="pending">Pending</option>
-                <option value="assigned">Assigned</option>
                 <option value="processing">Processing</option>
                 <option value="in_transit">In Transit</option>
-                <option value="out_for_delivery">Out for Delivery</option>
                 <option value="delivered">Delivered</option>
                 <option value="cancelled">Cancelled</option>
               </select>
@@ -173,83 +157,134 @@ export function OrdersPage() {
 
       {/* Orders List */}
       {loading ? (
-        <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading orders...</p>
-        </div>
-      ) : orders.length === 0 ? (
-        <div className="card text-center py-12">
-          <Package className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-gray-700 mb-2">No Orders Yet</h3>
-          <p className="text-gray-500 mb-6">Orders from your WooCommerce store will appear here automatically.</p>
-          <button
-            onClick={() => navigate('/admin/orders/create')}
-            className="btn-primary"
-          >
-            Create Manual Order
-          </button>
+        <div className="flex items-center justify-center py-12">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
+          <span className="ml-3 text-gray-600">Loading orders...</span>
         </div>
       ) : filteredOrders.length === 0 ? (
-        <div className="card text-center py-12">
-          <Search className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-gray-700 mb-2">No Matching Orders</h3>
-          <p className="text-gray-500">Try adjusting your search or filter criteria.</p>
+        <div className="card text-center py-16">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-full mb-4">
+            <Package className="w-8 h-8 text-gray-400" />
+          </div>
+          
+          {orders.length === 0 ? (
+            <>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">No Orders Yet</h3>
+              <p className="text-gray-600 mb-6 max-w-md mx-auto">
+                Get started by creating your first order manually, or connect your WooCommerce store to automatically sync orders.
+              </p>
+              
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <button
+                  onClick={() => navigate('/admin/orders/create')}
+                  className="btn-primary flex items-center justify-center"
+                >
+                  <Plus className="w-5 h-5 mr-2" />
+                  Create First Order
+                </button>
+                
+                <button
+                  onClick={() => navigate('/admin/settings')}
+                  className="btn-secondary flex items-center justify-center"
+                >
+                  <Filter className="w-5 h-5 mr-2" />
+                  Setup WooCommerce
+                </button>
+              </div>
+
+              <div className="mt-8 pt-8 border-t border-gray-200">
+                <p className="text-sm text-gray-600 mb-4">Quick Start Options:</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto">
+                  <div className="p-4 bg-blue-50 rounded-lg text-left">
+                    <h4 className="font-semibold text-blue-900 mb-2">1. Manual Entry</h4>
+                    <p className="text-sm text-blue-800">Create orders directly in the dashboard for immediate processing</p>
+                  </div>
+                  <div className="p-4 bg-green-50 rounded-lg text-left">
+                    <h4 className="font-semibold text-green-900 mb-2">2. WooCommerce Sync</h4>
+                    <p className="text-sm text-green-800">Connect your store to automatically import orders via webhook</p>
+                  </div>
+                  <div className="p-4 bg-purple-50 rounded-lg text-left">
+                    <h4 className="font-semibold text-purple-900 mb-2">3. API Integration</h4>
+                    <p className="text-sm text-purple-800">Use our REST API to integrate with any e-commerce platform</p>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">No Matching Orders</h3>
+              <p className="text-gray-600 mb-6">
+                No orders match your current filters. Try adjusting your search or filters.
+              </p>
+              <button
+                onClick={() => {
+                  setSearchTerm('');
+                  setStatusFilter('all');
+                }}
+                className="btn-secondary"
+              >
+                Clear Filters
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
           {filteredOrders.map((order) => (
             <div
               key={order.id}
-              className="card hover:shadow-md transition-shadow cursor-pointer"
               onClick={() => navigate(`/admin/orders/${order.id}`)}
+              className="card hover:shadow-lg transition-shadow cursor-pointer"
             >
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="bg-primary-100 p-3 rounded-full">
-                    <Package className="w-6 h-6 text-primary-600" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-lg">
-                      Order #{order.woocommerce_order_id}
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      #{order.woocommerce_order_id}
                     </h3>
-                    <p className="text-gray-600">{order.customer_name}</p>
-                    <p className="text-sm text-gray-500">{order.customer_email}</p>
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.overall_status)}`}>
+                      {order.overall_status}
+                    </span>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">Customer:</span>
+                      <p className="font-medium">{order.customer_name}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Email:</span>
+                      <p className="font-medium text-xs">{order.customer_email}</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Destination:</span>
+                      <p className="font-medium">{order.delivery_state}</p>
+                    </div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.overall_status)}`}>
-                    {order.overall_status}
-                  </span>
-                  <div className="mt-2 font-semibold text-lg">
-                    ₦{Number(order.total_amount || 0).toLocaleString()}
+
+                <div className="text-right ml-6">
+                  <div className="text-2xl font-bold text-gray-900">
+                    ₦{order.total_amount.toLocaleString()}
                   </div>
                   <div className="text-sm text-gray-600">
                     {new Date(order.created_at).toLocaleDateString()}
                   </div>
-                  <div className="flex items-center gap-2 mt-2">
-                    <button 
-                      className="text-primary-600 hover:text-primary-700 flex items-center gap-1 text-sm font-medium"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/admin/orders/${order.id}`);
-                      }}
-                    >
-                      <Eye className="w-4 h-4" />
-                      View
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleDeleteOrder(order.id);
-                      }}
-                      disabled={deletingOrderId === order.id}
-                      className="text-red-600 hover:text-red-700 flex items-center gap-1 text-sm font-medium disabled:opacity-50"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      {deletingOrderId === order.id ? 'Deleting...' : 'Delete'}
-                    </button>
-                  </div>
+                  <button className="mt-2 text-primary-600 hover:text-primary-700 flex items-center gap-1 text-sm font-medium">
+                    <Eye className="w-4 h-4" />
+                    View Details
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleDeleteOrder(order.id);
+                    }}
+                    disabled={deletingOrderId === order.id}
+                    className="mt-2 text-red-600 hover:text-red-700 flex items-center gap-1 text-sm font-medium"
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
             </div>
@@ -259,3 +294,4 @@ export function OrdersPage() {
     </div>
   );
 }
+

@@ -1,4 +1,5 @@
 // Fez Delivery - Create Shipment Function
+// With automatic retry on first failure
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -13,6 +14,14 @@ const headers = {
   "Content-Type": "application/json"
 };
 
+// Generate a shorter unique ID for Fez (instead of full UUID)
+function generateShortUniqueId(subOrderId) {
+  // Take last 8 characters of UUID and add timestamp
+  const shortId = subOrderId.slice(-8);
+  const timestamp = Date.now().toString(36); // Base36 timestamp
+  return `JLO-${shortId}-${timestamp}`.toUpperCase();
+}
+
 async function authenticateFez() {
   const FEZ_USER_ID = process.env.FEZ_USER_ID;
   const FEZ_API_KEY = process.env.FEZ_PASSWORD || process.env.FEZ_API_KEY;
@@ -22,6 +31,8 @@ async function authenticateFez() {
     throw new Error("Missing Fez API environment variables");
   }
 
+  console.log("Authenticating with Fez...");
+  
   const res = await fetch(`${FEZ_API_BASE_URL}/user/authenticate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -47,12 +58,10 @@ async function authenticateFez() {
 
 /**
  * Helper to check if a string looks like a valid Fez order number
- * Fez order numbers typically look like: FEZ-1764222679269-0ORIZK or JHAZ27012319
  */
 function isValidFezOrderNumber(value) {
   if (!value || typeof value !== 'string') return false;
   
-  // Check if it contains error indicators
   const errorIndicators = [
     'error',
     'cannot',
@@ -70,19 +79,15 @@ function isValidFezOrderNumber(value) {
     }
   }
   
-  // Valid Fez order numbers are typically alphanumeric with dashes
-  // They should be reasonably short (not an error message)
   return value.length < 50 && /^[A-Za-z0-9_-]+$/.test(value.trim());
 }
 
 /**
  * Extract order code from "already exists" messages
- * e.g., "Error - This order already exists. Order FEZ-123456" -> "FEZ-123456"
  */
 function extractOrderCodeFromMessage(value) {
   if (!value || typeof value !== 'string') return null;
   
-  // Try to extract order code from "already exists" message
   const match = value.match(/order\s+([A-Za-z0-9_-]+)/i);
   if (match && isValidFezOrderNumber(match[1])) {
     return match[1];
@@ -111,52 +116,47 @@ async function createFezShipment(authToken, secretKey, baseUrl, shipmentData) {
     const trackingId = Object.keys(data.orderNos)[0];
     const orderId = Object.values(data.orderNos)[0];
     
-    // Verify orderId is a valid tracking number, not an error
     if (isValidFezOrderNumber(orderId)) {
       console.log("✅ FEZ SUCCESS - Valid order created:", { orderId, trackingId });
       return { orderId, trackingId, success: true };
     }
     
-    // orderId might be an error message even with "Success" status
     const extractedCode = extractOrderCodeFromMessage(orderId);
     if (extractedCode) {
       console.log("✅ FEZ SUCCESS - Extracted existing order:", { orderId: extractedCode, trackingId });
       return { orderId: extractedCode, trackingId, success: true };
     }
     
-    // orderId is an error message - treat as failure
     console.error("❌ FEZ returned Success but orderId is invalid:", orderId);
     throw new Error(orderId || "Fez returned invalid order number");
   }
 
-  // Case 2: Error response but with orderNos (might contain existing order info)
+  // Case 2: Error response but with orderNos
   if (data.orderNos && Object.keys(data.orderNos).length > 0) {
     const trackingId = Object.keys(data.orderNos)[0];
     const orderId = Object.values(data.orderNos)[0];
     
-    // Check if orderId is a valid order number
     if (isValidFezOrderNumber(orderId)) {
       console.log("⚠️ FEZ ERROR but order exists:", { orderId, trackingId });
       return { orderId, trackingId, success: true };
     }
     
-    // Try to extract order code from "already exists" message
     const extractedCode = extractOrderCodeFromMessage(orderId);
     if (extractedCode) {
       console.log("⚠️ FEZ DUPLICATE - Extracted existing order:", { orderId: extractedCode, trackingId });
       return { orderId: extractedCode, trackingId, success: true };
     }
     
-    // orderId is purely an error message
     console.error("❌ FEZ ERROR - Order creation failed:", orderId);
     throw new Error(orderId || data.description || "Failed to create order on Fez");
   }
 
-  // Case 3: Pure error - no orderNos at all
+  // Case 3: Pure error
   console.error("❌ FEZ ERROR - No order created:", data);
   throw new Error(data.description || data.message || "Error creating order on Fez Delivery");
 }
 
+// Main handler with automatic retry
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return { statusCode: 200, headers, body: "" };
@@ -195,6 +195,7 @@ exports.handler = async (event) => {
         *,
         orders (
           id,
+          woocommerce_order_id,
           customer_name,
           customer_email,
           customer_phone,
@@ -223,6 +224,7 @@ exports.handler = async (event) => {
 
     // Check if already has a VALID shipment (not an error message)
     if (subOrder.courier_shipment_id && isValidFezOrderNumber(subOrder.tracking_number)) {
+      console.log("Shipment already exists with valid tracking:", subOrder.tracking_number);
       return {
         statusCode: 200,
         headers,
@@ -238,7 +240,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // Parse items (JSONB or string)
+    // Parse items
     let items = [];
     if (Array.isArray(subOrder.items)) {
       items = subOrder.items;
@@ -265,7 +267,8 @@ exports.handler = async (event) => {
       (itemsValue || Number(subOrder.real_shipping_cost ?? subOrder.allocated_shipping_fee ?? subOrder.shipping_fee_paid ?? 0)) + 1000
     );
 
-    const { authToken, secretKey, baseUrl } = await authenticateFez();
+    // Generate a shorter unique ID for Fez
+    const uniqueId = generateShortUniqueId(subOrderId);
 
     const shipmentData = {
       recipientAddress: subOrder.orders?.delivery_address || "",
@@ -273,27 +276,59 @@ exports.handler = async (event) => {
       recipientName: subOrder.orders?.customer_name || "",
       recipientPhone: subOrder.orders?.customer_phone || "",
       recipientEmail: subOrder.orders?.customer_email || "",
-      uniqueID: subOrder.id,
-      BatchID: subOrder.orders?.id || subOrder.id,
-      itemDescription: items.map(i => `${i.quantity}x ${i.name}`).join(", "),
+      uniqueID: uniqueId,
+      BatchID: subOrder.orders?.woocommerce_order_id || subOrder.orders?.id || subOrderId,
+      itemDescription: items.map(i => `${i.quantity}x ${i.name}`).join(", ") || "Package",
       valueOfItem: String(shippingValue),
-      weight: Math.max(1, Math.round(totalWeight)),
+      weight: Math.max(1, Math.round(totalWeight)) || 1,
       pickUpAddress: subOrder.hubs?.address || "",
       pickUpState: subOrder.hubs?.state || "",
-      additionalDetails: `Hub: ${subOrder.hubs?.name}, ${subOrder.hubs?.city}`
+      additionalDetails: `Hub: ${subOrder.hubs?.name || 'JulineMart'}, ${subOrder.hubs?.city || ''}`
     };
 
-    console.log("FINAL SHIPMENT SENT TO FEZ:", JSON.stringify(shipmentData, null, 2));
+    console.log("SHIPMENT DATA TO SEND:", JSON.stringify(shipmentData, null, 2));
 
-    // This will throw if Fez returns an error
-    const { orderId, trackingId } = await createFezShipment(
-      authToken,
-      secretKey,
-      baseUrl,
-      shipmentData
-    );
+    // TRY UP TO 2 TIMES (automatic retry on first failure)
+    let lastError = null;
+    let result = null;
 
-    // Double-check we have valid values before saving
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        console.log(`\n=== FEZ API ATTEMPT ${attempt} ===`);
+        
+        // Get fresh authentication for each attempt
+        const { authToken, secretKey, baseUrl } = await authenticateFez();
+        
+        // Small delay before retry
+        if (attempt > 1) {
+          console.log("Waiting 1 second before retry...");
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
+        result = await createFezShipment(authToken, secretKey, baseUrl, shipmentData);
+        
+        // If we get here, it succeeded
+        console.log(`✅ Attempt ${attempt} succeeded!`);
+        break;
+        
+      } catch (err) {
+        lastError = err;
+        console.error(`❌ Attempt ${attempt} failed:`, err.message);
+        
+        if (attempt < 2) {
+          console.log("Will retry...");
+        }
+      }
+    }
+
+    // If all attempts failed
+    if (!result) {
+      throw lastError || new Error("Failed to create shipment after 2 attempts");
+    }
+
+    const { orderId, trackingId } = result;
+
+    // Validate result
     if (!isValidFezOrderNumber(orderId)) {
       console.error("Invalid orderId received:", orderId);
       return {
@@ -307,10 +342,10 @@ exports.handler = async (event) => {
       };
     }
 
-    // Build tracking URL - use the public Fez tracking page, not the API endpoint
+    // Build tracking URL
     const trackingUrl = `https://web.fezdelivery.co/track-delivery?tracking=${orderId}`;
 
-    // Update suborder with returned IDs
+    // Update suborder
     const { data: updatedRows, error: updateError } = await supabase
       .from("sub_orders")
       .update({
@@ -349,6 +384,7 @@ exports.handler = async (event) => {
       };
     }
 
+    // Log activity
     await supabase.from("activity_logs").insert({
       user_id: null,
       action: "courier_shipment_created",
@@ -357,7 +393,8 @@ exports.handler = async (event) => {
       details: { 
         courier: "fez", 
         order_id: orderId,
-        tracking_id: trackingId 
+        tracking_id: trackingId,
+        unique_id: uniqueId
       }
     });
 

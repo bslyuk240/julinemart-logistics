@@ -202,7 +202,7 @@ export function CustomerPortalLanding() {
               <h4 className="font-semibold mb-4">Support</h4>
               <ul className="space-y-2 text-gray-400">
                 <li>Email: support@julinemart.com</li>
-                <li>Phone: +234 800 000 0000</li>
+                <li>Phone: +2347075825761</li>
                 <li>Hours: Mon-Sat 9AM-6PM</li>
               </ul>
             </div>

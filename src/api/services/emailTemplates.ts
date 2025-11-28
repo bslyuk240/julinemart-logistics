@@ -223,7 +223,7 @@ export const orderConfirmationEmail = (data: OrderEmailData): EmailTemplate => {
     </div>
 
     <div class="footer">
-      <p>Need help? Contact us at <a href="mailto:support@julinemart.com">support@julinemart.com</a> or call +234 800 000 0000</p>
+      <p>Need help? Contact us at <a href="mailto:support@julinemart.com">support@julinemart.com</a> or call +2347075825761</p>
       <p style="margin-top: 15px;">
         <a href="${data.trackingUrl}">Track Order</a> | 
         <a href="https://julinemart.com/faq">FAQs</a> | 
@@ -250,7 +250,7 @@ ${data.deliveryCity}, ${data.deliveryState}
 
 Track your order: ${data.trackingUrl}
 
-Need help? Email: support@julinemart.com | Phone: +234 800 000 0000
+Need help? Email: support@julinemart.com | Phone: +2347075825761
     `.trim(),
   };
 };
@@ -395,7 +395,7 @@ export const orderShippedEmail = (data: OrderEmailData): EmailTemplate => {
 
     <div class="footer">
       <p><strong>Track your package:</strong> <a href="${data.trackingUrl}">Click here</a></p>
-      <p>Need help? <a href="mailto:support@julinemart.com">support@julinemart.com</a> | +234 800 000 0000</p>
+      <p>Need help? <a href="mailto:support@julinemart.com">support@julinemart.com</a> | +2347075825761</p>
     </div>
   `;
 
@@ -482,7 +482,7 @@ export const outForDeliveryEmail = (data: OrderEmailData): EmailTemplate => {
 
     <div class="footer">
       <p><strong>Questions about your delivery?</strong></p>
-      <p>Call us: +234 800 000 0000 | Email: <a href="mailto:support@julinemart.com">support@julinemart.com</a></p>
+      <p>Call us: +2347075825761| Email: <a href="mailto:support@julinemart.com">support@julinemart.com</a></p>
     </div>
   `;
 
@@ -504,7 +504,7 @@ ${data.deliveryCity}, ${data.deliveryState}
 
 Track: ${data.trackingUrl}
 
-Questions? Call: +234 800 000 0000
+Questions? Call: +2347075825761
     `.trim(),
   };
 };
@@ -554,7 +554,7 @@ export const orderDeliveredEmail = (data: OrderEmailData): EmailTemplate => {
 
     <div class="footer">
       <p><strong>Need help with your order?</strong></p>
-      <p>Email: <a href="mailto:support@julinemart.com">support@julinemart.com</a> | Phone: +234 800 000 0000</p>
+      <p>Email: <a href="mailto:support@julinemart.com">support@julinemart.com</a> | Phone: +2347075825761</p>
       <p style="margin-top: 15px;">
         <a href="https://julinemart.com">Continue Shopping</a> | 
         <a href="${data.trackingUrl}">View Order Details</a>
@@ -639,7 +639,7 @@ export const orderCancelledEmail = (data: OrderEmailData & { cancellationReason?
 
     <div class="footer">
       <p><strong>Questions about your cancellation?</strong></p>
-      <p>Email: <a href="mailto:support@julinemart.com">support@julinemart.com</a> | Phone: +234 800 000 0000</p>
+      <p>Email: <a href="mailto:support@julinemart.com">support@julinemart.com</a> | Phone: +2347075825761</p>
     </div>
   `;
 
@@ -658,7 +658,7 @@ ${data.cancellationReason ? `Reason: ${data.cancellationReason}` : ''}
 
 If you made payment, refunds will be processed in 5-7 business days.
 
-Questions? Email: support@julinemart.com | Phone: +234 800 000 0000
+Questions? Email: support@julinemart.com | Phone: +2347075825761
     `.trim(),
   };
 };

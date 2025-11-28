@@ -59,7 +59,7 @@ const managerRoutes = [
 const customerRoutes = [
   { path: '/', element: <CustomerPortalLanding /> },
   { path: '/track', element: <OrderTrackingPage /> },
-  { path: '/shipping-estimate', element: <ShippingEstimatePage /> },
+  { path: '/estimate', element: <ShippingEstimatePage /> },
   { path: '/order/:id', element: <OrderTrackingPage /> },
   { path: '/contact', element: <CustomerContactPage /> },
 ];

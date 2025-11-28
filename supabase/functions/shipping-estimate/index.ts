@@ -31,6 +31,10 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // VAT rate in Nigeria
 const VAT_RATE = 0.075; // 7.5%
 
+// Default configuration - Only use Warri Hub and Fez Delivery
+const DEFAULT_HUB_NAME = "Warri Hub";
+const DEFAULT_COURIER_NAME = "Fez Delivery";
+
 serve(async (req: Request) => {
   const headers = getCorsHeaders(req);
   if (req.method === "OPTIONS") {
@@ -77,7 +81,6 @@ serve(async (req: Request) => {
     );
 
     if (!zone) {
-      // Use default zone or return error
       console.log("No zone found for state:", state);
       return new Response(
         JSON.stringify({ 
@@ -90,24 +93,76 @@ serve(async (req: Request) => {
 
     console.log("Found zone:", zone.name, zone.id);
 
-    // Get shipping rates for this zone
-    const { data: rates, error: ratesError } = await supabase
-      .from("shipping_rates")
-      .select(`
-        *,
-        hubs (id, name, city, state),
-        couriers (id, name, code, average_delivery_time_days)
-      `)
-      .eq("zone_id", zone.id)
+    // Get Warri Hub specifically
+    const { data: warriHub } = await supabase
+      .from("hubs")
+      .select("*")
+      .ilike("name", "%warri%")
       .eq("is_active", true)
-      .order("priority", { ascending: false });
+      .limit(1)
+      .single();
 
-    if (ratesError) {
-      console.error("Rates query error:", ratesError);
-      throw ratesError;
+    console.log("Warri Hub:", warriHub?.name || "Not found - using default");
+
+    // Get Fez Delivery courier specifically
+    const { data: fezCourier } = await supabase
+      .from("couriers")
+      .select("*")
+      .or("code.ilike.%fez%,name.ilike.%fez%")
+      .eq("is_active", true)
+      .limit(1)
+      .single();
+
+    console.log("Fez Courier:", fezCourier?.name || "Not found - using default");
+
+    // Get shipping rate for this zone with Fez courier (if exists)
+    let rate = null;
+    
+    if (fezCourier) {
+      const { data: fezRate } = await supabase
+        .from("shipping_rates")
+        .select("*")
+        .eq("zone_id", zone.id)
+        .eq("courier_id", fezCourier.id)
+        .eq("is_active", true)
+        .order("priority", { ascending: false })
+        .limit(1)
+        .single();
+      
+      rate = fezRate;
+      console.log("Found Fez rate for zone:", rate?.id || "None");
     }
 
-    console.log("Found rates:", rates?.length);
+    // If no Fez-specific rate, try to get rate with Warri hub
+    if (!rate && warriHub) {
+      const { data: warriRate } = await supabase
+        .from("shipping_rates")
+        .select("*")
+        .eq("zone_id", zone.id)
+        .eq("hub_id", warriHub.id)
+        .eq("is_active", true)
+        .order("priority", { ascending: false })
+        .limit(1)
+        .single();
+      
+      rate = warriRate;
+      console.log("Found Warri Hub rate for zone:", rate?.id || "None");
+    }
+
+    // If still no rate, get any rate for this zone
+    if (!rate) {
+      const { data: anyRate } = await supabase
+        .from("shipping_rates")
+        .select("*")
+        .eq("zone_id", zone.id)
+        .eq("is_active", true)
+        .order("priority", { ascending: false })
+        .limit(1)
+        .single();
+      
+      rate = anyRate;
+      console.log("Using fallback rate:", rate?.id || "None - will use defaults");
+    }
 
     // Calculate total weight from items
     const totalWeight = items?.reduce((sum: number, item: any) => {
@@ -122,68 +177,49 @@ serve(async (req: Request) => {
       return sum + (price * quantity);
     }, 0) || 0;
 
-    console.log("Total weight:", totalWeight);
+    console.log("Total weight:", totalWeight, "kg");
     console.log("Total order value:", totalOrderValue);
 
-    // If no rates found, use a default calculation
-    if (!rates || rates.length === 0) {
-      // Default flat rate calculation
-      const defaultBaseRate = 2500;
-      const defaultPerKgRate = 500;
-      const baseRate = defaultBaseRate + (totalWeight * defaultPerKgRate);
-      const vat = Math.round(baseRate * VAT_RATE);
-      const totalShippingFee = baseRate + vat;
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          data: {
-            zoneName: zone.name,
-            zoneCode: zone.code,
-            totalShippingFee,
-            subOrders: [{
-              hubName: "Default Hub",
-              courierName: "Standard Delivery",
-              totalWeight,
-              baseRate,
-              vat,
-              totalShippingFee,
-              deliveryTimelineDays: 5,
-            }],
-          },
-        }),
-        { headers }
-      );
-    }
-
-    // Use the best rate (highest priority)
-    const bestRate = rates[0];
-    
     // Calculate shipping cost
-    let baseRate = Number(bestRate.flat_rate ?? 0);
-    
-    // Add per-kg rate if weight exceeds minimum
-    const perKgRate = Number(bestRate.per_kg_rate ?? 0);
-    const minWeight = Number(bestRate.min_weight_kg ?? 0);
-    
-    if (perKgRate > 0 && totalWeight > minWeight) {
-      baseRate += perKgRate * (totalWeight - minWeight);
+    let baseRate: number;
+    let perKgRate = 0;
+    let freeShippingThreshold = 0;
+    let deliveryTimelineDays = 3;
+
+    if (rate) {
+      baseRate = Number(rate.flat_rate ?? 2500);
+      perKgRate = Number(rate.per_kg_rate ?? 0);
+      freeShippingThreshold = Number(rate.free_shipping_threshold ?? 0);
+      deliveryTimelineDays = Number(rate.estimated_days ?? 3);
+      
+      // Add per-kg charge if applicable
+      const minWeight = Number(rate.min_weight_kg ?? 0);
+      if (perKgRate > 0 && totalWeight > minWeight) {
+        baseRate += perKgRate * (totalWeight - minWeight);
+      }
+    } else {
+      // Default rate if none found in database
+      baseRate = 2500 + (totalWeight * 500);
     }
 
-    // Check for free shipping threshold
-    const freeShippingThreshold = Number(bestRate.free_shipping_threshold ?? 0);
+    // Check for free shipping
     if (freeShippingThreshold > 0 && totalOrderValue >= freeShippingThreshold) {
       baseRate = 0;
     }
+
+    // Round base rate
+    baseRate = Math.round(baseRate);
 
     // Calculate VAT
     const vat = Math.round(baseRate * VAT_RATE);
     const totalShippingFee = baseRate + vat;
 
-    // Get delivery time
-    const deliveryTimelineDays = bestRate.couriers?.average_delivery_time_days ?? 
-                                  bestRate.estimated_days ?? 5;
+    // Use Fez delivery time if available
+    if (fezCourier?.average_delivery_time_days) {
+      deliveryTimelineDays = fezCourier.average_delivery_time_days;
+    }
 
+    // ALWAYS return Warri Hub and Fez Delivery in response
     const response = {
       success: true,
       data: {
@@ -191,22 +227,21 @@ serve(async (req: Request) => {
         zoneCode: zone.code,
         totalShippingFee,
         subOrders: [{
-          hubId: bestRate.hubs?.id ?? null,
-          hubName: bestRate.hubs?.name ?? "Fulfillment Center",
-          courierId: bestRate.couriers?.id ?? null,
-          courierName: bestRate.couriers?.name ?? "Standard Delivery",
+          hubId: warriHub?.id ?? null,
+          hubName: warriHub?.name ?? DEFAULT_HUB_NAME,
+          courierId: fezCourier?.id ?? null,
+          courierName: fezCourier?.name ?? DEFAULT_COURIER_NAME,
           totalWeight,
-          baseRate: Math.round(baseRate),
+          baseRate,
           vat,
           totalShippingFee,
           deliveryTimelineDays,
         }],
-        // Additional info for transparency
         breakdown: {
-          flatRate: Number(bestRate.flat_rate ?? 0),
+          flatRate: rate?.flat_rate ?? 2500,
           perKgRate: perKgRate,
-          weightCharge: perKgRate > 0 ? Math.round(perKgRate * Math.max(0, totalWeight - minWeight)) : 0,
-          subtotal: Math.round(baseRate),
+          weightCharge: perKgRate > 0 ? Math.round(perKgRate * totalWeight) : 0,
+          subtotal: baseRate,
           vatRate: "7.5%",
           vatAmount: vat,
           total: totalShippingFee,
@@ -216,7 +251,7 @@ serve(async (req: Request) => {
       },
     };
 
-    console.log("Response:", JSON.stringify(response, null, 2));
+    console.log("Final Response - Hub:", response.data.subOrders[0].hubName, "Courier:", response.data.subOrders[0].courierName);
 
     return new Response(JSON.stringify(response), { headers });
 

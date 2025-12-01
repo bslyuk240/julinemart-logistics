@@ -100,9 +100,24 @@ export const handler = async (event) => {
     const state = payload.deliveryState || payload.delivery_state || '';
     const city = payload.deliveryCity || payload.delivery_city || '';
     const items = Array.isArray(payload.items) ? payload.items : [];
-    const totalOrderValue = items.reduce((sum, item) => {
+    const itemsValue = items.reduce((sum, item) => {
       return sum + (Number(item.price || 0) * Number(item.quantity || 1));
     }, 0);
+    const providedOrderValue = Number(
+      payload.orderValue ??
+      payload.order_value ??
+      payload.orderTotal ??
+      payload.order_total ??
+      payload.total ??
+      payload.subtotal ??
+      payload.cartTotal ??
+      payload.grandTotal ??
+      0
+    );
+    const totalOrderValue =
+      Number.isFinite(providedOrderValue) && providedOrderValue > 0
+        ? providedOrderValue
+        : itemsValue;
 
     console.log('Calc shipping request:', { state, city, itemCount: items.length });
 

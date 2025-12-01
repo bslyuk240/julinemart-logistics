@@ -111,10 +111,14 @@ export const handler = async (event) => {
       payload.order_value ??
       payload.orderTotal ??
       payload.order_total ??
+      payload.totalOrderValue ??
+      payload.total_order_value ??
       payload.total ??
       payload.subtotal ??
       payload.cartTotal ??
+      payload.cart_total ??
       payload.grandTotal ??
+      payload.grand_total ??
       0
     );
     const totalOrderValue =

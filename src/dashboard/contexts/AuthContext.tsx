@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           id: userId,
           email,
           full_name: null,
-          role: 'viewer',
+          role: 'agent',
           is_active: true,
         }).select('id, email, full_name, role, is_active').single();
         data = insert.data;
@@ -139,7 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             id: data.user.id,
             email: data.user.email!,
             full_name: fullName || null,
-            role: 'viewer',
+            role: 'agent',
             is_active: true,
           });
 

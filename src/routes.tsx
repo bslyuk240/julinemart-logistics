@@ -24,11 +24,6 @@ import { SettingsPage } from './dashboard/pages/Settings';
 import { EmailSettingsPage } from './dashboard/pages/EmailSettings';
 import { SettlementsPage } from './dashboard/pages/Settlements';
 import { ActivityLogsPage } from './dashboard/pages/ActivityLogs';
-import {
-  ManagerHome,
-  ManagerAttendance,
-  ManagerPerformance,
-} from './dashboard/manager';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { UnauthorizedPage } from './shared/UnauthorizedPage';
 
@@ -48,12 +43,6 @@ const adminRoutes = [
   { path: 'email-settings', element: <EmailSettingsPage /> },
   { path: 'settlements', element: <SettlementsPage /> },
   { path: 'activity-logs', element: <ActivityLogsPage /> },
-];
-
-const managerRoutes = [
-  { path: '', element: <ManagerHome /> },
-  { path: 'attendance', element: <ManagerAttendance /> },
-  { path: 'performance', element: <ManagerPerformance /> },
 ];
 
 const customerRoutes = [
@@ -99,24 +88,13 @@ export const router = createBrowserRouter([
   {
     path: '/admin',
     element: (
-      <ProtectedRoute allowedRoles={['admin']}>
+      <ProtectedRoute allowedRoles={['admin', 'agent']}>
         <DashboardLayout>
           <Outlet />
         </DashboardLayout>
       </ProtectedRoute>
     ),
     children: adminRoutes,
-  },
-  {
-    path: '/manager',
-    element: (
-      <ProtectedRoute allowedRoles={['manager']}>
-        <DashboardLayout>
-          <Outlet />
-        </DashboardLayout>
-      </ProtectedRoute>
-    ),
-    children: managerRoutes,
   },
   {
     path: '*',

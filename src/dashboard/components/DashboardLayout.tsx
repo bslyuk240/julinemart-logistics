@@ -8,7 +8,6 @@ import {
   DollarSign,
   BarChart3,
   Users,
-  Activity,
   Menu,
   X,
   LogOut,
@@ -26,13 +25,13 @@ interface DashboardLayoutProps {
 }
 
 const navigation = [
-  { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'manager', 'viewer'] },
-  { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'manager', 'viewer'] },
-  { name: 'Hubs', href: '/admin/hubs', icon: MapPin, roles: ['admin', 'manager', 'viewer'] },
-  { name: 'Couriers', href: '/admin/couriers', icon: Truck, roles: ['admin', 'manager', 'viewer'] },
-  { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'manager'] },
-  { name: 'Settlements', href: '/admin/settlements', icon: DollarSign, roles: ['admin', 'manager'] },
-  { name: 'Analytics', href: '/admin/analytics', icon: BarChart3, roles: ['admin', 'manager', 'viewer'] },
+  { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'agent'] },
+  { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent'] },
+  { name: 'Hubs', href: '/admin/hubs', icon: MapPin, roles: ['admin', 'agent'] },
+  { name: 'Couriers', href: '/admin/couriers', icon: Truck, roles: ['admin', 'agent'] },
+  { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'agent'] },
+  { name: 'Settlements', href: '/admin/settlements', icon: DollarSign, roles: ['admin', 'agent'] },
+  { name: 'Analytics', href: '/admin/analytics', icon: BarChart3, roles: ['admin', 'agent'] },
   { name: 'Users', href: '/admin/users', icon: Users, roles: ['admin'] },
   { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
   { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },
@@ -54,8 +53,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const getRoleBadgeColor = (role: string) => {
     const colors: Record<string, string> = {
       admin: 'bg-red-100 text-red-800',
-      manager: 'bg-blue-100 text-blue-800',
-      viewer: 'bg-gray-100 text-gray-800',
+      agent: 'bg-blue-100 text-blue-800',
     };
     return colors[role] || 'bg-gray-100 text-gray-800';
   };
@@ -218,7 +216,3 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     </div>
   );
 }
-
-
-
-

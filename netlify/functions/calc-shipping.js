@@ -17,6 +17,71 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
+/**
+ * Apply the best available shipping discount for this request.
+ * Fail-safe: returns originalShipping on any issue.
+ */
+async function applyDiscounts({ originalShipping, orderValue, deliveryState, supabase }) {
+  try {
+    const { data, error } = await supabase
+      .from('shipping_discounts')
+      .select('*')
+      .eq('is_active', true);
+
+    if (error || !data || data.length === 0) {
+      return originalShipping;
+    }
+
+    const now = new Date();
+    const normalizedState = (deliveryState || '').toLowerCase();
+    let bestShipping = originalShipping;
+
+    for (const discount of data) {
+      // Date window
+      if (discount.start_date && new Date(discount.start_date) > now) continue;
+      if (discount.end_date && new Date(discount.end_date) < now) continue;
+
+      // Minimum order value
+      const minOrder = Number(discount.min_order_value ?? 0);
+      if (orderValue < minOrder) continue;
+
+      // State filter
+      if (Array.isArray(discount.states) && discount.states.length > 0) {
+        const applies = discount.states.some(
+          (s) => (s || '').toLowerCase() === normalizedState
+        );
+        if (!applies) continue;
+      }
+
+      const type = (discount.type || '').toLowerCase();
+      const value = Number(discount.discount_value ?? 0);
+      if (!type) continue;
+
+      let candidate = originalShipping;
+      if (type === 'free') {
+        candidate = 0;
+      } else if (type === 'flat') {
+        if (!Number.isFinite(value) || value <= 0) continue;
+        candidate = Math.max(0, originalShipping - value);
+      } else if (type === 'percent') {
+        if (!Number.isFinite(value) || value <= 0) continue;
+        candidate = Math.max(0, originalShipping - (originalShipping * (value / 100)));
+      } else {
+        continue;
+      }
+
+      if (candidate < bestShipping) {
+        bestShipping = candidate;
+      }
+    }
+
+    return bestShipping;
+  } catch (err) {
+    console.error('applyDiscounts failed, returning original shipping:', err?.message || err);
+    return originalShipping;
+  }
+}
+
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
@@ -35,6 +100,9 @@ export const handler = async (event) => {
     const state = payload.deliveryState || payload.delivery_state || '';
     const city = payload.deliveryCity || payload.delivery_city || '';
     const items = Array.isArray(payload.items) ? payload.items : [];
+    const totalOrderValue = items.reduce((sum, item) => {
+      return sum + (Number(item.price || 0) * Number(item.quantity || 1));
+    }, 0);
 
     console.log('Calc shipping request:', { state, city, itemCount: items.length });
 
@@ -235,11 +303,18 @@ export const handler = async (event) => {
     }
 
     const finalTotal = Math.round(totalShippingFee * 100) / 100;
+    const discountedTotal = await applyDiscounts({
+      originalShipping: finalTotal,
+      orderValue: totalOrderValue,
+      deliveryState: state,
+      supabase
+    });
+    const finalShippingFee = Math.round(discountedTotal * 100) / 100;
     
     console.log('Final calculation:', {
       zone: zone.name,
       totalWeight,
-      totalShippingFee: finalTotal
+      totalShippingFee: finalShippingFee
     });
 
     const response = {
@@ -249,7 +324,7 @@ export const handler = async (event) => {
         deliveryState: state,
         deliveryCity: city,
         totalWeight: Math.round(totalWeight * 100) / 100,
-        totalShippingFee: finalTotal,
+        totalShippingFee: finalShippingFee,
         subOrders: subOrders
       }
     };

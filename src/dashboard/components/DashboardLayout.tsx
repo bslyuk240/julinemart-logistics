@@ -14,7 +14,8 @@ import {
   User,
   Settings,
   ChevronDown,
-  Mail
+  Mail,
+  Percent
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
 import { BrandLogo } from '../../shared/BrandLogo';
@@ -35,6 +36,7 @@ const navigation = [
   { name: 'Settlements', href: '/admin/settlements', icon: DollarSign, roles: ['admin'] },
   { name: 'Analytics', href: '/admin/analytics', icon: BarChart3, roles: ['admin'] },
   { name: 'Users', href: '/admin/users', icon: Users, roles: ['admin'] },
+  { name: 'Shipping Discounts', href: '/admin/discounts', icon: Percent, roles: ['admin'] },
   { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
   { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },
   { name: 'Email Settings', href: '/admin/email-settings', icon: Mail, roles: ['admin'] },

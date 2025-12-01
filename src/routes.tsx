@@ -19,6 +19,7 @@ import { CouriersPage } from './dashboard/pages/Couriers';
 import { ShippingRatesPage } from './dashboard/pages/ShippingRates';
 import { AnalyticsPage } from './dashboard/pages/Analytics';
 import { UsersPage } from './dashboard/pages/Users';
+import { ShippingDiscountsPage } from './dashboard/pages/ShippingDiscounts';
 import { CourierSettingsPage } from './dashboard/pages/CourierSettings';
 import { SettingsPage } from './dashboard/pages/Settings';
 import { EmailSettingsPage } from './dashboard/pages/EmailSettings';
@@ -43,6 +44,7 @@ const adminOnlyRoutes = [
   { path: 'couriers', element: <CouriersPage /> },
   { path: 'analytics', element: <AnalyticsPage /> },
   { path: 'users', element: <UsersPage /> },
+  { path: 'discounts', element: <ShippingDiscountsPage /> },
   { path: 'courier-settings', element: <CourierSettingsPage /> },
   { path: 'settings', element: <SettingsPage /> },
   { path: 'email-settings', element: <EmailSettingsPage /> },

@@ -10,7 +10,9 @@ const READ_ONLY_KEY =
   process.env.SUPABASE_ANON_KEY ||
   process.env.VITE_SUPABASE_ANON_KEY ||
   SERVICE_ROLE_KEY;
-const supabaseAnon = createClient(SUPABASE_URL || '', READ_ONLY_KEY || '');
+
+// Use READ_ONLY_KEY only for auth token verification; all DB access goes through the service key
+const supabaseAuth = createClient(SUPABASE_URL || '', READ_ONLY_KEY || '');
 const supabaseAdmin = SERVICE_ROLE_KEY ? createClient(SUPABASE_URL || '', SERVICE_ROLE_KEY) : null;
 const allowedRoles = ['admin', 'agent'];
 
@@ -19,6 +21,65 @@ const headers = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization'
 };
+
+const unauthorized = (message = 'Unauthorized') => ({
+  statusCode: 401,
+  headers,
+  body: JSON.stringify({ success: false, error: 'unauthorized', message })
+});
+
+const forbidden = (message = 'Forbidden') => ({
+  statusCode: 403,
+  headers,
+  body: JSON.stringify({ success: false, error: 'forbidden', message })
+});
+
+const misconfigured = () => ({
+  statusCode: 500,
+  headers,
+  body: JSON.stringify({
+    success: false,
+    error: 'Server not configured',
+    message: 'Supabase URL or service role key is missing for the users function'
+  })
+});
+
+async function requireRole(event, roles = ['admin']) {
+  if (!supabaseAdmin || !SUPABASE_URL) {
+    return { errorResponse: misconfigured() };
+  }
+
+  const authHeader = event.headers?.authorization || event.headers?.Authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { errorResponse: unauthorized('Missing bearer token') };
+  }
+
+  const token = authHeader.split(' ')[1];
+  const { data: authData, error: authError } = await supabaseAuth.auth.getUser(token);
+  if (authError || !authData?.user) {
+    return { errorResponse: unauthorized('Invalid or expired token') };
+  }
+
+  const { data: profile, error: profileError } = await supabaseAdmin
+    .from('users')
+    .select('id, email, role, is_active')
+    .eq('id', authData.user.id)
+    .single();
+
+  if (profileError || !profile) {
+    return { errorResponse: forbidden('User profile not found or inactive') };
+  }
+
+  if (!profile.is_active) {
+    return { errorResponse: forbidden('User account is inactive') };
+  }
+
+  if (!roles.includes(profile.role)) {
+    return { errorResponse: forbidden('Insufficient permissions for this action') };
+  }
+
+  return { authUser: authData.user, profile };
+}
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
@@ -30,28 +91,28 @@ export async function handler(event) {
   const id = idx >= 0 && parts.length > idx + 1 ? parts[idx + 1] : undefined;
 
   try {
-    if (!SUPABASE_URL || !READ_ONLY_KEY) {
+    if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
       console.error('Users function misconfigured: missing Supabase credentials');
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          error: 'Server not configured',
-          message: 'Supabase URL or API key is missing for the users function'
-        })
-      };
+      return misconfigured();
     }
+
+    // Lists are admin-only
     if (event.httpMethod === 'GET' && !id) {
-      const { data, error } = await supabaseAnon
+      const auth = await requireRole(event, ['admin']);
+      if (auth.errorResponse) return auth.errorResponse;
+
+      const { data, error } = await supabaseAdmin
         .from('users')
-        .select('id, email, full_name, role, is_active, last_login, updated_at')
-        .order('updated_at', { ascending: false });
+        .select('id, email, full_name, role, is_active, last_login, created_at, updated_at')
+        .order('created_at', { ascending: false });
       if (error) throw error;
       return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: data || [] }) };
     }
 
     if (event.httpMethod === 'POST' && !id) {
+      const auth = await requireRole(event, ['admin']);
+      if (auth.errorResponse) return auth.errorResponse;
+
       const payload = JSON.parse(event.body || '{}');
       const { email, password, full_name, role } = payload;
 
@@ -122,6 +183,9 @@ export async function handler(event) {
     }
 
     if (event.httpMethod === 'DELETE' && id) {
+      const auth = await requireRole(event, ['admin']);
+      if (auth.errorResponse) return auth.errorResponse;
+
       if (!supabaseAdmin) {
         return {
           statusCode: 500,
@@ -142,6 +206,9 @@ export async function handler(event) {
     }
 
     if (event.httpMethod === 'PUT' && id) {
+      const auth = await requireRole(event, ['admin']);
+      if (auth.errorResponse) return auth.errorResponse;
+
       if (!supabaseAdmin) {
         return {
           statusCode: 500,

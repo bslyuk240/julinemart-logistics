@@ -12,6 +12,7 @@ const READ_ONLY_KEY =
   SERVICE_ROLE_KEY;
 const supabaseAnon = createClient(SUPABASE_URL || '', READ_ONLY_KEY || '');
 const supabaseAdmin = SERVICE_ROLE_KEY ? createClient(SUPABASE_URL || '', SERVICE_ROLE_KEY) : null;
+const allowedRoles = ['admin', 'agent'];
 
 const headers = {
   'Content-Type': 'application/json',
@@ -76,6 +77,17 @@ export async function handler(event) {
         };
       }
 
+      if (role && !allowedRoles.includes(role)) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: `Invalid role. Allowed roles: ${allowedRoles.join(', ')}`
+          })
+        };
+      }
+
       const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email,
         password,
@@ -94,7 +106,7 @@ export async function handler(event) {
           id: authData.user.id,
           email,
           full_name: full_name || null,
-          role: role || 'viewer',
+          role: role && allowedRoles.includes(role) ? role : 'agent',
           is_active: true
         })
         .select()
@@ -143,7 +155,19 @@ export async function handler(event) {
       const payload = JSON.parse(event.body || '{}');
       const updateData = {};
       if (payload.full_name !== undefined) updateData.full_name = payload.full_name;
-      if (payload.role !== undefined) updateData.role = payload.role;
+      if (payload.role !== undefined) {
+        if (!allowedRoles.includes(payload.role)) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({
+              success: false,
+              error: `Invalid role. Allowed roles: ${allowedRoles.join(', ')}`
+            })
+          };
+        }
+        updateData.role = payload.role;
+      }
       if (payload.is_active !== undefined) updateData.is_active = payload.is_active;
 
       const { data, error } = await supabaseAdmin

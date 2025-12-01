@@ -7,6 +7,8 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+const allowedRoles = ['admin', 'agent'];
+
 // Get all users
 export async function getUsersHandler(req: AuthRequest, res: Response) {
   try {
@@ -86,6 +88,13 @@ export async function createUserHandler(req: AuthRequest, res: Response) {
       });
     }
 
+    if (role && !allowedRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid role. Allowed roles: ${allowedRoles.join(', ')}`
+      });
+    }
+
     // Create user in Supabase Auth
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email,
@@ -102,7 +111,7 @@ export async function createUserHandler(req: AuthRequest, res: Response) {
         id: authData.user.id,
         email,
         full_name: full_name || null,
-        role: role || 'viewer',
+        role: role && allowedRoles.includes(role) ? role : 'agent',
         is_active: true
       })
       .select()
@@ -142,7 +151,15 @@ export async function updateUserHandler(req: AuthRequest, res: Response) {
 
     const updateData: any = {};
     if (full_name !== undefined) updateData.full_name = full_name;
-    if (role !== undefined) updateData.role = role;
+    if (role !== undefined) {
+      if (!allowedRoles.includes(role)) {
+        return res.status(400).json({
+          success: false,
+          error: `Invalid role. Allowed roles: ${allowedRoles.join(', ')}`
+        });
+      }
+      updateData.role = role;
+    }
     if (is_active !== undefined) updateData.is_active = is_active;
 
     const { data: user, error } = await supabase
@@ -232,9 +249,11 @@ export async function getRolesHandler(req: AuthRequest, res: Response) {
 
     if (error) throw error;
 
+    const filtered = (roles || []).filter((r) => allowedRoles.includes(r.name));
+
     return res.status(200).json({
       success: true,
-      data: roles || [],
+      data: filtered.length > 0 ? filtered : allowedRoles.map((name) => ({ name })),
     });
   } catch (error) {
     console.error('Get roles error:', error);

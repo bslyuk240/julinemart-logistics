@@ -114,7 +114,7 @@ app.get('/', (_req: Request, res: Response) => {
       currentUser: 'GET /api/me (authenticated)',
       users: 'GET /api/users (admin only)',
       roles: 'GET /api/roles (authenticated)',
-      activityLogs: 'GET /api/activity-logs (admin/manager)'
+      activityLogs: 'GET /api/activity-logs (admin only)'
     },
     documentation: 'See README.md for API documentation'
   });
@@ -128,12 +128,12 @@ console.log('? Shipping routes registered');
 // Webhook routes (public)
 console.log('? Webhook routes registered');
 
-// Orders routes (public for now - add auth later)
-app.get('/api/orders', getOrdersHandler);
-app.post('/api/orders', createOrderHandler);
-app.get('/api/orders/:id', getOrderByIdHandler);
-app.put('/api/orders/:id/status', updateOrderStatusHandler);
-app.delete('/api/orders/:id', deleteOrderHandler);
+// Orders routes (restricted: admin or agent)
+app.get('/api/orders', authenticate, requireRole('admin', 'agent'), getOrdersHandler);
+app.post('/api/orders', authenticate, requireRole('admin', 'agent'), createOrderHandler);
+app.get('/api/orders/:id', authenticate, requireRole('admin', 'agent'), getOrderByIdHandler);
+app.put('/api/orders/:id/status', authenticate, requireRole('admin', 'agent'), updateOrderStatusHandler);
+app.delete('/api/orders/:id', authenticate, requireRole('admin', 'agent'), deleteOrderHandler);
 console.log('? Orders routes registered');
 
 // Tracking routes (public for now)
@@ -141,25 +141,25 @@ app.get('/api/tracking/:id', getTrackingHandler);
 app.post('/api/tracking/:subOrderId', updateTrackingHandler);
 console.log('? Tracking routes registered');
 
-// Admin routes (public for now - add auth later)
-app.get('/api/hubs', getHubsHandler);
-app.post('/api/hubs', createHubHandler);
-app.put('/api/hubs/:id', updateHubHandler);
-app.delete('/api/hubs/:id', deleteHubHandler);
-app.get('/api/couriers', getCouriersHandler);
-app.post('/api/couriers', createCourierHandler);
-app.put('/api/couriers/:id', updateCourierHandler);
-app.delete('/api/couriers/:id', deleteCourierHandler);
-app.get('/api/zones', getZonesWithRatesHandler);
-app.get('/api/stats', getDashboardStatsHandler);
+// Admin-only routes
+app.get('/api/hubs', authenticate, requireRole('admin'), getHubsHandler);
+app.post('/api/hubs', authenticate, requireRole('admin'), createHubHandler);
+app.put('/api/hubs/:id', authenticate, requireRole('admin'), updateHubHandler);
+app.delete('/api/hubs/:id', authenticate, requireRole('admin'), deleteHubHandler);
+app.get('/api/couriers', authenticate, requireRole('admin'), getCouriersHandler);
+app.post('/api/couriers', authenticate, requireRole('admin'), createCourierHandler);
+app.put('/api/couriers/:id', authenticate, requireRole('admin'), updateCourierHandler);
+app.delete('/api/couriers/:id', authenticate, requireRole('admin'), deleteCourierHandler);
+app.get('/api/zones', authenticate, requireRole('admin'), getZonesWithRatesHandler);
+app.get('/api/stats', authenticate, requireRole('admin', 'agent'), getDashboardStatsHandler);
 console.log('? Admin routes registered');
 
-// Shipping Rates routes (public for now)
-app.get('/api/shipping-rates', getShippingRatesHandler);
-app.get('/api/shipping-rates/:id', getShippingRateByIdHandler);
-app.post('/api/shipping-rates', createShippingRateHandler);
-app.put('/api/shipping-rates/:id', updateShippingRateHandler);
-app.delete('/api/shipping-rates/:id', deleteShippingRateHandler);
+// Shipping Rates routes (admin or agent)
+app.get('/api/shipping-rates', authenticate, requireRole('admin', 'agent'), getShippingRatesHandler);
+app.get('/api/shipping-rates/:id', authenticate, requireRole('admin', 'agent'), getShippingRateByIdHandler);
+app.post('/api/shipping-rates', authenticate, requireRole('admin', 'agent'), createShippingRateHandler);
+app.put('/api/shipping-rates/:id', authenticate, requireRole('admin', 'agent'), updateShippingRateHandler);
+app.delete('/api/shipping-rates/:id', authenticate, requireRole('admin', 'agent'), deleteShippingRateHandler);
 console.log('? Shipping rates routes registered');
 
 // User Management routes (protected with authentication)
@@ -175,7 +175,7 @@ app.delete('/api/users/:id', authenticate, requireRole('admin'), deleteUserHandl
 app.get('/api/roles', getRolesHandler);
 
 // Activity logs routes (admin and manager only)
-app.get('/api/activity-logs', authenticate, requireRole('admin', 'manager'), getActivityLogsHandler);
+app.get('/api/activity-logs', authenticate, requireRole('admin'), getActivityLogsHandler);
 
 console.log('? User management routes registered');
 

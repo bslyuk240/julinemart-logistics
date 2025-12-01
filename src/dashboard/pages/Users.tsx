@@ -60,15 +60,14 @@ export function UsersPage() {
   const getRoleColor = (role: string) => {
     const colors: Record<string, string> = {
       admin: 'bg-red-100 text-red-800',
-      manager: 'bg-blue-100 text-blue-800',
-      viewer: 'bg-gray-100 text-gray-800',
+      agent: 'bg-blue-100 text-blue-800'
     };
     return colors[role] || 'bg-gray-100 text-gray-800';
   };
 
   const getRoleIcon = (role: string) => {
     if (role === 'admin') return <Shield className="w-4 h-4" />;
-    if (role === 'manager') return <UsersIcon className="w-4 h-4" />;
+    if (role === 'agent') return <UsersIcon className="w-4 h-4" />;
     return <Eye className="w-4 h-4" />;
   };
 
@@ -264,9 +263,13 @@ function UserForm({ user, roles, onClose, onSave }: UserFormProps) {
     email: user?.email || '',
     password: '',
     full_name: user?.full_name || '',
-    role: user?.role || 'viewer',
+    role: user?.role || 'agent',
     is_active: user?.is_active ?? true,
   });
+  const availableRoles = roles.length ? roles : [
+    { name: 'admin', display_name: 'Administrator', description: 'Full access' },
+    { name: 'agent', display_name: 'Agent', description: 'Manage orders & rates' }
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -378,7 +381,7 @@ function UserForm({ user, roles, onClose, onSave }: UserFormProps) {
               required
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
             >
-              {roles.map(role => (
+              {availableRoles.map(role => (
                 <option key={role.name} value={role.name}>
                   {role.display_name} - {role.description}
                 </option>

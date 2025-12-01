@@ -27,15 +27,20 @@ import { ActivityLogsPage } from './dashboard/pages/ActivityLogs';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { UnauthorizedPage } from './shared/UnauthorizedPage';
 
-const adminRoutes = [
+// Routes accessible by both admin and agent
+const sharedRoutes = [
   { path: '', element: <DashboardHome /> },
   { path: 'dashboard', element: <DashboardHome /> },
   { path: 'orders', element: <OrdersPage /> },
   { path: 'orders/create', element: <CreateOrderPage /> },
   { path: 'orders/:id', element: <OrderDetailsPage /> },
+  { path: 'rates', element: <ShippingRatesPage /> },
+];
+
+// Routes accessible only by admin
+const adminOnlyRoutes = [
   { path: 'hubs', element: <HubsPage /> },
   { path: 'couriers', element: <CouriersPage /> },
-  { path: 'rates', element: <ShippingRatesPage /> },
   { path: 'analytics', element: <AnalyticsPage /> },
   { path: 'users', element: <UsersPage /> },
   { path: 'courier-settings', element: <CourierSettingsPage /> },
@@ -94,7 +99,19 @@ export const router = createBrowserRouter([
         </DashboardLayout>
       </ProtectedRoute>
     ),
-    children: adminRoutes,
+    children: [
+      // Shared routes (admin + agent)
+      ...sharedRoutes,
+      // Admin-only routes wrapped in ProtectedRoute
+      ...adminOnlyRoutes.map((route) => ({
+        path: route.path,
+        element: (
+          <ProtectedRoute allowedRoles={['admin']}>
+            {route.element}
+          </ProtectedRoute>
+        ),
+      })),
+    ],
   },
   {
     path: '*',

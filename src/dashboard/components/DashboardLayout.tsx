@@ -25,13 +25,15 @@ interface DashboardLayoutProps {
 }
 
 const navigation = [
+  // Agent can access: Dashboard, Orders, Shipping Rates
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'agent'] },
   { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent'] },
-  { name: 'Hubs', href: '/admin/hubs', icon: MapPin, roles: ['admin', 'agent'] },
-  { name: 'Couriers', href: '/admin/couriers', icon: Truck, roles: ['admin', 'agent'] },
   { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'agent'] },
-  { name: 'Settlements', href: '/admin/settlements', icon: DollarSign, roles: ['admin', 'agent'] },
-  { name: 'Analytics', href: '/admin/analytics', icon: BarChart3, roles: ['admin', 'agent'] },
+  // Admin only pages
+  { name: 'Hubs', href: '/admin/hubs', icon: MapPin, roles: ['admin'] },
+  { name: 'Couriers', href: '/admin/couriers', icon: Truck, roles: ['admin'] },
+  { name: 'Settlements', href: '/admin/settlements', icon: DollarSign, roles: ['admin'] },
+  { name: 'Analytics', href: '/admin/analytics', icon: BarChart3, roles: ['admin'] },
   { name: 'Users', href: '/admin/users', icon: Users, roles: ['admin'] },
   { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
   { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },
@@ -178,16 +180,18 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       Profile
                     </button>
                     
-                    <button
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        navigate('/admin/settings');
-                      }}
-                    >
-                      <Settings className="w-4 h-4" />
-                      Settings
-                    </button>
+                    {user?.role === 'admin' && (
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
+                        onClick={() => {
+                          setUserMenuOpen(false);
+                          navigate('/admin/settings');
+                        }}
+                      >
+                        <Settings className="w-4 h-4" />
+                        Settings
+                      </button>
+                    )}
                     
                     <div className="border-t border-gray-200 my-2" />
                     

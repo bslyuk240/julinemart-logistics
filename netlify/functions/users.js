@@ -138,6 +138,8 @@ export async function handler(event) {
         };
       }
 
+      const finalRole = role && allowedRoles.includes(role) ? role : 'agent';
+
       if (role && !allowedRoles.includes(role)) {
         return {
           statusCode: 400,
@@ -149,10 +151,16 @@ export async function handler(event) {
         };
       }
 
+      // Create user in auth.users with role in user_metadata
+      // The handle_new_user trigger will automatically create the public.users entry
       const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email,
         password,
-        email_confirm: true
+        email_confirm: true,
+        user_metadata: {
+          full_name: full_name || '',
+          role: finalRole
+        }
       });
 
       if (authError) throw authError;
@@ -161,19 +169,34 @@ export async function handler(event) {
         throw new Error('Failed to resolve created user');
       }
 
-      const { data: user, error: userError } = await supabaseAdmin
+      // Wait a moment for the trigger to complete, then fetch the user
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Fetch the user created by the trigger
+      const { data: user, error: fetchError } = await supabaseAdmin
         .from('users')
-        .insert({
-          id: authData.user.id,
-          email,
-          full_name: full_name || null,
-          role: role && allowedRoles.includes(role) ? role : 'agent',
-          is_active: true
-        })
-        .select()
+        .select('id, email, full_name, role, is_active, created_at, updated_at')
+        .eq('id', authData.user.id)
         .single();
 
-      if (userError) throw userError;
+      if (fetchError) {
+        console.error('Error fetching created user:', fetchError);
+        // User was created in auth but trigger might have failed - return basic info
+        return {
+          statusCode: 201,
+          headers,
+          body: JSON.stringify({
+            success: true,
+            data: {
+              id: authData.user.id,
+              email: authData.user.email,
+              full_name: full_name || '',
+              role: finalRole,
+              is_active: true
+            }
+          })
+        };
+      }
 
       return {
         statusCode: 201,
@@ -250,6 +273,6 @@ export async function handler(event) {
     return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };
   } catch (e) {
     console.error('Users function error:', e);
-    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Failed to handle users', message: e?.message || 'Unknown error' }) };
+    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: e?.message || 'Failed to handle users' }) };
   }
 }

@@ -29,6 +29,9 @@ async function applyDiscounts({ originalShipping, orderValue, deliveryState, sup
       .eq('is_active', true);
 
     if (error || !data || data.length === 0) {
+      if (error) {
+        console.error('applyDiscounts query failed, returning original shipping:', error.message || error);
+      }
       return originalShipping;
     }
 
@@ -330,6 +333,12 @@ export const handler = async (event) => {
       zone: zone.name,
       totalWeight,
       totalShippingFee: finalShippingFee
+    });
+
+    console.log('Discount context:', {
+      orderValue: totalOrderValue,
+      originalShipping: finalTotal,
+      discountedShipping: finalShippingFee
     });
 
     const response = {

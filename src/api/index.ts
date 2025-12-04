@@ -6,6 +6,7 @@ import { getTrackingHandler, updateTrackingHandler } from './routes/tracking.js'
 import { getHubsHandler, createHubHandler, updateHubHandler, deleteHubHandler, getCouriersHandler, getZonesWithRatesHandler, getDashboardStatsHandler, createCourierHandler, updateCourierHandler, deleteCourierHandler } from './routes/admin.js';
 import { getShippingRatesHandler, getShippingRateByIdHandler, createShippingRateHandler, updateShippingRateHandler, deleteShippingRateHandler } from './routes/shippingRates.js';
 import { authenticate, requireRole } from './middleware/auth.js';
+import { paystackRefundHandler, getPaystackRefundStatus } from './routes/paystackRefund.js';
 import { 
   getUsersHandler, 
   getUserByIdHandler, 
@@ -46,10 +47,10 @@ import {
 } from './routes/emailConfig.js';
 import { sendTestEmail } from './services/emailService.js';
 
-console.log('?? Starting JLO API Server...');
-console.log('?? Environment Check:');
-console.log('  - VITE_SUPABASE_URL:', process.env.VITE_SUPABASE_URL ? '? Set' : '? Missing');
-console.log('  - SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? '? Set' : '? Missing');
+console.log('🚀 Starting JLO API Server...');
+console.log('📋 Environment Check:');
+console.log('  - VITE_SUPABASE_URL:', process.env.VITE_SUPABASE_URL ? '✅ Set' : '❌ Missing');
+console.log('  - SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? '✅ Set' : '❌ Missing');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -114,7 +115,10 @@ app.get('/', (_req: Request, res: Response) => {
       currentUser: 'GET /api/me (authenticated)',
       users: 'GET /api/users (admin only)',
       roles: 'GET /api/roles (authenticated)',
-      activityLogs: 'GET /api/activity-logs (admin only)'
+      activityLogs: 'GET /api/activity-logs (admin only)',
+      // Refunds
+      refundsPaystack: 'POST /api/refunds/paystack (admin/agent)',
+      refundStatus: 'GET /api/refunds/paystack/:reference (admin/agent)'
     },
     documentation: 'See README.md for API documentation'
   });
@@ -123,10 +127,10 @@ app.get('/', (_req: Request, res: Response) => {
 // Shipping routes (public)
 app.post('/api/calc-shipping', calcShippingHandler);
 app.get('/api/zones/:state', getZoneHandler);
-console.log('? Shipping routes registered');
+console.log('📦 Shipping routes registered');
 
 // Webhook routes (public)
-console.log('? Webhook routes registered');
+console.log('🔗 Webhook routes registered');
 
 // Orders routes (restricted: admin or agent)
 app.get('/api/orders', authenticate, requireRole('admin', 'agent'), getOrdersHandler);
@@ -134,12 +138,12 @@ app.post('/api/orders', authenticate, requireRole('admin', 'agent'), createOrder
 app.get('/api/orders/:id', authenticate, requireRole('admin', 'agent'), getOrderByIdHandler);
 app.put('/api/orders/:id/status', authenticate, requireRole('admin', 'agent'), updateOrderStatusHandler);
 app.delete('/api/orders/:id', authenticate, requireRole('admin', 'agent'), deleteOrderHandler);
-console.log('? Orders routes registered');
+console.log('📋 Orders routes registered');
 
 // Tracking routes (public for now)
 app.get('/api/tracking/:id', getTrackingHandler);
 app.post('/api/tracking/:subOrderId', updateTrackingHandler);
-console.log('? Tracking routes registered');
+console.log('🔍 Tracking routes registered');
 
 // Admin-only routes
 app.get('/api/hubs', authenticate, requireRole('admin'), getHubsHandler);
@@ -152,7 +156,7 @@ app.put('/api/couriers/:id', authenticate, requireRole('admin'), updateCourierHa
 app.delete('/api/couriers/:id', authenticate, requireRole('admin'), deleteCourierHandler);
 app.get('/api/zones', authenticate, requireRole('admin'), getZonesWithRatesHandler);
 app.get('/api/stats', authenticate, requireRole('admin', 'agent'), getDashboardStatsHandler);
-console.log('? Admin routes registered');
+console.log('⚙️ Admin routes registered');
 
 // Shipping Rates routes (admin or agent)
 app.get('/api/shipping-rates', authenticate, requireRole('admin', 'agent'), getShippingRatesHandler);
@@ -160,7 +164,7 @@ app.get('/api/shipping-rates/:id', authenticate, requireRole('admin', 'agent'), 
 app.post('/api/shipping-rates', authenticate, requireRole('admin', 'agent'), createShippingRateHandler);
 app.put('/api/shipping-rates/:id', authenticate, requireRole('admin', 'agent'), updateShippingRateHandler);
 app.delete('/api/shipping-rates/:id', authenticate, requireRole('admin', 'agent'), deleteShippingRateHandler);
-console.log('? Shipping rates routes registered');
+console.log('💵 Shipping rates routes registered');
 
 // User Management routes (protected with authentication)
 app.get('/api/me', authenticate, getCurrentUserHandler);
@@ -177,7 +181,7 @@ app.get('/api/roles', getRolesHandler);
 // Activity logs routes (admin and manager only)
 app.get('/api/activity-logs', authenticate, requireRole('admin'), getActivityLogsHandler);
 
-console.log('? User management routes registered');
+console.log('👥 User management routes registered');
 
 // Courier Integration routes
 app.post('/api/courier/create-shipment', createCourierShipmentHandler);
@@ -186,7 +190,7 @@ app.get('/api/courier/label/:subOrderId', generateLabelHandler);
 app.put('/api/couriers/:courierId/credentials', updateCourierCredentialsHandler);
 app.get('/api/courier/logs', getCourierAPILogsHandler);
 
-console.log('? Courier integration routes registered');
+console.log('🚚 Courier integration routes registered');
 
 // Settlement routes
 app.get('/api/settlements/pending', getPendingPaymentsHandler);
@@ -196,13 +200,13 @@ app.put('/api/settlements/:id/mark-paid', markSettlementPaidHandler);
 app.get('/api/settlements/:id', getSettlementDetailsHandler);
 app.get('/api/settlements/stats/:courier_id?', getCourierPaymentStatsHandler);
 
-console.log('? Settlement routes registered');
+console.log('💳 Settlement routes registered');
 
 // Public tracking routes (no auth required)
 app.get('/api/track-order', trackOrderPublicHandler);
 app.post('/api/shipping-estimate', getShippingEstimatePublicHandler);
 
-console.log('? Public tracking routes registered');
+console.log('🌐 Public tracking routes registered');
 
 // Email configuration and templates routes
 app.get('/api/email/config', getEmailConfigHandler);
@@ -227,6 +231,12 @@ app.post('/api/emails/test', async (req: Request, res: Response) => {
 
 console.log('✉️  Email routes registered');
 
+// Refund routes (admin or agent)
+app.post('/api/refunds/paystack', authenticate, requireRole('admin', 'agent'), paystackRefundHandler);
+app.get('/api/refunds/paystack/:reference', authenticate, requireRole('admin', 'agent'), getPaystackRefundStatus);
+
+console.log('💰 Refund routes registered');
+
 // 404 handler
 app.use((req: Request, res: Response) => {
   res.status(404).json({
@@ -239,7 +249,7 @@ app.use((req: Request, res: Response) => {
 // Error handler
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   void _next; // keep 4-arg signature for Express error handler
-  console.error('? Error:', err);
+  console.error('❌ Error:', err);
   res.status(500).json({
     error: 'Internal server error',
     message: (err instanceof Error ? err.message : 'Unknown error'),
@@ -249,27 +259,22 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 // Start server
 const server = app.listen(PORT, () => {
   console.log('\n-------------------------------------------------------');
-  console.log('?? JLO API Server Started Successfully!');
+  console.log('🚀 JLO API Server Started Successfully!');
   console.log('-------------------------------------------------------');
-  console.log(`?? Server URL: http://localhost:${PORT}`);
-  console.log(`?? Health: http://localhost:${PORT}/health`);
-  console.log(`?? Endpoints: http://localhost:${PORT}/`);
-  console.log(`?? Supabase: ${process.env.VITE_SUPABASE_URL || 'NOT SET'}`);
+  console.log(`🌐 Server URL: http://localhost:${PORT}`);
+  console.log(`💚 Health: http://localhost:${PORT}/health`);
+  console.log(`📖 Endpoints: http://localhost:${PORT}/`);
+  console.log(`🔗 Supabase: ${process.env.VITE_SUPABASE_URL || 'NOT SET'}`);
   console.log('-------------------------------------------------------\n');
 });
 
 server.on('error', (error: NodeJS.ErrnoException) => {
   if (error.code === 'EADDRINUSE') {
-    console.error(`? Port ${PORT} is already in use!`);
+    console.error(`❌ Port ${PORT} is already in use!`);
   } else {
-    console.error('? Server error:', error);
+    console.error('❌ Server error:', error);
   }
   process.exit(1);
 });
 
 export default app;
-
-
-
-
-

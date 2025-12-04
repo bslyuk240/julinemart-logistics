@@ -8,6 +8,7 @@ import {
   DollarSign,
   BarChart3,
   Users,
+  RotateCcw,
   Menu,
   X,
   LogOut,
@@ -29,6 +30,7 @@ const navigation = [
   // Agent can access: Dashboard, Orders, Shipping Rates
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'agent'] },
   { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent'] },
+  { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent'] },
   { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'agent'] },
   // Admin only pages
   { name: 'Hubs', href: '/admin/hubs', icon: MapPin, roles: ['admin'] },
@@ -105,6 +107,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               <Link
                 key={item.name}
                 to={item.href}
+                onClick={() => setSidebarOpen(false)}
                 className={`
                   flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors
                   ${isActive 

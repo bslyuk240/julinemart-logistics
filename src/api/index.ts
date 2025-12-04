@@ -47,7 +47,7 @@ import {
 } from './routes/emailConfig.js';
 import { sendTestEmail } from './services/emailService.js';
 import { getRefundRequests, updateRefundRequestMeta, addRefundOrderNote, createWooRefund } from './routes/refundRequests.js';
-import { getReturnShipmentsByOrder, updateReturnShipmentStatus, getReturnRequestIdByWooOrder, createReturnRequest } from './routes/returnShipments.js';
+import { getReturnShipmentsByOrder, updateReturnShipmentStatus, getReturnRequestIdByWooOrder, createReturnRequest, createReturnShipment } from './routes/returnShipments.js';
 
 const supabaseFunctionUrl = (name: string) => {
   const base =
@@ -291,6 +291,8 @@ app.patch('/api/return-shipments/:id/status', authenticate, requireRole('admin',
 app.get('/api/return-requests/by-woocommerce/:orderNumber', getReturnRequestIdByWooOrder);
 // Return request creation (public for PWA)
 app.post('/api/return-requests', createReturnRequest);
+// Return shipment creation (public) - handles Fez pickup when method=pickup
+app.post('/api/create-return-shipment', createReturnShipment);
 
 console.log('💰 Refund routes registered');
 

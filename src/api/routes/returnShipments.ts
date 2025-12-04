@@ -5,6 +5,15 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+function generateReturnCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
+  let code = 'RTN-';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
 // Create a return request (public endpoint for PWA)
 export async function createReturnRequest(req: Request, res: Response) {
   try {
@@ -55,6 +64,123 @@ export async function createReturnRequest(req: Request, res: Response) {
     return res.status(500).json({
       success: false,
       error: 'Failed to create return request',
+    });
+  }
+}
+
+export async function createReturnShipment(req: Request, res: Response) {
+  try {
+    const { return_request_id, method, customer, hub } = req.body || {};
+
+    if (!return_request_id || !method) {
+      return res.status(400).json({ success: false, error: 'return_request_id and method are required' });
+    }
+
+    if (!['pickup', 'dropoff'].includes(method)) {
+      return res.status(400).json({ success: false, error: 'method must be pickup or dropoff' });
+    }
+
+    const returnCode = generateReturnCode();
+    let fezTracking: string | null = null;
+
+    if (method === 'pickup') {
+      const fezBase = (process.env.FEZ_API_BASE_URL || process.env.FEZ_API_URL || '').replace(/\/$/, '');
+      const fezKey = process.env.FEZ_API_KEY || process.env.FEZ_PASSWORD || '';
+      const fezUserId = process.env.FEZ_USER_ID || '';
+
+      if (!fezBase || !fezKey) {
+        return res.status(500).json({ success: false, error: 'Fez API not configured on server' });
+      }
+
+      const payload = {
+        user_id: fezUserId || undefined,
+        reference: return_request_id,
+        sender: {
+          name: hub?.name,
+          phone: hub?.phone,
+          address: hub?.address,
+          city: hub?.city,
+          state: hub?.state,
+        },
+        receiver: {
+          name: customer?.name,
+          phone: customer?.phone,
+          address: customer?.address,
+          city: customer?.city,
+          state: customer?.state,
+        },
+        package: {
+          items: [],
+          total_weight: 1,
+          declared_value: 0,
+          description: `Return package ${returnCode}`,
+        },
+        shipping: {
+          service_type: 'standard',
+          amount: 0,
+        },
+      };
+
+      const response = await fetch(`${fezBase}/shipment/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Authorization: `Bearer ${fezKey}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message =
+          data?.message ||
+          data?.error ||
+          data?.description ||
+          'Failed to create Fez return shipment';
+        return res.status(502).json({ success: false, error: message });
+      }
+
+      fezTracking =
+        data?.tracking_number ||
+        data?.trackingNumber ||
+        data?.waybill ||
+        data?.orderNo ||
+        data?.order_no ||
+        data?.orderNumber ||
+        data?.data?.tracking_number ||
+        null;
+    }
+
+    const { data: inserted, error: insertError } = await supabase
+      .from('return_shipments')
+      .insert({
+        return_request_id,
+        return_code: returnCode,
+        method,
+        status: 'pending',
+        fez_tracking: fezTracking,
+      })
+      .select('*')
+      .single();
+
+    if (insertError) {
+      console.error('Insert return_shipment error:', insertError);
+      return res.status(500).json({ success: false, error: 'Failed to save return shipment' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      return_code: returnCode,
+      fez_tracking: fezTracking,
+      method,
+      data: inserted,
+    });
+  } catch (error) {
+    console.error('createReturnShipment error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create return shipment',
     });
   }
 }

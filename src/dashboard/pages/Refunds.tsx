@@ -45,6 +45,25 @@ const WC_BASE_URL = import.meta.env.VITE_WC_BASE_URL || 'https://admin.julinemar
 const WC_KEY = import.meta.env.VITE_WC_KEY;
 const WC_SECRET = import.meta.env.VITE_WC_SECRET;
 
+interface WooCommerceMeta {
+  id: number;
+  key: string;
+  value: string;
+}
+
+interface WooCommerceOrder {
+  id: number;
+  number: string;
+  status: string;
+  total: string;
+  date_created: string;
+  billing: RefundRequestOrder['billing'];
+  payment_method: string;
+  payment_method_title: string;
+  transaction_id: string;
+  meta_data?: WooCommerceMeta[];
+}
+
 export default function RefundsPage() {
   const [orders, setOrders] = useState<RefundRequestOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,13 +97,13 @@ export default function RefundsPage() {
         throw new Error('Failed to fetch orders');
       }
 
-      const ordersData = await response.json();
+      const ordersData: WooCommerceOrder[] = await response.json();
 
       // Parse refund request from meta_data
       const ordersWithRefunds: RefundRequestOrder[] = ordersData
-        .map((order: any) => {
+        .map((order) => {
           const refundRequestMeta = order.meta_data?.find(
-            (m: any) => m.key === '_refund_request'
+            (m) => m.key === '_refund_request'
           );
           const refundRequest = refundRequestMeta?.value
             ? JSON.parse(refundRequestMeta.value)
@@ -119,7 +138,7 @@ export default function RefundsPage() {
 
   const updateRefundRequest = async (
     orderId: number,
-    updates: Partial<RefundRequestOrder['refund_request']>
+    updates: Partial<NonNullable<RefundRequestOrder['refund_request']>>
   ) => {
     const order = orders.find((o) => o.id === orderId);
     if (!order || !order.refund_request) return false;
@@ -240,7 +259,7 @@ export default function RefundsPage() {
       const refundRequest = selectedOrder.refund_request;
 
       switch (actionType) {
-        case 'approve':
+        case 'approve': {
           await updateRefundRequest(selectedOrder.id, {
             status: 'approved',
             admin_notes: actionNotes,
@@ -250,8 +269,9 @@ export default function RefundsPage() {
             `✅ REFUND APPROVED\nAmount: ₦${refundRequest.requested_amount.toLocaleString()}\n${actionNotes ? `Notes: ${actionNotes}` : ''}`
           );
           break;
+        }
 
-        case 'reject':
+        case 'reject': {
           if (!actionNotes) {
             alert('Please provide a rejection reason');
             return;
@@ -266,8 +286,9 @@ export default function RefundsPage() {
             `❌ REFUND REJECTED\nReason: ${actionNotes}`
           );
           break;
+        }
 
-        case 'process':
+        case 'process': {
           // Step 1: Create WooCommerce refund
           const wcRefund = await createWooCommerceRefund(
             selectedOrder.id,
@@ -304,6 +325,7 @@ export default function RefundsPage() {
             `💰 REFUND PROCESSED\nAmount: ₦${refundRequest.requested_amount.toLocaleString()}\nWooCommerce Refund ID: ${wcRefund.id}\nPaystack: ${paystackSuccess ? 'Initiated' : 'Manual required'}\n${actionNotes ? `Notes: ${actionNotes}` : ''}`
           );
           break;
+        }
       }
 
       // Refresh the list

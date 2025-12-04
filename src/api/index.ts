@@ -6,7 +6,7 @@ import { getTrackingHandler, updateTrackingHandler } from './routes/tracking.js'
 import { getHubsHandler, createHubHandler, updateHubHandler, deleteHubHandler, getCouriersHandler, getZonesWithRatesHandler, getDashboardStatsHandler, createCourierHandler, updateCourierHandler, deleteCourierHandler } from './routes/admin.js';
 import { getShippingRatesHandler, getShippingRateByIdHandler, createShippingRateHandler, updateShippingRateHandler, deleteShippingRateHandler } from './routes/shippingRates.js';
 import { authenticate, requireRole } from './middleware/auth.js';
-import { paystackRefundHandler, getPaystackRefundStatus } from './routes/paystackRefund.js';
+import { paystackRefundHandler, getPaystackRefundStatus } from './routes/paystackRefunds.js';
 import { 
   getUsersHandler, 
   getUserByIdHandler, 

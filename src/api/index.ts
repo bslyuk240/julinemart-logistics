@@ -46,6 +46,7 @@ import {
   previewEmailTemplateHandler
 } from './routes/emailConfig.js';
 import { sendTestEmail } from './services/emailService.js';
+import { getRefundRequests, updateRefundRequestMeta, addRefundOrderNote, createWooRefund } from './routes/refundRequests.js';
 
 console.log('🚀 Starting JLO API Server...');
 console.log('📋 Environment Check:');
@@ -234,6 +235,11 @@ console.log('✉️  Email routes registered');
 // Refund routes (admin or agent)
 app.post('/api/refunds/paystack', authenticate, requireRole('admin', 'agent'), paystackRefundHandler);
 app.get('/api/refunds/paystack/:reference', authenticate, requireRole('admin', 'agent'), getPaystackRefundStatus);
+app.get('/api/refunds/requests', authenticate, requireRole('admin', 'agent'), getRefundRequests);
+app.put('/api/refunds/requests/:orderId', authenticate, requireRole('admin', 'agent'), updateRefundRequestMeta);
+app.post('/api/refunds/requests/:orderId/note', authenticate, requireRole('admin', 'agent'), addRefundOrderNote);
+app.post('/api/refunds/requests/:orderId/create-refund', authenticate, requireRole('admin', 'agent'), createWooRefund);
+app.get('/api/refunds/requests', authenticate, requireRole('admin', 'agent'), getRefundRequests);
 
 console.log('💰 Refund routes registered');
 

@@ -41,15 +41,15 @@ interface RefundRequestOrder {
   } | null;
 }
 
-const WC_BASE_URL = import.meta.env.VITE_WC_BASE_URL || 'https://admin.julinemart.com/wp-json/wc/v3';
-const WC_KEY = import.meta.env.VITE_WC_KEY;
-const WC_SECRET = import.meta.env.VITE_WC_SECRET;
-
 interface WooCommerceMeta {
   id: number;
   key: string;
   value: string;
 }
+
+const WC_BASE_URL = import.meta.env.VITE_WC_BASE_URL || 'https://admin.julinemart.com/wp-json/wc/v3';
+const WC_KEY = import.meta.env.VITE_WC_KEY;
+const WC_SECRET = import.meta.env.VITE_WC_SECRET;
 
 interface WooCommerceOrder {
   id: number;
@@ -79,35 +79,25 @@ export default function RefundsPage() {
     try {
       setLoading(true);
 
-      // Fetch orders that have refund request meta
-      // WooCommerce allows filtering by meta_key
-      const authHeader = btoa(`${WC_KEY}:${WC_SECRET}`);
-      
-      const response = await fetch(
-        `${WC_BASE_URL}/orders?per_page=100&meta_key=_refund_request_status`,
-        {
-          headers: {
-            'Authorization': `Basic ${authHeader}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      // Fetch orders with refund request meta via backend proxy (avoids CORS)
+      const response = await fetch('/api/refunds/requests');
 
       if (!response.ok) {
         throw new Error('Failed to fetch orders');
       }
 
-      const ordersData: WooCommerceOrder[] = await response.json();
+      const proxyData = await response.json();
+      const ordersData: WooCommerceOrder[] = proxyData.data || [];
 
       // Parse refund request from meta_data
       const ordersWithRefunds: RefundRequestOrder[] = ordersData
         .map((order) => {
-          const refundRequestMeta = order.meta_data?.find(
-            (m) => m.key === '_refund_request'
-          );
-          const refundRequest = refundRequestMeta?.value
-            ? JSON.parse(refundRequestMeta.value)
-            : null;
+          const refundRequestMeta = order.meta_data?.find((m) => m.key === '_refund_request');
+          const refundRequestRaw = refundRequestMeta?.value;
+          const refundRequest =
+            typeof refundRequestRaw === 'string'
+              ? JSON.parse(refundRequestRaw)
+              : refundRequestRaw || null;
 
           return {
             id: order.id,
@@ -149,25 +139,14 @@ export default function RefundsPage() {
     };
 
     try {
-      const authHeader = btoa(`${WC_KEY}:${WC_SECRET}`);
-      
-      const response = await fetch(`${WC_BASE_URL}/orders/${orderId}`, {
+      const response = await fetch(`/api/refunds/requests/${orderId}`, {
         method: 'PUT',
         headers: {
-          'Authorization': `Basic ${authHeader}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          meta_data: [
-            {
-              key: '_refund_request',
-              value: JSON.stringify(updatedRequest),
-            },
-            {
-              key: '_refund_request_status',
-              value: updates.status || order.refund_request.status,
-            },
-          ],
+          refund_request: updatedRequest,
+          status: updates.status || order.refund_request.status,
         }),
       });
 
@@ -184,17 +163,13 @@ export default function RefundsPage() {
 
   const addOrderNote = async (orderId: number, note: string) => {
     try {
-      const authHeader = btoa(`${WC_KEY}:${WC_SECRET}`);
-      
-      await fetch(`${WC_BASE_URL}/orders/${orderId}/notes`, {
+      await fetch(`/api/refunds/requests/${orderId}/note`, {
         method: 'POST',
         headers: {
-          'Authorization': `Basic ${authHeader}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           note,
-          customer_note: false,
         }),
       });
     } catch (error) {
@@ -204,19 +179,14 @@ export default function RefundsPage() {
 
   const createWooCommerceRefund = async (orderId: number, amount: string, reason: string) => {
     try {
-      const authHeader = btoa(`${WC_KEY}:${WC_SECRET}`);
-      
-      const response = await fetch(`${WC_BASE_URL}/orders/${orderId}/refunds`, {
+      const response = await fetch(`/api/refunds/requests/${orderId}/create-refund`, {
         method: 'POST',
         headers: {
-          'Authorization': `Basic ${authHeader}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           amount,
           reason,
-          api_refund: false, // We'll handle Paystack separately
-          api_restock: true,
         }),
       });
 

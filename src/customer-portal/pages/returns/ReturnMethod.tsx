@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, MapPin, Package, ShieldCheck, Truck } from 'lucide-react';
+import { ArrowLeft, MapPin, Package, ShieldCheck, Truck, CheckCircle } from 'lucide-react';
 import { BrandLogo } from '../../../shared/BrandLogo';
 import { ReturnMethodCard } from '../../../components/ReturnMethodCard';
 

@@ -4,6 +4,8 @@ import { CustomerPortalLanding } from './customer-portal/pages/Landing';
 import { OrderTrackingPage } from './customer-portal/pages/Track';
 import { ShippingEstimatePage } from './customer-portal/pages/ShippingEstimate';
 import { CustomerContactPage } from './customer-portal/pages/Contact';
+import { ReturnMethodPage } from './customer-portal/pages/returns/ReturnMethod';
+import { ReturnConfirmationPage } from './customer-portal/pages/returns/ReturnConfirmation';
 
 import { DashboardLayout } from './dashboard/components/DashboardLayout';
 import { LoginPage } from './dashboard/pages/auth/Login';
@@ -60,6 +62,8 @@ const customerRoutes = [
   { path: '/estimate', element: <ShippingEstimatePage /> },
   { path: '/order/:id', element: <OrderTrackingPage /> },
   { path: '/contact', element: <CustomerContactPage /> },
+  { path: '/return/:id/method', element: <ReturnMethodPage /> },
+  { path: '/return/:id/confirmation', element: <ReturnConfirmationPage /> },
 ];
 
 const formatCustomerPath = (routePath: string) =>

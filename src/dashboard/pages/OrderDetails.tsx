@@ -14,8 +14,10 @@ import {
   AlertTriangle,
   RefreshCw,
   Printer,
+  Package,
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
+import { supabase } from '../contexts/AuthContext';
 
 type Identifier = string | number;
 type KnownStatus =
@@ -61,6 +63,16 @@ type SubOrder = {
     code?: string;
     api_enabled?: boolean;
   };
+};
+
+type ReturnShipment = {
+  id: string;
+  return_request_id?: string;
+  fez_tracking?: string | null;
+  method: 'pickup' | 'dropoff';
+  return_code?: string;
+  status?: string;
+  created_at?: string;
 };
 
 type Order = {
@@ -243,16 +255,28 @@ export function OrderDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [creatingShipment, setCreatingShipment] = useState<Identifier | null>(null);
   const [fetchingTracking, setFetchingTracking] = useState<Identifier | null>(null);
+  const [returnShipments, setReturnShipments] = useState<ReturnShipment[]>([]);
+  const [updatingReturnStatus, setUpdatingReturnStatus] = useState<string | null>(null);
 
   const formatCurrency = (value?: number | null) => {
     const amount = typeof value === 'number' ? value : 0;
     return amount.toLocaleString();
   };
 
+  const getAuthHeaders = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const headers: HeadersInit = {};
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+    return headers;
+  };
+
   const fetchOrderDetails = async () => {
     try {
       console.log('Fetching order details for:', id);
-      const response = await fetch(`${apiBase}/api/orders/${id}`);
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${apiBase}/api/orders/${id}`, { headers });
       const data = await response.json();
       
       console.log('Order details response:', data);
@@ -283,8 +307,56 @@ export function OrderDetailsPage() {
     }
   };
 
+  const fetchReturnShipments = async () => {
+    if (!id) return;
+    try {
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${apiBase}/api/return-shipments/order/${id}`, { headers });
+      const data = await response.json();
+
+      if (data?.success) {
+        setReturnShipments(data.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching return shipments:', error);
+    }
+  };
+
+  const updateReturnShipmentStatus = async (shipmentId: string, status: string) => {
+    setUpdatingReturnStatus(shipmentId);
+    try {
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${apiBase}/api/return-shipments/${shipmentId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ status }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || 'Failed to update return shipment');
+      }
+
+      setReturnShipments((prev) =>
+        prev.map((shipment) =>
+          shipmentId === shipment.id
+            ? { ...shipment, status: data.data?.status || status }
+            : shipment
+        )
+      );
+
+      notification.success('Updated', 'Return shipment status updated');
+    } catch (error) {
+      console.error('Return shipment update error:', error);
+      notification.error('Update failed', error instanceof Error ? error.message : 'Unable to update return shipment');
+    } finally {
+      setUpdatingReturnStatus(null);
+    }
+  };
+
   useEffect(() => {
     fetchOrderDetails();
+    fetchReturnShipments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -434,6 +506,16 @@ export function OrderDetailsPage() {
     return colors[status as KnownStatus] || 'bg-gray-100 text-gray-800';
   };
 
+  const getReturnStatusColor = (status: string) => {
+    const colors: Record<string, string> = {
+      pending: 'bg-yellow-100 text-yellow-800',
+      in_transit: 'bg-blue-100 text-blue-800',
+      delivered: 'bg-green-100 text-green-800',
+      completed: 'bg-emerald-100 text-emerald-800',
+    };
+    return colors[status] || 'bg-gray-100 text-gray-800';
+  };
+
   return (
     <div>
       {/* Header */}
@@ -513,6 +595,72 @@ export function OrderDetailsPage() {
               <span className="font-bold text-lg text-primary-600">₦{formatCurrency(order.total_amount)}</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Return Shipment */}
+      <div className="mt-8">
+        <h2 className="text-2xl font-bold mb-4">Return Shipment</h2>
+        <div className="card">
+          {returnShipments.length === 0 ? (
+            <p className="text-sm text-gray-600">No return shipments created for this order yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {returnShipments.map((shipment) => (
+                <div key={shipment.id} className="rounded-lg border border-gray-100 p-4">
+                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                        <Package className="w-4 h-4 text-primary-600" />
+                        {shipment.method === 'pickup' ? 'Fez Pickup' : 'Fez Drop-off'}
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        Created {shipment.created_at ? new Date(shipment.created_at).toLocaleString() : '—'}
+                      </p>
+                      <div className="mt-2 space-y-1 text-sm">
+                        <p className="font-mono">Return code: {shipment.return_code || '—'}</p>
+                        <p className="text-gray-700">
+                          Tracking:{' '}
+                          {shipment.fez_tracking ? (
+                            <a
+                              href={`https://web.fezdelivery.co/track-delivery?tracking=${shipment.fez_tracking}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary-700 hover:text-primary-800"
+                            >
+                              {shipment.fez_tracking}
+                            </a>
+                          ) : (
+                            'Not available'
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 md:text-right">
+                      <span
+                        className={`inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getReturnStatusColor(shipment.status || 'pending')}`}
+                      >
+                        {shipment.status || 'pending'}
+                      </span>
+                      <select
+                        value={shipment.status || 'pending'}
+                        onChange={(e) => updateReturnShipmentStatus(shipment.id, e.target.value)}
+                        disabled={updatingReturnStatus === shipment.id}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-100 md:w-48"
+                      >
+                        {['pending', 'in_transit', 'delivered', 'completed'].map((status) => (
+                          <option key={status} value={status}>
+                            {status.replace('_', ' ')}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

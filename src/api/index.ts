@@ -47,6 +47,14 @@ import {
 } from './routes/emailConfig.js';
 import { sendTestEmail } from './services/emailService.js';
 import { getRefundRequests, updateRefundRequestMeta, addRefundOrderNote, createWooRefund } from './routes/refundRequests.js';
+import { getReturnShipmentsByOrder, updateReturnShipmentStatus } from './routes/returnShipments.js';
+
+const supabaseFunctionUrl = (name: string) => {
+  const base =
+    (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').replace(/\/$/, '');
+  if (!base) return '';
+  return `${base}/functions/v1/${name}`;
+};
 
 console.log('🚀 Starting JLO API Server...');
 console.log('📋 Environment Check:');
@@ -129,6 +137,40 @@ app.get('/', (_req: Request, res: Response) => {
 app.post('/api/calc-shipping', calcShippingHandler);
 app.get('/api/zones/:state', getZoneHandler);
 console.log('📦 Shipping routes registered');
+
+// Return shipment creation proxy (public - uses Supabase Function)
+app.post('/api/create-return-shipment', async (req: Request, res: Response) => {
+  try {
+    const functionUrl = supabaseFunctionUrl('create-return-shipment');
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!functionUrl || !serviceRoleKey) {
+      return res.status(500).json({
+        success: false,
+        error: 'Supabase functions not configured on server',
+      });
+    }
+
+    const response = await fetch(functionUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': serviceRoleKey,
+        'Authorization': `Bearer ${serviceRoleKey}`,
+      },
+      body: JSON.stringify(req.body || {}),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    return res.status(response.status).json(data);
+  } catch (error) {
+    console.error('create-return-shipment proxy error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create return shipment',
+    });
+  }
+});
 
 // Webhook routes (public)
 console.log('🔗 Webhook routes registered');
@@ -240,6 +282,10 @@ app.put('/api/refunds/requests/:orderId', authenticate, requireRole('admin', 'ag
 app.post('/api/refunds/requests/:orderId/note', authenticate, requireRole('admin', 'agent'), addRefundOrderNote);
 app.post('/api/refunds/requests/:orderId/create-refund', authenticate, requireRole('admin', 'agent'), createWooRefund);
 app.get('/api/refunds/requests', authenticate, requireRole('admin', 'agent'), getRefundRequests);
+
+// Return shipments (admin or agent)
+app.get('/api/return-shipments/order/:orderId', authenticate, requireRole('admin', 'agent'), getReturnShipmentsByOrder);
+app.patch('/api/return-shipments/:id/status', authenticate, requireRole('admin', 'agent'), updateReturnShipmentStatus);
 
 console.log('💰 Refund routes registered');
 

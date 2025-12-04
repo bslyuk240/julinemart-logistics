@@ -47,7 +47,7 @@ import {
 } from './routes/emailConfig.js';
 import { sendTestEmail } from './services/emailService.js';
 import { getRefundRequests, updateRefundRequestMeta, addRefundOrderNote, createWooRefund } from './routes/refundRequests.js';
-import { getReturnShipmentsByOrder, updateReturnShipmentStatus } from './routes/returnShipments.js';
+import { getReturnShipmentsByOrder, updateReturnShipmentStatus, getReturnRequestIdByWooOrder, createReturnRequest } from './routes/returnShipments.js';
 
 const supabaseFunctionUrl = (name: string) => {
   const base =
@@ -286,6 +286,11 @@ app.get('/api/refunds/requests', authenticate, requireRole('admin', 'agent'), ge
 // Return shipments (admin or agent)
 app.get('/api/return-shipments/order/:orderId', authenticate, requireRole('admin', 'agent'), getReturnShipmentsByOrder);
 app.patch('/api/return-shipments/:id/status', authenticate, requireRole('admin', 'agent'), updateReturnShipmentStatus);
+
+// Return request lookup (public) - get return_request_id by WooCommerce order number
+app.get('/api/return-requests/by-woocommerce/:orderNumber', getReturnRequestIdByWooOrder);
+// Return request creation (public for PWA)
+app.post('/api/return-requests', createReturnRequest);
 
 console.log('💰 Refund routes registered');
 

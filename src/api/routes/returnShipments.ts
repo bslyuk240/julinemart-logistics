@@ -5,6 +5,105 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Create a return request (public endpoint for PWA)
+export async function createReturnRequest(req: Request, res: Response) {
+  try {
+    const { woo_order_id, order_id, reason, status } = req.body || {};
+
+    if (!woo_order_id && !order_id) {
+      return res.status(400).json({ success: false, error: 'woo_order_id or order_id is required' });
+    }
+
+    // Resolve JLO order id
+    let jloOrderId = order_id;
+
+    if (!jloOrderId && woo_order_id) {
+      const { data: order, error: orderError } = await supabase
+        .from('orders')
+        .select('id, woocommerce_order_id')
+        .eq('woocommerce_order_id', woo_order_id)
+        .single();
+
+      if (orderError || !order) {
+        return res.status(404).json({ success: false, error: 'Order not found' });
+      }
+      jloOrderId = order.id;
+    }
+
+    const payload = {
+      order_id: jloOrderId,
+      reason: reason || null,
+      status: status || 'pending',
+    };
+
+    const { data, error } = await supabase
+      .from('return_requests')
+      .insert(payload)
+      .select('id')
+      .single();
+
+    if (error || !data) {
+      throw error;
+    }
+
+    return res.status(201).json({
+      success: true,
+      return_request_id: data.id,
+    });
+  } catch (error) {
+    console.error('createReturnRequest error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create return request',
+    });
+  }
+}
+
+// Get return_request_id by WooCommerce order number
+export async function getReturnRequestIdByWooOrder(req: Request, res: Response) {
+  try {
+    const { orderNumber } = req.params;
+    if (!orderNumber) {
+      return res.status(400).json({ success: false, error: 'Missing WooCommerce order number' });
+    }
+
+    // Find the JLO order by WooCommerce order number
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('id, woocommerce_order_id')
+      .eq('woocommerce_order_id', orderNumber)
+      .single();
+
+    if (orderError || !order) {
+      return res.status(404).json({ success: false, error: 'Order not found' });
+    }
+
+    // Get the latest return_request for that order
+    const { data: request, error: requestError } = await supabase
+      .from('return_requests')
+      .select('id, order_id, created_at')
+      .eq('order_id', order.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (requestError || !request) {
+      return res.status(404).json({ success: false, error: 'Return request not found for this order' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      return_request_id: request.id,
+    });
+  } catch (error) {
+    console.error('getReturnRequestIdByWooOrder error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch return request',
+    });
+  }
+}
+
 export async function getReturnShipmentsByOrder(req: Request, res: Response) {
   try {
     const { orderId } = req.params;

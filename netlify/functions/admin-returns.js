@@ -1,12 +1,6 @@
 // Admin/Ops returns listing with optional filters
 import { supabase } from './services/returns-utils.js';
-
-const headers = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Content-Type': 'application/json',
-};
+import { corsHeaders, preflightResponse } from './services/cors.js';
 
 function ensureAdmin(event) {
   // Lightweight guard: expect role in header (set by upstream auth proxy); adjust to your JWT decoder if available
@@ -17,9 +11,9 @@ function ensureAdmin(event) {
 }
 
 export async function handler(event) {
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
-  if (event.httpMethod !== 'GET') return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
-  if (!ensureAdmin(event)) return { statusCode: 401, headers, body: JSON.stringify({ success: false, error: 'Unauthorized' }) };
+  if (event.httpMethod === 'OPTIONS') return preflightResponse();
+  if (event.httpMethod !== 'GET') return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
+  if (!ensureAdmin(event)) return { statusCode: 401, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Unauthorized' }) };
 
   try {
     const url = new URL(event.rawUrl);
@@ -44,7 +38,7 @@ export async function handler(event) {
 
     return {
       statusCode: 200,
-      headers,
+      headers: corsHeaders(),
       body: JSON.stringify({
         success: true,
         data: data || [],
@@ -53,6 +47,6 @@ export async function handler(event) {
     };
   } catch (error) {
     console.error('admin-returns error:', error);
-    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: error.message || 'Internal error' }) };
+    return { statusCode: 500, headers: corsHeaders(), body: JSON.stringify({ success: false, error: error.message || 'Internal error' }) };
   }
 }

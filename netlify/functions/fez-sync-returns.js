@@ -1,11 +1,9 @@
 // Periodic sync of Fez return shipments
 import { supabase, mapFezStatusToReturn } from './services/returns-utils.js';
+import { corsHeaders, preflightResponse } from './services/cors.js';
 
-const headers = {
-  'Content-Type': 'application/json',
-};
-
-export async function handler(_event) {
+export async function handler(event) {
+  if (event?.httpMethod === 'OPTIONS') return preflightResponse();
   try {
     const { data: shipments, error } = await supabase
       .from('return_shipments')
@@ -14,7 +12,7 @@ export async function handler(_event) {
 
     if (error) throw error;
     if (!shipments || shipments.length === 0) {
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, updated: 0 }) };
+      return { statusCode: 200, headers: corsHeaders(), body: JSON.stringify({ success: true, updated: 0 }) };
     }
 
     let updated = 0;
@@ -39,9 +37,9 @@ export async function handler(_event) {
       }
     }
 
-    return { statusCode: 200, headers, body: JSON.stringify({ success: true, updated }) };
+    return { statusCode: 200, headers: corsHeaders(), body: JSON.stringify({ success: true, updated }) };
   } catch (error) {
     console.error('fez-sync-returns error:', error);
-    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: error.message || 'Internal error' }) };
+    return { statusCode: 500, headers: corsHeaders(), body: JSON.stringify({ success: false, error: error.message || 'Internal error' }) };
   }
 }

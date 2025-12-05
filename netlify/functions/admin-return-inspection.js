@@ -1,27 +1,21 @@
 // Admin inspection + refund trigger
 import { supabase, createWooRefund } from './services/returns-utils.js';
-
-const headers = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Content-Type': 'application/json',
-};
+import { corsHeaders, preflightResponse } from './services/cors.js';
 
 export async function handler(event) {
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
-  if (event.httpMethod !== 'POST') return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
+  if (event.httpMethod === 'OPTIONS') return preflightResponse();
+  if (event.httpMethod !== 'POST') return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
 
   const parts = event.path.split('/');
   const idx = parts.findIndex((p) => p === 'returns');
   const returnId = idx >= 0 ? parts[idx + 1] : null;
-  if (!returnId) return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Missing return id' }) };
+  if (!returnId) return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Missing return id' }) };
 
   try {
     const body = event.body ? JSON.parse(event.body) : {};
     const { status, inspection_result, inspection_notes, approved_refund_amount } = body;
     if (!status || !['approved', 'rejected'].includes(status)) {
-      return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'status must be approved or rejected' }) };
+      return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'status must be approved or rejected' }) };
     }
 
     const { data: request, error: fetchErr } = await supabase
@@ -66,7 +60,7 @@ export async function handler(event) {
             refund_raw: { error: err.message },
           })
           .eq('id', returnId);
-        return { statusCode: 502, headers, body: JSON.stringify({ success: false, error: err.message || 'Refund failed' }) };
+        return { statusCode: 502, headers: corsHeaders(), body: JSON.stringify({ success: false, error: err.message || 'Refund failed' }) };
       }
     }
 
@@ -82,7 +76,7 @@ export async function handler(event) {
 
     return {
       statusCode: 200,
-      headers,
+      headers: corsHeaders(),
       body: JSON.stringify({
         success: true,
         data: { status: nextStatus, refund: refundPayload || null },
@@ -90,6 +84,6 @@ export async function handler(event) {
     };
   } catch (error) {
     console.error('admin-return-inspection error:', error);
-    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: error.message || 'Internal error' }) };
+    return { statusCode: 500, headers: corsHeaders(), body: JSON.stringify({ success: false, error: error.message || 'Internal error' }) };
   }
 }

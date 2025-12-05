@@ -1,17 +1,11 @@
 // Create Return Request + Fez return shipment
 import { supabase, fetchWooOrder, validateReturnWindow, generateReturnCode, createFezReturnPickup } from './services/returns-utils.js';
-
-const headers = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Content-Type': 'application/json',
-};
+import { corsHeaders, preflightResponse } from './services/cors.js';
 
 export async function handler(event) {
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
+  if (event.httpMethod === 'OPTIONS') return preflightResponse();
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
+    return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
   }
 
   try {
@@ -31,23 +25,23 @@ export async function handler(event) {
     } = body;
 
     if (!order_id || !preferred_resolution || !reason_code || !method) {
-      return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'order_id, preferred_resolution, reason_code, method required' }) };
+      return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'order_id, preferred_resolution, reason_code, method required' }) };
     }
     if (!['pickup', 'dropoff'].includes(method)) {
-      return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'method must be pickup or dropoff' }) };
+      return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'method must be pickup or dropoff' }) };
     }
 
     // Woo validation
     const order = await fetchWooOrder(order_id);
     if (wc_customer_id && Number(order.customer_id) !== Number(wc_customer_id)) {
-      return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Order does not belong to customer' }) };
+      return { statusCode: 404, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Order does not belong to customer' }) };
     }
     if (customer_email && order.billing?.email && order.billing.email.toLowerCase() !== customer_email.toLowerCase()) {
-      return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Order email mismatch' }) };
+      return { statusCode: 404, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Order email mismatch' }) };
     }
     const windowDays = Number(process.env.RETURN_WINDOW_DAYS || 14);
     if (!validateReturnWindow(order, windowDays)) {
-      return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: `Return window exceeded (${windowDays} days)` }) };
+      return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: `Return window exceeded (${windowDays} days)` }) };
     }
 
     const returnCode = generateReturnCode();
@@ -57,7 +51,7 @@ export async function handler(event) {
     // Create Fez shipment for pickup
     if (method === 'pickup') {
       if (!customer?.address || !customer?.state || !hub?.address || !hub?.state) {
-        return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'customer.address/state and hub.address/state required for pickup' }) };
+        return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'customer.address/state and hub.address/state required for pickup' }) };
       }
     }
 
@@ -91,7 +85,7 @@ export async function handler(event) {
         shipmentStatus = 'pickup_scheduled';
       } catch (err) {
         console.error('Fez return creation failed:', err);
-        return { statusCode: 502, headers, body: JSON.stringify({ success: false, error: err.message || 'Fez return creation failed' }) };
+        return { statusCode: 502, headers: corsHeaders(), body: JSON.stringify({ success: false, error: err.message || 'Fez return creation failed' }) };
       }
     }
 
@@ -126,7 +120,7 @@ export async function handler(event) {
 
     return {
       statusCode: 201,
-      headers,
+      headers: corsHeaders(),
       body: JSON.stringify({
         success: true,
         data: { return_request: request, shipment },
@@ -134,6 +128,6 @@ export async function handler(event) {
     };
   } catch (error) {
     console.error('returns-create error:', error);
-    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: error.message || 'Internal error' }) };
+    return { statusCode: 500, headers: corsHeaders(), body: JSON.stringify({ success: false, error: error.message || 'Internal error' }) };
   }
 }

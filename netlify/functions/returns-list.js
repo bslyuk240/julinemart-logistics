@@ -1,16 +1,10 @@
 // List returns for a customer (wc_customer_id or customer_email)
 import { supabase } from './services/returns-utils.js';
-
-const headers = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Content-Type': 'application/json',
-};
+import { corsHeaders, preflightResponse } from './services/cors.js';
 
 export async function handler(event) {
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
-  if (event.httpMethod !== 'GET') return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
+  if (event.httpMethod === 'OPTIONS') return preflightResponse();
+  if (event.httpMethod !== 'GET') return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
 
   try {
     const url = new URL(event.rawUrl);
@@ -18,7 +12,7 @@ export async function handler(event) {
     const email = url.searchParams.get('customer_email');
 
     if (!wcCustomerId && !email) {
-      return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'wc_customer_id or customer_email required' }) };
+      return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'wc_customer_id or customer_email required' }) };
     }
 
     let query = supabase
@@ -32,9 +26,9 @@ export async function handler(event) {
     const { data, error } = await query;
     if (error) throw error;
 
-    return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: data || [] }) };
+    return { statusCode: 200, headers: corsHeaders(), body: JSON.stringify({ success: true, data: data || [] }) };
   } catch (error) {
     console.error('returns-list error:', error);
-    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: error.message || 'Internal error' }) };
+    return { statusCode: 500, headers: corsHeaders(), body: JSON.stringify({ success: false, error: error.message || 'Internal error' }) };
   }
 }

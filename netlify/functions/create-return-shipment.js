@@ -313,19 +313,23 @@ export async function handler(event) {
       ? `https://web.fezdelivery.co/track-delivery?tracking=${fezTracking}`
       : null;
 
-    // Log activity
-    await supabase.from("activity_logs").insert({
-      user_id: null,
-      action: "return_shipment_created",
-      resource_type: "return_shipment",
-      resource_id: shipment.id,
-      details: { 
-        courier: "fez", 
-        return_code: returnCode,
-        fez_tracking: fezTracking,
-        method
-      }
-    }).catch(err => console.warn("Activity log failed:", err));
+    // Log activity (ignore errors)
+    try {
+      await supabase.from("activity_logs").insert({
+        user_id: null,
+        action: "return_shipment_created",
+        resource_type: "return_shipment",
+        resource_id: shipment.id,
+        details: { 
+          courier: "fez", 
+          return_code: returnCode,
+          fez_tracking: fezTracking,
+          method
+        }
+      });
+    } catch (logErr) {
+      console.warn("Activity log failed:", logErr);
+    }
 
     console.log("✅ RETURN SHIPMENT CREATED:", { 
       return_code: returnCode, 

@@ -1,4 +1,5 @@
 // Shared helpers for Returns module (Supabase + Woo + Fez)
+// FIXED: Always fetch hub address from database to prevent customer address being used as hub address
 import fetch from 'node-fetch';
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
@@ -156,34 +157,174 @@ async function authenticateFez() {
   return { authToken: data.authDetails?.authToken, secretKey: data.orgDetails?.['secret-key'] };
 }
 
+/**
+ * CRITICAL FIX: Always fetch hub from database to get the REAL warehouse address.
+ * This prevents the bug where customer address is mistakenly used as hub address.
+ */
+async function fetchHubFromDatabase(hubHint) {
+  console.log('=== FETCHING HUB FROM DATABASE ===');
+  console.log('Hub hint from frontend:', JSON.stringify(hubHint));
+  
+  try {
+    // Get all active hubs from database
+    const { data: hubs, error } = await supabase
+      .from('hubs')
+      .select('*')
+      .eq('is_active', true)
+      .order('name');
+    
+    if (error) {
+      console.error('Database error fetching hubs:', error);
+      throw new Error(`Database error: ${error.message}`);
+    }
+    
+    if (!hubs || hubs.length === 0) {
+      throw new Error('No active hubs found in database. Please activate at least one hub.');
+    }
+    
+    console.log('Found', hubs.length, 'active hub(s):');
+    hubs.forEach(h => console.log(`  - ${h.name}: "${h.address || 'NO ADDRESS!'}" (${h.city}, ${h.state})`));
+    
+    // Try to find a matching hub
+    let matchedHub = null;
+    const hintName = (hubHint?.name || '').toLowerCase();
+    const hintState = (hubHint?.state || '').toLowerCase();
+    
+    // Priority 1: Match by name if provided
+    if (hintName) {
+      matchedHub = hubs.find(h => 
+        h.name?.toLowerCase().includes(hintName) || 
+        hintName.includes(h.name?.toLowerCase())
+      );
+      if (matchedHub) console.log('Matched by name:', matchedHub.name);
+    }
+    
+    // Priority 2: Match by state if provided
+    if (!matchedHub && hintState) {
+      matchedHub = hubs.find(h => h.state?.toLowerCase() === hintState);
+      if (matchedHub) console.log('Matched by state:', matchedHub.name);
+    }
+    
+    // Priority 3: Default to Warri Hub (primary hub)
+    if (!matchedHub) {
+      matchedHub = hubs.find(h => h.name?.toLowerCase().includes('warri'));
+      if (matchedHub) console.log('Using default Warri Hub:', matchedHub.name);
+    }
+    
+    // Priority 4: Just use first active hub
+    if (!matchedHub) {
+      matchedHub = hubs[0];
+      console.log('Using first available hub:', matchedHub.name);
+    }
+    
+    // CRITICAL: Validate that hub has an address
+    if (!matchedHub.address || matchedHub.address.trim() === '') {
+      throw new Error(
+        `Hub "${matchedHub.name}" has no address configured! ` +
+        `Please go to Hubs settings and add an address for this hub.`
+      );
+    }
+    
+    console.log('✅ Selected hub:', matchedHub.name);
+    console.log('   Address:', matchedHub.address);
+    
+    return {
+      name: matchedHub.name,
+      address: matchedHub.address,
+      city: matchedHub.city || matchedHub.state,
+      state: matchedHub.state,
+      phone: normalizePhone(matchedHub.phone),
+    };
+    
+  } catch (err) {
+    console.error('fetchHubFromDatabase failed:', err.message);
+    throw err;
+  }
+}
+
 export async function createFezReturnPickup({ returnCode, returnRequestId, customer, hub }) {
+  console.log('\n' + '='.repeat(60));
+  console.log('=== CREATING FEZ RETURN PICKUP ===');
+  console.log('='.repeat(60));
+  
   const auth = await authenticateFez();
   if (!auth.authToken || !auth.secretKey) throw new Error('Fez auth missing token/secret');
 
   const uniqueId = generateShortUniqueId(returnRequestId || returnCode).replace(/-/g, '');
+  
+  // CUSTOMER INFO (where Fez picks up FROM)
   const customerName = customer?.name || customer?.full_name || 'Return Customer';
   const customerPhone = normalizePhone(customer?.phone);
-  const hubPhone = normalizePhone(hub?.phone);
+  const customerAddress = customer?.address || '';
+  const customerCity = customer?.city || customer?.state || 'Lagos';
+  const customerState = customer?.state || 'Lagos';
+  
+  console.log('\n--- CUSTOMER (PICKUP LOCATION) ---');
+  console.log('Name:', customerName);
+  console.log('Phone:', customerPhone);
+  console.log('Address:', customerAddress);
+  console.log('City:', customerCity);
+  console.log('State:', customerState);
+  
+  // CRITICAL FIX: ALWAYS fetch hub from database
+  // Never trust the hub data from frontend - it might be incomplete or wrong
+  console.log('\n--- FETCHING HUB FROM DATABASE ---');
+  const dbHub = await fetchHubFromDatabase(hub);
+  
+  console.log('\n--- HUB (DELIVERY DESTINATION) ---');
+  console.log('Name:', dbHub.name);
+  console.log('Phone:', dbHub.phone);
+  console.log('Address:', dbHub.address);
+  console.log('City:', dbHub.city);
+  console.log('State:', dbHub.state);
+  
+  // VALIDATION: Ensure pickup and delivery addresses are different
+  const customerAddrNorm = customerAddress.toLowerCase().trim();
+  const hubAddrNorm = dbHub.address.toLowerCase().trim();
+  
+  if (customerAddrNorm === hubAddrNorm) {
+    console.error('\n❌ ERROR: Customer and Hub addresses are IDENTICAL!');
+    console.error('   Customer:', customerAddress);
+    console.error('   Hub:', dbHub.address);
+    throw new Error(
+      'Cannot create return shipment: Customer address and hub address are the same. ' +
+      'Fez requires different pickup and delivery locations.'
+    );
+  }
+  
+  // Build Fez payload
   const payload = {
-    recipientAddress: hub?.address || '',
-    recipientState: hub?.state || 'Lagos',
-    recipientCity: hub?.city || hub?.state || 'Lagos',
-    recipientName: hub?.name || 'JulineMart Hub',
-    recipientPhone: hubPhone,
+    // RECIPIENT = HUB (where package goes TO)
+    recipientAddress: dbHub.address,
+    recipientState: dbHub.state,
+    recipientCity: dbHub.city,
+    recipientName: dbHub.name,
+    recipientPhone: dbHub.phone,
     recipientEmail: 'returns@julinemart.com',
+    
+    // Identifiers
     uniqueID: uniqueId,
     BatchID: returnCode.replace(/-/g, ''),
+    
+    // Package details
     itemDescription: `Return package ${returnCode}`,
     valueOfItem: '6000',
     weight: 1,
-    pickUpAddress: customer?.address || '',
-    pickUpState: customer?.state || 'Lagos',
-    pickUpCity: customer?.city || customer?.state || 'Lagos',
+    
+    // PICKUP = CUSTOMER (where Fez picks up FROM)
+    pickUpAddress: customerAddress,
+    pickUpState: customerState,
+    pickUpCity: customerCity,
     pickUpName: customerName,
     pickUpPhone: customerPhone,
     pickUpEmail: customer?.email || customer?.customer_email || '',
-    additionalDetails: `Return from: ${customer?.name || ''}, Phone: ${customer?.phone || ''}`,
+    
+    additionalDetails: `Return from: ${customerName}, Phone: ${customer?.phone || ''}`,
   };
+
+  console.log('\n--- FEZ API PAYLOAD ---');
+  console.log('PICKUP (Customer):', payload.pickUpAddress, ',', payload.pickUpCity, ',', payload.pickUpState);
+  console.log('RECIPIENT (Hub):', payload.recipientAddress, ',', payload.recipientCity, ',', payload.recipientState);
 
   const res = await fetch(`${FEZ_BASE}/order`, {
     method: 'POST',
@@ -194,6 +335,7 @@ export async function createFezReturnPickup({ returnCode, returnRequestId, custo
     },
     body: JSON.stringify([payload]),
   });
+  
   const text = await res.text();
   let data = {};
   try {
@@ -201,24 +343,31 @@ export async function createFezReturnPickup({ returnCode, returnRequestId, custo
   } catch {
     data = {};
   }
-  if (!res.ok) {
-    console.error('Fez return payload:', {
-      recipientState: payload.recipientState,
-      recipientCity: payload.recipientCity,
-      pickUpState: payload.pickUpState,
-      pickUpCity: payload.pickUpCity,
-      recipientAddress: payload.recipientAddress,
-      recipientPhone: payload.recipientPhone,
-      pickUpAddress: payload.pickUpAddress,
-      pickUpPhone: payload.pickUpPhone,
-      pickUpName: payload.pickUpName,
-    });
-    console.error('Fez return raw response:', text);
-  }
+  
+  console.log('\n--- FEZ API RESPONSE ---');
+  console.log('HTTP Status:', res.status);
+  console.log('Response:', text);
+  
   if (data?.status === 'Success' && data?.orderNos) {
     const values = Object.values(data.orderNos);
-    if (values.length > 0) return { tracking: String(values[0]) };
+    if (values.length > 0) {
+      const tracking = String(values[0]);
+      console.log('\n✅ SUCCESS! Fez tracking:', tracking);
+      return { tracking };
+    }
   }
+  
+  // Log failure details
+  console.error('\n❌ FEZ ORDER CREATION FAILED');
+  console.error('Payload sent:', JSON.stringify({
+    recipientAddress: payload.recipientAddress,
+    recipientCity: payload.recipientCity,
+    recipientState: payload.recipientState,
+    pickUpAddress: payload.pickUpAddress,
+    pickUpCity: payload.pickUpCity,
+    pickUpState: payload.pickUpState,
+  }, null, 2));
+  
   const errDetail = data?.description || data?.message || text || 'Fez order creation failed';
   throw new Error(`Fez order create failed (${res.status}): ${errDetail}`);
 }

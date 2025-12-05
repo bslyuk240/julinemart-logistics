@@ -72,8 +72,9 @@ async function authenticateFez() {
     throw new Error("Fez API not configured");
   }
 
-  const base = fezApiBaseUrl.replace(/\/+$/, "");
+  const base = fezApiBaseUrl.replace(/\/+$/, "").replace(/\/v1$/i, "");
   const authUrl = `${base}/user/authenticate`;
+  console.log("Fez auth url:", authUrl, "user:", fezUserId);
 
   const response = await fetch(authUrl, {
     method: "POST",
@@ -129,7 +130,8 @@ async function createFezPickup(
     },
   ];
 
-  const url = `${auth.baseUrl}/order`;
+  const base = auth.baseUrl.replace(/\/+$/, "").replace(/\/v1$/i, "");
+  const url = `${base}/order`;
   console.log("Fez pickup try:", url);
 
   const response = await fetch(url, {

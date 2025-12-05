@@ -292,12 +292,12 @@ export async function createFezReturnPickup({ returnCode, returnRequestId, custo
     );
   }
   
-  // Build Fez payload
+  // Build Fez payload - MATCHING the working forward shipment format exactly
+  // The working fez-create-shipment.js does NOT include pickUpCity, pickUpName, pickUpPhone, pickUpEmail
   const payload = {
     // RECIPIENT = HUB (where package goes TO)
     recipientAddress: dbHub.address,
     recipientState: dbHub.state,
-    recipientCity: dbHub.city,
     recipientName: dbHub.name,
     recipientPhone: dbHub.phone,
     recipientEmail: 'returns@julinemart.com',
@@ -312,19 +312,17 @@ export async function createFezReturnPickup({ returnCode, returnRequestId, custo
     weight: 1,
     
     // PICKUP = CUSTOMER (where Fez picks up FROM)
+    // NOTE: Only include pickUpAddress and pickUpState to match working format
     pickUpAddress: customerAddress,
     pickUpState: customerState,
-    pickUpCity: customerCity,
-    pickUpName: customerName,
-    pickUpPhone: customerPhone,
-    pickUpEmail: customer?.email || customer?.customer_email || '',
     
-    additionalDetails: `Return from: ${customerName}, Phone: ${customer?.phone || ''}`,
+    // Put customer details in additionalDetails instead (like working forward shipments)
+    additionalDetails: `Pickup from: ${customerName}, ${customerCity}, Phone: ${customer?.phone || ''}`,
   };
 
   console.log('\n--- FEZ API PAYLOAD ---');
-  console.log('PICKUP (Customer):', payload.pickUpAddress, ',', payload.pickUpCity, ',', payload.pickUpState);
-  console.log('RECIPIENT (Hub):', payload.recipientAddress, ',', payload.recipientCity, ',', payload.recipientState);
+  console.log('PICKUP (Customer):', payload.pickUpAddress, ',', payload.pickUpState);
+  console.log('RECIPIENT (Hub):', payload.recipientAddress, ',', payload.recipientState);
 
   const res = await fetch(`${FEZ_BASE}/order`, {
     method: 'POST',

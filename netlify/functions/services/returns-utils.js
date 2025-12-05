@@ -243,8 +243,17 @@ async function fetchHubFromDatabase(hubHint) {
 }
 
 export async function createFezReturnPickup({ returnCode, customer, hub }) {
-  const auth = await authenticateFez();
-  if (!auth.authToken || !auth.secretKey) throw new Error("Fez auth missing token/secret");
+  const fezToken = process.env.FEZ_API_KEY || FEZ_KEY;
+  const fezUser = process.env.FEZ_USER_ID;
+  const fezPassword = process.env.FEZ_PASSWORD || FEZ_KEY;
+
+  const missing = [];
+  if (!fezToken) missing.push('FEZ_API_KEY');
+  if (!fezUser) missing.push('FEZ_USER_ID');
+  if (!fezPassword) missing.push('FEZ_PASSWORD');
+  if (missing.length) {
+    throw new Error(`Fez auth missing: ${missing.join(', ')}`);
+  }
 
   const payload = {
     uniqueId: `JLO-RETURN-${returnCode}`,
@@ -274,16 +283,19 @@ export async function createFezReturnPickup({ returnCode, customer, hub }) {
     requestPickup: true,
   };
 
+  const headers = {
+    'Content-Type': 'application/json',
+    'fez-token': fezToken,
+    'fez-username': fezUser,
+    'fez-password': fezPassword,
+  };
+
+  console.error('Fez Headers:', headers);
   console.error('Fez Payload:', payload);
 
   const res = await fetch(`${FEZ_BASE}/order`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'fez-token': FEZ_KEY || auth.authToken,
-      'fez-username': FEZ_USER_ID,
-      'fez-password': FEZ_KEY || process.env.FEZ_PASSWORD || process.env.FEZ_API_KEY || '',
-    },
+    headers,
     body: JSON.stringify(payload),
   });
 

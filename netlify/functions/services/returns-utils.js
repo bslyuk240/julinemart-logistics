@@ -36,8 +36,16 @@ export async function fetchWooOrder(orderId) {
 }
 
 export function validateReturnWindow(order, maxDays = 14) {
-  const completed = order?.date_completed ? new Date(order.date_completed) : null;
-  if (!completed) return false;
+  const completedString =
+    order?.date_completed ||
+    order?.date_completed_gmt ||
+    order?.date_paid ||
+    order?.date_created ||
+    order?.date_created_gmt;
+
+  const completed = completedString ? new Date(completedString) : null;
+  if (!completed || Number.isNaN(completed.getTime())) return false;
+
   return daysBetween(new Date(), completed) <= maxDays;
 }
 

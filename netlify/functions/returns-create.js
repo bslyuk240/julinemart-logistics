@@ -1,4 +1,4 @@
-// Create Return Request + Fez return shipment
+﻿// Create Return Request + Fez return shipment
 import { supabase, fetchWooOrder, validateReturnWindow, generateReturnCode, createFezReturnPickup, uploadReturnImages } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 
@@ -12,20 +12,16 @@ export async function handler(event) {
     const body = event.body ? JSON.parse(event.body) : {};
     const {
       order_id,
-      wc_customer_id,
-      customer_email,
-      customer_name,
       preferred_resolution,
       reason_code,
       reason_note,
       images = [],
       method,
-      customer,
-      hub,
+      hub_id,
     } = body;
 
-    if (!order_id || !preferred_resolution || !reason_code || !method) {
-      return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'order_id, preferred_resolution, reason_code, method required' }) };
+    if (!order_id || !preferred_resolution || !reason_code || !method || !hub_id) {
+      return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'order_id, preferred_resolution, reason_code, method, hub_id required' }) };
     }
     if (!['pickup', 'dropoff'].includes(method)) {
       return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'method must be pickup or dropoff' }) };
@@ -33,27 +29,32 @@ export async function handler(event) {
 
     // Woo validation
     const order = await fetchWooOrder(order_id);
-    if (wc_customer_id && Number(order.customer_id) !== Number(wc_customer_id)) {
-      return { statusCode: 404, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Order does not belong to customer' }) };
-    }
-    if (customer_email && order.billing?.email && order.billing.email.toLowerCase() !== customer_email.toLowerCase()) {
-      return { statusCode: 404, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Order email mismatch' }) };
-    }
     const windowDays = Number(process.env.RETURN_WINDOW_DAYS || 14);
     if (!validateReturnWindow(order, windowDays)) {
       return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: `Return window exceeded (${windowDays} days)` }) };
     }
 
+    const billing = order?.billing || {};
+    const customerName = `${billing.first_name || ''} ${billing.last_name || ''}`.trim() || 'Return Customer';
+    const customerEmail = billing.email || '';
+    const customerPhone = billing.phone || '';
+    const customerAddress = [billing.address_1, billing.address_2].filter(Boolean).join(', ') || '';
+    const customerCity = billing.city || '';
+    const customerState = billing.state || '';
+
+    const { data: hubRecord, error: hubError } = await supabase
+      .from('hubs')
+      .select('id, name, phone, address, city, state')
+      .eq('id', hub_id)
+      .single();
+    if (hubError || !hubRecord) {
+      return { statusCode: 404, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Hub not found' }) };
+    }
+
     const returnCode = generateReturnCode();
     let fezTracking = null;
+    let fezShipmentId = null;
     let shipmentStatus = method === 'pickup' ? 'pickup_scheduled' : 'awaiting_dropoff';
-
-    // Create Fez shipment for pickup
-    if (method === 'pickup') {
-      if (!customer?.address || !customer?.state || !hub?.address || !hub?.state) {
-        return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'customer.address/state and hub.address/state required for pickup' }) };
-      }
-    }
 
     // Insert return_request first (images will be uploaded after to ensure we have request.id)
     const { data: request, error: insertError } = await supabase
@@ -61,9 +62,10 @@ export async function handler(event) {
       .insert({
         order_id,
         order_number: order.number,
-        wc_customer_id: wc_customer_id || order.customer_id,
-        customer_email: customer_email || order.billing?.email,
-        customer_name: customer_name || `${order.billing?.first_name || ''} ${order.billing?.last_name || ''}`.trim(),
+        wc_customer_id: order.customer_id,
+        customer_email: customerEmail,
+        customer_name: customerName,
+        hub_id,
         preferred_resolution,
         reason_code,
         reason_note,
@@ -91,8 +93,19 @@ export async function handler(event) {
 
     if (method === 'pickup') {
       try {
-        const result = await createFezReturnPickup({ returnCode, returnRequestId: request.id, customer, hub });
-        fezTracking = result.tracking;
+        const result = await createFezReturnPickup({
+          returnCode,
+          customer: {
+            name: customerName,
+            phone: customerPhone,
+            address: customerAddress,
+            city: customerCity,
+            state: customerState,
+          },
+          hub: hubRecord,
+        });
+        fezTracking = result?.tracking || null;
+        fezShipmentId = result?.shipmentId || null;
         shipmentStatus = 'pickup_scheduled';
       } catch (err) {
         console.error('Fez return creation failed:', err);
@@ -107,9 +120,19 @@ export async function handler(event) {
         return_request_id: request.id,
         return_code: returnCode,
         fez_tracking: fezTracking,
+        fez_shipment_id: fezShipmentId,
         method,
         status: shipmentStatus,
-        raw_payload: { customer, hub },
+        raw_payload: {
+          customer: {
+            name: customerName,
+            phone: customerPhone,
+            address: customerAddress,
+            city: customerCity,
+            state: customerState,
+          },
+          hub: hubRecord,
+        },
       })
       .select('*')
       .single();
@@ -124,8 +147,9 @@ export async function handler(event) {
       .update({
         fez_tracking: fezTracking,
         fez_method: method,
-        fez_shipment_id: shipment?.id || null,
+        fez_shipment_id: fezShipmentId || shipment?.id || null,
         status: method === 'pickup' ? 'pickup_scheduled' : 'requested',
+        hub_id,
       })
       .eq('id', request.id);
 
@@ -134,7 +158,7 @@ export async function handler(event) {
       headers: corsHeaders(),
       body: JSON.stringify({
         success: true,
-        data: { return_request: { ...request, images: finalImages }, shipment },
+        data: { return_request: { ...request, images: finalImages, fez_tracking: fezTracking, hub_id }, shipment },
       }),
     };
   } catch (error) {

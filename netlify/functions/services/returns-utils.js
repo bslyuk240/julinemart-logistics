@@ -1,4 +1,4 @@
-// Shared helpers for Returns module (Supabase + Woo + Fez)
+﻿// Shared helpers for Returns module (Supabase + Woo + Fez)
 // FIXED: Always fetch hub address from database to prevent customer address being used as hub address
 import fetch from 'node-fetch';
 import crypto from 'crypto';
@@ -225,7 +225,7 @@ async function fetchHubFromDatabase(hubHint) {
       );
     }
     
-    console.log('✅ Selected hub:', matchedHub.name);
+    console.log('âœ… Selected hub:', matchedHub.name);
     console.log('   Address:', matchedHub.address);
     
     return {
@@ -242,109 +242,51 @@ async function fetchHubFromDatabase(hubHint) {
   }
 }
 
-export async function createFezReturnPickup({ returnCode, returnRequestId, customer, hub }) {
-  console.log('\n' + '='.repeat(60));
-  console.log('=== CREATING FEZ RETURN PICKUP ===');
-  console.log('='.repeat(60));
-  
+export async function createFezReturnPickup({ returnCode, customer, hub }) {
   const auth = await authenticateFez();
-  if (!auth.authToken || !auth.secretKey) throw new Error('Fez auth missing token/secret');
+  if (!auth.authToken || !auth.secretKey) throw new Error("Fez auth missing token/secret");
 
-  const uniqueId = generateShortUniqueId(returnRequestId || returnCode).replace(/-/g, '');
-  
-  // CUSTOMER INFO (where Fez picks up FROM)
-  const customerName = customer?.name || customer?.full_name || 'Return Customer';
-  const customerPhone = normalizePhone(customer?.phone);
-  const customerAddress = customer?.address || '';
-  const customerCity = customer?.city || customer?.state || 'Lagos';
-  const customerState = customer?.state || 'Lagos';
-  
-  console.log('\n--- CUSTOMER (PICKUP LOCATION) ---');
-  console.log('Name:', customerName);
-  console.log('Phone:', customerPhone);
-  console.log('Address:', customerAddress);
-  console.log('City:', customerCity);
-  console.log('State:', customerState);
-  
-  // CRITICAL FIX: ALWAYS fetch hub from database
-  // Never trust the hub data from frontend - it might be incomplete or wrong
-  console.log('\n--- FETCHING HUB FROM DATABASE ---');
-  const dbHub = await fetchHubFromDatabase(hub);
-  
-  console.log('\n--- HUB (DELIVERY DESTINATION) ---');
-  console.log('Name:', dbHub.name);
-  console.log('Phone:', dbHub.phone);
-  console.log('Address:', dbHub.address);
-  console.log('City:', dbHub.city);
-  console.log('State:', dbHub.state);
-  
-  // VALIDATION: Ensure pickup and delivery addresses are different
-  const customerAddrNorm = customerAddress.toLowerCase().trim();
-  const hubAddrNorm = dbHub.address.toLowerCase().trim();
-  
-  if (customerAddrNorm === hubAddrNorm) {
-    console.error('\n❌ ERROR: Customer and Hub addresses are IDENTICAL!');
-    console.error('   Customer:', customerAddress);
-    console.error('   Hub:', dbHub.address);
-    throw new Error(
-      'Cannot create return shipment: Customer address and hub address are the same. ' +
-      'Fez requires different pickup and delivery locations.'
-    );
-  }
-  
-  // Build Fez payload
-  // THEORY: Fez API might only allow pickups from registered hub addresses
-  // Forward shipments work because: Hub (pickup) → Customer (recipient)
-  // Return shipments fail because: Customer (pickup) → Hub (recipient)
-  //
-  // WORKAROUND: Create the order in "forward" direction (Hub → Customer)
-  // but use additionalDetails to explain it's actually a RETURN pickup
-  // Fez's dispatch team will see the note and handle it as a return
-  
   const payload = {
-    // For return, we SWAP the direction to match working forward format:
-    // "Pickup" = HUB (Fez picks up from hub... but we'll note it's actually customer pickup)
-    // "Recipient" = CUSTOMER (this is actually where the item comes FROM)
-    
-    // RECIPIENT = CUSTOMER (label says deliver to customer, but it's actually pickup FROM them)
-    recipientAddress: customerAddress,
-    recipientState: customerState,
-    recipientName: customerName,
-    recipientPhone: customerPhone,
-    recipientEmail: customer?.email || '',
-    
-    // Identifiers
-    uniqueID: uniqueId,
-    BatchID: returnCode.replace(/-/g, ''),
-    
-    // Package details - mark as RETURN in description
-    itemDescription: `RETURN PICKUP ${returnCode} - Collect from customer, deliver to hub`,
-    valueOfItem: '6000',
-    weight: 1,
-    
-    // PICKUP = HUB (we register pickup from hub, like working forward shipments)
-    pickUpAddress: dbHub.address,
-    pickUpState: dbHub.state,
-    
-    // CRITICAL: Use additionalDetails to explain the ACTUAL flow
-    additionalDetails: `⚠️ RETURN ORDER - REVERSED FLOW: Physically PICK UP from ${customerName} at ${customerAddress}, ${customerCity}. DELIVER TO ${dbHub.name} at ${dbHub.address}. Customer phone: ${customer?.phone || ''}`,
+    uniqueId: `JLO-RETURN-${returnCode}`,
+    sender: {
+      name: customer?.name || 'Return Customer',
+      phone: normalizePhone(customer?.phone),
+      address: customer?.address || '',
+      city: customer?.city || '',
+      state: customer?.state || '',
+    },
+    receiver: {
+      name: hub?.name || 'JulineMart Hub',
+      phone: normalizePhone(hub?.phone),
+      address: hub?.address || '',
+      city: hub?.city || '',
+      state: hub?.state || '',
+    },
+    items: [
+      {
+        itemName: 'Return Item',
+        weight: 1,
+        quantity: 1,
+      },
+    ],
+    paymentMethod: 1,
+    deliveryMethod: 1,
+    requestPickup: true,
   };
 
-  console.log('\n--- FEZ API PAYLOAD (SWAPPED FOR RETURN) ---');
-  console.log('Registered Pickup (Hub):', payload.pickUpAddress, ',', payload.pickUpState);
-  console.log('Registered Recipient (Customer):', payload.recipientAddress, ',', payload.recipientState);
-  console.log('ACTUAL FLOW: Customer → Hub (see additionalDetails)');
+  console.error('Fez Payload:', payload);
 
   const res = await fetch(`${FEZ_BASE}/order`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${auth.authToken}`,
-      'secret-key': auth.secretKey,
+      'fez-token': FEZ_KEY || auth.authToken,
+      'fez-username': FEZ_USER_ID,
+      'fez-password': FEZ_KEY || process.env.FEZ_PASSWORD || process.env.FEZ_API_KEY || '',
     },
-    body: JSON.stringify([payload]),
+    body: JSON.stringify(payload),
   });
-  
+
   const text = await res.text();
   let data = {};
   try {
@@ -352,35 +294,28 @@ export async function createFezReturnPickup({ returnCode, returnRequestId, custo
   } catch {
     data = {};
   }
-  
-  console.log('\n--- FEZ API RESPONSE ---');
-  console.log('HTTP Status:', res.status);
-  console.log('Response:', text);
-  
-  if (data?.status === 'Success' && data?.orderNos) {
-    const values = Object.values(data.orderNos);
-    if (values.length > 0) {
-      const tracking = String(values[0]);
-      console.log('\n✅ SUCCESS! Fez tracking:', tracking);
-      return { tracking };
-    }
-  }
-  
-  // Log failure details
-  console.error('\n❌ FEZ ORDER CREATION FAILED');
-  console.error('Payload sent:', JSON.stringify({
-    recipientAddress: payload.recipientAddress,
-    recipientCity: payload.recipientCity,
-    recipientState: payload.recipientState,
-    pickUpAddress: payload.pickUpAddress,
-    pickUpCity: payload.pickUpCity,
-    pickUpState: payload.pickUpState,
-  }, null, 2));
-  
-  const errDetail = data?.description || data?.message || text || 'Fez order creation failed';
-  throw new Error(`Fez order create failed (${res.status}): ${errDetail}`);
-}
 
+  console.error('Fez Response:', text);
+
+  if (!res.ok) {
+    throw new Error(data?.description || data?.message || text || 'Fez order creation failed');
+  }
+
+  let tracking =
+    data?.trackingNumber ||
+    data?.tracking_number ||
+    data?.orderNo ||
+    data?.order_no ||
+    data?.data?.trackingNumber ||
+    null;
+  if (!tracking && data?.orderNos && typeof data.orderNos === 'object') {
+    const values = Object.values(data.orderNos);
+    if (values.length > 0) tracking = String(values[0]);
+  }
+
+  const shipmentId = data?.orderId || data?.order_id || data?.data?.orderId || null;
+  return { tracking, shipmentId };
+}
 export function mapFezStatusToReturn(status) {
   const s = (status || '').toLowerCase();
   if (s.includes('pickup')) return 'pickup_scheduled';

@@ -79,6 +79,15 @@ function extensionForMime(mime) {
   return 'bin';
 }
 
+function normalizePhone(phone) {
+  if (!phone || typeof phone !== 'string') return '+2340000000000';
+  const digits = phone.replace(/\D+/g, '');
+  // If it already starts with country code (234...) keep it; else prepend.
+  if (digits.startsWith('234')) return `+${digits}`;
+  if (digits.startsWith('0')) return `+234${digits.slice(1)}`;
+  return `+234${digits}`;
+}
+
 export async function uploadReturnImages(images = [], returnRequestId) {
   if (!Array.isArray(images) || images.length === 0) return [];
   const bucket = supabase.storage.from('return-images');
@@ -152,12 +161,15 @@ export async function createFezReturnPickup({ returnCode, returnRequestId, custo
   if (!auth.authToken || !auth.secretKey) throw new Error('Fez auth missing token/secret');
 
   const uniqueId = generateShortUniqueId(returnRequestId || returnCode).replace(/-/g, '');
+  const customerName = customer?.name || customer?.full_name || 'Return Customer';
+  const customerPhone = normalizePhone(customer?.phone);
+  const hubPhone = normalizePhone(hub?.phone);
   const payload = {
     recipientAddress: hub?.address || '',
     recipientState: hub?.state || 'Lagos',
     recipientCity: hub?.city || hub?.state || 'Lagos',
     recipientName: hub?.name || 'JulineMart Hub',
-    recipientPhone: hub?.phone || '+2340000000000',
+    recipientPhone: hubPhone,
     recipientEmail: 'returns@julinemart.com',
     uniqueID: uniqueId,
     BatchID: returnCode.replace(/-/g, ''),
@@ -167,6 +179,9 @@ export async function createFezReturnPickup({ returnCode, returnRequestId, custo
     pickUpAddress: customer?.address || '',
     pickUpState: customer?.state || 'Lagos',
     pickUpCity: customer?.city || customer?.state || 'Lagos',
+    pickUpName: customerName,
+    pickUpPhone: customerPhone,
+    pickUpEmail: customer?.email || customer?.customer_email || '',
     additionalDetails: `Return from: ${customer?.name || ''}, Phone: ${customer?.phone || ''}`,
   };
 
@@ -193,7 +208,10 @@ export async function createFezReturnPickup({ returnCode, returnRequestId, custo
       pickUpState: payload.pickUpState,
       pickUpCity: payload.pickUpCity,
       recipientAddress: payload.recipientAddress,
+      recipientPhone: payload.recipientPhone,
       pickUpAddress: payload.pickUpAddress,
+      pickUpPhone: payload.pickUpPhone,
+      pickUpName: payload.pickUpName,
     });
     console.error('Fez return raw response:', text);
   }

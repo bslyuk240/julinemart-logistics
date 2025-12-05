@@ -188,7 +188,8 @@ export async function createFezReturnPickup({ returnCode, returnRequestId, custo
     const values = Object.values(data.orderNos);
     if (values.length > 0) return { tracking: String(values[0]) };
   }
-  throw new Error(data?.description || data?.message || text || 'Fez order creation failed');
+  const errDetail = data?.description || data?.message || text || 'Fez order creation failed';
+  throw new Error(`Fez order create failed (${res.status}): ${errDetail}`);
 }
 
 export function mapFezStatusToReturn(status) {

@@ -1,5 +1,5 @@
 // Create Return Request + Fez return shipment
-import { supabase, fetchWooOrder, validateReturnWindow, generateReturnCode, createFezReturnPickup } from './services/returns-utils.js';
+import { supabase, fetchWooOrder, validateReturnWindow, generateReturnCode, createFezReturnPickup, uploadReturnImages } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 
 export async function handler(event) {
@@ -55,7 +55,7 @@ export async function handler(event) {
       }
     }
 
-    // Insert return_request first
+    // Insert return_request first (images will be uploaded after to ensure we have request.id)
     const { data: request, error: insertError } = await supabase
       .from('return_requests')
       .insert({
@@ -67,7 +67,7 @@ export async function handler(event) {
         preferred_resolution,
         reason_code,
         reason_note,
-        images,
+        images: [],
         status: 'requested',
         fez_method: method,
       })
@@ -76,6 +76,17 @@ export async function handler(event) {
 
     if (insertError || !request) {
       throw insertError || new Error('Failed to create return request');
+    }
+
+    let finalImages = [];
+    try {
+      finalImages = await uploadReturnImages(images || [], request.id);
+      if (finalImages.length) {
+        await supabase.from('return_requests').update({ images: finalImages }).eq('id', request.id);
+      }
+    } catch (err) {
+      console.error('Return images upload failed:', err);
+      return { statusCode: 500, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Failed to upload images' }) };
     }
 
     if (method === 'pickup') {
@@ -123,7 +134,7 @@ export async function handler(event) {
       headers: corsHeaders(),
       body: JSON.stringify({
         success: true,
-        data: { return_request: request, shipment },
+        data: { return_request: { ...request, images: finalImages }, shipment },
       }),
     };
   } catch (error) {

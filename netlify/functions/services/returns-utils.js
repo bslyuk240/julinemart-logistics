@@ -62,6 +62,79 @@ export function generateShortUniqueId(source) {
   return `JLO-${shortId}-${ts}`.toUpperCase();
 }
 
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8MB
+
+function parseDataUrl(str) {
+  const match = /^data:(.+);base64,(.+)$/i.exec(str);
+  if (!match) return null;
+  const [, mime, b64] = match;
+  return { mime: mime.trim().toLowerCase(), b64 };
+}
+
+function extensionForMime(mime) {
+  if (mime === 'image/jpeg') return 'jpg';
+  if (mime === 'image/png') return 'png';
+  if (mime === 'image/webp') return 'webp';
+  return 'bin';
+}
+
+export async function uploadReturnImages(images = [], returnRequestId) {
+  if (!Array.isArray(images) || images.length === 0) return [];
+  const bucket = supabase.storage.from('return-images');
+  const results = [];
+
+  for (const img of images) {
+    if (typeof img !== 'string' || img.trim() === '') continue;
+    const trimmed = img.trim();
+
+    // If already a URL, keep as-is.
+    if (/^https?:\/\//i.test(trimmed)) {
+      results.push(trimmed);
+      continue;
+    }
+
+    const parsed = parseDataUrl(trimmed);
+    if (!parsed) {
+      throw new Error('Invalid image format');
+    }
+
+    const { mime, b64 } = parsed;
+    if (!ALLOWED_IMAGE_TYPES.has(mime)) {
+      throw new Error(`Unsupported image type: ${mime}`);
+    }
+
+    const buffer = Buffer.from(b64, 'base64');
+    if (!buffer || buffer.length === 0) {
+      throw new Error('Empty image data');
+    }
+    if (buffer.length > MAX_IMAGE_BYTES) {
+      throw new Error('Image exceeds 8MB limit');
+    }
+
+    const ext = extensionForMime(mime);
+    const filename = `${crypto.randomUUID()}.${ext}`;
+    const path = `return-images/${returnRequestId}/${filename}`;
+
+    const { error: uploadError } = await bucket.upload(path, buffer, {
+      contentType: mime,
+      upsert: true,
+    });
+    if (uploadError) {
+      throw uploadError;
+    }
+
+    const { data: publicUrlData } = bucket.getPublicUrl(path);
+    if (!publicUrlData?.publicUrl) {
+      throw new Error('Failed to get public URL');
+    }
+
+    results.push(publicUrlData.publicUrl);
+  }
+
+  return results;
+}
+
 async function authenticateFez() {
   if (!FEZ_BASE || !FEZ_KEY || !FEZ_USER_ID) throw new Error('Fez API not configured');
   const res = await fetch(`${FEZ_BASE}/user/authenticate`, {

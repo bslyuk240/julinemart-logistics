@@ -155,6 +155,7 @@ export async function createFezReturnPickup({ returnCode, returnRequestId, custo
   const payload = {
     recipientAddress: hub?.address || '',
     recipientState: hub?.state || 'Lagos',
+    recipientCity: hub?.city || hub?.state || 'Lagos',
     recipientName: hub?.name || 'JulineMart Hub',
     recipientPhone: hub?.phone || '+2340000000000',
     recipientEmail: 'returns@julinemart.com',
@@ -165,6 +166,7 @@ export async function createFezReturnPickup({ returnCode, returnRequestId, custo
     weight: 1,
     pickUpAddress: customer?.address || '',
     pickUpState: customer?.state || 'Lagos',
+    pickUpCity: customer?.city || customer?.state || 'Lagos',
     additionalDetails: `Return from: ${customer?.name || ''}, Phone: ${customer?.phone || ''}`,
   };
 
@@ -183,6 +185,17 @@ export async function createFezReturnPickup({ returnCode, returnRequestId, custo
     data = JSON.parse(text);
   } catch {
     data = {};
+  }
+  if (!res.ok) {
+    console.error('Fez return payload:', {
+      recipientState: payload.recipientState,
+      recipientCity: payload.recipientCity,
+      pickUpState: payload.pickUpState,
+      pickUpCity: payload.pickUpCity,
+      recipientAddress: payload.recipientAddress,
+      pickUpAddress: payload.pickUpAddress,
+    });
+    console.error('Fez return raw response:', text);
   }
   if (data?.status === 'Success' && data?.orderNos) {
     const values = Object.values(data.orderNos);

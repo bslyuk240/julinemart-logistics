@@ -508,6 +508,8 @@ export function OrderDetailsPage() {
 
   const getReturnStatusColor = (status: string) => {
     const colors: Record<string, string> = {
+      pickup_scheduled: 'bg-blue-100 text-blue-800',
+      awaiting_dropoff: 'bg-yellow-100 text-yellow-800',
       pending: 'bg-yellow-100 text-yellow-800',
       in_transit: 'bg-blue-100 text-blue-800',
       delivered: 'bg-green-100 text-green-800',
@@ -515,6 +517,15 @@ export function OrderDetailsPage() {
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
+
+  const returnStatusOptions = [
+    'pickup_scheduled',
+    'awaiting_dropoff',
+    'pending',
+    'in_transit',
+    'delivered',
+    'completed',
+  ];
 
   return (
     <div>
@@ -649,7 +660,7 @@ export function OrderDetailsPage() {
                         disabled={updatingReturnStatus === shipment.id}
                         className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-100 md:w-48"
                       >
-                        {['pending', 'in_transit', 'delivered', 'completed'].map((status) => (
+                        {returnStatusOptions.map((status) => (
                           <option key={status} value={status}>
                             {status.replace('_', ' ')}
                           </option>

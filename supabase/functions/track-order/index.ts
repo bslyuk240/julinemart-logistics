@@ -130,6 +130,47 @@ serve(async (req: Request) => {
       })),
     };
 
+    // Return shipments (if any return request exists for this order)
+    try {
+      const { data: requests, error: requestError } = await supabase
+        .from("return_requests")
+        .select("id")
+        .eq("order_id", data.id);
+
+      if (requestError) {
+        // Fail soft if table is missing
+        if (typeof requestError?.message === "string" && requestError.message.toLowerCase().includes("return_requests")) {
+          console.warn("return_requests table missing; skipping return shipments");
+        } else {
+          throw requestError;
+        }
+      } else {
+        const requestIds = (requests || []).map((r: any) => r.id);
+        if (requestIds.length > 0) {
+          const { data: shipments, error: shipmentError } = await supabase
+            .from("return_shipments")
+            .select("id, return_code, fez_tracking, method, status, created_at")
+            .in("return_request_id", requestIds)
+            .order("created_at", { ascending: false });
+
+          if (shipmentError) {
+            if (typeof shipmentError?.message === "string" && shipmentError.message.toLowerCase().includes("return_shipments")) {
+              console.warn("return_shipments table missing; skipping return shipments");
+            } else {
+              throw shipmentError;
+            }
+          } else {
+            (transformedData as any).return_shipments = shipments || [];
+          }
+        } else {
+          (transformedData as any).return_shipments = [];
+        }
+      }
+    } catch (returnErr) {
+      console.error("Return shipment fetch error:", returnErr);
+      (transformedData as any).return_shipments = [];
+    }
+
     return new Response(
       JSON.stringify({ success: true, data: transformedData }), 
       { headers }

@@ -21,6 +21,7 @@ interface Order {
   overall_status: string;
   created_at: string;
   sub_orders: SubOrder[];
+  return_shipments?: ReturnShipment[];
 }
 
 interface SubOrder {
@@ -49,6 +50,15 @@ interface TrackingEvent {
   description: string;
   timestamp: string;
   created_at: string;
+}
+
+interface ReturnShipment {
+  id: string;
+  return_code?: string;
+  fez_tracking?: string | null;
+  method: 'pickup' | 'dropoff';
+  status?: string;
+  created_at?: string;
 }
 
 export function OrderTrackingPage() {
@@ -131,6 +141,18 @@ export function OrderTrackingPage() {
     return <Icon className="w-5 h-5" />;
   };
 
+  const getReturnStatusColor = (status: string) => {
+    const colors: Record<string, string> = {
+      pickup_scheduled: 'bg-blue-100 text-blue-800 border-blue-300',
+      awaiting_dropoff: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+      pending: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+      in_transit: 'bg-blue-100 text-blue-800 border-blue-300',
+      delivered: 'bg-green-100 text-green-800 border-green-300',
+      completed: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+    };
+    return colors[status] || 'bg-gray-100 text-gray-800 border-gray-300';
+  };
+
   // Generate courier tracking URL based on courier code
   const getCourierTrackingUrl = (subOrder: SubOrder): string | null => {
     if (!subOrder.tracking_number) return null;
@@ -154,6 +176,11 @@ export function OrderTrackingPage() {
     
     // Fallback to stored URL if available
     return subOrder.courier_tracking_url || null;
+  };
+
+  const getReturnTrackingUrl = (shipment: ReturnShipment): string | null => {
+    if (!shipment.fez_tracking) return null;
+    return `https://web.fezdelivery.co/track-delivery?tracking=${shipment.fez_tracking}`;
   };
 
   if (loading) {
@@ -384,6 +411,68 @@ export function OrderTrackingPage() {
             );
           })}
         </div>
+
+        {/* Return Shipments (if any) */}
+        {order.return_shipments && order.return_shipments.length > 0 && (
+          <div className="bg-white rounded-lg shadow-md p-6 mt-10">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900">Return Shipments</h3>
+                <p className="text-sm text-gray-600">
+                  These are the packages you sent back to us. You can follow their progress here or on Fez.
+                </p>
+              </div>
+              <span className="px-3 py-1 rounded-full text-sm font-semibold bg-purple-100 text-purple-800 border border-purple-200">
+                {order.return_shipments.length} {order.return_shipments.length === 1 ? 'return' : 'returns'}
+              </span>
+            </div>
+
+            <div className="space-y-4">
+              {order.return_shipments.map((shipment) => {
+                const trackingUrl = getReturnTrackingUrl(shipment);
+                return (
+                  <div key={shipment.id} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                          <Package className="w-4 h-4 text-primary-600" />
+                          {shipment.method === 'pickup' ? 'Fez Pickup' : 'Drop-off'}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Created {shipment.created_at ? new Date(shipment.created_at).toLocaleString() : '-'}
+                        </p>
+                        <p className="text-sm mt-2">
+                          <span className="font-semibold">Return code:</span>{' '}
+                          <span className="font-mono">{shipment.return_code || '-'}</span>
+                        </p>
+                        <p className="text-sm text-gray-700">
+                          Tracking:{' '}
+                          {trackingUrl ? (
+                            <a
+                              href={trackingUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary-700 hover:text-primary-800 underline"
+                            >
+                              {shipment.fez_tracking}
+                            </a>
+                          ) : (
+                            'Not available yet'
+                          )}
+                        </p>
+                      </div>
+                      <span
+                        className={`inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold border ${getReturnStatusColor(shipment.status || 'pending')}`}
+                      >
+                        {(shipment.status || 'pending').replace('_', ' ')}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Help Section */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 mt-8">

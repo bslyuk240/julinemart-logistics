@@ -18,10 +18,10 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
-export default async (event) => {
+export async function handler(event) {
   try {
     if (event.httpMethod === 'OPTIONS') {
-      return { statusCode: 200, headers };
+      return { statusCode: 200, headers, body: '' };
     }
 
     if (event.httpMethod !== 'POST') {
@@ -96,4 +96,4 @@ export default async (event) => {
       body: JSON.stringify({ success: false, error: 'Server error creating return request' }),
     };
   }
-};
+}

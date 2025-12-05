@@ -19,10 +19,10 @@ function getFunctionUrl() {
   return `${base}/functions/v1/create-return-shipment`;
 }
 
-export default async (event) => {
+export async function handler(event) {
   try {
     if (event.httpMethod === 'OPTIONS') {
-      return { statusCode: 200, headers };
+      return { statusCode: 200, headers, body: '' };
     }
 
     if (event.httpMethod !== 'POST') {
@@ -68,4 +68,4 @@ export default async (event) => {
       body: JSON.stringify({ success: false, error: 'Failed to create return shipment' }),
     };
   }
-};
+}

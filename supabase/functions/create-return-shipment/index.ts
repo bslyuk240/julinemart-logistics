@@ -67,51 +67,77 @@ function generateReturnCode() {
   return code;
 }
 
+async function authenticateFez() {
+  if (!fezApiBaseUrl || !fezApiKey || !fezUserId) {
+    throw new Error("Fez API not configured");
+  }
+
+  const base = fezApiBaseUrl.replace(/\/+$/, "");
+  const authUrl = `${base}/user/authenticate`;
+
+  const response = await fetch(authUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user_id: fezUserId,
+      password: fezApiKey,
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data?.status !== "Success") {
+    const message = data?.description || data?.message || "Fez authentication failed";
+    throw new Error(message);
+  }
+
+  return {
+    authToken: data.authDetails?.authToken,
+    secretKey: data.orgDetails?.["secret-key"],
+    baseUrl: base,
+  };
+}
+
 async function createFezPickup(
   returnRequestId: string,
   returnCode: string,
   customer: Record<string, unknown>,
   hub: Record<string, unknown>,
 ) {
-  if (!fezApiBaseUrl || !fezApiKey) {
-    throw new Error("Fez API not configured");
+  const auth = await authenticateFez();
+  if (!auth.authToken || !auth.secretKey) {
+    throw new Error("Fez auth missing token/secret");
   }
 
-  const payload = {
-    user_id: fezUserId || undefined,
-    reference: returnRequestId,
-    sender: {
-      name: (hub as any)?.name,
-      phone: (hub as any)?.phone,
-      address: (hub as any)?.address,
-      city: (hub as any)?.city,
-      state: (hub as any)?.state,
+  const payload = [
+    {
+      senderName: (hub as any)?.name,
+      senderPhone: (hub as any)?.phone,
+      senderAddress: (hub as any)?.address,
+      senderCity: (hub as any)?.city,
+      senderState: (hub as any)?.state,
+      receiverName: (customer as any)?.name,
+      receiverPhone: (customer as any)?.phone,
+      receiverAddress: (customer as any)?.address,
+      receiverCity: (customer as any)?.city,
+      receiverState: (customer as any)?.state,
+      parcelSize: "medium",
+      parcelDescription: `Return ${returnCode}`,
+      itemQuantity: 1,
+      orderReference: returnRequestId,
+      deliveryType: "door-step",
+      paymentType: "prepaid",
     },
-    receiver: {
-      name: (customer as any)?.name,
-      phone: (customer as any)?.phone,
-      address: (customer as any)?.address,
-      city: (customer as any)?.city,
-      state: (customer as any)?.state,
-    },
-    package: {
-      items: [],
-      total_weight: 1,
-      declared_value: 0,
-      description: `Return package ${returnCode}`,
-    },
-    shipping: {
-      service_type: "standard",
-      amount: 0,
-    },
-  };
+  ];
 
-  const response = await fetch(`${fezApiBaseUrl}/shipment/create`, {
+  const url = `${auth.baseUrl}/order`;
+  console.log("Fez pickup try:", url);
+
+  const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Accept": "application/json",
-      "Authorization": `Bearer ${fezApiKey}`,
+      "Authorization": `Bearer ${auth.authToken}`,
+      "secret-key": auth.secretKey,
     },
     body: JSON.stringify(payload),
   });
@@ -120,22 +146,22 @@ async function createFezPickup(
 
   if (!response.ok) {
     const message =
+      (data as any)?.description ||
       (data as any)?.message ||
       (data as any)?.error ||
-      (data as any)?.description ||
       "Failed to create Fez return shipment";
-    throw new Error(message as string);
+    throw new Error(message);
   }
 
   const tracking =
-    (data as any)?.tracking_number ||
-    (data as any)?.trackingNumber ||
-    (data as any)?.waybill ||
-    (data as any)?.orderNo ||
-    (data as any)?.order_no ||
-    (data as any)?.orderNumber ||
-    (data as any)?.data?.tracking_number ||
-    null;
+    (data as any)?.orderNos
+      ? Object.keys((data as any).orderNos || {})[0]
+      : (data as any)?.tracking_number ||
+        (data as any)?.trackingNumber ||
+        (data as any)?.orderNo ||
+        (data as any)?.order_no ||
+        (data as any)?.orderNumber ||
+        null;
 
   return tracking as string | null;
 }

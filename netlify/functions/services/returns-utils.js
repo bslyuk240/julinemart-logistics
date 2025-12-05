@@ -292,37 +292,48 @@ export async function createFezReturnPickup({ returnCode, returnRequestId, custo
     );
   }
   
-  // Build Fez payload - MATCHING the working forward shipment format exactly
-  // The working fez-create-shipment.js does NOT include pickUpCity, pickUpName, pickUpPhone, pickUpEmail
+  // Build Fez payload
+  // THEORY: Fez API might only allow pickups from registered hub addresses
+  // Forward shipments work because: Hub (pickup) → Customer (recipient)
+  // Return shipments fail because: Customer (pickup) → Hub (recipient)
+  //
+  // WORKAROUND: Create the order in "forward" direction (Hub → Customer)
+  // but use additionalDetails to explain it's actually a RETURN pickup
+  // Fez's dispatch team will see the note and handle it as a return
+  
   const payload = {
-    // RECIPIENT = HUB (where package goes TO)
-    recipientAddress: dbHub.address,
-    recipientState: dbHub.state,
-    recipientName: dbHub.name,
-    recipientPhone: dbHub.phone,
-    recipientEmail: 'returns@julinemart.com',
+    // For return, we SWAP the direction to match working forward format:
+    // "Pickup" = HUB (Fez picks up from hub... but we'll note it's actually customer pickup)
+    // "Recipient" = CUSTOMER (this is actually where the item comes FROM)
+    
+    // RECIPIENT = CUSTOMER (label says deliver to customer, but it's actually pickup FROM them)
+    recipientAddress: customerAddress,
+    recipientState: customerState,
+    recipientName: customerName,
+    recipientPhone: customerPhone,
+    recipientEmail: customer?.email || '',
     
     // Identifiers
     uniqueID: uniqueId,
     BatchID: returnCode.replace(/-/g, ''),
     
-    // Package details
-    itemDescription: `Return package ${returnCode}`,
+    // Package details - mark as RETURN in description
+    itemDescription: `RETURN PICKUP ${returnCode} - Collect from customer, deliver to hub`,
     valueOfItem: '6000',
     weight: 1,
     
-    // PICKUP = CUSTOMER (where Fez picks up FROM)
-    // NOTE: Only include pickUpAddress and pickUpState to match working format
-    pickUpAddress: customerAddress,
-    pickUpState: customerState,
+    // PICKUP = HUB (we register pickup from hub, like working forward shipments)
+    pickUpAddress: dbHub.address,
+    pickUpState: dbHub.state,
     
-    // Put customer details in additionalDetails instead (like working forward shipments)
-    additionalDetails: `Pickup from: ${customerName}, ${customerCity}, Phone: ${customer?.phone || ''}`,
+    // CRITICAL: Use additionalDetails to explain the ACTUAL flow
+    additionalDetails: `⚠️ RETURN ORDER - REVERSED FLOW: Physically PICK UP from ${customerName} at ${customerAddress}, ${customerCity}. DELIVER TO ${dbHub.name} at ${dbHub.address}. Customer phone: ${customer?.phone || ''}`,
   };
 
-  console.log('\n--- FEZ API PAYLOAD ---');
-  console.log('PICKUP (Customer):', payload.pickUpAddress, ',', payload.pickUpState);
-  console.log('RECIPIENT (Hub):', payload.recipientAddress, ',', payload.recipientState);
+  console.log('\n--- FEZ API PAYLOAD (SWAPPED FOR RETURN) ---');
+  console.log('Registered Pickup (Hub):', payload.pickUpAddress, ',', payload.pickUpState);
+  console.log('Registered Recipient (Customer):', payload.recipientAddress, ',', payload.recipientState);
+  console.log('ACTUAL FLOW: Customer → Hub (see additionalDetails)');
 
   const res = await fetch(`${FEZ_BASE}/order`, {
     method: 'POST',

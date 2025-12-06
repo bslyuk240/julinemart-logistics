@@ -186,10 +186,18 @@ export async function fetchHubFromDatabase(hubId) {
 }
 
 // -----------------------------------------
-// FEZ AUTH
+// FEZ AUTH - FIXED VERSION
 // -----------------------------------------
 
 async function fezAuth() {
+  if (!FEZ_BASE || !FEZ_USER_ID || !FEZ_API_KEY) {
+    throw new Error("Missing Fez API environment variables");
+  }
+
+  console.log("Authenticating with Fez for returns...");
+  console.log("FEZ_BASE:", FEZ_BASE);
+  console.log("FEZ_USER_ID:", FEZ_USER_ID);
+  
   const res = await fetch(`${FEZ_BASE}/user/authenticate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -200,12 +208,24 @@ async function fezAuth() {
   });
 
   const data = await res.json();
-  if (data.status !== "Success")
+  console.log("FEZ RETURN AUTH RESPONSE:", JSON.stringify(data, null, 2));
+
+  if (data.status !== "Success") {
     throw new Error(data.description || "Fez auth failed");
+  }
+
+  // Validate auth response structure
+  if (!data.authDetails || !data.authDetails.authToken) {
+    throw new Error("Invalid auth response: missing authToken");
+  }
+  
+  if (!data.orgDetails || !data.orgDetails["secret-key"]) {
+    throw new Error("Invalid auth response: missing secret-key");
+  }
 
   return {
-    token: data.authDetails?.authToken,
-    secret: data.orgDetails?.["secret-key"],
+    token: data.authDetails.authToken,
+    secret: data.orgDetails["secret-key"],
   };
 }
 

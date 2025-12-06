@@ -609,15 +609,6 @@ export function OrderDetailsPage() {
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
-  const returnStatusOptions = [
-    'awaiting_tracking',
-    'in_transit',
-    'delivered_to_hub',
-    'inspection_in_progress',
-    'approved',
-    'rejected',
-  ];
-
   return (
     <div>
       {/* Header */}
@@ -697,72 +688,6 @@ export function OrderDetailsPage() {
               <span className="font-bold text-lg text-primary-600">₦{formatCurrency(order.total_amount)}</span>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Return Shipment */}
-      <div className="mt-8">
-        <h2 className="text-2xl font-bold mb-4">Return Shipment</h2>
-        <div className="card">
-          {returnShipments.length === 0 ? (
-            <p className="text-sm text-gray-600">No return shipments created for this order yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {returnShipments.map((shipment) => (
-                <div key={shipment.id} className="rounded-lg border border-gray-100 p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
-                        <Package className="w-4 h-4 text-primary-600" />
-                        {shipment.method === 'pickup' ? 'Fez Pickup' : 'Fez Drop-off'}
-                      </div>
-                      <p className="text-xs text-gray-500">
-                        Created {shipment.created_at ? new Date(shipment.created_at).toLocaleString() : '—'}
-                      </p>
-                      <div className="mt-2 space-y-1 text-sm">
-                        <p className="font-mono">Return code: {shipment.return_code || '—'}</p>
-                        <p className="text-gray-700">
-                          Tracking:{' '}
-                          {shipment.fez_tracking ? (
-                            <a
-                              href={`https://web.fezdelivery.co/track-delivery?tracking=${shipment.fez_tracking}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-primary-700 hover:text-primary-800"
-                            >
-                              {shipment.fez_tracking}
-                            </a>
-                          ) : (
-                            'Not available'
-                          )}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 md:text-right">
-                      <span
-                        className={`inline-flex items-center justify-center rounded-full px-3 py-1 text-xs font-semibold ${getReturnStatusColor(shipment.status || 'pending')}`}
-                      >
-                        {shipment.status || 'pending'}
-                      </span>
-                      <select
-                        value={shipment.status || 'pending'}
-                        onChange={(e) => updateReturnShipmentStatus(shipment.id, e.target.value)}
-                        disabled={updatingReturnStatus === shipment.id}
-                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-100 md:w-48"
-                      >
-                        {returnStatusOptions.map((status) => (
-                          <option key={status} value={status}>
-                            {status.replace('_', ' ')}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 

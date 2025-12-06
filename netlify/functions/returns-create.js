@@ -165,22 +165,47 @@ export async function handler(event) {
     }
 
     return {
-      statusCode: 201,
-      headers: corsHeaders(),
-      body: JSON.stringify({
-        success: true,
-        data: {
-          return_request: {
-            ...request,
-            images: finalImages,
-            return_code: returnCode,
-            fez_tracking: fezTracking,
-            hub_id
-          },
-          return_shipment: shipment
-        }
-      })
-    };
+  statusCode: 201,
+  headers: corsHeaders(),
+  body: JSON.stringify({
+    success: true,
+    data: {
+      // Always include request id + correct schema
+      return_request: {
+        ...request,
+        id: request.id,
+        hub_id,
+        images: finalImages,
+        status: initialStatus,
+        preferred_resolution,
+        reason_code,
+        reason_note,
+        // wrap shipment into array because PWA expects return_shipments[]
+        return_shipments: [
+          {
+            id: shipment.id,
+            return_request_id: request.id,
+            return_code: shipment.return_code,
+            method: shipment.method,
+            status: shipment.status,
+            tracking_number: shipment.fez_tracking,  // unify naming
+            fez_tracking: shipment.fez_tracking,
+            created_at: shipment.created_at,
+            customer_submitted_tracking: shipment.customer_submitted_tracking,
+            tracking_submitted_at: shipment.tracking_submitted_at
+          }
+        ]
+      },
+
+      // Keep direct shipment export for backward compatibility
+      return_shipment: {
+        ...shipment,
+        tracking_number: shipment.fez_tracking, // IMPORTANT FIX
+      }
+    }
+  })
+};
+
 
   } catch (error) {
     console.error("returns-create error:", error);

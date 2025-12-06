@@ -195,7 +195,7 @@ async function fezAuth() {
   const { data: courier, error } = await supabase
     .from('couriers')
     .select('api_user_id, api_password, api_base_url')
-    .eq('code', 'FEZ')
+    .eq('code', 'fez')  // Note: lowercase 'fez' to match your schema
     .eq('api_enabled', true)
     .single();
 
@@ -206,13 +206,15 @@ async function fezAuth() {
     userId = courier.api_user_id;
     password = courier.api_password;
     baseUrl = courier.api_base_url || FEZ_BASE;
-    console.log("Using credentials from database");
+    console.log("✅ Using credentials from database");
+    console.log("Database User ID:", userId);
   } else {
     // Fallback to environment variables
     userId = FEZ_USER_ID;
     password = FEZ_API_KEY;
     baseUrl = FEZ_BASE;
-    console.log("Using credentials from environment variables");
+    console.log("⚠️ Using credentials from environment variables (database fetch failed)");
+    if (error) console.log("Database error:", error.message);
   }
 
   if (!baseUrl || !userId || !password) {

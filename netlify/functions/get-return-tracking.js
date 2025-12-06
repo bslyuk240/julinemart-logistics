@@ -1,4 +1,4 @@
-// GET /api/returns/:id/tracking - Fetch tracking status
+// GET /api/returns/:id/tracking - Fetch tracking status (FIXED VERSION)
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -27,42 +27,97 @@ export async function handler(event) {
   }
 
   try {
-    // Extract return_request_id from path: /api/returns/:id/tracking
-    const pathParts = event.path.split('/').filter(Boolean);
-    const returnsIndex = pathParts.indexOf('returns');
-    const returnRequestId = returnsIndex >= 0 ? pathParts[returnsIndex + 1] : null;
+    console.log('=== GET RETURN TRACKING ===');
+    console.log('Event path:', event.path);
+    console.log('Event query:', event.queryStringParameters);
 
+    // Extract return_request_id from path
+    // Path can be: /api/returns/:id/tracking OR /.netlify/functions/get-return-tracking
+    let returnRequestId = null;
+    
+    // Method 1: Check if ID is in path params (Netlify routing)
+    if (event.pathParameters && event.pathParameters.id) {
+      returnRequestId = event.pathParameters.id;
+      console.log('Got ID from path parameters:', returnRequestId);
+    }
+    
+    // Method 2: Parse from path manually
     if (!returnRequestId) {
+      // Remove query string if present
+      const pathOnly = event.path.split('?')[0];
+      const pathParts = pathOnly.split('/').filter(Boolean);
+      
+      // Find 'returns' and get next part
+      const returnsIndex = pathParts.findIndex(part => part === 'returns');
+      if (returnsIndex >= 0 && pathParts[returnsIndex + 1]) {
+        returnRequestId = pathParts[returnsIndex + 1];
+        console.log('Got ID from path parsing:', returnRequestId);
+      }
+    }
+
+    if (!returnRequestId || returnRequestId === 'tracking') {
+      console.error('Could not extract return_request_id from path');
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ success: false, error: 'Return ID required' }),
+        body: JSON.stringify({ 
+          success: false, 
+          message: 'Return ID required in path',
+          details: { 
+            path: event.path,
+            hint: 'Use: /api/returns/{return_request_id}/tracking'
+          }
+        }),
       };
     }
 
-    console.log('Fetching tracking for return_request_id:', returnRequestId);
+    console.log('Querying shipment for return_request_id:', returnRequestId);
 
     // Fetch return shipment by return_request_id
-    const { data: shipment, error } = await supabase
+    const { data: shipment, error: dbError } = await supabase
       .from('return_shipments')
       .select('*')
       .eq('return_request_id', returnRequestId)
-      .single();
+      .maybeSingle(); // Use maybeSingle instead of single to avoid error if not found
 
-    if (error || !shipment) {
-      console.error('Shipment not found:', error);
+    console.log('Database result:', { 
+      found: !!shipment, 
+      error: dbError?.message,
+      shipment_id: shipment?.id 
+    });
+
+    if (dbError) {
+      console.error('Database error:', dbError);
+      return {
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: false,
+          message: 'Failed to fetch tracking',
+          details: { message: dbError.message }
+        }),
+      };
+    }
+
+    if (!shipment) {
+      console.warn('No shipment found for return_request_id:', returnRequestId);
       return {
         statusCode: 404,
         headers: corsHeaders,
         body: JSON.stringify({
           success: false,
-          error: 'Return shipment not found',
+          message: 'Return shipment not found',
+          details: { 
+            return_request_id: returnRequestId,
+            hint: 'This return may not have a shipment yet'
+          }
         }),
       };
     }
 
     // If no tracking number yet
     if (!shipment.fez_tracking) {
+      console.log('Shipment found but no tracking number yet');
       return {
         statusCode: 200,
         headers: corsHeaders,
@@ -80,8 +135,8 @@ export async function handler(event) {
       };
     }
 
-    // Has tracking number - return basic info
-    // TODO: Call Fez API for real tracking events when needed
+    // Has tracking number - return info
+    console.log('Shipment found with tracking:', shipment.fez_tracking);
     return {
       statusCode: 200,
       headers: corsHeaders,
@@ -104,13 +159,14 @@ export async function handler(event) {
       }),
     };
   } catch (error) {
-    console.error('Error fetching tracking:', error);
+    console.error('Unexpected error:', error);
     return {
       statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({
         success: false,
-        error: 'Internal server error: ' + error.message,
+        message: 'Failed to fetch tracking',
+        details: { message: error.message }
       }),
     };
   }

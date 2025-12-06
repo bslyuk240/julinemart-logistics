@@ -68,6 +68,8 @@ type SubOrder = {
 type ReturnShipment = {
   id: string;
   return_request_id?: string;
+  // NEW: support both new tracking_number and old fez_tracking
+  tracking_number?: string | null;
   fez_tracking?: string | null;
   method: 'pickup' | 'dropoff';
   return_code?: string;
@@ -129,24 +131,24 @@ const TrackingTimeline = ({ status }: { status: string }) => {
   // Map various status names to our step keys
   const normalizeStatus = (s: string): string => {
     const statusMap: Record<string, string> = {
-      'pending': 'pending',
-      'pending_pickup': 'assigned',
-      'assigned': 'assigned',
-      'picked_up': 'picked_up',
-      'in_transit': 'in_transit',
-      'dispatched': 'in_transit',
-      'out_for_delivery': 'out_for_delivery',
-      'delivered': 'delivered',
-      'processing': 'pending',
-      'cancelled': 'cancelled',
-      'returned': 'returned',
-      'failed': 'failed',
+      pending: 'pending',
+      pending_pickup: 'assigned',
+      assigned: 'assigned',
+      picked_up: 'picked_up',
+      in_transit: 'in_transit',
+      dispatched: 'in_transit',
+      out_for_delivery: 'out_for_delivery',
+      delivered: 'delivered',
+      processing: 'pending',
+      cancelled: 'cancelled',
+      returned: 'returned',
+      failed: 'failed',
     };
     return statusMap[s.toLowerCase()] || 'pending';
   };
 
   const currentStatus = normalizeStatus(status);
-  const currentIndex = steps.findIndex(step => step.key === currentStatus);
+  const currentIndex = steps.findIndex((step) => step.key === currentStatus);
 
   // Handle cancelled/returned/failed states
   if (['cancelled', 'returned', 'failed'].includes(currentStatus)) {
@@ -167,7 +169,7 @@ const TrackingTimeline = ({ status }: { status: string }) => {
         {steps.map((step, index) => {
           const isCompleted = index <= currentIndex;
           const isCurrent = index === currentIndex;
-          
+
           return (
             <div key={step.key} className="flex items-center flex-1">
               {/* Step Circle */}
@@ -176,16 +178,17 @@ const TrackingTimeline = ({ status }: { status: string }) => {
                   className={`
                     w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold
                     transition-all duration-300
-                    ${isCompleted 
-                      ? 'bg-green-500 text-white' 
-                      : 'bg-gray-200 text-gray-400'
+                    ${
+                      isCompleted
+                        ? 'bg-green-500 text-white'
+                        : 'bg-gray-200 text-gray-400'
                     }
                     ${isCurrent ? 'ring-2 ring-green-300 ring-offset-1' : ''}
                   `}
                 >
                   {isCompleted ? '✓' : index + 1}
                 </div>
-                <span 
+                <span
                   className={`
                     text-[10px] mt-1 text-center leading-tight max-w-[60px]
                     ${isCompleted ? 'text-green-600 font-medium' : 'text-gray-400'}
@@ -195,10 +198,10 @@ const TrackingTimeline = ({ status }: { status: string }) => {
                   {step.label}
                 </span>
               </div>
-              
+
               {/* Connector Line */}
               {index < steps.length - 1 && (
-                <div 
+                <div
                   className={`
                     flex-1 h-0.5 mx-1
                     ${index < currentIndex ? 'bg-green-500' : 'bg-gray-200'}
@@ -218,7 +221,7 @@ const TrackingTimeline = ({ status }: { status: string }) => {
  */
 function isRealFezTrackingNumber(value?: string): boolean {
   if (!value || typeof value !== 'string') return false;
-  
+
   // Reject error messages
   const errorIndicators = [
     'error',
@@ -227,22 +230,22 @@ function isRealFezTrackingNumber(value?: string): boolean {
     'invalid',
     'wrong',
     'something went wrong',
-    'already exists'
+    'already exists',
   ];
-  
+
   const lowerValue = value.toLowerCase();
   for (const indicator of errorIndicators) {
     if (lowerValue.includes(indicator)) {
       return false;
     }
   }
-  
+
   // Reject auto-generated tracking numbers (these are NOT from Fez)
   // Format: FEZ-1234567890-ABCDEF or JLO-1234567890-ABCDEF
   if (/^(FEZ|JLO|CR)-\d+-[A-Z0-9]+$/i.test(value)) {
     return false;
   }
-  
+
   // Valid Fez tracking numbers are typically like: GWD026112514, 3N4827112532
   // They should be alphanumeric, reasonably short, and NOT contain dashes with timestamp patterns
   return value.length > 5 && value.length < 30 && /^[A-Za-z0-9]+$/.test(value.trim());
@@ -261,9 +264,11 @@ function hasValidShipment(subOrder: SubOrder): boolean {
  */
 function hasShipmentError(subOrder: SubOrder): boolean {
   const tracking = subOrder.tracking_number || subOrder.courier_waybill || '';
-  return tracking.toLowerCase().includes('error') || 
-         tracking.toLowerCase().includes('cannot') ||
-         tracking.toLowerCase().includes('something went wrong');
+  return (
+    tracking.toLowerCase().includes('error') ||
+    tracking.toLowerCase().includes('cannot') ||
+    tracking.toLowerCase().includes('something went wrong')
+  );
 }
 
 export function OrderDetailsPage() {
@@ -290,7 +295,9 @@ export function OrderDetailsPage() {
   };
 
   const getAuthHeaders = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     const headers: HeadersInit = {};
     if (session?.access_token) {
       headers['Authorization'] = `Bearer ${session.access_token}`;
@@ -304,12 +311,12 @@ export function OrderDetailsPage() {
       const headers = await getAuthHeaders();
       const response = await fetch(`${apiBase}/api/orders/${id}`, { headers });
       const data = await response.json();
-      
+
       console.log('Order details response:', data);
 
       if (data.success) {
         setOrder(data.data);
-        
+
         // Log sub_orders to debug
         if (data.data.sub_orders) {
           data.data.sub_orders.forEach((so: SubOrder) => {
@@ -318,11 +325,11 @@ export function OrderDetailsPage() {
               courier_shipment_id: so.courier_shipment_id,
               courier_tracking_url: so.courier_tracking_url,
               status: so.status,
-              isRealFezTracking: isRealFezTrackingNumber(so.tracking_number)
+              isRealFezTracking: isRealFezTrackingNumber(so.tracking_number),
             });
           });
         }
-        
+
         setSubOrders(data.data.sub_orders || []);
       }
     } catch (error) {
@@ -374,7 +381,10 @@ export function OrderDetailsPage() {
       notification.success('Updated', 'Return shipment status updated');
     } catch (error) {
       console.error('Return shipment update error:', error);
-      notification.error('Update failed', error instanceof Error ? error.message : 'Unable to update return shipment');
+      notification.error(
+        'Update failed',
+        error instanceof Error ? error.message : 'Unable to update return shipment'
+      );
     } finally {
       setUpdatingReturnStatus(null);
     }
@@ -407,7 +417,7 @@ export function OrderDetailsPage() {
       });
 
       const data = await response.json();
-      
+
       console.log('Fez Create Shipment Response:', data);
 
       if (!response.ok || !data.success) {
@@ -437,14 +447,17 @@ export function OrderDetailsPage() {
       );
 
       // Small delay to ensure database update is committed before refetching
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
       // Refresh to get latest data from database
       await fetchOrderDetails();
     } catch (error) {
       console.error('Shipment Error', error);
-      notification.error('Creation Failed', error instanceof Error ? error.message : 'Failed to create shipment on courier platform');
-      
+      notification.error(
+        'Creation Failed',
+        error instanceof Error ? error.message : 'Failed to create shipment on courier platform'
+      );
+
       // Refresh to show current state
       await fetchOrderDetails();
     } finally {
@@ -469,7 +482,10 @@ export function OrderDetailsPage() {
       }
     } catch (error) {
       console.error('Return tracking error', error);
-      notification.error('Tracking failed', error instanceof Error ? error.message : 'Unable to fetch tracking');
+      notification.error(
+        'Tracking failed',
+        error instanceof Error ? error.message : 'Unable to fetch tracking'
+      );
     } finally {
       setReturnTrackingLoading((prev) => ({ ...prev, [shipmentId]: false }));
     }
@@ -490,7 +506,13 @@ export function OrderDetailsPage() {
       setReturnShipments((prev) =>
         prev.map((r) =>
           r.id === shipmentId
-            ? { ...r, fez_tracking: value, customer_submitted_tracking: false, status: 'in_transit' }
+            ? {
+                ...r,
+                fez_tracking: value,
+                tracking_number: value,
+                customer_submitted_tracking: false,
+                status: 'in_transit',
+              }
             : r
         )
       );
@@ -498,7 +520,10 @@ export function OrderDetailsPage() {
       if (returnRequestId) fetchReturnTracking(returnRequestId, shipmentId);
     } catch (error) {
       console.error('Submit tracking error', error);
-      notification.error('Save failed', error instanceof Error ? error.message : 'Unable to save tracking');
+      notification.error(
+        'Save failed',
+        error instanceof Error ? error.message : 'Unable to save tracking'
+      );
     }
   };
 
@@ -506,12 +531,17 @@ export function OrderDetailsPage() {
     setFetchingTracking(subOrderId);
 
     try {
-      const response = await fetch(`${apiBase}/.netlify/functions/fez-fetch-tracking?subOrderId=${subOrderId}`);
+      const response = await fetch(
+        `${apiBase}/.netlify/functions/fez-fetch-tracking?subOrderId=${subOrderId}`
+      );
       const data = await response.json();
 
       if (data.success) {
-        notification.success('Tracking Updated', `Status: ${data.data.fez_status || data.data.status || 'Updated'}`);
-        
+        notification.success(
+          'Tracking Updated',
+          `Status: ${data.data.fez_status || data.data.status || 'Updated'}`
+        );
+
         // Update local state immediately with the new status
         if (data.data.status) {
           setSubOrders((prev) =>
@@ -526,7 +556,7 @@ export function OrderDetailsPage() {
             )
           );
         }
-        
+
         // Also refresh from database
         fetchOrderDetails();
       } else {
@@ -630,7 +660,11 @@ export function OrderDetailsPage() {
               Placed on {new Date(order.created_at).toLocaleDateString()}
             </p>
           </div>
-          <span className={`px-4 py-2 rounded-full text-sm font-medium ${getStatusColor(order.overall_status)}`}>
+          <span
+            className={`px-4 py-2 rounded-full text-sm font-medium ${getStatusColor(
+              order.overall_status
+            )}`}
+          >
             {order.overall_status}
           </span>
         </div>
@@ -667,7 +701,9 @@ export function OrderDetailsPage() {
           </h2>
           <div className="space-y-2 text-sm">
             <p className="font-medium">{order.delivery_address}</p>
-            <p className="text-gray-600">{order.delivery_city}, {order.delivery_state}</p>
+            <p className="text-gray-600">
+              {order.delivery_city}, {order.delivery_state}
+            </p>
           </div>
         </div>
 
@@ -677,15 +713,24 @@ export function OrderDetailsPage() {
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-600">Subtotal:</span>
-              <span className="font-medium">₦{formatCurrency((order.total_amount ?? 0) - (order.shipping_fee_paid ?? 0))}</span>
+              <span className="font-medium">
+                ₦
+                {formatCurrency(
+                  (order.total_amount ?? 0) - (order.shipping_fee_paid ?? 0)
+                )}
+              </span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600">Shipping:</span>
-              <span className="font-medium">₦{formatCurrency(order.shipping_fee_paid)}</span>
+              <span className="font-medium">
+                ₦{formatCurrency(order.shipping_fee_paid)}
+              </span>
             </div>
             <div className="flex justify-between pt-2 border-t">
               <span className="font-semibold">Total:</span>
-              <span className="font-bold text-lg text-primary-600">₦{formatCurrency(order.total_amount)}</span>
+              <span className="font-bold text-lg text-primary-600">
+                ₦{formatCurrency(order.total_amount)}
+              </span>
             </div>
           </div>
         </div>
@@ -707,13 +752,19 @@ export function OrderDetailsPage() {
                   <div>
                     <h3 className="font-semibold text-lg flex items-center gap-2">
                       <Truck className="w-5 h-5 text-primary-600" />
-                      {subOrder.hubs?.name || 'Unknown Hub'} - {subOrder.couriers?.name || 'Courier'}
+                      {subOrder.hubs?.name || 'Unknown Hub'} -{' '}
+                      {subOrder.couriers?.name || 'Courier'}
                     </h3>
                     <p className="text-sm text-gray-600 mt-1">
-                      {subOrder.hubs?.city || 'Unknown City'} | Shipping: ₦{formatCurrency(subOrder.real_shipping_cost)}
+                      {subOrder.hubs?.city || 'Unknown City'} | Shipping: ₦
+                      {formatCurrency(subOrder.real_shipping_cost)}
                     </p>
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(subOrder.status)}`}>
+                  <span
+                    className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(
+                      subOrder.status
+                    )}`}
+                  >
                     {subOrder.status}
                   </span>
                 </div>
@@ -723,11 +774,16 @@ export function OrderDetailsPage() {
                   <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
                     <div className="flex items-center gap-2 mb-3">
                       <Box className="w-5 h-5 text-green-600" />
-                      <h4 className="font-semibold text-green-900">Items to Pack for {subOrder.hubs?.name || 'Hub'}</h4>
+                      <h4 className="font-semibold text-green-900">
+                        Items to Pack for {subOrder.hubs?.name || 'Hub'}
+                      </h4>
                     </div>
                     <div className="space-y-2">
                       {subOrder.items.map((item, idx) => (
-                        <div key={idx} className="flex items-start justify-between bg-white p-3 rounded-md border border-green-100">
+                        <div
+                          key={idx}
+                          className="flex items-start justify-between bg-white p-3 rounded-md border border-green-100"
+                        >
                           <div className="flex-1">
                             <p className="font-medium text-gray-900">
                               <span className="inline-block bg-green-600 text-white text-xs font-bold px-2 py-1 rounded mr-2">
@@ -737,7 +793,9 @@ export function OrderDetailsPage() {
                             </p>
                             <div className="text-xs text-gray-600 mt-1 space-y-1">
                               {item.sku && <p>SKU: {item.sku}</p>}
-                              {item.weight !== undefined && <p>Weight: {item.weight}kg per unit</p>}
+                              {item.weight !== undefined && (
+                                <p>Weight: {item.weight}kg per unit</p>
+                              )}
                               {item.price !== undefined && (
                                 <p className="text-blue-600 font-semibold">
                                   ₦{Number(item.price).toLocaleString()} per unit
@@ -746,14 +804,20 @@ export function OrderDetailsPage() {
                             </div>
                           </div>
                           <div className="text-right ml-4">
-                            {item.price !== undefined && item.quantity !== undefined && (
-                              <>
-                                <p className="text-lg font-bold text-gray-900">
-                                  ₦{Number(item.price * item.quantity).toLocaleString()}
-                                </p>
-                                <p className="text-xs text-gray-600">Total</p>
-                              </>
-                            )}
+                            {item.price !== undefined &&
+                              item.quantity !== undefined && (
+                                <>
+                                  <p className="text-lg font-bold text-gray-900">
+                                    ₦
+                                    {Number(
+                                      item.price * item.quantity
+                                    ).toLocaleString()}
+                                  </p>
+                                  <p className="text-xs text-gray-600">
+                                    Total
+                                  </p>
+                                </>
+                              )}
                           </div>
                         </div>
                       ))}
@@ -761,40 +825,71 @@ export function OrderDetailsPage() {
 
                     <div className="mt-3 pt-3 border-t border-green-200 space-y-2">
                       <div className="flex justify-between text-sm">
-                        <span className="font-semibold text-green-900">Total Items:</span>
+                        <span className="font-semibold text-green-900">
+                          Total Items:
+                        </span>
                         <span className="font-bold text-green-900">
-                          {subOrder.items.reduce((sum, item) => sum + (item.quantity || 0), 0)} pieces
+                          {subOrder.items.reduce(
+                            (sum, item) => sum + (item.quantity || 0),
+                            0
+                          )}{' '}
+                          pieces
                         </span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="font-semibold text-green-900">Total Weight:</span>
+                        <span className="font-semibold text-green-900">
+                          Total Weight:
+                        </span>
                         <span className="font-bold text-green-900">
                           {subOrder.items
-                            .reduce((sum, item) => sum + (Number(item.weight || 0) * Number(item.quantity || 0)), 0)
+                            .reduce(
+                              (sum, item) =>
+                                sum +
+                                Number(item.weight || 0) *
+                                  Number(item.quantity || 0),
+                              0
+                            )
                             .toFixed(2)}
                           kg
                         </span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="font-semibold text-green-900">Items Subtotal:</span>
+                        <span className="font-semibold text-green-900">
+                          Items Subtotal:
+                        </span>
                         <span className="font-bold text-lg text-green-900">
-                          ₦{subOrder.items
-                            .reduce((sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0), 0)
+                          ₦
+                          {subOrder.items
+                            .reduce(
+                              (sum, item) =>
+                                sum +
+                                Number(item.price || 0) *
+                                  Number(item.quantity || 0),
+                              0
+                            )
                             .toLocaleString()}
                         </span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="font-semibold text-green-900">Shipping Fee:</span>
+                        <span className="font-semibold text-green-900">
+                          Shipping Fee:
+                        </span>
                         <span className="font-bold text-lg text-green-900">
                           ₦{formatCurrency(subOrder.real_shipping_cost)}
                         </span>
                       </div>
                       <div className="flex justify-between pt-2 border-t border-green-300">
-                        <span className="font-bold text-green-900">Sub-Order Total:</span>
+                        <span className="font-bold text-green-900">
+                          Sub-Order Total:
+                        </span>
                         <span className="font-bold text-xl text-green-600">
-                          ₦{(
+                          ₦
+                          {(
                             subOrder.items.reduce(
-                              (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0),
+                              (sum, item) =>
+                                sum +
+                                Number(item.price || 0) *
+                                  Number(item.quantity || 0),
                               0
                             ) + (subOrder.real_shipping_cost || 0)
                           ).toLocaleString()}
@@ -805,12 +900,14 @@ export function OrderDetailsPage() {
                 )}
 
                 {/* Courier Integration Section */}
-                {(subOrder.couriers?.api_enabled || subOrder.couriers?.code?.toLowerCase() === 'fez') && (
+                {(subOrder.couriers?.api_enabled ||
+                  subOrder.couriers?.code?.toLowerCase() === 'fez') && (
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
                     <div className="flex items-center gap-2 mb-3">
                       <CheckCircle className="w-4 h-4 text-blue-600" />
                       <span className="text-sm font-medium text-blue-900">
-                        Courier API Integration ({subOrder.couriers?.name || 'Fez Delivery'})
+                        Courier API Integration (
+                        {subOrder.couriers?.name || 'Fez Delivery'})
                       </span>
                     </div>
 
@@ -819,9 +916,12 @@ export function OrderDetailsPage() {
                       <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-3 flex items-start gap-2">
                         <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
                         <div>
-                          <p className="text-sm font-medium text-red-800">Previous shipment creation failed</p>
+                          <p className="text-sm font-medium text-red-800">
+                            Previous shipment creation failed
+                          </p>
                           <p className="text-xs text-red-600 mt-1">
-                            {subOrder.tracking_number || subOrder.courier_waybill}
+                            {subOrder.tracking_number ||
+                              subOrder.courier_waybill}
                           </p>
                         </div>
                       </div>
@@ -833,13 +933,18 @@ export function OrderDetailsPage() {
                       {displayTracking && (
                         <div className="grid grid-cols-2 gap-3 text-sm">
                           <div>
-                            <span className="text-gray-600">Courier Tracking:</span>
-                            <p className="font-medium font-mono">{displayTracking}</p>
+                            <span className="text-gray-600">
+                              Courier Tracking:
+                            </span>
+                            <p className="font-medium font-mono">
+                              {displayTracking}
+                            </p>
                           </div>
                           <div>
                             <span className="text-gray-600">Shipment ID:</span>
                             <p className="font-medium text-xs font-mono">
-                              {subOrder.courier_shipment_id || 'Not yet created'}
+                              {subOrder.courier_shipment_id ||
+                                'Not yet created'}
                             </p>
                           </div>
                         </div>
@@ -941,7 +1046,10 @@ export function OrderDetailsPage() {
 
                       {subOrder.last_tracking_update && (
                         <p className="text-xs text-gray-500">
-                          Last updated: {new Date(subOrder.last_tracking_update).toLocaleString()}
+                          Last updated:{' '}
+                          {new Date(
+                            subOrder.last_tracking_update
+                          ).toLocaleString()}
                         </p>
                       )}
 
@@ -952,12 +1060,20 @@ export function OrderDetailsPage() {
                 )}
 
                 {/* Manual Tracking (if API not enabled) */}
-                {!(subOrder.couriers?.api_enabled || subOrder.couriers?.code?.toLowerCase() === 'fez') && (
+                {!(
+                  subOrder.couriers?.api_enabled ||
+                  subOrder.couriers?.code?.toLowerCase() === 'fez'
+                ) && (
                   <div className="bg-gray-50 rounded-lg p-4">
-                    <p className="text-sm text-gray-600 mb-2">Manual Tracking Number:</p>
-                    <p className="font-mono font-semibold text-lg">{subOrder.tracking_number || 'Not assigned'}</p>
+                    <p className="text-sm text-gray-600 mb-2">
+                      Manual Tracking Number:
+                    </p>
+                    <p className="font-mono font-semibold text-lg">
+                      {subOrder.tracking_number || 'Not assigned'}
+                    </p>
                     <p className="text-xs text-gray-500 mt-2">
-                      Enable API integration in Courier Settings for automatic shipment creation
+                      Enable API integration in Courier Settings for automatic
+                      shipment creation
                     </p>
                   </div>
                 )}
@@ -994,33 +1110,53 @@ export function OrderDetailsPage() {
           <div className="space-y-4">
             {returnShipments
               .filter((r) => {
-                if (trackingFilter === 'with') return !!r.fez_tracking;
-                if (trackingFilter === 'without') return !r.fez_tracking;
+                const hasTracking =
+                  (r.tracking_number && r.tracking_number !== '') ||
+                  (r.fez_tracking && r.fez_tracking !== '');
+                if (trackingFilter === 'with') return !!hasTracking;
+                if (trackingFilter === 'without') return !hasTracking;
                 return true;
               })
               .map((ret) => {
-                const submittedLabel = ret.customer_submitted_tracking ? 'Customer' : 'Admin';
+                const submittedLabel = ret.customer_submitted_tracking
+                  ? 'Customer'
+                  : 'Admin';
                 const events = returnTrackingData[ret.id] || [];
+                const tracking =
+                  ret.tracking_number ??
+                  ret.fez_tracking ??
+                  null;
+
                 return (
                   <div key={ret.id} className="card">
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                       <div>
                         <p className="text-sm text-gray-600">Return Code</p>
-                        <p className="font-mono font-semibold text-lg">{ret.return_code || '—'}</p>
+                        <p className="font-mono font-semibold text-lg">
+                          {ret.return_code || '—'}
+                        </p>
                         <p className="text-sm text-gray-600 mt-1">
-                          Method: {ret.method === 'pickup' ? 'Pickup (Fez)' : 'Drop-off'}
+                          Method:{' '}
+                          {ret.method === 'pickup'
+                            ? 'Pickup (Fez)'
+                            : 'Drop-off'}
                         </p>
                         <p className="text-sm text-gray-600">
-                          Resolution: {ret.return_request?.preferred_resolution || '—'}
+                          Resolution:{' '}
+                          {ret.return_request?.preferred_resolution || '—'}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getReturnStatusColor(ret.status || '')}`}>
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-semibold ${getReturnStatusColor(
+                            ret.status || ''
+                          )}`}
+                        >
                           {ret.status || 'pending'}
                         </span>
-                        {ret.fez_tracking ? (
+                        {tracking ? (
                           <span className="text-xs px-3 py-1 rounded-full bg-green-100 text-green-800 font-medium">
-                            Tracking: {ret.fez_tracking}
+                            Tracking: {tracking}
                           </span>
                         ) : (
                           <span className="text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-700">
@@ -1035,70 +1171,127 @@ export function OrderDetailsPage() {
                         <p className="font-medium">Reason</p>
                         <p className="text-gray-600">
                           {ret.return_request?.reason_code || '—'}
-                          {ret.return_request?.reason_note ? ` - ${ret.return_request.reason_note}` : ''}
+                          {ret.return_request?.reason_note
+                            ? ` - ${ret.return_request.reason_note}`
+                            : ''}
                         </p>
                         {ret.return_request?.images?.length ? (
                           <div className="flex gap-2 mt-2">
-                            {ret.return_request.images.slice(0, 3).map((img, idx) => (
-                              <a key={idx} href={img} target="_blank" rel="noreferrer" className="w-16 h-16 bg-gray-100 rounded overflow-hidden block">
-                                <img src={img} alt="Return" className="w-full h-full object-cover" />
-                              </a>
-                            ))}
+                            {ret.return_request.images
+                              .slice(0, 3)
+                              .map((img, idx) => (
+                                <a
+                                  key={idx}
+                                  href={img}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="w-16 h-16 bg-gray-100 rounded overflow-hidden block"
+                                >
+                                  <img
+                                    src={img}
+                                    alt="Return"
+                                    className="w-full h-full object-cover"
+                                  />
+                                </a>
+                              ))}
                           </div>
                         ) : null}
                       </div>
 
                       <div className="bg-gray-50 rounded-lg p-3">
-                        <p className="font-semibold text-gray-800 mb-2">Shipping Information</p>
-                        {ret.fez_tracking ? (
+                        <p className="font-semibold text-gray-800 mb-2">
+                          Shipping Information
+                        </p>
+                        {tracking ? (
                           <>
                             <p className="text-sm">
-                              Tracking: <span className="font-mono font-semibold">{ret.fez_tracking}</span>
+                              Tracking:{' '}
+                              <span className="font-mono font-semibold">
+                                {tracking}
+                              </span>
                             </p>
                             <p className="text-xs text-gray-600 mt-1">
                               Submitted by: {submittedLabel}
-                              {ret.tracking_submitted_at ? ` • ${new Date(ret.tracking_submitted_at).toLocaleString()}` : ''}
+                              {ret.tracking_submitted_at
+                                ? ` • ${new Date(
+                                    ret.tracking_submitted_at
+                                  ).toLocaleString()}`
+                                : ''}
                             </p>
                             <div className="flex flex-wrap gap-2 mt-3">
                               <button
-                                onClick={() => ret.return_request_id && fetchReturnTracking(ret.return_request_id, ret.id)}
+                                onClick={() =>
+                                  ret.return_request_id &&
+                                  fetchReturnTracking(
+                                    ret.return_request_id,
+                                    ret.id
+                                  )
+                                }
                                 disabled={returnTrackingLoading[ret.id]}
                                 className="btn-secondary text-xs"
                               >
-                                {returnTrackingLoading[ret.id] ? 'Loading...' : 'Track Shipment'}
+                                {returnTrackingLoading[ret.id]
+                                  ? 'Loading...'
+                                  : 'Track Shipment'}
                               </button>
                               {ret.status === 'in_transit' && (
                                 <button
-                                  onClick={() => updateReturnShipmentStatus(ret.id, 'delivered_to_hub')}
+                                  onClick={() =>
+                                    updateReturnShipmentStatus(
+                                      ret.id,
+                                      'delivered_to_hub'
+                                    )
+                                  }
                                   disabled={updatingReturnStatus === ret.id}
                                   className="btn-primary text-xs"
                                 >
-                                  {updatingReturnStatus === ret.id ? 'Updating...' : 'Mark Received'}
+                                  {updatingReturnStatus === ret.id
+                                    ? 'Updating...'
+                                    : 'Mark Received'}
                                 </button>
                               )}
                               {ret.status === 'delivered_to_hub' && (
                                 <button
-                                  onClick={() => updateReturnShipmentStatus(ret.id, 'inspection_in_progress')}
+                                  onClick={() =>
+                                    updateReturnShipmentStatus(
+                                      ret.id,
+                                      'inspection_in_progress'
+                                    )
+                                  }
                                   disabled={updatingReturnStatus === ret.id}
                                   className="btn-secondary text-xs"
                                 >
-                                  {updatingReturnStatus === ret.id ? 'Updating...' : 'Start Inspection'}
+                                  {updatingReturnStatus === ret.id
+                                    ? 'Updating...'
+                                    : 'Start Inspection'}
                                 </button>
                               )}
                             </div>
                           </>
                         ) : (
                           <>
-                            <p className="text-sm text-gray-700">Awaiting customer to submit tracking number.</p>
+                            <p className="text-sm text-gray-700">
+                              Awaiting customer to submit tracking number.
+                            </p>
                             <div className="flex gap-2 mt-3">
                               <input
                                 className="border rounded px-2 py-1 text-sm flex-1"
                                 placeholder="Enter Fez tracking number"
                                 value={trackingInput[ret.id] || ''}
-                                onChange={(e) => setTrackingInput((prev) => ({ ...prev, [ret.id]: e.target.value }))}
+                                onChange={(e) =>
+                                  setTrackingInput((prev) => ({
+                                    ...prev,
+                                    [ret.id]: e.target.value,
+                                  }))
+                                }
                               />
                               <button
-                                onClick={() => submitReturnTracking(ret.id, ret.return_request_id)}
+                                onClick={() =>
+                                  submitReturnTracking(
+                                    ret.id,
+                                    ret.return_request_id
+                                  )
+                                }
                                 className="btn-primary text-xs"
                               >
                                 Save
@@ -1112,16 +1305,31 @@ export function OrderDetailsPage() {
                     {/* Timeline */}
                     {events.length > 0 && (
                       <div className="mt-4 bg-white border border-gray-200 rounded-lg p-3">
-                        <p className="text-sm font-semibold mb-2">Tracking Timeline</p>
+                        <p className="text-sm font-semibold mb-2">
+                          Tracking Timeline
+                        </p>
                         <div className="space-y-2">
                           {events.map((ev, idx) => (
-                            <div key={idx} className="flex items-start gap-2 text-sm">
+                            <div
+                              key={idx}
+                              className="flex items-start gap-2 text-sm"
+                            >
                               <div className="w-2 h-2 mt-1 rounded-full bg-blue-500" />
                               <div>
-                                <p className="font-medium text-gray-900">{ev.status || ev.message || 'Update'}</p>
+                                <p className="font-medium text-gray-900">
+                                  {ev.status ||
+                                    ev.message ||
+                                    'Update'}
+                                </p>
                                 <p className="text-xs text-gray-600">
-                                  {ev.timestamp ? new Date(ev.timestamp).toLocaleString() : ''}
-                                  {ev.location ? ` • ${ev.location}` : ''}
+                                  {ev.timestamp
+                                    ? new Date(
+                                        ev.timestamp
+                                      ).toLocaleString()
+                                    : ''}
+                                  {ev.location
+                                    ? ` • ${ev.location}`
+                                    : ''}
                                 </p>
                               </div>
                             </div>

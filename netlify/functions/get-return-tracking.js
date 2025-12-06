@@ -128,6 +128,8 @@ export async function handler(event) {
           data: {
             return_code: shipment.return_code,
             shipment_id: shipment.id,
+            return_shipment_id: shipment.id, // alias for clients expecting this field
+            return_request_id: shipment.return_request_id,
             tracking_number: null,
             status: shipment.status || 'awaiting_tracking',
             events: [],
@@ -147,6 +149,8 @@ export async function handler(event) {
         data: {
           return_code: shipment.return_code,
           shipment_id: shipment.id,
+          return_shipment_id: shipment.id, // alias
+          return_request_id: shipment.return_request_id,
           tracking_number: shipment.fez_tracking,
           status: shipment.status,
           submitted_at: shipment.tracking_submitted_at,

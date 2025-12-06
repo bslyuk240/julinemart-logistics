@@ -1,4 +1,4 @@
-// POST /api/return-shipments/:id/tracking - Save customer tracking number
+// POST /api/return-shipments/:id/tracking - Save customer tracking number (FIXED)
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -27,16 +27,47 @@ export async function handler(event) {
   }
 
   try {
-    // Extract return_shipment_id from path: /api/return-shipments/:id/tracking
-    const pathParts = event.path.split('/').filter(Boolean);
-    const shipmentsIndex = pathParts.indexOf('return-shipments');
-    const returnShipmentId = shipmentsIndex >= 0 ? pathParts[shipmentsIndex + 1] : null;
+    console.log('=== ADD RETURN TRACKING ===');
+    console.log('Event path:', event.path);
+    console.log('Query params:', event.queryStringParameters);
+    console.log('Body:', event.body);
 
+    // Extract return_shipment_id from query parameters OR path
+    let returnShipmentId = null;
+    
+    // Method 1: From query parameter (easiest)
+    if (event.queryStringParameters && event.queryStringParameters.return_shipment_id) {
+      returnShipmentId = event.queryStringParameters.return_shipment_id;
+      console.log('Got shipment ID from query param:', returnShipmentId);
+    }
+    
+    // Method 2: From path parameters
+    if (!returnShipmentId && event.pathParameters && event.pathParameters.id) {
+      returnShipmentId = event.pathParameters.id;
+      console.log('Got shipment ID from path param:', returnShipmentId);
+    }
+    
+    // Method 3: Parse from path manually
     if (!returnShipmentId) {
+      const pathOnly = event.path.split('?')[0];
+      const pathParts = pathOnly.split('/').filter(Boolean);
+      const shipmentsIndex = pathParts.findIndex(part => part === 'return-shipments');
+      if (shipmentsIndex >= 0 && pathParts[shipmentsIndex + 1]) {
+        returnShipmentId = pathParts[shipmentsIndex + 1];
+        console.log('Got shipment ID from path parsing:', returnShipmentId);
+      }
+    }
+
+    if (!returnShipmentId || returnShipmentId === 'tracking') {
+      console.error('Could not extract return_shipment_id');
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ success: false, error: 'Return shipment ID required in URL' }),
+        body: JSON.stringify({ 
+          success: false, 
+          error: 'Return shipment ID required',
+          hint: 'Use: /.netlify/functions/add-return-tracking?return_shipment_id={id}',
+        }),
       };
     }
 
@@ -47,7 +78,7 @@ export async function handler(event) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ success: false, error: 'tracking_number required in body' }),
+        body: JSON.stringify({ success: false, error: 'tracking_number required in request body' }),
       };
     }
 
@@ -64,25 +95,41 @@ export async function handler(event) {
       })
       .eq('id', returnShipmentId)
       .select()
-      .single();
+      .maybeSingle();
 
-    if (updateError || !shipment) {
-      console.error('Update failed:', updateError);
+    if (updateError) {
+      console.error('Database update error:', updateError);
       return {
         statusCode: 500,
         headers: corsHeaders,
         body: JSON.stringify({
           success: false,
-          error: 'Failed to save tracking: ' + (updateError?.message || 'Shipment not found'),
+          error: 'Failed to save tracking: ' + updateError.message,
+        }),
+      };
+    }
+
+    if (!shipment) {
+      console.error('Shipment not found:', returnShipmentId);
+      return {
+        statusCode: 404,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: false,
+          error: 'Return shipment not found',
         }),
       };
     }
 
     // Also update parent return_request status
-    await supabase
+    const { error: requestUpdateError } = await supabase
       .from('return_requests')
       .update({ status: 'in_transit' })
       .eq('id', shipment.return_request_id);
+
+    if (requestUpdateError) {
+      console.warn('Failed to update return_request status:', requestUpdateError);
+    }
 
     console.log('✅ Tracking saved successfully');
 
@@ -100,7 +147,7 @@ export async function handler(event) {
       }),
     };
   } catch (error) {
-    console.error('Error saving tracking:', error);
+    console.error('Unexpected error:', error);
     return {
       statusCode: 500,
       headers: corsHeaders,

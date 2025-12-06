@@ -19,6 +19,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/return-shipments/order/:orderId"
+  to = "/.netlify/functions/get-order-returns"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

@@ -71,8 +71,30 @@ type ReturnShipment = {
   fez_tracking?: string | null;
   method: 'pickup' | 'dropoff';
   return_code?: string;
-  status?: string;
+  status?:
+    | 'awaiting_tracking'
+    | 'in_transit'
+    | 'delivered_to_hub'
+    | 'inspection_in_progress'
+    | 'approved'
+    | 'rejected'
+    | 'pickup_scheduled'
+    | 'awaiting_dropoff'
+    | 'pending'
+    | 'delivered'
+    | 'completed';
   created_at?: string;
+  customer_submitted_tracking?: boolean;
+  tracking_submitted_at?: string;
+  return_request?: {
+    customer_name?: string;
+    customer_email?: string;
+    preferred_resolution?: string;
+    reason_code?: string;
+    reason_note?: string;
+    images?: string[];
+    status?: string;
+  };
 };
 
 type Order = {
@@ -257,6 +279,10 @@ export function OrderDetailsPage() {
   const [fetchingTracking, setFetchingTracking] = useState<Identifier | null>(null);
   const [returnShipments, setReturnShipments] = useState<ReturnShipment[]>([]);
   const [updatingReturnStatus, setUpdatingReturnStatus] = useState<string | null>(null);
+  const [returnTrackingData, setReturnTrackingData] = useState<Record<string, any[]>>({});
+  const [returnTrackingLoading, setReturnTrackingLoading] = useState<Record<string, boolean>>({});
+  const [trackingInput, setTrackingInput] = useState<Record<string, string>>({});
+  const [trackingFilter, setTrackingFilter] = useState<'all' | 'with' | 'without'>('all');
 
   const formatCurrency = (value?: number | null) => {
     const amount = typeof value === 'number' ? value : 0;
@@ -360,6 +386,16 @@ export function OrderDetailsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // Poll tracking for in-transit returns
+  useEffect(() => {
+    const interval = setInterval(() => {
+      returnShipments
+        .filter((r) => r.status === 'in_transit' && r.return_request_id)
+        .forEach((r) => fetchReturnTracking(r.return_request_id as string, r.id));
+    }, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [returnShipments]);
+
   const createCourierShipment = async (subOrderId: Identifier) => {
     setCreatingShipment(subOrderId);
 
@@ -413,6 +449,56 @@ export function OrderDetailsPage() {
       await fetchOrderDetails();
     } finally {
       setCreatingShipment(null);
+    }
+  };
+
+  const fetchReturnTracking = async (returnRequestId: string, shipmentId: string) => {
+    setReturnTrackingLoading((prev) => ({ ...prev, [shipmentId]: true }));
+    try {
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${apiBase}/api/returns/${returnRequestId}/tracking`, { headers });
+      const data = await response.json();
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || 'Failed to fetch tracking');
+      }
+      setReturnTrackingData((prev) => ({ ...prev, [shipmentId]: data.data?.events || [] }));
+      if (data.data?.latest_status === 'delivered') {
+        setReturnShipments((prev) =>
+          prev.map((r) => (r.id === shipmentId ? { ...r, status: 'delivered_to_hub' } : r))
+        );
+      }
+    } catch (error) {
+      console.error('Return tracking error', error);
+      notification.error('Tracking failed', error instanceof Error ? error.message : 'Unable to fetch tracking');
+    } finally {
+      setReturnTrackingLoading((prev) => ({ ...prev, [shipmentId]: false }));
+    }
+  };
+
+  const submitReturnTracking = async (shipmentId: string, returnRequestId?: string) => {
+    const value = trackingInput[shipmentId];
+    if (!value) return;
+    try {
+      const headers = await getAuthHeaders();
+      const response = await fetch(`${apiBase}/api/return-shipments/${shipmentId}/tracking`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({ tracking_number: value, courier: 'fez' }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.success) throw new Error(data?.error || 'Failed to save tracking');
+      setReturnShipments((prev) =>
+        prev.map((r) =>
+          r.id === shipmentId
+            ? { ...r, fez_tracking: value, customer_submitted_tracking: false, status: 'in_transit' }
+            : r
+        )
+      );
+      notification.success('Tracking saved', value);
+      if (returnRequestId) fetchReturnTracking(returnRequestId, shipmentId);
+    } catch (error) {
+      console.error('Submit tracking error', error);
+      notification.error('Save failed', error instanceof Error ? error.message : 'Unable to save tracking');
     }
   };
 
@@ -511,20 +597,25 @@ export function OrderDetailsPage() {
       pickup_scheduled: 'bg-blue-100 text-blue-800',
       awaiting_dropoff: 'bg-yellow-100 text-yellow-800',
       pending: 'bg-yellow-100 text-yellow-800',
+      awaiting_tracking: 'bg-gray-100 text-gray-800',
       in_transit: 'bg-blue-100 text-blue-800',
       delivered: 'bg-green-100 text-green-800',
+      delivered_to_hub: 'bg-green-100 text-green-800',
+      inspection_in_progress: 'bg-yellow-100 text-yellow-800',
+      approved: 'bg-emerald-100 text-emerald-800',
+      rejected: 'bg-red-100 text-red-800',
       completed: 'bg-emerald-100 text-emerald-800',
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
   const returnStatusOptions = [
-    'pickup_scheduled',
-    'awaiting_dropoff',
-    'pending',
+    'awaiting_tracking',
     'in_transit',
-    'delivered',
-    'completed',
+    'delivered_to_hub',
+    'inspection_in_progress',
+    'approved',
+    'rejected',
   ];
 
   return (
@@ -949,6 +1040,175 @@ export function OrderDetailsPage() {
             );
           })}
         </div>
+      </div>
+
+      {/* Returns & Refunds */}
+      <div className="mt-10">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold flex items-center gap-2">
+            <Package className="w-5 h-5 text-primary-600" />
+            Returns & Refunds
+          </h2>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-600">Filter:</label>
+            <select
+              className="border rounded px-2 py-1 text-sm"
+              value={trackingFilter}
+              onChange={(e) => setTrackingFilter(e.target.value as any)}
+            >
+              <option value="all">All</option>
+              <option value="with">Has Tracking</option>
+              <option value="without">No Tracking</option>
+            </select>
+          </div>
+        </div>
+
+        {returnShipments.length === 0 ? (
+          <p className="text-gray-600 text-sm">No returns for this order.</p>
+        ) : (
+          <div className="space-y-4">
+            {returnShipments
+              .filter((r) => {
+                if (trackingFilter === 'with') return !!r.fez_tracking;
+                if (trackingFilter === 'without') return !r.fez_tracking;
+                return true;
+              })
+              .map((ret) => {
+                const submittedLabel = ret.customer_submitted_tracking ? 'Customer' : 'Admin';
+                const events = returnTrackingData[ret.id] || [];
+                return (
+                  <div key={ret.id} className="card">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                      <div>
+                        <p className="text-sm text-gray-600">Return Code</p>
+                        <p className="font-mono font-semibold text-lg">{ret.return_code || '—'}</p>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Method: {ret.method === 'pickup' ? 'Pickup (Fez)' : 'Drop-off'}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          Resolution: {ret.return_request?.preferred_resolution || '—'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getReturnStatusColor(ret.status || '')}`}>
+                          {ret.status || 'pending'}
+                        </span>
+                        {ret.fez_tracking ? (
+                          <span className="text-xs px-3 py-1 rounded-full bg-green-100 text-green-800 font-medium">
+                            Tracking: {ret.fez_tracking}
+                          </span>
+                        ) : (
+                          <span className="text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-700">
+                            Awaiting tracking
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
+                      <div>
+                        <p className="font-medium">Reason</p>
+                        <p className="text-gray-600">
+                          {ret.return_request?.reason_code || '—'}
+                          {ret.return_request?.reason_note ? ` - ${ret.return_request.reason_note}` : ''}
+                        </p>
+                        {ret.return_request?.images?.length ? (
+                          <div className="flex gap-2 mt-2">
+                            {ret.return_request.images.slice(0, 3).map((img, idx) => (
+                              <a key={idx} href={img} target="_blank" rel="noreferrer" className="w-16 h-16 bg-gray-100 rounded overflow-hidden block">
+                                <img src={img} alt="Return" className="w-full h-full object-cover" />
+                              </a>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="bg-gray-50 rounded-lg p-3">
+                        <p className="font-semibold text-gray-800 mb-2">Shipping Information</p>
+                        {ret.fez_tracking ? (
+                          <>
+                            <p className="text-sm">
+                              Tracking: <span className="font-mono font-semibold">{ret.fez_tracking}</span>
+                            </p>
+                            <p className="text-xs text-gray-600 mt-1">
+                              Submitted by: {submittedLabel}
+                              {ret.tracking_submitted_at ? ` • ${new Date(ret.tracking_submitted_at).toLocaleString()}` : ''}
+                            </p>
+                            <div className="flex flex-wrap gap-2 mt-3">
+                              <button
+                                onClick={() => ret.return_request_id && fetchReturnTracking(ret.return_request_id, ret.id)}
+                                disabled={returnTrackingLoading[ret.id]}
+                                className="btn-secondary text-xs"
+                              >
+                                {returnTrackingLoading[ret.id] ? 'Loading...' : 'Track Shipment'}
+                              </button>
+                              {ret.status === 'in_transit' && (
+                                <button
+                                  onClick={() => updateReturnShipmentStatus(ret.id, 'delivered_to_hub')}
+                                  disabled={updatingReturnStatus === ret.id}
+                                  className="btn-primary text-xs"
+                                >
+                                  {updatingReturnStatus === ret.id ? 'Updating...' : 'Mark Received'}
+                                </button>
+                              )}
+                              {ret.status === 'delivered_to_hub' && (
+                                <button
+                                  onClick={() => updateReturnShipmentStatus(ret.id, 'inspection_in_progress')}
+                                  disabled={updatingReturnStatus === ret.id}
+                                  className="btn-secondary text-xs"
+                                >
+                                  {updatingReturnStatus === ret.id ? 'Updating...' : 'Start Inspection'}
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm text-gray-700">Awaiting customer to submit tracking number.</p>
+                            <div className="flex gap-2 mt-3">
+                              <input
+                                className="border rounded px-2 py-1 text-sm flex-1"
+                                placeholder="Enter Fez tracking number"
+                                value={trackingInput[ret.id] || ''}
+                                onChange={(e) => setTrackingInput((prev) => ({ ...prev, [ret.id]: e.target.value }))}
+                              />
+                              <button
+                                onClick={() => submitReturnTracking(ret.id, ret.return_request_id)}
+                                className="btn-primary text-xs"
+                              >
+                                Save
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Timeline */}
+                    {events.length > 0 && (
+                      <div className="mt-4 bg-white border border-gray-200 rounded-lg p-3">
+                        <p className="text-sm font-semibold mb-2">Tracking Timeline</p>
+                        <div className="space-y-2">
+                          {events.map((ev, idx) => (
+                            <div key={idx} className="flex items-start gap-2 text-sm">
+                              <div className="w-2 h-2 mt-1 rounded-full bg-blue-500" />
+                              <div>
+                                <p className="font-medium text-gray-900">{ev.status || ev.message || 'Update'}</p>
+                                <p className="text-xs text-gray-600">
+                                  {ev.timestamp ? new Date(ev.timestamp).toLocaleString() : ''}
+                                  {ev.location ? ` • ${ev.location}` : ''}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
+        )}
       </div>
     </div>
   );

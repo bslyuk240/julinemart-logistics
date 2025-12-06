@@ -60,7 +60,7 @@ export async function handler(event) {
     const returnCode = generateReturnCode();
     let fezTracking = null;
     let fezShipmentId = null;
-    let shipmentStatus = method === 'pickup' ? 'pickup_scheduled' : 'awaiting_dropoff';
+    let shipmentStatus = 'awaiting_tracking';
 
     // Insert return_request
     const { data: request, error: insertError } = await supabase

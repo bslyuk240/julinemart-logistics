@@ -9,6 +9,16 @@
   status = 200
 
 [[redirects]]
+  from = "/api/returns/:id/tracking"
+  to = "/.netlify/functions/get-return-tracking"
+  status = 200
+
+[[redirects]]
+  from = "/api/return-shipments/:id/tracking"
+  to = "/.netlify/functions/add-return-tracking"
+  status = 200
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

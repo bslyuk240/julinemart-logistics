@@ -1,65 +1,113 @@
+// POST /api/return-shipments/:id/tracking - Save customer tracking number
 import { createClient } from '@supabase/supabase-js';
-import { corsHeaders, preflightResponse } from './services/cors.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
-const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+);
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'Content-Type',
+  'Content-Type': 'application/json',
+};
 
 export async function handler(event) {
-  if (event.httpMethod === 'OPTIONS') return preflightResponse();
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
+  // CORS preflight
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers: corsHeaders, body: '' };
   }
 
-  const parts = event.path.split('/');
-  const id = parts[parts.findIndex((p) => p === 'return-shipments') + 1];
+  if (event.httpMethod !== 'POST') {
+    return {
+      statusCode: 405,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: false, error: 'Method not allowed - use POST' }),
+    };
+  }
 
   try {
-    const body = event.body ? JSON.parse(event.body) : {};
-    const tracking = body.tracking_number;
-    const courier = body.courier || 'fez';
+    // Extract return_shipment_id from path: /api/return-shipments/:id/tracking
+    const pathParts = event.path.split('/').filter(Boolean);
+    const shipmentsIndex = pathParts.indexOf('return-shipments');
+    const returnShipmentId = shipmentsIndex >= 0 ? pathParts[shipmentsIndex + 1] : null;
 
-    if (!tracking) {
-      return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'tracking_number required' }) };
+    if (!returnShipmentId) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ success: false, error: 'Return shipment ID required in URL' }),
+      };
     }
 
-    const { data: existing, error: fetchErr } = await supabase
-      .from('return_shipments')
-      .select('id, return_request_id')
-      .eq('id', id)
-      .single();
+    const body = JSON.parse(event.body || '{}');
+    const { tracking_number, courier = 'fez' } = body;
 
-    if (fetchErr || !existing) {
-      return { statusCode: 404, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Return shipment not found' }) };
+    if (!tracking_number || !tracking_number.trim()) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ success: false, error: 'tracking_number required in body' }),
+      };
     }
 
-    const { error: updateErr } = await supabase
+    console.log('Saving tracking:', tracking_number, 'for shipment:', returnShipmentId);
+
+    // Update return_shipment with tracking number
+    const { data: shipment, error: updateError } = await supabase
       .from('return_shipments')
       .update({
-        fez_tracking: tracking,
+        fez_tracking: tracking_number.trim(),
         status: 'in_transit',
         customer_submitted_tracking: true,
         tracking_submitted_at: new Date().toISOString(),
-        courier,
       })
-      .eq('id', id);
+      .eq('id', returnShipmentId)
+      .select()
+      .single();
 
-    if (updateErr) throw updateErr;
-
-    if (existing.return_request_id) {
-      await supabase
-        .from('return_requests')
-        .update({ status: 'in_transit' })
-        .eq('id', existing.return_request_id);
+    if (updateError || !shipment) {
+      console.error('Update failed:', updateError);
+      return {
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: false,
+          error: 'Failed to save tracking: ' + (updateError?.message || 'Shipment not found'),
+        }),
+      };
     }
+
+    // Also update parent return_request status
+    await supabase
+      .from('return_requests')
+      .update({ status: 'in_transit' })
+      .eq('id', shipment.return_request_id);
+
+    console.log('✅ Tracking saved successfully');
 
     return {
       statusCode: 200,
-      headers: corsHeaders(),
-      body: JSON.stringify({ success: true, data: { id, tracking_number: tracking } }),
+      headers: corsHeaders,
+      body: JSON.stringify({
+        success: true,
+        data: {
+          tracking_number: tracking_number.trim(),
+          status: 'in_transit',
+          shipment_id: shipment.id,
+          return_code: shipment.return_code,
+        },
+      }),
     };
   } catch (error) {
-    console.error('add-return-tracking error:', error);
-    return { statusCode: 500, headers: corsHeaders(), body: JSON.stringify({ success: false, error: error.message || 'Internal error' }) };
+    console.error('Error saving tracking:', error);
+    return {
+      statusCode: 500,
+      headers: corsHeaders,
+      body: JSON.stringify({
+        success: false,
+        error: 'Internal server error: ' + error.message,
+      }),
+    };
   }
 }

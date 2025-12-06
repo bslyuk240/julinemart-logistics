@@ -1,105 +1,99 @@
-﻿// Shared helpers for Returns (Supabase + Woo + Fez v1 Sandbox)
+﻿/**
+ * Shared helpers for Returns module
+ * Fixes Fez Sandbox return issues
+ */
+
 import fetch from "node-fetch";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 
-/* --------------------------------------------------------
-   ENVIRONMENT
---------------------------------------------------------- */
+// -----------------------------------------
+// SUPABASE SETUP
+// -----------------------------------------
 const SUPABASE_URL =
   process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+
 const SERVICE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || "";
-
-const WOO_BASE = (process.env.WOOCOMMERCE_URL || "").replace(/\/$/, "");
-const WOO_KEY = process.env.WOOCOMMERCE_CONSUMER_KEY || "";
-const WOO_SECRET = process.env.WOOCOMMERCE_CONSUMER_SECRET || "";
-
-// *** Fez Sandbox v1 — exactly same as working forward shipments ***
-const FEZ_BASE = (process.env.FEZ_API_BASE_URL || "").replace(/\/$/, ""); 
-// e.g. https://apisandbox.fezdelivery.co/v1
-
-const FEZ_USER_ID = process.env.FEZ_USER_ID || ""; // sandbox email
-const FEZ_PASSWORD = process.env.FEZ_PASSWORD || ""; // sandbox password
 
 export const supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { autoRefreshToken: false },
 });
 
-/* --------------------------------------------------------
-   HELPERS
---------------------------------------------------------- */
+// -----------------------------------------
+// WOO SETUP
+// -----------------------------------------
+const WOO_BASE = (process.env.WOOCOMMERCE_URL || "").replace(/\/$/, "");
+const WOO_KEY = process.env.WOOCOMMERCE_CONSUMER_KEY || "";
+const WOO_SECRET = process.env.WOOCOMMERCE_CONSUMER_SECRET || "";
+
+// -----------------------------------------
+// FEZ SETUP (SANDBOX TEST URL)
+// -----------------------------------------
+const FEZ_BASE =
+  (process.env.FEZ_API_BASE_URL || "").replace(/\/$/, "") ||
+  "https://apisandbox.fezdelivery.co/v1";
+
+const FEZ_API_KEY =
+  process.env.FEZ_API_KEY || process.env.FEZ_PASSWORD || "";
+
+const FEZ_USER_ID = process.env.FEZ_USER_ID || "";
+
+// -----------------------------------------
+// UTILITIES
+// -----------------------------------------
+
 export function daysBetween(a, b) {
   return Math.floor((a.getTime() - b.getTime()) / 86400000);
 }
 
-export async function fetchWooOrder(orderId) {
-  if (!WOO_BASE || !WOO_KEY || !WOO_SECRET)
-    throw new Error("WooCommerce not configured");
-
-  const url = `${WOO_BASE}/orders/${orderId}`;
-
-  const res = await fetch(url, {
-    headers: {
-      Authorization:
-        "Basic " + Buffer.from(`${WOO_KEY}:${WOO_SECRET}`).toString("base64"),
-    },
-  });
-
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.message || `Woo order fetch failed (${res.status})`);
-  }
-
-  return data;
-}
-
-export function validateReturnWindow(order, maxDays = 14) {
-  const completedString =
-    order?.date_completed ||
+export function validateReturnWindow(order, max = 14) {
+  const d =
     order?.date_completed_gmt ||
+    order?.date_completed ||
     order?.date_paid ||
-    order?.date_created ||
-    order?.date_created_gmt;
+    order?.date_created_gmt ||
+    order?.date_created;
 
-  const completed = completedString ? new Date(completedString) : null;
-  if (!completed || Number.isNaN(completed.getTime())) return false;
-
-  return daysBetween(new Date(), completed) <= maxDays;
+  if (!d) return false;
+  return daysBetween(new Date(), new Date(d)) <= max;
 }
 
 export function generateReturnCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789";
-  let code = "RTN-";
+  let c = "RTN-";
   for (let i = 0; i < 6; i++)
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  return code;
+    c += chars[Math.floor(Math.random() * chars.length)];
+  return c;
 }
 
-/* ---------------- Phone Normalization ------------------- */
-export function normalizePhone(phone) {
-  if (!phone || typeof phone !== "string") return "+2340000000000";
-  const digits = phone.replace(/\D+/g, "");
-  if (digits.startsWith("234")) return `+${digits}`;
-  if (digits.startsWith("0")) return `+234${digits.slice(1)}`;
-  return `+${digits}`;
+export function generateShortUniqueId(source) {
+  const s = (source || crypto.randomUUID()).replace(/-/g, "").slice(-8);
+  const ts = Date.now().toString(36);
+  return `JLO-${s}-${ts}`.toUpperCase();
 }
 
-/* ---------------- Image Upload -------------------------- */
-const ALLOWED_IMAGE_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-]);
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+export function normalizePhone(p) {
+  if (!p) return "+2340000000000";
+  const d = p.replace(/\D+/g, "");
+  if (d.startsWith("234")) return `+${d}`;
+  if (d.startsWith("0")) return `+234${d.slice(1)}`;
+  return `+234${d}`;
+}
+
+// -----------------------------------------
+// IMAGE UPLOAD
+// -----------------------------------------
+
+const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAX_BYTES = 8 * 1024 * 1024;
 
 function parseDataUrl(str) {
-  const match = /^data:(.+);base64,(.+)$/i.exec(str);
-  if (!match) return null;
-  return { mime: match[1].trim().toLowerCase(), b64: match[2] };
+  const m = /^data:(.+);base64,(.+)$/i.exec(str);
+  return m ? { mime: m[1].toLowerCase(), b64: m[2] } : null;
 }
 
-function fileExtension(mime) {
+function mimeExt(mime) {
   if (mime === "image/jpeg") return "jpg";
   if (mime === "image/png") return "png";
   if (mime === "image/webp") return "webp";
@@ -110,13 +104,13 @@ export async function uploadReturnImages(images = [], requestId) {
   if (!Array.isArray(images) || images.length === 0) return [];
 
   const bucket = supabase.storage.from("return-images");
-  const urls = [];
+  const out = [];
 
   for (const img of images) {
-    if (typeof img !== "string" || !img.trim()) continue;
+    if (!img || typeof img !== "string") continue;
 
     if (/^https?:\/\//i.test(img)) {
-      urls.push(img);
+      out.push(img);
       continue;
     }
 
@@ -124,124 +118,135 @@ export async function uploadReturnImages(images = [], requestId) {
     if (!parsed) throw new Error("Invalid image format");
 
     const { mime, b64 } = parsed;
-    if (!ALLOWED_IMAGE_TYPES.has(mime))
+    if (!ALLOWED_TYPES.has(mime))
       throw new Error(`Unsupported image type: ${mime}`);
 
-    const buffer = Buffer.from(b64, "base64");
-    if (buffer.length === 0) throw new Error("Empty image");
-    if (buffer.length > MAX_IMAGE_BYTES)
-      throw new Error("Image exceeds 8MB");
+    const buf = Buffer.from(b64, "base64");
+    if (buf.length > MAX_BYTES) throw new Error("Image exceeds 8MB limit");
 
-    const filename = `${crypto.randomUUID()}.${fileExtension(mime)}`;
+    const filename = crypto.randomUUID() + "." + mimeExt(mime);
     const path = `return-images/${requestId}/${filename}`;
 
-    const { error } = await bucket.upload(path, buffer, {
+    const { error } = await bucket.upload(path, buf, {
       contentType: mime,
       upsert: true,
     });
     if (error) throw error;
 
-    const { data: publicData } = bucket.getPublicUrl(path);
-    urls.push(publicData.publicUrl);
+    const { data } = bucket.getPublicUrl(path);
+    if (!data?.publicUrl) throw new Error("Failed to get public URL");
+
+    out.push(data.publicUrl);
   }
 
-  return urls;
+  return out;
 }
 
-/* --------------------------------------------------------
-   HUB LOOKUP (REQUIRED FOR FEZ RECEIVER)
---------------------------------------------------------- */
-export async function fetchHubFromDatabase(hubHint) {
-  const { data: hubs, error } = await supabase
+// -----------------------------------------
+// WOO ORDER FETCH
+// -----------------------------------------
+
+export async function fetchWooOrder(orderId) {
+  if (!WOO_BASE) throw new Error("WooCommerce URL missing");
+
+  const url = `${WOO_BASE}/orders/${orderId}`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization:
+        "Basic " + Buffer.from(`${WOO_KEY}:${WOO_SECRET}`).toString("base64"),
+    },
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.message || "Woo fetch failed");
+
+  return data;
+}
+
+// -----------------------------------------
+// FETCH HUB FROM DATABASE
+// -----------------------------------------
+
+export async function fetchHubFromDatabase(hubId) {
+  const { data, error } = await supabase
     .from("hubs")
     .select("*")
-    .eq("is_active", true)
-    .order("name");
+    .eq("id", hubId)
+    .single();
 
-  if (error) throw new Error("Failed to fetch hubs");
-  if (!hubs?.length) throw new Error("No active hubs found");
-
-  const hint = (hubHint?.name || "").toLowerCase();
-  let matched = hubs.find((h) => h.name.toLowerCase().includes(hint));
-
-  if (!matched) matched = hubs[0];
-
-  if (!matched.address)
-    throw new Error(`Hub "${matched.name}" has no address`);
+  if (error || !data) throw new Error("Hub not found");
 
   return {
-    name: matched.name,
-    address: matched.address,
-    city: matched.city,
-    state: matched.state,
-    phone: normalizePhone(matched.phone),
+    name: data.name,
+    address: data.address,
+    city: data.city,
+    state: data.state,
+    phone: normalizePhone(data.phone),
   };
 }
 
-/* --------------------------------------------------------
-   FEZ SANDBOX v1 AUTH
---------------------------------------------------------- */
-async function authenticateFezSandbox() {
-  if (!FEZ_BASE || !FEZ_USER_ID || !FEZ_PASSWORD) {
-    throw new Error("Missing Fez sandbox environment variables");
-  }
+// -----------------------------------------
+// FEZ AUTH
+// -----------------------------------------
 
+async function fezAuth() {
   const res = await fetch(`${FEZ_BASE}/user/authenticate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       user_id: FEZ_USER_ID,
-      password: FEZ_PASSWORD,
+      password: FEZ_API_KEY,
     }),
   });
 
-  const data = await res.json().catch(() => ({}));
-
-  if (data?.status !== "Success") {
-    throw new Error(data?.description || "Fez authentication failed");
-  }
+  const data = await res.json();
+  if (data.status !== "Success")
+    throw new Error(data.description || "Fez auth failed");
 
   return {
     token: data.authDetails?.authToken,
-    secretKey: data.orgDetails?.["secret-key"],
+    secret: data.orgDetails?.["secret-key"],
   };
 }
 
-/* --------------------------------------------------------
-   CREATE RETURN PICKUP — FEZ v1 FORMAT (WORKING)
---------------------------------------------------------- */
+// -----------------------------------------
+// CREATE RETURN PICKUP (SANDBOX FORMAT FIX)
+// -----------------------------------------
+
 export async function createFezReturnPickup({ returnCode, customer, hub }) {
-  const { token, secretKey } = await authenticateFezSandbox();
+  const { token, secret } = await fezAuth();
 
   const uniqueId = `JLO-RETURN-${returnCode}`;
 
-  // 🔥 EXACT SAME FORMAT AS YOUR WORKING FORWARD SHIPMENTS
   const payload = {
-    uniqueID: uniqueId,
-
-    // RECEIVER = HUB (destination)
+    // REQUIRED
     recipientAddress: hub.address,
     recipientState: hub.state,
     recipientCity: hub.city,
     recipientName: hub.name,
     recipientPhone: hub.phone,
-    recipientEmail: "",
 
-    // SENDER = CUSTOMER (pickup location)
-    pickUpAddress: customer.address,
-    pickUpState: customer.state,
-    pickUpCity: customer.city,
-    senderName: customer.name,
-    senderPhone: normalizePhone(customer.phone),
-    senderEmail: customer.email ?? "",
-
-    // Required fields
+    uniqueID: uniqueId,
     BatchID: uniqueId,
-    itemDescription: "Customer Return Item",
     valueOfItem: "1000",
     weight: 1,
 
-    additionalDetails: `Return from ${customer.city}`,
+    // OPTIONAL BUT GOOD
+    recipientEmail: "",
+    itemDescription: "Customer Return Item",
+    additionalDetails: "JulineMart Return Shipment",
+
+    // PICKUP DETAILS
+    pickUpAddress: customer.address,
+    pickUpState: customer.state,
+    pickUpCity: customer.city,
+
+    senderName: customer.name,
+    senderPhone: normalizePhone(customer.phone),
+    senderEmail: "",
+
+    // SANDBOX FIX
+    lockerID: "", // <- REQUIRED for warehouse destination
   };
 
   console.log("FEZ RETURN PAYLOAD:", payload);
@@ -251,28 +256,28 @@ export async function createFezReturnPickup({ returnCode, customer, hub }) {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
-      "secret-key": secretKey,
+      "secret-key": secret,
     },
     body: JSON.stringify(payload),
   });
 
-  const raw = await res.text();
-  let data = {};
+  const text = await res.text();
+  console.log("FEZ RETURN RESPONSE:", text);
+
+  let data;
   try {
-    data = JSON.parse(raw);
-  } catch {}
-
-  console.log("FEZ RETURN RESPONSE:", raw);
-
-  if (!res.ok || data.status === "Error") {
-    throw new Error(data.description || raw);
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("Invalid Fez response");
   }
 
-  // Fez returns tracking number inside orderNos
-  let tracking = null;
-  if (data.orderNos && typeof data.orderNos === "object") {
-    tracking = Object.values(data.orderNos)[0];
+  if (!res.ok) {
+    throw new Error(data.description || "Fez return create failed");
   }
+
+  const tracking = data.orderNos
+    ? Object.values(data.orderNos)[0]
+    : data.trackingNumber;
 
   return {
     tracking,
@@ -280,11 +285,12 @@ export async function createFezReturnPickup({ returnCode, customer, hub }) {
   };
 }
 
-/* --------------------------------------------------------
-   STATUS MAPPING
---------------------------------------------------------- */
-export function mapFezStatusToReturn(status) {
-  const s = (status || "").toLowerCase();
+// -----------------------------------------
+// MAP FEZ STATUS
+// -----------------------------------------
+
+export function mapFezStatusToReturn(s) {
+  s = (s || "").toLowerCase();
   if (s.includes("pickup")) return "pickup_scheduled";
   if (s.includes("transit")) return "in_transit";
   if (s.includes("delivered")) return "delivered_to_hub";

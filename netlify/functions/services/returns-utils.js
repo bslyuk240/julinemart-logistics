@@ -37,7 +37,8 @@ const FEZ_BASE =
 const FEZ_API_KEY =
   process.env.FEZ_API_KEY || process.env.FEZ_PASSWORD || "";
 
-const FEZ_USER_ID = process.env.FEZ_USER_ID || "";
+// FIXED: Use the correct production User ID that works for regular shipments
+const FEZ_USER_ID = process.env.FEZ_USER_ID || "G-Azan-8WgA";
 
 // -----------------------------------------
 // UTILITIES
@@ -186,24 +187,48 @@ export async function fetchHubFromDatabase(hubId) {
 }
 
 // -----------------------------------------
-// FEZ AUTH - FIXED VERSION
+// FEZ AUTH - FETCH FROM DATABASE
 // -----------------------------------------
 
 async function fezAuth() {
-  if (!FEZ_BASE || !FEZ_USER_ID || !FEZ_API_KEY) {
-    throw new Error("Missing Fez API environment variables");
+  // First try to get credentials from database
+  const { data: courier, error } = await supabase
+    .from('couriers')
+    .select('api_user_id, api_password, api_base_url')
+    .eq('code', 'FEZ')
+    .eq('api_enabled', true)
+    .single();
+
+  let userId, password, baseUrl;
+
+  if (courier && !error) {
+    // Use database credentials (preferred)
+    userId = courier.api_user_id;
+    password = courier.api_password;
+    baseUrl = courier.api_base_url || FEZ_BASE;
+    console.log("Using credentials from database");
+  } else {
+    // Fallback to environment variables
+    userId = FEZ_USER_ID;
+    password = FEZ_API_KEY;
+    baseUrl = FEZ_BASE;
+    console.log("Using credentials from environment variables");
+  }
+
+  if (!baseUrl || !userId || !password) {
+    throw new Error("Missing Fez API credentials (check database or env vars)");
   }
 
   console.log("Authenticating with Fez for returns...");
-  console.log("FEZ_BASE:", FEZ_BASE);
-  console.log("FEZ_USER_ID:", FEZ_USER_ID);
+  console.log("FEZ_BASE:", baseUrl);
+  console.log("FEZ_USER_ID:", userId);
   
-  const res = await fetch(`${FEZ_BASE}/user/authenticate`, {
+  const res = await fetch(`${baseUrl}/user/authenticate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      user_id: FEZ_USER_ID,
-      password: FEZ_API_KEY,
+      user_id: userId,
+      password: password,
     }),
   });
 

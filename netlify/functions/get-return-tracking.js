@@ -29,25 +29,27 @@ export async function handler(event) {
   try {
     console.log('=== GET RETURN TRACKING ===');
     console.log('Event path:', event.path);
-    console.log('Event query:', event.queryStringParameters);
+    console.log('Query params:', event.queryStringParameters);
 
-    // Extract return_request_id from path
-    // Path can be: /api/returns/:id/tracking OR /.netlify/functions/get-return-tracking
+    // Extract return_request_id from query parameters OR path
     let returnRequestId = null;
     
-    // Method 1: Check if ID is in path params (Netlify routing)
-    if (event.pathParameters && event.pathParameters.id) {
-      returnRequestId = event.pathParameters.id;
-      console.log('Got ID from path parameters:', returnRequestId);
+    // Method 1: From query parameter (easiest)
+    if (event.queryStringParameters && event.queryStringParameters.return_request_id) {
+      returnRequestId = event.queryStringParameters.return_request_id;
+      console.log('Got ID from query param:', returnRequestId);
     }
     
-    // Method 2: Parse from path manually
+    // Method 2: From path parameters (Netlify routing)
+    if (!returnRequestId && event.pathParameters && event.pathParameters.id) {
+      returnRequestId = event.pathParameters.id;
+      console.log('Got ID from path param:', returnRequestId);
+    }
+    
+    // Method 3: Parse from path manually
     if (!returnRequestId) {
-      // Remove query string if present
       const pathOnly = event.path.split('?')[0];
       const pathParts = pathOnly.split('/').filter(Boolean);
-      
-      // Find 'returns' and get next part
       const returnsIndex = pathParts.findIndex(part => part === 'returns');
       if (returnsIndex >= 0 && pathParts[returnsIndex + 1]) {
         returnRequestId = pathParts[returnsIndex + 1];

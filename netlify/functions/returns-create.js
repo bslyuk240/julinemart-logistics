@@ -58,9 +58,9 @@ export async function handler(event) {
     }
 
     const returnCode = generateReturnCode();
-    let fezTracking = null;
-    let fezShipmentId = null;
-    let shipmentStatus = 'awaiting_tracking';
+    const shipmentStatus = 'awaiting_tracking';
+    const fezTracking = null;
+    const fezShipmentId = null;
 
     // Insert return_request
     const { data: request, error: insertError } = await supabase
@@ -98,30 +98,7 @@ export async function handler(event) {
       return { statusCode: 500, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Failed to upload images' }) };
     }
 
-    // Fez Pickup
-    if (method === 'pickup') {
-      try {
-        const result = await createFezReturnPickup({
-          returnCode,
-          customer: {
-            name: customerName,
-            phone: customerPhone,
-            address: customerAddress,
-            city: customerCity,
-            state: customerState,
-          },
-          hub: hubRecord,
-        });
-        fezTracking = result?.tracking || null;
-        fezShipmentId = result?.shipmentId || null;
-        shipmentStatus = 'pickup_scheduled';
-      } catch (err) {
-        console.error('Fez return creation failed:', err);
-        return { statusCode: 502, headers: corsHeaders(), body: JSON.stringify({ success: false, error: err.message || 'Fez return creation failed' }) };
-      }
-    }
-
-    // Save shipment row
+    // Save shipment row - must succeed
     const { data: shipment, error: shipErr } = await supabase
       .from('return_shipments')
       .insert({
@@ -131,23 +108,20 @@ export async function handler(event) {
         fez_shipment_id: fezShipmentId,
         method,
         status: shipmentStatus,
-        raw_payload: {
-          customer: {
-            name: customerName,
-            phone: customerPhone,
-            address: customerAddress,
-            city: customerCity,
-            state: customerState,
-          },
-          hub: hubRecord,
-        },
+        raw_payload: null,
+        customer_submitted_tracking: false,
+        tracking_submitted_at: null,
       })
       .select('*')
       .single();
 
-    if (shipErr) {
-      console.error('Return shipment insert error:', shipErr);
+    if (shipErr || !shipment) {
+      console.error('CRITICAL: Return shipment creation failed:', shipErr);
+      await supabase.from('return_requests').delete().eq('id', request.id);
+      throw new Error('Failed to create return shipment: ' + (shipErr?.message || 'Unknown error'));
     }
+
+    console.log('✅ Return shipment created:', shipment.id);
 
     // Update request with fez fields
     await supabase
@@ -166,7 +140,10 @@ export async function handler(event) {
       headers: corsHeaders(),
       body: JSON.stringify({
         success: true,
-        data: { return_request: { ...request, images: finalImages, fez_tracking: fezTracking, hub_id }, shipment },
+        data: {
+          return_request: { ...request, images: finalImages, fez_tracking: fezTracking, hub_id, return_code: returnCode },
+          return_shipment: shipment,
+        },
       }),
     };
   } catch (error) {

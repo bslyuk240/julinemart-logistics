@@ -3,10 +3,8 @@
   publish = "dist"
   functions = "netlify/functions"
 
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
+# Specific API routes MUST come before the generic /api/* catch-all
+# Netlify processes redirects in order and stops at the first match
 
 [[redirects]]
   from = "/api/returns/:id/tracking"
@@ -21,6 +19,12 @@
 [[redirects]]
   from = "/api/return-shipments/order/:orderId"
   to = "/.netlify/functions/get-order-returns"
+  status = 200
+
+# Generic API catch-all - must be LAST among API routes
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
   status = 200
 
 [[redirects]]

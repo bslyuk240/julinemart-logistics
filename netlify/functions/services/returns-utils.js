@@ -257,7 +257,7 @@ async function fezAuth() {
 }
 
 // -----------------------------------------
-// CREATE RETURN PICKUP (SANDBOX FORMAT FIX)
+// CREATE RETURN PICKUP (SIMPLIFIED)
 // -----------------------------------------
 
 export async function createFezReturnPickup({ returnCode, customer, hub }) {
@@ -265,49 +265,28 @@ export async function createFezReturnPickup({ returnCode, customer, hub }) {
 
   const uniqueId = `JLO-RETURN-${returnCode}`;
 
-  // CRITICAL: Treat the return as a regular pickup-to-delivery shipment
-  // Hub = recipient (like a personal address), Customer = sender
-  // Do NOT use lockerID or pickUpHub - those are for Fez's own facilities
-  
+  // MINIMAL payload matching successful shipment structure
   const payload = [
     {
-      // SENDER DETAILS (customer - where we pick up from)
-      senderName: customer.name,
-      senderPhone: normalizePhone(customer.phone),
-      senderEmail: customer.email || "",
-
-      // PICKUP LOCATION (customer address)
+      // Sender/Pickup (customer)
       pickUpAddress: customer.address,
       pickUpState: customer.state,
       pickUpCity: customer.city || customer.state,
-      pickUpDate: "", // Optional
 
-      // RECIPIENT DETAILS (your warehouse/hub - treated as personal address)
-      recipientName: hub.name,
-      recipientPhone: normalizePhone(hub.phone),
-      recipientEmail: hub.email || "returns@julinemart.com",
-      
-      // DELIVERY DESTINATION (your warehouse address - as personal residence)
+      // Recipient/Delivery (hub - as regular address)
       recipientAddress: hub.address,
       recipientState: hub.state,
       recipientCity: hub.city || hub.state,
+      recipientName: hub.name,
+      recipientPhone: normalizePhone(hub.phone),
 
-      // PACKAGE DETAILS
+      // Package details
       uniqueID: uniqueId,
       BatchID: uniqueId,
-      itemDescription: "Customer Return Item",
-      additionalDetails: `Return to JulineMart - ${returnCode}`,
       valueOfItem: "1000",
       weight: 1,
-      
-      // CRITICAL: Leave these EMPTY - we're delivering to personal address, not Fez facility
-      lockerID: "",
-      pickUpHub: "",
-      
-      // Optional fields
-      fragile: false,
-      cashOnDeliveryAmount: 0,
-      isItemCod: false,
+      itemDescription: "Customer Return Item",
+      additionalDetails: `Return to JulineMart - ${returnCode}`,
     }
   ];
 
@@ -337,7 +316,7 @@ export async function createFezReturnPickup({ returnCode, customer, hub }) {
     throw new Error(data.description || "Fez return create failed");
   }
 
-  // Extract tracking number from response
+  // Extract tracking number
   const tracking = data.orderNos
     ? Object.values(data.orderNos)[0]
     : data.trackingNumber;

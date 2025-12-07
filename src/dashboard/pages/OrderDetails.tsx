@@ -1218,15 +1218,24 @@ export function OrderDetailsPage() {
                                 return (
                                   <a
                                     key={idx}
-                                    href={normalized}
+                                    href={img}
                                     target="_blank"
                                     rel="noreferrer"
                                     className="w-16 h-16 bg-gray-100 rounded overflow-hidden block"
                                   >
                                     <img
-                                      src={normalized}
+                                      src={img}
                                       alt="Return"
                                       className="w-full h-full object-cover"
+                                      onError={(e) => {
+                                        if (
+                                          normalized !== img &&
+                                          !e.currentTarget.dataset.fallbackApplied
+                                        ) {
+                                          e.currentTarget.dataset.fallbackApplied = 'true';
+                                          e.currentTarget.src = normalized;
+                                        }
+                                      }}
                                     />
                                   </a>
                                 );

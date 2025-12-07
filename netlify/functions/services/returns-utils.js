@@ -126,7 +126,8 @@ export async function uploadReturnImages(images = [], requestId) {
     if (buf.length > MAX_BYTES) throw new Error("Image exceeds 8MB limit");
 
     const filename = crypto.randomUUID() + "." + mimeExt(mime);
-    const path = `return-images/${requestId}/${filename}`;
+    // Store under the bucket root; avoid double "return-images/return-images" in public URLs
+    const path = `${requestId}/${filename}`;
 
     const { error } = await bucket.upload(path, buf, {
       contentType: mime,

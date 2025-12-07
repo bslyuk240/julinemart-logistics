@@ -409,8 +409,13 @@ export function OrderDetailsPage() {
   useEffect(() => {
     const interval = setInterval(() => {
       returnShipments
-        .filter((r) => r.status === 'in_transit' && r.return_request_id)
-        .forEach((r) => fetchReturnTracking(r.return_request_id as string, r.id));
+        .map((r) => ({
+          shipmentId: r.id,
+          requestId: r.return_request_id ?? r.return_request?.id,
+          status: r.status,
+        }))
+        .filter((r) => r.status === 'in_transit' && r.requestId)
+        .forEach((r) => fetchReturnTracking(r.requestId as string, r.shipmentId));
     }, 2 * 60 * 1000);
     return () => clearInterval(interval);
   }, [returnShipments]);
@@ -584,11 +589,19 @@ export function OrderDetailsPage() {
     window.open(labelUrl, '_blank');
   };
 
+  const formatReason = (reason?: string) => {
+    if (!reason) return '-';
+    return reason.replace(/_/g, ' ');
+  };
+
   const printLabel = (subOrderId: Identifier) => {
     // Open the generate-label function in a new window with print=true
     const labelUrl = `${apiBase}/.netlify/functions/generate-label?subOrderId=${subOrderId}&print=true`;
     window.open(labelUrl, '_blank');
   };
+
+  const normalizeImageUrl = (url: string) =>
+    url.replace('/return-images/return-images/', '/return-images/');
 
   const getDisplayTracking = (subOrder: SubOrder) => {
     // Only return tracking if it's a REAL Fez tracking number
@@ -1179,7 +1192,7 @@ export function OrderDetailsPage() {
                       <div>
                         <p className="font-medium">Reason</p>
                         <p className="text-gray-600">
-                          {ret.return_request?.reason_code || '—'}
+                          {formatReason(ret.return_request?.reason_code)}
                           {ret.return_request?.reason_note
                             ? ` - ${ret.return_request.reason_note}`
                             : ''}
@@ -1188,21 +1201,24 @@ export function OrderDetailsPage() {
                           <div className="flex gap-2 mt-2">
                             {ret.return_request.images
                               .slice(0, 3)
-                              .map((img, idx) => (
-                                <a
-                                  key={idx}
-                                  href={img}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="w-16 h-16 bg-gray-100 rounded overflow-hidden block"
-                                >
-                                  <img
-                                    src={img}
-                                    alt="Return"
-                                    className="w-full h-full object-cover"
-                                  />
-                                </a>
-                              ))}
+                              .map((img, idx) => {
+                                const normalized = normalizeImageUrl(img);
+                                return (
+                                  <a
+                                    key={idx}
+                                    href={normalized}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="w-16 h-16 bg-gray-100 rounded overflow-hidden block"
+                                  >
+                                    <img
+                                      src={normalized}
+                                      alt="Return"
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </a>
+                                );
+                              })}
                           </div>
                         ) : null}
                       </div>
@@ -1229,13 +1245,14 @@ export function OrderDetailsPage() {
                             </p>
                             <div className="flex flex-wrap gap-2 mt-3">
                               <button
-                                onClick={() =>
-                                  ret.return_request_id &&
-                                  fetchReturnTracking(
-                                    ret.return_request_id,
-                                    ret.id
-                                  )
-                                }
+                                onClick={() => {
+                                  const requestId =
+                                    ret.return_request_id ||
+                                    ret.return_request?.id;
+                                  if (requestId) {
+                                    fetchReturnTracking(requestId, ret.id);
+                                  }
+                                }}
                                 disabled={returnTrackingLoading[ret.id]}
                                 className="btn-secondary text-xs"
                               >
@@ -1243,6 +1260,18 @@ export function OrderDetailsPage() {
                                   ? 'Loading...'
                                   : 'Track Shipment'}
                               </button>
+                              {tracking && (
+                                <a
+                                  href={`https://web.fezdelivery.co/track-delivery?tracking=${encodeURIComponent(
+                                    tracking
+                                  )}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="btn-secondary text-xs"
+                                >
+                                  Track on Fez
+                                </a>
+                              )}
                               {ret.status === 'in_transit' && (
                                 <button
                                   onClick={() =>

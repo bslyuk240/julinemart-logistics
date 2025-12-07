@@ -340,11 +340,13 @@ export function OrderDetailsPage() {
     }
   };
 
-  const fetchReturnShipments = async () => {
-    if (!id) return;
+  const fetchReturnShipments = async (wooOrderId?: Identifier) => {
+    // Returns are keyed on WooCommerce order_id in Supabase (not the internal order UUID)
+    const orderId = wooOrderId ?? order?.woocommerce_order_id;
+    if (!orderId) return;
     try {
       const headers = await getAuthHeaders();
-      const response = await fetch(`${apiBase}/api/return-shipments/order/${id}`, { headers });
+      const response = await fetch(`${apiBase}/api/return-shipments/order/${orderId}`, { headers });
       const data = await response.json();
 
       if (data?.success) {
@@ -392,9 +394,16 @@ export function OrderDetailsPage() {
 
   useEffect(() => {
     fetchOrderDetails();
-    fetchReturnShipments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Fetch returns once the WooCommerce order id is known
+  useEffect(() => {
+    if (order?.woocommerce_order_id) {
+      fetchReturnShipments(order.woocommerce_order_id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.woocommerce_order_id]);
 
   // Poll tracking for in-transit returns
   useEffect(() => {

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+﻿import { useEffect, useState, ChangeEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -89,6 +89,7 @@ type ReturnShipment = {
   customer_submitted_tracking?: boolean;
   tracking_submitted_at?: string;
   return_request?: {
+    id?: string;
     customer_name?: string;
     customer_email?: string;
     preferred_resolution?: string;
@@ -97,6 +98,13 @@ type ReturnShipment = {
     images?: string[];
     status?: string;
   };
+};
+
+type ReturnTrackingEvent = {
+  status?: string;
+  message?: string;
+  timestamp?: string;
+  location?: string;
 };
 
 type Order = {
@@ -284,7 +292,7 @@ export function OrderDetailsPage() {
   const [fetchingTracking, setFetchingTracking] = useState<Identifier | null>(null);
   const [returnShipments, setReturnShipments] = useState<ReturnShipment[]>([]);
   const [updatingReturnStatus, setUpdatingReturnStatus] = useState<string | null>(null);
-  const [returnTrackingData, setReturnTrackingData] = useState<Record<string, any[]>>({});
+  const [returnTrackingData, setReturnTrackingData] = useState<Record<string, ReturnTrackingEvent[]>>({});
   const [returnTrackingLoading, setReturnTrackingLoading] = useState<Record<string, boolean>>({});
   const [trackingInput, setTrackingInput] = useState<Record<string, string>>({});
   const [trackingFilter, setTrackingFilter] = useState<'all' | 'with' | 'without'>('all');
@@ -418,6 +426,8 @@ export function OrderDetailsPage() {
         .forEach((r) => fetchReturnTracking(r.requestId as string, r.shipmentId));
     }, 2 * 60 * 1000);
     return () => clearInterval(interval);
+    // fetchReturnTracking is intentionally stable for polling; eslint dependency suppressed
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [returnShipments]);
 
   const createCourierShipment = async (subOrderId: Identifier) => {
@@ -1117,7 +1127,9 @@ export function OrderDetailsPage() {
             <select
               className="border rounded px-2 py-1 text-sm"
               value={trackingFilter}
-              onChange={(e) => setTrackingFilter(e.target.value as any)}
+              onChange={(e: ChangeEvent<HTMLSelectElement>) =>
+                setTrackingFilter(e.target.value as 'all' | 'with' | 'without')
+              }
             >
               <option value="all">All</option>
               <option value="with">Has Tracking</option>

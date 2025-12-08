@@ -15,7 +15,8 @@ const corsHeaders = {
   "Content-Type": "application/json",
 };
 
-const DEFAULT_STATUSES = ["approved", "refund_processing"];
+// Show items through completion so history stays visible after sending to WooCommerce
+const DEFAULT_STATUSES = ["approved", "refund_processing", "refund_completed"];
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") {

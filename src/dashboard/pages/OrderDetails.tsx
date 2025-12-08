@@ -604,6 +604,11 @@ export function OrderDetailsPage() {
     return reason.replace(/_/g, ' ');
   };
 
+  const formatStatusText = (status?: string) => {
+    if (!status) return 'pending';
+    return status.replace(/_/g, ' ');
+  };
+
   const printLabel = (subOrderId: Identifier) => {
     // Open the generate-label function in a new window with print=true
     const labelUrl = `${apiBase}/.netlify/functions/generate-label?subOrderId=${subOrderId}&print=true`;
@@ -665,6 +670,8 @@ export function OrderDetailsPage() {
       delivered_to_hub: 'bg-green-100 text-green-800',
       inspection_in_progress: 'bg-yellow-100 text-yellow-800',
       approved: 'bg-emerald-100 text-emerald-800',
+      refund_processing: 'bg-orange-100 text-orange-800',
+      refund_completed: 'bg-green-100 text-green-800',
       rejected: 'bg-red-100 text-red-800',
       completed: 'bg-emerald-100 text-emerald-800',
     };
@@ -1186,7 +1193,7 @@ export function OrderDetailsPage() {
                             ret.status || ''
                           )}`}
                         >
-                          {ret.status || 'pending'}
+                          {formatStatusText(ret.status)}
                         </span>
                         {tracking ? (
                           <span className="text-xs px-3 py-1 rounded-full bg-green-100 text-green-800 font-medium">
@@ -1323,6 +1330,103 @@ export function OrderDetailsPage() {
                                   {updatingReturnStatus === ret.id
                                     ? 'Updating...'
                                     : 'Start Inspection'}
+                                </button>
+                              )}
+                              {ret.status === 'inspection_in_progress' && (
+                                <>
+                                  <button
+                                    onClick={() =>
+                                      updateReturnShipmentStatus(
+                                        ret.id,
+                                        'approved'
+                                      )
+                                    }
+                                    disabled={updatingReturnStatus === ret.id}
+                                    className="btn-primary text-xs"
+                                  >
+                                    {updatingReturnStatus === ret.id
+                                      ? 'Updating...'
+                                      : 'Approve'}
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      updateReturnShipmentStatus(
+                                        ret.id,
+                                        'rejected'
+                                      )
+                                    }
+                                    disabled={updatingReturnStatus === ret.id}
+                                    className="btn-secondary text-xs"
+                                  >
+                                    {updatingReturnStatus === ret.id
+                                      ? 'Updating...'
+                                      : 'Reject'}
+                                  </button>
+                                </>
+                              )}
+                              {ret.status === 'approved' && (
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    onClick={() =>
+                                      updateReturnShipmentStatus(
+                                        ret.id,
+                                        'refund_processing'
+                                      )
+                                    }
+                                    disabled={updatingReturnStatus === ret.id}
+                                    className="btn-primary text-xs"
+                                  >
+                                    {updatingReturnStatus === ret.id
+                                      ? 'Updating...'
+                                      : 'Start Refund'}
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      updateReturnShipmentStatus(
+                                        ret.id,
+                                        'completed'
+                                      )
+                                    }
+                                    disabled={updatingReturnStatus === ret.id}
+                                    className="btn-secondary text-xs"
+                                  >
+                                    {updatingReturnStatus === ret.id
+                                      ? 'Updating...'
+                                      : 'Close Return'}
+                                  </button>
+                                </div>
+                              )}
+                              {ret.status === 'refund_processing' && (
+                                <button
+                                  onClick={() =>
+                                    updateReturnShipmentStatus(
+                                      ret.id,
+                                      'refund_completed'
+                                    )
+                                  }
+                                  disabled={updatingReturnStatus === ret.id}
+                                  className="btn-primary text-xs"
+                                >
+                                  {updatingReturnStatus === ret.id
+                                    ? 'Updating...'
+                                    : 'Mark Refund Completed'}
+                                </button>
+                              )}
+                              {(ret.status === 'refund_completed' ||
+                                ret.status === 'rejected') && (
+                                <button
+                                  onClick={() =>
+                                    updateReturnShipmentStatus(
+                                      ret.id,
+                                      'completed'
+                                    )
+                                  }
+                                  disabled={updatingReturnStatus === ret.id}
+                                  className="btn-secondary text-xs"
+                                >
+                                  {updatingReturnStatus === ret.id
+                                    ? 'Updating...'
+                                    : 'Close Return'}
                                 </button>
                               )}
                             </div>

@@ -21,6 +21,11 @@
   to = "/.netlify/functions/get-order-returns"
   status = 200
 
+[[redirects]]
+  from = "/api/refund-queue"
+  to = "/.netlify/functions/refund-queue"
+  status = 200
+
 # Generic API catch-all - must be LAST among API routes
 [[redirects]]
   from = "/api/*"

@@ -18,12 +18,12 @@ const ALLOWED_ADMIN_STATUSES = new Set([
   "in_transit",
   "delivered_to_hub",
   "inspection_in_progress",
+  "approved",
+  "rejected",
+  "refund_processing",
+  "refund_completed",
   "completed",
 ]);
-
-// NOTE:
-// "approved", "rejected", "refund_processing", "refund_completed", "refund_failed"
-// MUST NOT be manually set here. These belong in admin-return-inspection.js.
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflightResponse();
@@ -85,7 +85,11 @@ export async function handler(event) {
       awaiting_tracking: ["in_transit"],
       in_transit: ["delivered_to_hub"],
       delivered_to_hub: ["inspection_in_progress"],
-      inspection_in_progress: ["completed"],
+      inspection_in_progress: ["approved", "rejected", "completed"],
+      approved: ["refund_processing", "completed"],
+      refund_processing: ["refund_completed"],
+      refund_completed: ["completed"],
+      rejected: ["completed"],
       completed: [], // final state
     };
 

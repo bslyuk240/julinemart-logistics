@@ -78,6 +78,7 @@ export default function RefundsPage() {
             : item.status === 'refund_completed'
             ? 'processed'
             : (item.status as RefundStatus);
+        const amount = Number(rr.refund_amount || 0);
 
         const nameParts = (rr.customer_name || '').trim().split(' ');
         return {
@@ -100,7 +101,7 @@ export default function RefundsPage() {
           refund_request: {
             status,
             reason: rr.reason_note || rr.reason_code || 'Return refund',
-            requested_amount: 0,
+            requested_amount: amount,
             requested_at: rr.created_at || item.created_at || new Date().toISOString(),
             customer_email: rr.customer_email || '',
             customer_name: rr.customer_name || '',
@@ -267,6 +268,7 @@ export default function RefundsPage() {
 
   const formatPrice = (amount: number | string) => {
     const num = typeof amount === 'string' ? parseFloat(amount) : amount;
+    if (!num || num <= 0) return '—';
     return `₦${Number(num || 0).toLocaleString()}`;
   };
 

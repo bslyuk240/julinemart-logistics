@@ -79,6 +79,8 @@ type ReturnShipment = {
     | 'delivered_to_hub'
     | 'inspection_in_progress'
     | 'approved'
+    | 'refund_processing'
+    | 'refund_completed'
     | 'rejected'
     | 'pickup_scheduled'
     | 'awaiting_dropoff'

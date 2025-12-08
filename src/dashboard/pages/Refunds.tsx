@@ -13,8 +13,16 @@ import {
   Loader2,
 } from 'lucide-react';
 
+type RefundStatus =
+  | 'pending'
+  | 'approved'
+  | 'rejected'
+  | 'processed'
+  | 'refund_processing'
+  | 'refund_completed';
+
 interface RefundRequestOrder {
-  id: number;
+  id: number; // Woo order id
   number: string;
   status: string;
   total: string;
@@ -28,8 +36,10 @@ interface RefundRequestOrder {
   payment_method: string;
   payment_method_title: string;
   transaction_id: string;
+  shipment_id: string;
+  return_request_id: string;
   refund_request: {
-    status: 'pending' | 'approved' | 'rejected' | 'processed';
+    status: RefundStatus;
     reason: string;
     requested_amount: number;
     requested_at: string;
@@ -39,29 +49,6 @@ interface RefundRequestOrder {
     rejection_reason?: string;
     processed_at?: string;
   } | null;
-}
-
-interface WooCommerceMeta {
-  id: number;
-  key: string;
-  value: string;
-}
-
-const WC_BASE_URL = import.meta.env.VITE_WC_BASE_URL || 'https://admin.julinemart.com/wp-json/wc/v3';
-const WC_KEY = import.meta.env.VITE_WC_KEY;
-const WC_SECRET = import.meta.env.VITE_WC_SECRET;
-
-interface WooCommerceOrder {
-  id: number;
-  number: string;
-  status: string;
-  total: string;
-  date_created: string;
-  billing: RefundRequestOrder['billing'];
-  payment_method: string;
-  payment_method_title: string;
-  transaction_id: string;
-  meta_data?: WooCommerceMeta[];
 }
 
 export default function RefundsPage() {
@@ -78,45 +65,53 @@ export default function RefundsPage() {
   const fetchOrdersWithRefundRequests = useCallback(async () => {
     try {
       setLoading(true);
+      const response = await fetch('/api/refund-queue');
+      if (!response.ok) throw new Error('Failed to fetch refund queue');
+      const payload = await response.json();
+      const queue: any[] = payload.data || [];
 
-      // Fetch orders with refund request meta via backend proxy (avoids CORS)
-      const response = await fetch('/api/refunds/requests');
+      const mapped: RefundRequestOrder[] = queue.map((item) => {
+        const rr = item.return_request || {};
+        const status: RefundStatus =
+          item.status === 'refund_processing'
+            ? 'refund_processing'
+            : item.status === 'refund_completed'
+            ? 'processed'
+            : (item.status as RefundStatus);
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch orders');
-      }
+        const nameParts = (rr.customer_name || '').trim().split(' ');
+        return {
+          id: Number(rr.order_id || 0),
+          number: rr.order_number || String(rr.order_id || item.id || ''),
+          status: item.status || '',
+          total: '0',
+          date_created: rr.created_at || item.created_at || new Date().toISOString(),
+          billing: {
+            first_name: nameParts[0] || '',
+            last_name: nameParts.slice(1).join(' ') || '',
+            email: rr.customer_email || '',
+            phone: '',
+          },
+          payment_method: '',
+          payment_method_title: '',
+          transaction_id: '',
+          shipment_id: item.id,
+          return_request_id: rr.id,
+          refund_request: {
+            status,
+            reason: rr.reason_note || rr.reason_code || 'Return refund',
+            requested_amount: 0,
+            requested_at: rr.created_at || item.created_at || new Date().toISOString(),
+            customer_email: rr.customer_email || '',
+            customer_name: rr.customer_name || '',
+            admin_notes: '',
+          },
+        };
+      });
 
-      const proxyData = await response.json();
-      const ordersData: WooCommerceOrder[] = proxyData.data || [];
-
-      // Parse refund request from meta_data
-      const ordersWithRefunds: RefundRequestOrder[] = ordersData
-        .map((order) => {
-          const refundRequestMeta = order.meta_data?.find((m) => m.key === '_refund_request');
-          const refundRequestRaw = refundRequestMeta?.value;
-          const refundRequest =
-            typeof refundRequestRaw === 'string'
-              ? JSON.parse(refundRequestRaw)
-              : refundRequestRaw || null;
-
-          return {
-            id: order.id,
-            number: order.number,
-            status: order.status,
-            total: order.total,
-            date_created: order.date_created,
-            billing: order.billing,
-            payment_method: order.payment_method,
-            payment_method_title: order.payment_method_title,
-            transaction_id: order.transaction_id,
-            refund_request: refundRequest,
-          };
-        })
-        .filter((order: RefundRequestOrder) => order.refund_request !== null);
-
-      setOrders(ordersWithRefunds);
+      setOrders(mapped);
     } catch (error) {
-      console.error('Error fetching orders:', error);
+      console.error('Error fetching refund queue:', error);
     } finally {
       setLoading(false);
     }
@@ -126,51 +121,21 @@ export default function RefundsPage() {
     fetchOrdersWithRefundRequests();
   }, [fetchOrdersWithRefundRequests]);
 
-  const updateRefundRequest = async (
-    orderId: number,
-    updates: Partial<NonNullable<RefundRequestOrder['refund_request']>>
-  ) => {
-    const order = orders.find((o) => o.id === orderId);
-    if (!order || !order.refund_request) return false;
-
-    const updatedRequest = {
-      ...order.refund_request,
-      ...updates,
-    };
-
-    try {
-      const response = await fetch(`/api/refunds/requests/${orderId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          refund_request: updatedRequest,
-          status: updates.status || order.refund_request.status,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update order');
-      }
-
-      return true;
-    } catch (error) {
-      console.error('Error updating refund request:', error);
-      return false;
-    }
+  const updateReturnShipmentStatus = async (shipmentId: string, status: string) => {
+    const response = await fetch(`/api/return-shipments/${shipmentId}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (!response.ok) throw new Error('Failed to update return shipment status');
   };
 
   const addOrderNote = async (orderId: number, note: string) => {
     try {
       await fetch(`/api/refunds/requests/${orderId}/note`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          note,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note }),
       });
     } catch (error) {
       console.error('Error adding order note:', error);
@@ -181,19 +146,10 @@ export default function RefundsPage() {
     try {
       const response = await fetch(`/api/refunds/requests/${orderId}/create-refund`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          amount,
-          reason,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount, reason }),
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to create refund');
-      }
-
+      if (!response.ok) throw new Error('Failed to create refund');
       return await response.json();
     } catch (error) {
       console.error('Error creating WooCommerce refund:', error);
@@ -203,16 +159,11 @@ export default function RefundsPage() {
 
   const processPaystackRefund = async (transactionId: string, amount: number) => {
     try {
-      // Call your Paystack refund endpoint
       const response = await fetch('/api/refunds/paystack', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transaction: transactionId,
-          amount: Math.round(amount * 100), // Convert to kobo
-        }),
+        body: JSON.stringify({ transaction: transactionId, amount: Math.round(amount * 100) }),
       });
-
       const data = await response.json();
       return data.success;
     } catch (error) {
@@ -230,75 +181,67 @@ export default function RefundsPage() {
 
       switch (actionType) {
         case 'approve': {
-          await updateRefundRequest(selectedOrder.id, {
-            status: 'approved',
-            admin_notes: actionNotes,
-          });
+          await updateReturnShipmentStatus(selectedOrder.shipment_id, 'refund_processing');
           await addOrderNote(
             selectedOrder.id,
-            `✅ REFUND APPROVED\nAmount: ₦${refundRequest.requested_amount.toLocaleString()}\n${actionNotes ? `Notes: ${actionNotes}` : ''}`
+            `Refund started from returns flow${actionNotes ? `\nNotes: ${actionNotes}` : ''}`
           );
           break;
         }
-
         case 'reject': {
           if (!actionNotes) {
             alert('Please provide a rejection reason');
             return;
           }
-          await updateRefundRequest(selectedOrder.id, {
-            status: 'rejected',
-            rejection_reason: actionNotes,
-            admin_notes: actionNotes,
-          });
-          await addOrderNote(
-            selectedOrder.id,
-            `❌ REFUND REJECTED\nReason: ${actionNotes}`
-          );
+          await updateReturnShipmentStatus(selectedOrder.shipment_id, 'rejected');
+          await addOrderNote(selectedOrder.id, `REFUND REJECTED\nReason: ${actionNotes}`);
           break;
         }
-
         case 'process': {
-          // Step 1: Create WooCommerce refund
+          let amount = refundRequest.requested_amount || 0;
+          if (!amount || amount <= 0) {
+            const input = window.prompt('Enter refund amount to process (NGN):', '0');
+            if (!input) return;
+            amount = Number(input);
+            if (Number.isNaN(amount) || amount <= 0) {
+              alert('Invalid amount');
+              return;
+            }
+          }
+
+          await updateReturnShipmentStatus(selectedOrder.shipment_id, 'refund_processing');
+
           const wcRefund = await createWooCommerceRefund(
             selectedOrder.id,
-            refundRequest.requested_amount.toString(),
+            amount.toString(),
             refundRequest.reason
           );
-
           if (!wcRefund) {
             alert('Failed to create WooCommerce refund');
             return;
           }
 
-          // Step 2: Process Paystack refund if applicable
           let paystackSuccess = true;
           if (
             selectedOrder.transaction_id &&
             ['paystack', 'card'].includes(selectedOrder.payment_method)
           ) {
-            paystackSuccess = await processPaystackRefund(
-              selectedOrder.transaction_id,
-              refundRequest.requested_amount
-            );
+            paystackSuccess = await processPaystackRefund(selectedOrder.transaction_id, amount);
           }
 
-          // Step 3: Update refund request status
-          await updateRefundRequest(selectedOrder.id, {
-            status: 'processed',
-            processed_at: new Date().toISOString(),
-            admin_notes: actionNotes,
-          });
+          await updateReturnShipmentStatus(selectedOrder.shipment_id, 'refund_completed');
+          await updateReturnShipmentStatus(selectedOrder.shipment_id, 'completed');
 
           await addOrderNote(
             selectedOrder.id,
-            `💰 REFUND PROCESSED\nAmount: ₦${refundRequest.requested_amount.toLocaleString()}\nWooCommerce Refund ID: ${wcRefund.id}\nPaystack: ${paystackSuccess ? 'Initiated' : 'Manual required'}\n${actionNotes ? `Notes: ${actionNotes}` : ''}`
+            `REFUND PROCESSED\nAmount: ₦${amount.toLocaleString()}\nWooCommerce Refund ID: ${wcRefund.id}\nPaystack: ${
+              paystackSuccess ? 'Initiated' : 'Manual required'
+            }${actionNotes ? `\nNotes: ${actionNotes}` : ''}`
           );
           break;
         }
       }
 
-      // Refresh the list
       await fetchOrdersWithRefundRequests();
       setShowActionModal(false);
       setSelectedOrder(null);
@@ -324,23 +267,24 @@ export default function RefundsPage() {
 
   const formatPrice = (amount: number | string) => {
     const num = typeof amount === 'string' ? parseFloat(amount) : amount;
-    return `₦${num.toLocaleString()}`;
+    return `₦${Number(num || 0).toLocaleString()}`;
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-NG', {
+  const formatDate = (dateString: string) =>
+    new Date(dateString).toLocaleDateString('en-NG', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
     });
-  };
 
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
       pending: 'bg-yellow-100 text-yellow-800',
       approved: 'bg-blue-100 text-blue-800',
+      refund_processing: 'bg-orange-100 text-orange-800',
+      refund_completed: 'bg-green-100 text-green-800',
       processed: 'bg-green-100 text-green-800',
       rejected: 'bg-red-100 text-red-800',
     };
@@ -348,6 +292,8 @@ export default function RefundsPage() {
     const labels: Record<string, string> = {
       pending: 'Pending',
       approved: 'Approved',
+      refund_processing: 'Refund Processing',
+      refund_completed: 'Refund Completed',
       processed: 'Refunded',
       rejected: 'Rejected',
     };
@@ -363,35 +309,25 @@ export default function RefundsPage() {
     );
   };
 
-  // Filter orders
   const filteredOrders = orders.filter((order) => {
     if (!order.refund_request) return false;
-
-    // Status filter
-    if (selectedStatus !== 'all' && order.refund_request.status !== selectedStatus) {
-      return false;
-    }
-
-    // Search filter
+    if (selectedStatus !== 'all' && order.refund_request.status !== selectedStatus) return false;
     if (searchQuery) {
-      const query = searchQuery.toLowerCase();
+      const q = searchQuery.toLowerCase();
       return (
-        order.number.toLowerCase().includes(query) ||
-        order.billing.email.toLowerCase().includes(query) ||
-        `${order.billing.first_name} ${order.billing.last_name}`
-          .toLowerCase()
-          .includes(query)
+        order.number.toLowerCase().includes(q) ||
+        order.billing.email.toLowerCase().includes(q) ||
+        `${order.billing.first_name} ${order.billing.last_name}`.toLowerCase().includes(q)
       );
     }
-
     return true;
   });
 
-  // Calculate stats
   const stats = {
     pending: orders.filter((o) => o.refund_request?.status === 'pending').length,
     approved: orders.filter((o) => o.refund_request?.status === 'approved').length,
-    processed: orders.filter((o) => o.refund_request?.status === 'processed').length,
+    processing: orders.filter((o) => o.refund_request?.status === 'refund_processing').length,
+    processed: orders.filter((o) => ['processed', 'refund_completed'].includes(o.refund_request?.status || '')).length,
     rejected: orders.filter((o) => o.refund_request?.status === 'rejected').length,
     pendingAmount: orders
       .filter((o) => o.refund_request?.status === 'pending')
@@ -400,7 +336,6 @@ export default function RefundsPage() {
 
   return (
     <div className="p-6">
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Refund Requests</h1>
         <button
@@ -412,8 +347,7 @@ export default function RefundsPage() {
         </button>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
           <div className="flex items-center gap-3">
             <Clock className="w-8 h-8 text-yellow-600" />
@@ -423,7 +357,6 @@ export default function RefundsPage() {
             </div>
           </div>
         </div>
-
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
           <div className="flex items-center gap-3">
             <Check className="w-8 h-8 text-blue-600" />
@@ -433,7 +366,15 @@ export default function RefundsPage() {
             </div>
           </div>
         </div>
-
+        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-8 h-8 text-orange-600" />
+            <div>
+              <p className="text-2xl font-bold text-orange-900">{stats.processing}</p>
+              <p className="text-sm text-orange-700">Processing</p>
+            </div>
+          </div>
+        </div>
         <div className="bg-green-50 border border-green-200 rounded-xl p-4">
           <div className="flex items-center gap-3">
             <DollarSign className="w-8 h-8 text-green-600" />
@@ -443,7 +384,6 @@ export default function RefundsPage() {
             </div>
           </div>
         </div>
-
         <div className="bg-purple-50 border border-purple-200 rounded-xl p-4">
           <div className="flex items-center gap-3">
             <AlertCircle className="w-8 h-8 text-purple-600" />
@@ -457,7 +397,6 @@ export default function RefundsPage() {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-col md:flex-row gap-4 mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -480,6 +419,7 @@ export default function RefundsPage() {
             <option value="all">All Status</option>
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
+            <option value="refund_processing">Refund Processing</option>
             <option value="processed">Processed</option>
             <option value="rejected">Rejected</option>
           </select>
@@ -487,7 +427,6 @@ export default function RefundsPage() {
         </div>
       </div>
 
-      {/* Table */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -532,7 +471,7 @@ export default function RefundsPage() {
                       <div>
                         <p className="font-medium text-gray-900">#{order.number}</p>
                         <p className="text-xs text-gray-500">
-                          {order.payment_method_title}
+                          {order.payment_method_title || 'Return Refund'}
                         </p>
                       </div>
                     </td>
@@ -550,10 +489,7 @@ export default function RefundsPage() {
                       </p>
                     </td>
                     <td className="px-4 py-4 max-w-xs">
-                      <p
-                        className="text-gray-600 truncate"
-                        title={order.refund_request?.reason}
-                      >
+                      <p className="text-gray-600 truncate" title={order.refund_request?.reason}>
                         {order.refund_request?.reason}
                       </p>
                     </td>
@@ -567,24 +503,6 @@ export default function RefundsPage() {
                     </td>
                     <td className="px-4 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        {order.refund_request?.status === 'pending' && (
-                          <>
-                            <button
-                              onClick={() => openActionModal(order, 'approve')}
-                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg"
-                              title="Approve"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => openActionModal(order, 'reject')}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
-                              title="Reject"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
                         {order.refund_request?.status === 'approved' && (
                           <button
                             onClick={() => openActionModal(order, 'process')}
@@ -592,6 +510,17 @@ export default function RefundsPage() {
                           >
                             Process Refund
                           </button>
+                        )}
+                        {order.refund_request?.status === 'refund_processing' && (
+                          <button
+                            onClick={() => openActionModal(order, 'process')}
+                            className="px-3 py-1 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600"
+                          >
+                            Mark Completed
+                          </button>
+                        )}
+                        {order.refund_request?.status === 'rejected' && (
+                          <span className="text-xs text-red-600 font-medium">Rejected</span>
                         )}
                         <a
                           href={`https://admin.julinemart.com/wp-admin/post.php?post=${order.id}&action=edit`}
@@ -612,7 +541,6 @@ export default function RefundsPage() {
         )}
       </div>
 
-      {/* Action Modal */}
       {showActionModal && selectedOrder && selectedOrder.refund_request && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
@@ -644,9 +572,7 @@ export default function RefundsPage() {
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                   <p className="text-sm text-yellow-800">
                     <strong>Note:</strong> This will create a refund in WooCommerce
-                    {selectedOrder.transaction_id &&
-                      ' and initiate a Paystack refund'}
-                    .
+                    {selectedOrder.transaction_id && ' and initiate a Paystack refund'}.
                   </p>
                 </div>
               )}

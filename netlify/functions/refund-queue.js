@@ -50,7 +50,6 @@ export async function handler(event) {
           reason_code,
           reason_note,
           refund_amount,
-          refund_status,
           images,
           status,
           hub_id,

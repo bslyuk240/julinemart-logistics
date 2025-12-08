@@ -30,7 +30,8 @@ export async function handler(event) {
       reason_note,
       images = [],
       hub_id,
-      method // client MUST send "dropoff", others blocked
+      method, // client MUST send "dropoff", others blocked
+      refund_amount, // optional: amount customer selected for refund
     } = body;
 
     // 🛑 Hard enforce DROP-OFF only
@@ -94,6 +95,14 @@ export async function handler(event) {
     const fezShipmentId = null;
 
     const returnCode = generateReturnCode();
+    const parsedRefundAmount =
+      typeof refund_amount === "number"
+        ? refund_amount
+        : typeof refund_amount === "string"
+        ? Number(refund_amount)
+        : null;
+    const finalRefundAmount =
+      parsedRefundAmount && Number.isFinite(parsedRefundAmount) ? parsedRefundAmount : null;
 
     // Insert into return_requests
     const { data: request, error: reqErr } = await supabase
@@ -108,6 +117,7 @@ export async function handler(event) {
         preferred_resolution,
         reason_code,
         reason_note,
+        refund_amount: finalRefundAmount,
         images: [],
         status: initialStatus,
         fez_method: "dropoff", // force-dropoff
@@ -180,6 +190,7 @@ export async function handler(event) {
         preferred_resolution,
         reason_code,
         reason_note,
+        refund_amount: finalRefundAmount,
         // wrap shipment into array because PWA expects return_shipments[]
         return_shipments: [
           {

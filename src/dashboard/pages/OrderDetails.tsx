@@ -38,6 +38,8 @@ type Item = {
   quantity?: number;
   weight?: number;
   price?: number;
+  variationId?: string | number | null;
+  variationAttributes?: Record<string, any>;
 };
 
 type SubOrder = {

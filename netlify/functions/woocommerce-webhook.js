@@ -138,6 +138,20 @@ export async function handler(event) {
       const weightValue = parseFloat(item.weight || 0);
       const sanitizedWeight = weightValue > 0 ? weightValue : 0.5;
 
+      // Capture variation metadata so downstream UIs can see chosen options
+      const variationId = item.variation_id ? item.variation_id.toString() : null;
+      const variationAttributes = {};
+      (item.meta_data || []).forEach((meta) => {
+        const key = meta?.key || meta?.display_key;
+        if (!key) return;
+        if (key.startsWith('attribute_') || key.startsWith('pa_')) {
+          const normalizedKey = key
+            .replace(/^attribute_/i, '')
+            .replace(/^pa_/i, '');
+          variationAttributes[normalizedKey] = meta?.value;
+        }
+      });
+
       const orderItem = {
         productId: item.product_id?.toString(),
         sku: item.sku || `PRODUCT-${item.product_id}`,
@@ -149,6 +163,8 @@ export async function handler(event) {
         hubId: hubId || defaultHubId,
         hubName: hubName,
         vendorId: vendorId || 'default-vendor',
+        variationId,
+        variationAttributes
       };
 
       orderItems.push(orderItem);

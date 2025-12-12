@@ -39,7 +39,7 @@ type Item = {
   weight?: number;
   price?: number;
   variationId?: string | number | null;
-  variationAttributes?: Record<string, any>;
+  variationAttributes?: Record<string, unknown>;
 };
 
 type SubOrder = {

@@ -36,7 +36,6 @@ interface RefundRequestOrder {
   payment_method: string;
   payment_method_title: string;
   transaction_id: string;
-  is_paystack_payment: boolean; // 🔥 NEW
   shipment_id: string;
   return_request_id: string;
   refund_request: {
@@ -73,37 +72,30 @@ export default function RefundsPage() {
 
       const mapped: RefundRequestOrder[] = queue.map((item) => {
         const rr = item.return_request || {};
-        const woo = item.woo_order || {}; // 🔥 NEW: WooCommerce data
-        
         const status: RefundStatus =
           item.status === 'refund_processing'
             ? 'refund_processing'
             : item.status === 'refund_completed'
             ? 'processed'
             : (item.status as RefundStatus);
-        
-        const amount = Number(rr.refund_amount || woo.total || 0);
+        const amount = Number(rr.refund_amount || 0);
 
         const nameParts = (rr.customer_name || '').trim().split(' ');
-        
         return {
-          id: Number(rr.order_id || woo.id || 0),
-          number: rr.order_number || woo.number || String(rr.order_id || item.id || ''),
-          status: woo.status || item.status || '',
-          total: woo.total || '0',
-          date_created: woo.date_created || rr.created_at || item.created_at || new Date().toISOString(),
-          billing: woo.billing || {
+          id: Number(rr.order_id || 0),
+          number: rr.order_number || String(rr.order_id || item.id || ''),
+          status: item.status || '',
+          total: '0',
+          date_created: rr.created_at || item.created_at || new Date().toISOString(),
+          billing: {
             first_name: nameParts[0] || '',
             last_name: nameParts.slice(1).join(' ') || '',
             email: rr.customer_email || '',
             phone: '',
           },
-          // 🔥 NEW: Payment information from WooCommerce
-          payment_method: woo.payment_method || '',
-          payment_method_title: woo.payment_method_title || '',
-          transaction_id: woo.transaction_id || '',
-          is_paystack_payment: woo.is_paystack_payment || false, // 🔥 NEW
-          
+          payment_method: '',
+          payment_method_title: '',
+          transaction_id: '',
           shipment_id: item.id,
           return_request_id: rr.id,
           refund_request: {
@@ -230,25 +222,21 @@ export default function RefundsPage() {
             return;
           }
 
-          // 🔥 UPDATED: Better Paystack refund check
           let paystackSuccess = true;
-          if (selectedOrder.is_paystack_payment && selectedOrder.transaction_id) {
-            console.log('💳 Processing Paystack refund for transaction:', selectedOrder.transaction_id);
+          if (
+            selectedOrder.transaction_id &&
+            ['paystack', 'card'].includes(selectedOrder.payment_method)
+          ) {
             paystackSuccess = await processPaystackRefund(selectedOrder.transaction_id, amount);
-          } else {
-            console.log('ℹ️ Skipping Paystack refund (payment method:', selectedOrder.payment_method, ')');
           }
 
           await updateReturnShipmentStatus(selectedOrder.shipment_id, 'refund_completed');
           await updateReturnShipmentStatus(selectedOrder.shipment_id, 'completed');
 
-          // 🔥 UPDATED: Better order note
           await addOrderNote(
             selectedOrder.id,
-            `REFUND PROCESSED\nAmount: ₦${amount.toLocaleString()}\nWooCommerce Refund ID: ${wcRefund.id}\nPayment Method: ${selectedOrder.payment_method_title || selectedOrder.payment_method || 'Unknown'}\nPaystack: ${
-              selectedOrder.is_paystack_payment
-                ? (paystackSuccess ? 'Refund Initiated ✅' : 'Failed - Manual Required ⚠️')
-                : 'Not Applicable (Non-Paystack Payment)'
+            `REFUND PROCESSED\nAmount: ₦${amount.toLocaleString()}\nWooCommerce Refund ID: ${wcRefund.id}\nPaystack: ${
+              paystackSuccess ? 'Initiated' : 'Manual required'
             }${actionNotes ? `\nNotes: ${actionNotes}` : ''}`
           );
           break;
@@ -586,18 +574,7 @@ export default function RefundsPage() {
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                   <p className="text-sm text-yellow-800">
                     <strong>Note:</strong> This will create a refund in WooCommerce
-                    {selectedOrder.is_paystack_payment && selectedOrder.transaction_id && (
-                      <span>
-                        {' '}and initiate a <strong>Paystack refund</strong> (
-                        {selectedOrder.payment_method_title || selectedOrder.payment_method})
-                      </span>
-                    )}
-                    {!selectedOrder.is_paystack_payment && selectedOrder.payment_method && (
-                      <span>
-                        {' '}(Payment method: {selectedOrder.payment_method_title || selectedOrder.payment_method})
-                      </span>
-                    )}
-                    .
+                    {selectedOrder.transaction_id && ' and initiate a Paystack refund'}.
                   </p>
                 </div>
               )}

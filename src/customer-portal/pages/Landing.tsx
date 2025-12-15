@@ -3,10 +3,17 @@ import { Search, Package, TrendingUp, Shield } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { BrandLogo } from '../../shared/BrandLogo';
 
+const portalNavLinks = [
+  { label: 'Track Order', path: 'track' },
+  { label: 'Shipping Estimate', path: 'estimate' },
+  { label: 'Contact', path: 'contact' },
+];
+
 export function CustomerPortalLanding() {
   const navigate = useNavigate();
   const [orderNumber, setOrderNumber] = useState('');
   const [email, setEmail] = useState('');
+  const [mobileNavSelection, setMobileNavSelection] = useState('');
 
   const handleTrackOrder = (e: React.FormEvent) => {
     e.preventDefault();
@@ -15,18 +22,50 @@ export function CustomerPortalLanding() {
     }
   };
 
+  const handleMobileNavChange = (path: string) => {
+    if (!path) return;
+    navigate(path);
+    setMobileNavSelection('');
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-blue-50">
       {/* Header */}
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <BrandLogo withText size={28} textClassName="text-2xl font-bold text-primary-600" />
-            <nav className="flex gap-6">
-              <Link to="track" className="text-gray-600 hover:text-primary-600">Track Order</Link>
-              <Link to="estimate" className="text-gray-600 hover:text-primary-600">Shipping Estimate</Link>
-              <Link to="contact" className="text-gray-600 hover:text-primary-600">Contact</Link>
-            </nav>
+            <div className="flex items-center gap-4">
+              <nav className="hidden sm:flex gap-6">
+                {portalNavLinks.map((link) => (
+                  <Link
+                    key={link.path}
+                    to={link.path}
+                    className="text-gray-600 hover:text-primary-600 text-sm font-medium"
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+              </nav>
+              <div className="sm:hidden">
+                <label htmlFor="customerPortalNav" className="sr-only">
+                  Open navigation menu
+                </label>
+                <select
+                  id="customerPortalNav"
+                  value={mobileNavSelection}
+                  onChange={(e) => handleMobileNavChange(e.target.value)}
+                  className="border border-gray-300 rounded-full px-3 py-2 text-sm text-gray-600 bg-white transition-colors focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+                >
+                  <option value="">Menu</option>
+                  {portalNavLinks.map((link) => (
+                    <option key={link.path} value={link.path}>
+                      {link.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
         </div>
       </header>

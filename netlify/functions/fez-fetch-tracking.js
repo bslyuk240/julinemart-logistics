@@ -1,6 +1,6 @@
 // Fez Delivery - Fetch Tracking Function
-// Gets live tracking updates from Fez API with DATABASE AUTHENTICATION
-// PURE JAVASCRIPT VERSION (Netlify compatible)
+// SAFE PRODUCTION VERSION (Live + Sandbox)
+// Netlify compatible – Pure JavaScript
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -20,13 +20,24 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
-// ---------------------------
-// AUTHENTICATE WITH FEZ
-// ---------------------------
-async function authenticateFez(baseUrlFallback) {
-  const environment =
-    process.env.NETLIFY_CONTEXT === 'production' ? 'live' : 'sandbox';
+// --------------------------------------------------
+// RESOLVE ENVIRONMENT (order → courier → netlify)
+// --------------------------------------------------
+function resolveEnvironment(subOrder, courier) {
+  if (subOrder?.environment) return subOrder.environment;
+  if (courier?.api_config?.environment) return courier.api_config.environment;
 
+  if (process.env.NETLIFY_CONTEXT === 'production') {
+    return 'live';
+  }
+
+  return 'sandbox';
+}
+
+// --------------------------------------------------
+// AUTHENTICATE WITH FEZ (DB-DRIVEN)
+// --------------------------------------------------
+async function authenticateFez(environment) {
   console.log('🔍 Fetching Fez credentials from database...');
   console.log('🌍 Environment:', environment);
 
@@ -35,29 +46,31 @@ async function authenticateFez(baseUrlFallback) {
     .select('api_user_id, api_password, api_base_url, api_config')
     .eq('code', 'fez')
     .eq('api_enabled', true)
-    .eq("api_config->>environment", environment)
+    .eq('api_config->>environment', environment)
     .single();
 
   if (error || !courier) {
-    console.error('❌ Failed to fetch credentials:', error);
+    console.error('❌ Fez credential lookup failed:', error);
     throw new Error(`Fez credentials not configured for ${environment}`);
   }
 
-  const userId = courier.api_user_id;
-  const password = courier.api_password;
   const baseUrl =
     courier.api_base_url ||
-    baseUrlFallback ||
-    'https://apisandbox.fezdelivery.co/v1';
+    (environment === 'live'
+      ? 'https://api.fezdelivery.co/v1'
+      : 'https://apisandbox.fezdelivery.co/v1');
 
-  console.log('✅ Using Fez credentials:', { userId, baseUrl });
+  console.log('✅ Using Fez credentials:', {
+    userId: courier.api_user_id,
+    baseUrl,
+  });
 
   const response = await fetch(`${baseUrl}/user/authenticate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      user_id: userId,
-      password,
+      user_id: courier.api_user_id,
+      password: courier.api_password,
     }),
   });
 
@@ -74,9 +87,9 @@ async function authenticateFez(baseUrlFallback) {
   };
 }
 
-// ---------------------------
+// --------------------------------------------------
 // FETCH TRACKING
-// ---------------------------
+// --------------------------------------------------
 async function fetchFezTracking(authToken, secretKey, baseUrl, trackingNumber) {
   const response = await fetch(`${baseUrl}/order/track/${trackingNumber}`, {
     method: 'GET',
@@ -89,7 +102,7 @@ async function fetchFezTracking(authToken, secretKey, baseUrl, trackingNumber) {
   const data = await response.json();
 
   if (data.status !== 'Success') {
-    throw new Error(data.description || 'Failed to fetch tracking');
+    throw new Error(data.description || 'Order Not Found');
   }
 
   return {
@@ -98,9 +111,9 @@ async function fetchFezTracking(authToken, secretKey, baseUrl, trackingNumber) {
   };
 }
 
-// ---------------------------
-// STATUS MAPPER
-// ---------------------------
+// --------------------------------------------------
+// STATUS MAPPING
+// --------------------------------------------------
 function mapFezStatus(status) {
   const map = {
     'Pending Pick-Up': 'pending_pickup',
@@ -117,12 +130,12 @@ function mapFezStatus(status) {
 
 function isValidFezTrackingNumber(val) {
   if (!val || typeof val !== 'string') return false;
-  return !/^[0-9a-f-]{36}$/i.test(val);
+  return !/^[0-9a-f-]{36}$/i.test(val); // exclude UUIDs
 }
 
-// ---------------------------
+// --------------------------------------------------
 // NETLIFY HANDLER
-// ---------------------------
+// --------------------------------------------------
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
@@ -175,7 +188,11 @@ export async function handler(event) {
       };
     }
 
-    const { authToken, secretKey, baseUrl } = await authenticateFez();
+    // 🔐 Resolve environment SAFELY
+    const environment = resolveEnvironment(subOrder);
+
+    const { authToken, secretKey, baseUrl } =
+      await authenticateFez(environment);
 
     const trackingData = await fetchFezTracking(
       authToken,

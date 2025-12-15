@@ -1,83 +1,95 @@
 import { serve } from "https://deno.land/std@0.203.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.81.1";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL");
-const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-
 serve(async (req) => {
-  const headers = {
-    "Content-Type": "application/json",
-    ...corsHeaders(req),
-  };
-
-  // Preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 200, headers });
-  }
-
-  if (req.method !== "GET") {
-    return new Response(
-      JSON.stringify({ success: false, error: "GET only" }),
-      { status: 405, headers }
-    );
+    return new Response(null, { status: 200, headers: corsHeaders(req) });
   }
 
   try {
-    if (!supabaseUrl || !supabaseKey) {
-      throw new Error("Supabase env vars missing");
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
     const url = new URL(req.url);
-    const wooOrderId = url.searchParams.get("orderId");
+    const orderNumber = url.searchParams.get("orderId");
 
-    if (!wooOrderId) {
+    if (!orderNumber) {
       return new Response(
-        JSON.stringify({ success: true, data: [] }),
-        { headers }
+        JSON.stringify({ success: false, error: "orderId is required" }),
+        { status: 400, headers: corsHeaders(req) }
       );
     }
 
-    // 🔑 STEP 1: Resolve Woo → UUID (SAFE, no .single())
-    const { data: orders, error: orderError } = await supabase
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    /* -------------------------------------------
+       STEP 1: Resolve Woo order → internal UUID
+    -------------------------------------------- */
+    const { data: order, error: orderError } = await supabase
       .from("orders")
       .select("id")
-      .eq("woocommerce_order_id", wooOrderId)
-      .limit(1);
+      .eq("woocommerce_order_id", orderNumber)
+      .maybeSingle();
 
-    if (orderError || !orders || orders.length === 0) {
+    if (!order || orderError) {
       return new Response(
         JSON.stringify({ success: true, data: [] }),
-        { headers }
+        { status: 200, headers: corsHeaders(req) }
       );
     }
 
-    const orderUuid = orders[0].id;
+    /* -------------------------------------------
+       STEP 2: Get return requests for this order
+    -------------------------------------------- */
+    const { data: requests, error: requestError } = await supabase
+      .from("return_requests")
+      .select("id")
+      .eq("order_id", order.id);
 
-    // 🔑 STEP 2: Fetch return shipments
+    if (requestError || !requests?.length) {
+      return new Response(
+        JSON.stringify({ success: true, data: [] }),
+        { status: 200, headers: corsHeaders(req) }
+      );
+    }
+
+    const requestIds = requests.map(r => r.id);
+
+    /* -------------------------------------------
+       STEP 3: Fetch return shipments
+    -------------------------------------------- */
     const { data: shipments, error } = await supabase
       .from("return_shipments")
-      .select("*")
-      .eq("order_id", orderUuid)
+      .select(`
+        *,
+        return_request:return_requests (
+          id,
+          order_number,
+          customer_name,
+          customer_email,
+          status,
+          reason_code,
+          reason_note,
+          created_at
+        )
+      `)
+      .in("return_request_id", requestIds)
       .order("created_at", { ascending: false });
 
     if (error) throw error;
 
     return new Response(
-      JSON.stringify({ success: true, data: shipments ?? [] }),
-      { headers }
+      JSON.stringify({ success: true, data: shipments || [] }),
+      { status: 200, headers: corsHeaders(req) }
     );
   } catch (err) {
-    console.error("get-order-returns error:", err);
-
     return new Response(
       JSON.stringify({
         success: false,
-        error: err instanceof Error ? err.message : "Internal error",
+        error: err.message
       }),
-      { status: 500, headers }
+      { status: 500, headers: corsHeaders(req) }
     );
   }
 });

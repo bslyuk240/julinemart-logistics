@@ -1,6 +1,7 @@
 export const ALLOWED_ORIGINS = [
   "https://jlo.julinemart.com",
   "https://www.jlo.julinemart.com",
+  "https://dev-jlo.netlify.app", // ✅ DEV JLO
   "http://localhost:3000",
   "http://localhost:5173",
   "http://localhost:8888",

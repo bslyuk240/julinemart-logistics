@@ -128,7 +128,11 @@ export function NotificationsPanel() {
           const mapped = (data.data as ActivityLog[])
             .filter((log) => !clearedIds.has(log.id))
             .map((log) => formatNotification(log));
-          setNotifications(mapped);
+          const relevant = mapped.filter(
+            (notification) =>
+              notification.type === 'order' || notification.type === 'shipment',
+          );
+          setNotifications(relevant.length > 0 ? relevant : mapped);
         }
       } catch (error) {
         console.error('Failed to load notifications', error);
@@ -209,7 +213,7 @@ export function NotificationsPanel() {
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
 
           {/* Panel */}
-          <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-[600px] flex flex-col">
+          <div className="absolute right-0 top-full mt-2 w-[min(24rem,calc(100vw-1rem))] sm:w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-[calc(100vh-4rem)] flex flex-col">
             {/* Header */}
             <div className="p-4 border-b border-gray-200 flex items-center justify-between">
               <div>

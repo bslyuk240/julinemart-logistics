@@ -1,10 +1,12 @@
 // Fez Delivery - Fetch Tracking Function
-// Gets live tracking updates from Fez API
+// SAFE PRODUCTION VERSION (Live + Sandbox)
+// Netlify compatible – Pure JavaScript
 
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables');
@@ -18,104 +20,123 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
-// Authenticate with Fez API
-async function authenticateFez(userId, password, baseUrl) {
-  try {
-    const response = await fetch(`${baseUrl}/user/authenticate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        user_id: userId,
-        password: password,
-      }),
-    });
+// --------------------------------------------------
+// RESOLVE ENVIRONMENT (order → courier → netlify)
+// --------------------------------------------------
+function resolveEnvironment(subOrder, courier) {
+  if (subOrder?.environment) return subOrder.environment;
+  if (courier?.api_config?.environment) return courier.api_config.environment;
 
-    const data = await response.json();
-
-    if (data.status === 'Success') {
-      return {
-        authToken: data.authDetails.authToken,
-        secretKey: data.orgDetails['secret-key'],
-      };
-    } else {
-      throw new Error(data.description || 'Authentication failed');
-    }
-  } catch (error) {
-    console.error('Fez authentication error:', error);
-    throw new Error('Failed to authenticate with Fez API');
+  if (process.env.NETLIFY_CONTEXT === 'production') {
+    return 'live';
   }
+
+  return 'sandbox';
 }
 
-// Fetch tracking from Fez
+// --------------------------------------------------
+// AUTHENTICATE WITH FEZ (DB-DRIVEN)
+// --------------------------------------------------
+async function authenticateFez(environment) {
+  console.log('🔍 Fetching Fez credentials from database...');
+  console.log('🌍 Environment:', environment);
+
+  const { data: courier, error } = await supabase
+    .from('couriers')
+    .select('api_user_id, api_password, api_base_url, api_config')
+    .eq('code', 'fez')
+    .eq('api_enabled', true)
+    .eq('api_config->>environment', environment)
+    .single();
+
+  if (error || !courier) {
+    console.error('❌ Fez credential lookup failed:', error);
+    throw new Error(`Fez credentials not configured for ${environment}`);
+  }
+
+  const baseUrl =
+    courier.api_base_url ||
+    (environment === 'live'
+      ? 'https://api.fezdelivery.co/v1'
+      : 'https://apisandbox.fezdelivery.co/v1');
+
+  console.log('✅ Using Fez credentials:', {
+    userId: courier.api_user_id,
+    baseUrl,
+  });
+
+  const response = await fetch(`${baseUrl}/user/authenticate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      user_id: courier.api_user_id,
+      password: courier.api_password,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (data.status !== 'Success') {
+    throw new Error(data.description || 'Fez authentication failed');
+  }
+
+  return {
+    authToken: data.authDetails.authToken,
+    secretKey: data.orgDetails['secret-key'],
+    baseUrl,
+  };
+}
+
+// --------------------------------------------------
+// FETCH TRACKING
+// --------------------------------------------------
 async function fetchFezTracking(authToken, secretKey, baseUrl, trackingNumber) {
-  try {
-    const response = await fetch(`${baseUrl}/order/track/${trackingNumber}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${authToken}`,
-        'secret-key': secretKey,
-      },
-    });
+  const response = await fetch(`${baseUrl}/order/track/${trackingNumber}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${authToken}`,
+      'secret-key': secretKey,
+    },
+  });
 
-    const data = await response.json();
+  const data = await response.json();
 
-    if (data.status === 'Success') {
-      return {
-        success: true,
-        order: data.order,
-        history: data.history,
-      };
-    } else {
-      throw new Error(data.description || 'Failed to fetch tracking');
-    }
-  } catch (error) {
-    console.error('Fez tracking error:', error);
-    throw error;
+  if (data.status !== 'Success') {
+    throw new Error(data.description || 'Order Not Found');
   }
+
+  return {
+    order: data.order,
+    history: data.history,
+  };
 }
 
-// Map Fez status to JLO status
-function mapFezStatus(fezStatus) {
-  const statusMap = {
+// --------------------------------------------------
+// STATUS MAPPING
+// --------------------------------------------------
+function mapFezStatus(status) {
+  const map = {
     'Pending Pick-Up': 'pending_pickup',
     'Picked-Up': 'picked_up',
-    'Dispatched': 'in_transit',
+    Dispatched: 'in_transit',
     'Out for Delivery': 'out_for_delivery',
-    'Delivered': 'delivered',
-    'Cancelled': 'cancelled',
-    'Returned': 'returned',
+    Delivered: 'delivered',
+    Cancelled: 'cancelled',
+    Returned: 'returned',
   };
 
-  return statusMap[fezStatus] || 'processing';
+  return map[status] || 'processing';
 }
 
-// Check if a value looks like a valid Fez tracking number (not a UUID)
-function isValidFezTrackingNumber(value) {
-  if (!value || typeof value !== 'string') return false;
-  
-  // UUIDs have format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (uuidPattern.test(value)) return false;
-  
-  // Check for error messages
-  if (value.toLowerCase().includes('already exists')) return false;
-  if (value.toLowerCase().includes('error')) return false;
-  
-  // Valid Fez tracking numbers are typically alphanumeric (like GWD026112514)
-  return value.length > 0 && value.length < 50;
+function isValidFezTrackingNumber(val) {
+  if (!val || typeof val !== 'string') return false;
+  return !/^[0-9a-f-]{36}$/i.test(val); // exclude UUIDs
 }
 
-// Extract order code from error message if present
-function extractOrderCode(val) {
-  if (typeof val !== 'string') return val;
-  if (val.toLowerCase().includes('already exists')) {
-    const match = val.match(/order\s+([A-Za-z0-9_-]+)/i);
-    if (match) return match[1];
-  }
-  return val;
-}
-
-exports.handler = async (event) => {
+// --------------------------------------------------
+// NETLIFY HANDLER
+// --------------------------------------------------
+export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
@@ -129,111 +150,50 @@ exports.handler = async (event) => {
   }
 
   try {
-    // Prefer query param ?subOrderId=... (front-end calls)
-    const querySubOrderId = event.queryStringParameters?.subOrderId;
-    const pathParts = event.path.split('/');
-    const pathSubOrderId = pathParts[pathParts.length - 1];
-    const subOrderId = querySubOrderId || pathSubOrderId;
+    const subOrderId = event.queryStringParameters?.subOrderId;
 
     if (!subOrderId) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ success: false, error: 'subOrderId is required' }),
+        body: JSON.stringify({ success: false, error: 'subOrderId required' }),
       };
     }
 
-    console.log('Fetching tracking for sub-order:', subOrderId);
-
-    // 1. Get sub-order details
-    const { data: subOrder, error: subOrderError } = await supabase
+    const { data: subOrder, error } = await supabase
       .from('sub_orders')
-      .select(`
-        *,
-        couriers (
-          code,
-          api_base_url,
-          api_user_id,
-          api_password
-        )
-      `)
+      .select('*')
       .eq('id', subOrderId)
       .single();
 
-    if (subOrderError || !subOrder) {
-      throw new Error('Sub-order not found');
+    if (error || !subOrder) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ success: false, error: 'Sub-order not found' }),
+      };
     }
 
-    // FIXED: Prioritize tracking_number and courier_waybill over courier_shipment_id
-    // because courier_shipment_id sometimes contains the sub-order UUID instead of Fez tracking number
-    const candidates = [
-      subOrder.tracking_number,
-      subOrder.courier_waybill,
-      subOrder.courier_shipment_id,
-    ];
+    const trackingNumber =
+      subOrder.courier_waybill || subOrder.tracking_number;
 
-    // Find the first valid Fez tracking number
-    let rawTracking = null;
-    for (const candidate of candidates) {
-      const cleaned = extractOrderCode(candidate);
-      if (isValidFezTrackingNumber(cleaned)) {
-        rawTracking = cleaned;
-        break;
-      }
-    }
-
-    console.log('Tracking number candidates:', {
-      tracking_number: subOrder.tracking_number,
-      courier_waybill: subOrder.courier_waybill,
-      courier_shipment_id: subOrder.courier_shipment_id,
-      selected: rawTracking,
-    });
-
-    // 2. Check if tracking number exists
-    if (!rawTracking) {
+    if (!isValidFezTrackingNumber(trackingNumber)) {
       return {
         statusCode: 400,
         headers,
         body: JSON.stringify({
           success: false,
-          error: 'No valid Fez tracking number found. Please create shipment first.',
-          debug: {
-            tracking_number: subOrder.tracking_number,
-            courier_waybill: subOrder.courier_waybill,
-            courier_shipment_id: subOrder.courier_shipment_id,
-          },
+          error: 'No valid Fez tracking number',
         }),
       };
     }
 
-    const trackingNumber = rawTracking;
+    // 🔐 Resolve environment SAFELY
+    const environment = resolveEnvironment(subOrder);
 
-    // 3. Check courier credentials
-    const courier = subOrder.couriers;
-    if (!courier || !courier.api_user_id || !courier.api_password) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({
-          success: false,
-          error: 'Courier API credentials not configured.',
-        }),
-      };
-    }
+    const { authToken, secretKey, baseUrl } =
+      await authenticateFez(environment);
 
-    // 4. Get API base URL
-    const baseUrl = courier.api_base_url || 'https://apisandbox.fezdelivery.co/v1';
-
-    // 5. Authenticate
-    console.log('Authenticating with Fez API...');
-    const { authToken, secretKey } = await authenticateFez(
-      courier.api_user_id,
-      courier.api_password,
-      baseUrl
-    );
-
-    // 6. Fetch tracking
-    console.log('Fetching tracking for:', trackingNumber);
     const trackingData = await fetchFezTracking(
       authToken,
       secretKey,
@@ -241,74 +201,15 @@ exports.handler = async (event) => {
       trackingNumber
     );
 
-    // 7. Map status
     const jloStatus = mapFezStatus(trackingData.order.orderStatus);
 
-    // 8. Update sub-order with latest tracking
-    const { error: updateError } = await supabase
+    await supabase
       .from('sub_orders')
       .update({
         status: jloStatus,
         last_tracking_update: new Date().toISOString(),
       })
       .eq('id', subOrderId);
-
-    if (updateError) {
-      console.error('Failed to update sub-order:', updateError);
-    }
-
-    // 9. Save tracking events (avoid duplicates by checking existing)
-    if (trackingData.history && trackingData.history.length > 0) {
-      // Get existing tracking events to avoid duplicates
-      const { data: existingEvents } = await supabase
-        .from('tracking_events')
-        .select('description, event_time')
-        .eq('sub_order_id', subOrderId);
-
-      const existingKeys = new Set(
-        (existingEvents || []).map(e => `${e.description}-${e.event_time}`)
-      );
-
-      const newEvents = trackingData.history
-        .filter(event => {
-          const key = `${event.statusDescription}-${event.statusCreationDate}`;
-          return !existingKeys.has(key);
-        })
-        .map(event => ({
-          sub_order_id: subOrderId,
-          status: mapFezStatus(event.orderStatus),
-          location_name: event.location || 'Fez Delivery',
-          event_time: event.statusCreationDate,
-          description: event.statusDescription || event.orderStatus,
-          source: 'fez_api',
-          actor_type: 'courier',
-        }));
-
-      if (newEvents.length > 0) {
-        const { error: insertError } = await supabase
-          .from('tracking_events')
-          .insert(newEvents);
-
-        if (insertError) {
-          console.error('Failed to insert tracking events:', insertError);
-        } else {
-          console.log(`Inserted ${newEvents.length} new tracking events`);
-        }
-      }
-    }
-
-    // 10. Log activity
-    await supabase.from('activity_logs').insert({
-      user_id: null,
-      action: 'tracking_updated',
-      resource_type: 'sub_order',
-      resource_id: subOrderId,
-      details: { 
-        tracking_number: trackingNumber,
-        fez_status: trackingData.order.orderStatus,
-        jlo_status: jloStatus,
-      },
-    });
 
     return {
       statusCode: 200,
@@ -319,22 +220,20 @@ exports.handler = async (event) => {
           status: jloStatus,
           fez_status: trackingData.order.orderStatus,
           tracking_number: trackingNumber,
-          order_details: trackingData.order,
           history: trackingData.history,
-          last_update: new Date().toISOString(),
         },
       }),
     };
-  } catch (error) {
-    console.error('Error fetching tracking:', error);
+  } catch (err) {
+    console.error('❌ Fez tracking error:', err);
     return {
       statusCode: 500,
       headers,
       body: JSON.stringify({
         success: false,
         error: 'Failed to fetch tracking',
-        message: error.message,
+        message: err.message,
       }),
     };
   }
-};
+}

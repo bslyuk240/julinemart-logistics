@@ -195,6 +195,7 @@ exports.handler = async (event) => {
         *,
         orders (
           id,
+          overall_status,
           woocommerce_order_id,
           customer_name,
           customer_email,
@@ -382,6 +383,18 @@ exports.handler = async (event) => {
           error: "Sub-order not found when saving tracking number"
         })
       };
+    }
+
+    // Promote overall order status if it is still pending
+    if (subOrder.orders?.id && subOrder.orders?.overall_status === "pending") {
+      try {
+        await supabase
+          .from("orders")
+          .update({ overall_status: "processing" })
+          .eq("id", subOrder.orders.id);
+      } catch (orderUpdateError) {
+        console.warn("Failed to promote overall order status", orderUpdateError);
+      }
     }
 
     // Log activity

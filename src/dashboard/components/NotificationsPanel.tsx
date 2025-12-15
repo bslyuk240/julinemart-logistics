@@ -232,7 +232,7 @@ export function NotificationsPanel() {
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
 
           {/* Panel */}
-          <div className="absolute right-0 top-full mt-2 w-[min(24rem,calc(100vw-1rem))] sm:w-96 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-[calc(100vh-4rem)] flex flex-col">
+          <div className="absolute left-1/2 top-full mt-2 -translate-x-1/2 w-[min(16rem,calc(100vw-1rem))] sm:w-80 bg-white rounded-lg shadow-xl border border-gray-200 z-50 max-h-[calc(100vh-4rem)] flex flex-col">
             {/* Header */}
             <div className="p-4 border-b border-gray-200 flex items-center justify-between">
               <div>

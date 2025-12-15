@@ -28,54 +28,27 @@ export async function handler(event) {
 
   try {
     console.log('=== GET RETURNS FOR ORDER ===');
-    console.log('Event path:', event.path);
     console.log('Query params:', event.queryStringParameters);
 
-    // Extract order_id from path OR query parameter
-    let orderId = null;
-    
-    // Method 1: From query parameter
-    if (event.queryStringParameters && event.queryStringParameters.order_id) {
-      orderId = event.queryStringParameters.order_id;
-      console.log('Got order_id from query param:', orderId);
-    }
-    
-    // Method 2: From path parameters
-    if (!orderId && event.pathParameters && event.pathParameters.orderId) {
-      orderId = event.pathParameters.orderId;
-      console.log('Got order_id from path param:', orderId);
-    }
-    
-    // Method 3: Parse from path manually
-    if (!orderId) {
-      const pathOnly = event.path.split('?')[0];
-      const pathParts = pathOnly.split('/').filter(Boolean);
-      
-      // Find 'order' and get next part
-      const orderIndex = pathParts.findIndex(part => part === 'order');
-      if (orderIndex >= 0 && pathParts[orderIndex + 1]) {
-        orderId = pathParts[orderIndex + 1];
-        console.log('Got order_id from path parsing:', orderId);
-      }
-    }
+    // Extract orderId from query parameter (dashboard uses ?orderId=XXX)
+    const orderId = event.queryStringParameters?.orderId || event.queryStringParameters?.order_id;
 
     if (!orderId) {
-      console.error('Could not extract order_id from path');
+      console.error('Missing orderId parameter');
       return {
         statusCode: 400,
         headers: corsHeaders,
         body: JSON.stringify({ 
           success: false, 
           error: 'Order ID required',
-          hint: 'Use: /api/return-shipments/order/{orderId}'
+          hint: 'Use: /get-order-returns?orderId={orderId}'
         }),
       };
     }
 
     console.log('Fetching returns for order_id:', orderId);
 
-    // Query return_shipments with their parent return_requests
-    // Join on return_requests to get order_id
+    // Query return_shipments joined with their parent return_requests
     const { data: shipments, error: queryError } = await supabase
       .from('return_shipments')
       .select(`

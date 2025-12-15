@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Bell, X, Package, Truck, AlertCircle } from 'lucide-react';
+import { Bell, X } from 'lucide-react';
 
 interface Notification {
   id: string;
-  type: 'order' | 'shipment' | 'system';
+  type: 'order' | 'shipment' | 'refund';
   title: string;
   message: string;
   timestamp: Date;
   read: boolean;
-  icon?: 'success' | 'warning' | 'error' | 'info';
+  iconSymbol?: string;
 }
 
 interface ActivityLog {
@@ -52,12 +52,12 @@ export function NotificationsPanel() {
   function formatNotification(log: ActivityLog): Notification {
     const actionLower = log.action?.toLowerCase() || '';
     const resourceLower = log.resource_type?.toLowerCase() || '';
-    const type: Notification['type'] =
-      actionLower.includes('shipment') || resourceLower.includes('shipment')
-        ? 'shipment'
-        : actionLower.includes('order') || resourceLower.includes('order')
-        ? 'order'
-        : 'system';
+    let type: Notification['type'] = 'order';
+    if (actionLower.includes('refund') || resourceLower.includes('refund')) {
+      type = 'refund';
+    } else if (actionLower.includes('shipment') || resourceLower.includes('shipment') || actionLower.includes('tracking')) {
+      type = 'shipment';
+    }
 
     const parseDetails = () => {
       if (log.description) return log.description;
@@ -107,6 +107,8 @@ export function NotificationsPanel() {
       return 'Activity recorded';
     })();
 
+    const iconSymbol = type === 'order' ? '📦' : type === 'shipment' ? '🚚' : '💸';
+
     return {
       id: log.id,
       type,
@@ -114,8 +116,22 @@ export function NotificationsPanel() {
       message,
       timestamp: new Date(log.created_at),
       read: false,
+      iconSymbol,
     };
   }
+
+  const shouldShowLog = (log: ActivityLog) => {
+    const actionLower = log.action?.toLowerCase() || '';
+    const resourceLower = log.resource_type?.toLowerCase() || '';
+    return (
+      actionLower.includes('order') ||
+      actionLower.includes('tracking') ||
+      actionLower.includes('refund') ||
+      resourceLower.includes('order') ||
+      resourceLower.includes('return') ||
+      resourceLower.includes('refund')
+    );
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -125,14 +141,11 @@ export function NotificationsPanel() {
         if (!response.ok) throw new Error(`Activity logs ${response.status}`);
         const data = await response.json();
         if (mounted && data.success && Array.isArray(data.data)) {
-          const mapped = (data.data as ActivityLog[])
+          const filtered = (data.data as ActivityLog[])
             .filter((log) => !clearedIds.has(log.id))
-            .map((log) => formatNotification(log));
-          const relevant = mapped.filter(
-            (notification) =>
-              notification.type === 'order' || notification.type === 'shipment',
-          );
-          setNotifications(relevant.length > 0 ? relevant : mapped);
+            .filter((log) => shouldShowLog(log));
+          const mapped = filtered.map((log) => formatNotification(log));
+          setNotifications(mapped);
         }
       } catch (error) {
         console.error('Failed to load notifications', error);
@@ -177,10 +190,16 @@ export function NotificationsPanel() {
   };
 
   const getIcon = (notification: Notification) => {
-    if (notification.type === 'order') return <Package className="w-5 h-5 text-blue-600" />;
-    if (notification.type === 'shipment') return <Truck className="w-5 h-5 text-purple-600" />;
-    if (notification.icon === 'warning') return <AlertCircle className="w-5 h-5 text-yellow-600" />;
-    return <Bell className="w-5 h-5 text-gray-600" />;
+    const baseClasses = 'w-8 h-8 rounded-full flex items-center justify-center text-lg';
+    const themeClass =
+      notification.type === 'order'
+        ? 'bg-blue-50 text-blue-600'
+        : notification.type === 'shipment'
+        ? 'bg-purple-50 text-purple-600'
+        : 'bg-yellow-50 text-yellow-600';
+    return (
+      <span className={`${baseClasses} ${themeClass}`}>{notification.iconSymbol || '🛎️'}</span>
+    );
   };
 
   const getTimeAgo = (date: Date) => {

@@ -3,8 +3,33 @@
   publish = "dist"
   functions = "netlify/functions"
 
-# Specific API routes MUST come before the generic /api/* catch-all
-# Netlify processes redirects in order and stops at the first match
+# -------------------------------------------------
+# VITE DEV ASSETS (MUST COME FIRST)
+# -------------------------------------------------
+
+[[redirects]]
+  from = "/src/*"
+  to = "/src/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/@vite/*"
+  to = "/@vite/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/@react-refresh/*"
+  to = "/@react-refresh/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/node_modules/*"
+  to = "/node_modules/:splat"
+  status = 200
+
+# -------------------------------------------------
+# API ROUTES
+# -------------------------------------------------
 
 [[redirects]]
   from = "/api/returns/:id/tracking"
@@ -26,32 +51,60 @@
   to = "/.netlify/functions/refund-queue"
   status = 200
 
-# Generic API catch-all - must be LAST among API routes
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
+
+# -------------------------------------------------
+# SPA FALLBACK (MUST BE LAST)
+# -------------------------------------------------
 
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 
+# -------------------------------------------------
+# ENVIRONMENT
+# -------------------------------------------------
+
 [build.environment]
   NODE_VERSION = "20"
+
+# -------------------------------------------------
+# HEADERS
+# -------------------------------------------------
 
 [[headers]]
   for = "/api/*"
   [headers.values]
-    Access-Control-Allow-Origin = "https://julinemart.com"
+    Access-Control-Allow-Origin = "*"
     Access-Control-Allow-Methods = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
     Access-Control-Allow-Headers = "Content-Type, Authorization"
+
+# -------------------------------------------------
+# FUNCTIONS
+# -------------------------------------------------
 
 [functions]
   node_bundler = "esbuild"
   included_files = ["netlify/functions/services/**"]
   external_node_modules = ["pdfkit"]
 
+# -------------------------------------------------
+# EDGE FUNCTIONS
+# -------------------------------------------------
+
 [[edge_functions]]
   function = "cors"
   path = "/api/*"
+
+# -------------------------------------------------
+# NETLIFY DEV
+# -------------------------------------------------
+
+[dev]
+  command = "npm run dev -- --host 0.0.0.0 --port 3000"
+  targetPort = 3000
+  port = 8888

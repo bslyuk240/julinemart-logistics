@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, ChangeEvent } from 'react';
+import { useEffect, useMemo, useState, ChangeEvent } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { supabase } from '../contexts/AuthContext';
+import { buildSupabaseFunctionUrl } from '../utils/supabaseFunctions';
 
 type Identifier = string | number;
 type KnownStatus =
@@ -125,6 +126,35 @@ type Order = {
   overall_status: string;
   created_at: string;
   sub_orders?: SubOrder[];
+};
+
+const STATUS_PRIORITY: Record<string, number> = {
+  pending: 1,
+  processing: 2,
+  assigned: 3,
+  picked_up: 4,
+  in_transit: 5,
+  out_for_delivery: 6,
+  delivered: 7,
+  returned: 8,
+  failed: 9,
+  cancelled: 10,
+};
+
+const getStatusPriority = (status?: string) => {
+  if (!status) return 0;
+  return STATUS_PRIORITY[status] ?? 0;
+};
+
+const deriveOrderStatus = (order: Order | null, subOrders: SubOrder[]) => {
+  const fallback = order?.overall_status || 'pending';
+  let bestStatus = fallback;
+  subOrders.forEach((sub) => {
+    if (getStatusPriority(sub.status) > getStatusPriority(bestStatus)) {
+      bestStatus = sub.status;
+    }
+  });
+  return bestStatus;
 };
 
 /**
@@ -289,6 +319,7 @@ export function OrderDetailsPage() {
   const notification = useNotification();
 
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
   const [order, setOrder] = useState<Order | null>(null);
   const [subOrders, setSubOrders] = useState<SubOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -300,6 +331,10 @@ export function OrderDetailsPage() {
   const [returnTrackingLoading, setReturnTrackingLoading] = useState<Record<string, boolean>>({});
   const [trackingInput, setTrackingInput] = useState<Record<string, string>>({});
   const [trackingFilter, setTrackingFilter] = useState<'all' | 'with' | 'without'>('all');
+  const derivedStatus = useMemo(
+    () => deriveOrderStatus(order, subOrders),
+    [order?.overall_status, subOrders]
+  );
 
   const formatCurrency = (value?: number | null) => {
     const amount = typeof value === 'number' ? value : 0;
@@ -321,7 +356,14 @@ export function OrderDetailsPage() {
     try {
       console.log('Fetching order details for:', id);
       const headers = await getAuthHeaders();
-      const response = await fetch(`${apiBase}/api/orders/${id}`, { headers });
+      const url = buildSupabaseFunctionUrl(`orders/${id}`);
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+      });
       const data = await response.json();
 
       console.log('Order details response:', data);
@@ -358,12 +400,29 @@ export function OrderDetailsPage() {
     if (!orderId) return;
     try {
       const headers = await getAuthHeaders();
-      const response = await fetch(`${apiBase}/api/return-shipments/order/${orderId}`, { headers });
-      const data = await response.json();
-
-      if (data?.success) {
-        setReturnShipments(data.data || []);
+      if (!supabaseAnonKey) {
+        throw new Error('Missing Supabase anon key for return shipments');
       }
+
+      const url = buildSupabaseFunctionUrl(
+        `get-order-returns?orderId=${encodeURIComponent(String(orderId))}`
+      );
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${supabaseAnonKey}`,
+          apikey: supabaseAnonKey,
+          ...headers,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch return shipments');
+      }
+
+      const data = await response.json();
+      setReturnShipments(data?.data ?? []);
     } catch (error) {
       console.error('Error fetching return shipments:', error);
     }
@@ -705,10 +764,10 @@ export function OrderDetailsPage() {
           </div>
           <span
             className={`px-4 py-2 rounded-full text-sm font-medium ${getStatusColor(
-              order.overall_status
+              derivedStatus
             )}`}
           >
-            {order.overall_status}
+            {derivedStatus}
           </span>
         </div>
       </div>

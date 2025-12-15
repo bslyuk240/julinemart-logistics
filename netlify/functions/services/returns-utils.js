@@ -165,6 +165,52 @@ export async function fetchWooOrder(orderId) {
   return data;
 }
 
+export async function createWooRefund({
+  orderId,
+  amount,
+  reason,
+  apiRefund = true,
+}) {
+  if (!WOO_BASE) throw new Error("WooCommerce URL missing");
+  if (!orderId) throw new Error("orderId is required for Woo refund");
+  if (typeof amount !== "number" || amount <= 0)
+    throw new Error("Refund amount must be a positive number");
+
+  const payload = {
+    amount: amount.toFixed(2),
+    api_refund: apiRefund,
+    ...(reason ? { reason } : {}),
+  };
+
+  const url = `${WOO_BASE}/orders/${orderId}/refunds`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization:
+        "Basic " + Buffer.from(`${WOO_KEY}:${WOO_SECRET}`).toString("base64"),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await res.json();
+
+  if (!res.ok) {
+    const message =
+      data?.message ||
+      (data?.data && typeof data.data === "object"
+        ? Object.values(data.data)
+            .flat()
+            .map((entry) => entry?.message || entry)
+            .join("; ")
+        : null) ||
+      "WooCommerce refund failed";
+    throw new Error(message);
+  }
+
+  return data;
+}
+
 // -----------------------------------------
 // FETCH HUB FROM DATABASE
 // -----------------------------------------

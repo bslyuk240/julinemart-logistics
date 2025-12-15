@@ -120,7 +120,17 @@ exports.handler = async (event) => {
     return { statusCode: 200, headers, body: '' };
   }
 
-  if (event.httpMethod !== 'GET') {
+  const method = event.httpMethod;
+  if (method !== 'GET') {
+    const auth = event.headers?.authorization;
+    if (!auth) {
+      return {
+        statusCode: 401,
+        headers,
+        body: JSON.stringify({ error: 'Unauthorized' }),
+      };
+    }
+
     return {
       statusCode: 405,
       headers,

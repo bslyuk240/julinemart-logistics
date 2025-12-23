@@ -203,7 +203,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { subOrderId } = JSON.parse(event.body || "{}");
+    const { subOrderId, force } = JSON.parse(event.body || "{}");
 
     if (!subOrderId) {
       return {
@@ -256,7 +256,11 @@ exports.handler = async (event) => {
     }
 
     // Check if already has a VALID shipment (not an error message)
-    if (subOrder.courier_shipment_id && isValidFezOrderNumber(subOrder.tracking_number)) {
+    if (
+      !force &&
+      subOrder.courier_shipment_id &&
+      isValidFezOrderNumber(subOrder.tracking_number)
+    ) {
       console.log("Shipment already exists with valid tracking:", subOrder.tracking_number);
       return {
         statusCode: 200,
@@ -439,7 +443,9 @@ exports.handler = async (event) => {
         courier: "fez", 
         order_id: orderId,
         tracking_id: trackingId,
-        unique_id: uniqueId
+        unique_id: uniqueId,
+        forced_resend: Boolean(force),
+        previous_tracking: force ? subOrder.tracking_number : null
       }
     });
 

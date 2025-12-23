@@ -498,14 +498,18 @@ export function OrderDetailsPage() {
   }, [returnShipments]);
 
   // FIXED: Changed from ${apiBase}/.netlify/functions/ to ${functionsBase}/
-  const createCourierShipment = async (subOrderId: Identifier) => {
+  const createCourierShipment = async (
+    subOrderId: Identifier,
+    options?: { force?: boolean }
+  ) => {
     setCreatingShipment(subOrderId);
+    const force = Boolean(options?.force);
 
     try {
       const response = await fetch(`${functionsBase}/fez-create-shipment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subOrderId }),
+        body: JSON.stringify({ subOrderId, force }),
       });
 
       const data = await response.json();
@@ -1067,7 +1071,17 @@ export function OrderDetailsPage() {
                       <div className="flex flex-wrap gap-2">
                         {/* Send to Fez - Always visible */}
                         <button
-                          onClick={() => createCourierShipment(subOrder.id)}
+                          onClick={() => {
+                            if (validShipment) {
+                              const confirmed = window.confirm(
+                                'This will create a new Fez shipment and replace the current tracking. Continue?'
+                              );
+                              if (!confirmed) return;
+                            }
+                            createCourierShipment(subOrder.id, {
+                              force: validShipment,
+                            });
+                          }}
                           disabled={creatingShipment === subOrder.id}
                           className={`text-sm flex items-center ${
                             validShipment ? 'btn-secondary' : 'btn-primary'

@@ -53,7 +53,8 @@ export default function InfluencersPage() {
   async function loadInfluencers() {
     try {
       setLoading(true);
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/influencers?status=active`);
+      const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
+      const response = await fetch(`${API_BASE_URL}/api/influencers?status=active`);
       const result = await response.json();
 
       if (result.success) {

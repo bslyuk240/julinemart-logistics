@@ -52,10 +52,10 @@ export default function InfluencerDetailPage() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
 
       // Load influencer
-      const influencerResponse = await fetch(`${apiUrl}/api/influencers/${id}`);
+      const influencerResponse = await fetch(`${API_BASE_URL}/api/influencers/${id}`);
       const influencerResult = await influencerResponse.json();
 
       if (influencerResult.success) {
@@ -63,7 +63,7 @@ export default function InfluencerDetailPage() {
       }
 
       // Load sales
-      const salesResponse = await fetch(`${apiUrl}/api/influencers/${id}/sales?period=${dateRange}`);
+      const salesResponse = await fetch(`${API_BASE_URL}/api/influencers/${id}/sales?period=${dateRange}`);
       const salesResult = await salesResponse.json();
 
       if (salesResult.success) {

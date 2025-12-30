@@ -1,4 +1,5 @@
 ﻿import nodemailer from 'nodemailer';
+import SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { emailTemplates } from './emailTemplates.js';
 import { createClient } from '@supabase/supabase-js';
 
@@ -24,7 +25,7 @@ type RuntimeEmailConfig = {
   enabled: boolean;
   from: string;
   portalUrl: string;
-  transportConfig: nodemailer.TransportOptions;
+  transportConfig: SMTPTransport.Options;
   transportKey: string;
 };
 
@@ -64,7 +65,7 @@ const EMAIL_CONFIG = {
   },
 };
 
-function getEnvEmailConfig(): nodemailer.TransportOptions {
+function getEnvEmailConfig(): SMTPTransport.Options {
   const provider = process.env.EMAIL_PROVIDER || 'gmail';
   return EMAIL_CONFIG[provider as keyof typeof EMAIL_CONFIG] || EMAIL_CONFIG.gmail;
 }
@@ -89,7 +90,7 @@ async function loadDbEmailConfig(): Promise<DbEmailConfig | null> {
   }
 }
 
-function buildTransportConfigFromDb(config: DbEmailConfig): nodemailer.TransportOptions {
+function buildTransportConfigFromDb(config: DbEmailConfig): SMTPTransport.Options {
   switch (config.provider) {
     case 'gmail':
       return {
@@ -207,7 +208,7 @@ async function getEmailTemplateByType(
 let transporter: nodemailer.Transporter | null = null;
 let transporterKey: string | null = null;
 
-const getTransporter = (config: nodemailer.TransportOptions, key: string) => {
+const getTransporter = (config: SMTPTransport.Options, key: string) => {
   if (!transporter || transporterKey !== key) {
     transporter = nodemailer.createTransport(config);
     transporterKey = key;

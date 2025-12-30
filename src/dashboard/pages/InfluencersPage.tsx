@@ -54,7 +54,13 @@ export default function InfluencersPage() {
     try {
       setLoading(true);
       const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
-      const response = await fetch(`${API_BASE_URL}/influencers?status=active`);
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const response = await fetch(`${API_BASE_URL}/influencers?status=active`, {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`
+        }
+      });
       const result = await response.json();
 
       if (result.success) {
@@ -376,9 +382,14 @@ function AddInfluencerModal({
 
     try {
       const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       const response = await fetch(`${API_BASE_URL}/influencers`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`
+        },
         body: JSON.stringify(formData)
       });
 

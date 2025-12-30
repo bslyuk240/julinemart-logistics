@@ -55,7 +55,13 @@ export default function InfluencerDetailPage() {
       const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
 
       // Load influencer
-      const influencerResponse = await fetch(`${API_BASE_URL}/influencers/${id}`);
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const influencerResponse = await fetch(`${API_BASE_URL}/influencers/${id}`, {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`
+        }
+      });
       const influencerResult = await influencerResponse.json();
 
       if (influencerResult.success) {
@@ -63,7 +69,12 @@ export default function InfluencerDetailPage() {
       }
 
       // Load sales
-      const salesResponse = await fetch(`${API_BASE_URL}/influencers/${id}/sales?period=${dateRange}`);
+      const salesResponse = await fetch(`${API_BASE_URL}/influencers/${id}/sales?period=${dateRange}`, {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`
+        }
+      });
       const salesResult = await salesResponse.json();
 
       if (salesResult.success) {

@@ -1,4 +1,4 @@
-// Updated Webhook Handler with Fez API Integration
+// Updated Webhook Handler with Fez API Integration + Influencer Tracking
 // Location: /netlify/functions/woocommerce-webhook.js
 
 import { createClient } from '@supabase/supabase-js';
@@ -43,6 +43,135 @@ async function getDefaultHubId(supabaseClient) {
   } catch (error) {
     console.error('Error fetching default hub:', error);
     return null;
+  }
+}
+
+// ============================================
+// 🎯 NEW: INFLUENCER TRACKING FUNCTION
+// ============================================
+async function processInfluencerOrder(orderData, supabaseClient) {
+  try {
+    console.log('\n🎯 Checking for influencer coupons...');
+    
+    // Check if order has coupon codes
+    const couponLines = orderData.coupon_lines || [];
+    
+    if (couponLines.length === 0) {
+      console.log('   ℹ️  No coupons used in this order');
+      return null;
+    }
+    
+    // Check each coupon to see if it's an influencer code
+    for (const couponLine of couponLines) {
+      const couponCode = couponLine.code?.toUpperCase();
+      
+      if (!couponCode) continue;
+      
+      console.log(`   🔎 Checking coupon: ${couponCode}`);
+      
+      // Find influencer by coupon code
+      const { data: influencer, error: influencerError } = await supabaseClient
+        .from('influencers')
+        .select('*')
+        .eq('coupon_code', couponCode)
+        .eq('status', 'active')
+        .single();
+      
+      if (influencerError || !influencer) {
+        console.log(`   ℹ️  ${couponCode} is not an influencer coupon`);
+        continue;
+      }
+      
+      console.log(`   ✅ Influencer coupon detected: ${couponCode} (${influencer.name})`);
+      
+      // Check if already recorded
+      const { data: existing } = await supabaseClient
+        .from('influencer_sales')
+        .select('id')
+        .eq('wc_order_id', orderData.id.toString())
+        .single();
+      
+      if (existing) {
+        console.log('   ⚠️  Sale already recorded, skipping');
+        continue;
+      }
+      
+      // Calculate values
+      const orderTotal = parseFloat(orderData.total || 0);
+      const shippingTotal = parseFloat(orderData.shipping_total || 0);
+      const productTotal = orderTotal - shippingTotal;
+      
+      // Calculate shipping discount (from coupon)
+      const couponDiscount = parseFloat(couponLine.discount || 0);
+      const shippingOriginalCost = shippingTotal + couponDiscount;
+      const shippingDiscountAmount = couponDiscount;
+      const shippingCustomerPaid = shippingTotal;
+      
+      // Estimate actual shipping cost (use the shipping_total or default)
+      const shippingActualCost = shippingTotal > 0 ? shippingTotal : 1500;
+      
+      // Calculate commission
+      const commissionRate = influencer.commission_rate || 5;
+      const commissionBase = influencer.commission_based_on === 'order_total' 
+        ? orderTotal
+        : productTotal;
+      const commissionAmount = commissionBase * (commissionRate / 100);
+      
+      console.log(`   💰 Recording sale:`);
+      console.log(`      Product Total: ₦${productTotal.toLocaleString()}`);
+      console.log(`      Shipping Original: ₦${shippingOriginalCost.toLocaleString()}`);
+      console.log(`      Shipping Discount: ₦${shippingDiscountAmount.toLocaleString()}`);
+      console.log(`      Shipping Paid: ₦${shippingCustomerPaid.toLocaleString()}`);
+      console.log(`      Commission: ₦${commissionAmount.toLocaleString()} (${commissionRate}% of ₦${commissionBase.toLocaleString()})`);
+      
+      // Record the sale
+      const { data: sale, error: saleError } = await supabaseClient
+        .from('influencer_sales')
+        .insert({
+          influencer_id: influencer.id,
+          wc_order_id: orderData.id.toString(),
+          order_number: orderData.number || orderData.id.toString(),
+          customer_email: orderData.billing?.email || '',
+          
+          product_total: productTotal,
+          
+          shipping_original_cost: shippingOriginalCost,
+          shipping_discount_amount: shippingDiscountAmount,
+          shipping_customer_paid: shippingCustomerPaid,
+          shipping_actual_cost: shippingActualCost,
+          
+          admin_commission: productTotal * 0.05,
+          vendor_amount: productTotal * 0.95,
+          influencer_commission_rate: commissionRate,
+          influencer_commission_amount: commissionAmount,
+          
+          sale_date: orderData.date_created || new Date().toISOString(),
+          order_status: 'completed',
+          commission_status: 'pending'
+        })
+        .select()
+        .single();
+      
+      if (saleError) {
+        console.error('   ❌ Failed to record sale:', saleError.message);
+        throw saleError;
+      }
+      
+      console.log(`   ✅ Sale recorded successfully: ${sale.id}`);
+      
+      return {
+        success: true,
+        influencer: influencer.name,
+        sale_id: sale.id,
+        commission: commissionAmount
+      };
+    }
+    
+    return null;
+    
+  } catch (error) {
+    console.error('❌ Error processing influencer order:', error);
+    throw error;
   }
 }
 
@@ -211,7 +340,7 @@ export async function handler(event) {
     console.log('Assigned Zone:', zone?.name || 'Unknown');
 
     // ============================================
-    // 🚀 NEW: GET LIVE FEZ QUOTES
+    // 🚀 GET LIVE FEZ QUOTES
     // ============================================
     const shippingBreakdown = [];
     let totalCalculatedShipping = 0;
@@ -369,7 +498,7 @@ export async function handler(event) {
         subtotal: breakdown.items.reduce((sum, item) => sum + item.total, 0),
         real_shipping_cost: breakdown.realShippingCost,
         allocated_shipping_fee: breakdown.allocatedShippingFee,
-        estimated_shipping_cost: breakdown.realShippingCost, // Can add your table rate here for comparison
+        estimated_shipping_cost: breakdown.realShippingCost,
         metadata: {
           used_fez_api: breakdown.usedFezAPI,
           shipping_profit_loss: breakdown.shippingProfitLoss,
@@ -398,6 +527,23 @@ export async function handler(event) {
 
         await supabase.from('tracking_events').insert(trackingEvents);
       }
+    }
+
+    // ============================================
+    // 🎯 NEW: PROCESS INFLUENCER TRACKING
+    // ============================================
+    try {
+      const influencerResult = await processInfluencerOrder(wcOrder, supabase);
+      
+      if (influencerResult) {
+        console.log(`\n✅ INFLUENCER SALE RECORDED!`);
+        console.log(`   Influencer: ${influencerResult.influencer}`);
+        console.log(`   Commission: ₦${influencerResult.commission.toLocaleString()}`);
+      }
+    } catch (influencerError) {
+      // Don't fail the whole webhook if influencer tracking fails
+      console.error('\n⚠️  Influencer tracking error:', influencerError);
+      console.error('   Continuing with order processing...');
     }
 
     return {

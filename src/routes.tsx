@@ -1,34 +1,38 @@
 import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
 
-import { CustomerPortalLanding } from './customer-portal/pages/Landing';
-import { OrderTrackingPage } from './customer-portal/pages/Track';
-import { ShippingEstimatePage } from './customer-portal/pages/ShippingEstimate';
 import { CustomerContactPage } from './customer-portal/pages/Contact';
-import { ReturnMethodPage } from './customer-portal/pages/returns/ReturnMethod';
+import { CustomerPortalLanding } from './customer-portal/pages/Landing';
 import { ReturnConfirmationPage } from './customer-portal/pages/returns/ReturnConfirmation';
+import { ReturnMethodPage } from './customer-portal/pages/returns/ReturnMethod';
+import { ShippingEstimatePage } from './customer-portal/pages/ShippingEstimate';
+import { OrderTrackingPage } from './customer-portal/pages/Track';
 
-import { DashboardLayout } from './dashboard/components/DashboardLayout';
-import { LoginPage } from './dashboard/pages/auth/Login';
-import { SignUpPage } from './dashboard/pages/auth/SignUp';
-import { ForgotPasswordPage } from './dashboard/pages/auth/ForgotPassword';
-import { ResetPasswordPage } from './dashboard/pages/auth/ResetPassword';
-import { DashboardHome } from './dashboard/pages/DashboardHome';
-import { OrdersPage } from './dashboard/pages/Orders';
-import { OrderDetailsPage } from './dashboard/pages/OrderDetails';
-import { CreateOrderPage } from './dashboard/pages/CreateOrder';
-import RefundsPage from './dashboard/pages/Refunds';
-import { HubsPage } from './dashboard/pages/Hubs';
-import { CouriersPage } from './dashboard/pages/Couriers';
-import { ShippingRatesPage } from './dashboard/pages/ShippingRates';
-import { AnalyticsPage } from './dashboard/pages/Analytics';
-import { UsersPage } from './dashboard/pages/Users';
-import { ShippingDiscountsPage } from './dashboard/pages/ShippingDiscounts';
-import { CourierSettingsPage } from './dashboard/pages/CourierSettings';
-import { SettingsPage } from './dashboard/pages/Settings';
-import { EmailSettingsPage } from './dashboard/pages/EmailSettings';
-import { SettlementsPage } from './dashboard/pages/Settlements';
-import { ActivityLogsPage } from './dashboard/pages/ActivityLogs';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { DashboardLayout } from './dashboard/components/DashboardLayout';
+import { ActivityLogsPage } from './dashboard/pages/ActivityLogs';
+import { AnalyticsPage } from './dashboard/pages/Analytics';
+import { ForgotPasswordPage } from './dashboard/pages/auth/ForgotPassword';
+import { LoginPage } from './dashboard/pages/auth/Login';
+import { ResetPasswordPage } from './dashboard/pages/auth/ResetPassword';
+import { SignUpPage } from './dashboard/pages/auth/SignUp';
+import { CouriersPage } from './dashboard/pages/Couriers';
+import { CourierSettingsPage } from './dashboard/pages/CourierSettings';
+import { CreateOrderPage } from './dashboard/pages/CreateOrder';
+import { DashboardHome } from './dashboard/pages/DashboardHome';
+import { EmailSettingsPage } from './dashboard/pages/EmailSettings';
+import { HubsPage } from './dashboard/pages/Hubs';
+import InfluencerDetailPage from './dashboard/pages/InfluencerDetailPage.tsx';
+import InfluencersPage from './dashboard/pages/InfluencersPage.tsx';
+import { OrderDetailsPage } from './dashboard/pages/OrderDetails';
+import { OrdersPage } from './dashboard/pages/Orders';
+import RefundsPage from './dashboard/pages/Refunds';
+import { SettingsPage } from './dashboard/pages/Settings';
+import { SettlementsPage } from './dashboard/pages/Settlements';
+import { ShippingDiscountsPage } from './dashboard/pages/ShippingDiscounts';
+import { ShippingRatesPage } from './dashboard/pages/ShippingRates';
+import { UsersPage } from './dashboard/pages/Users';
+import WhatsAppChatView from './dashboard/pages/WhatsAppChatView';
+import WhatsAppSupportPage from './dashboard/pages/WhatsAppSupport';
 import { UnauthorizedPage } from './shared/UnauthorizedPage';
 
 // Routes accessible by both admin and agent
@@ -40,6 +44,8 @@ const sharedRoutes = [
   { path: 'refunds', element: <RefundsPage /> },
   { path: 'orders/:id', element: <OrderDetailsPage /> },
   { path: 'rates', element: <ShippingRatesPage /> },
+  { path: 'whatsapp', element: <WhatsAppSupportPage /> },
+  { path: 'whatsapp/:chatId', element: <WhatsAppChatView /> },
 ];
 
 // Routes accessible only by admin
@@ -49,6 +55,8 @@ const adminOnlyRoutes = [
   { path: 'analytics', element: <AnalyticsPage /> },
   { path: 'users', element: <UsersPage /> },
   { path: 'discounts', element: <ShippingDiscountsPage /> },
+  { path: 'influencers', element: <InfluencersPage /> },
+  { path: 'influencers/:id', element: <InfluencerDetailPage /> },
   { path: 'courier-settings', element: <CourierSettingsPage /> },
   { path: 'settings', element: <SettingsPage /> },
   { path: 'email-settings', element: <EmailSettingsPage /> },

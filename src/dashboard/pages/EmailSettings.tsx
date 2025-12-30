@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { 
   Mail, Save, TestTube, Settings, Eye, Code, 
   CheckCircle, XCircle, AlertCircle, Send
@@ -607,18 +607,202 @@ function TemplatesTab({ templates, onRefresh }: { templates: EmailTemplate[]; on
 
 // Template Editor Component (Preview in next phase)
 function TemplateEditor({ template, onSave }: { template: EmailTemplate; onSave: () => void }) {
+  const notification = useNotification();
+  const [subject, setSubject] = useState(template.subject || '');
+  const [htmlContent, setHtmlContent] = useState(template.html_content || '');
+  const [textContent, setTextContent] = useState(template.text_content || '');
+  const [saving, setSaving] = useState(false);
+  const [showHtml, setShowHtml] = useState(false);
+
+  const editorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setSubject(template.subject || '');
+    setHtmlContent(template.html_content || '');
+    setTextContent(template.text_content || '');
+    if (editorRef.current) {
+      editorRef.current.innerHTML = template.html_content || '';
+    }
+  }, [template]);
+
+  const execCommand = (command: string, value?: string) => {
+    document.execCommand(command, false, value);
+    if (editorRef.current) {
+      setHtmlContent(editorRef.current.innerHTML);
+    }
+  };
+
+  const handleEditorInput = () => {
+    if (editorRef.current) {
+      setHtmlContent(editorRef.current.innerHTML);
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/email/templates/${template.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subject,
+          html_content: htmlContent,
+          text_content: textContent,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        notification.success('Template Updated', `${template.name} saved`);
+        onSave();
+      } else {
+        notification.error('Save Failed', data.error || 'Failed to update template');
+      }
+    } catch (error) {
+      notification.error('Save Failed', 'Failed to update template');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleHtml = () => {
+    const nextShow = !showHtml;
+    setShowHtml(nextShow);
+    if (!nextShow && editorRef.current) {
+      editorRef.current.innerHTML = htmlContent || '';
+    }
+  };
+
+  const handleCopyTextFromHtml = () => {
+    const temp = document.createElement('div');
+    temp.innerHTML = htmlContent;
+    setTextContent(temp.textContent || '');
+  };
+
   return (
     <div className="card">
-      <h3 className="text-xl font-bold mb-4">{template.name}</h3>
-      <p className="text-gray-600 mb-6">Template editing coming in next phase...</p>
-      <div className="bg-gray-50 p-4 rounded-lg">
-        <p className="text-sm font-medium mb-2">Available Variables:</p>
-        <div className="flex flex-wrap gap-2">
-          {template.variables.map((variable) => (
-            <code key={variable} className="text-xs bg-white px-2 py-1 rounded border">
-              {`{{${variable}}}`}
-            </code>
-          ))}
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-xl font-bold">{template.name}</h3>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="btn-primary flex items-center gap-2"
+        >
+          {saving ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              <Save className="w-5 h-5" />
+              Save Template
+            </>
+          )}
+        </button>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Subject</label>
+          <input
+            type="text"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+          />
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-gray-700">Email Content</label>
+            <button
+              onClick={handleToggleHtml}
+              className="text-sm text-primary-600 hover:underline"
+            >
+              {showHtml ? 'Show Editor' : 'Show HTML'}
+            </button>
+          </div>
+
+          {!showHtml && (
+            <div className="border border-gray-300 rounded-lg">
+              <div className="flex flex-wrap gap-2 border-b border-gray-200 px-3 py-2 bg-gray-50">
+                <button onClick={() => execCommand('bold')} className="btn-secondary text-xs">
+                  Bold
+                </button>
+                <button onClick={() => execCommand('italic')} className="btn-secondary text-xs">
+                  Italic
+                </button>
+                <button onClick={() => execCommand('underline')} className="btn-secondary text-xs">
+                  Underline
+                </button>
+                <button onClick={() => execCommand('formatBlock', 'h2')} className="btn-secondary text-xs">
+                  H2
+                </button>
+                <button onClick={() => execCommand('insertUnorderedList')} className="btn-secondary text-xs">
+                  Bullets
+                </button>
+                <button onClick={() => execCommand('insertOrderedList')} className="btn-secondary text-xs">
+                  Numbers
+                </button>
+                <button
+                  onClick={() => {
+                    const url = window.prompt('Enter link URL');
+                    if (url) execCommand('createLink', url);
+                  }}
+                  className="btn-secondary text-xs"
+                >
+                  Link
+                </button>
+                <button onClick={() => execCommand('removeFormat')} className="btn-secondary text-xs">
+                  Clear
+                </button>
+              </div>
+              <div
+                ref={editorRef}
+                className="min-h-[240px] p-4 focus:outline-none"
+                contentEditable
+                onInput={handleEditorInput}
+                dangerouslySetInnerHTML={{ __html: htmlContent }}
+              />
+            </div>
+          )}
+
+          {showHtml && (
+            <textarea
+              value={htmlContent}
+              onChange={(e) => setHtmlContent(e.target.value)}
+              className="w-full min-h-[240px] px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm"
+            />
+          )}
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-gray-700">Plain Text</label>
+            <button
+              onClick={handleCopyTextFromHtml}
+              className="text-sm text-primary-600 hover:underline"
+            >
+              Copy from HTML
+            </button>
+          </div>
+          <textarea
+            value={textContent}
+            onChange={(e) => setTextContent(e.target.value)}
+            className="w-full min-h-[160px] px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm"
+          />
+        </div>
+
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <p className="text-sm font-medium mb-2">Available Variables:</p>
+          <div className="flex flex-wrap gap-2">
+            {template.variables.map((variable) => (
+              <code key={variable} className="text-xs bg-white px-2 py-1 rounded border">
+                {`{{${variable}}}`}
+              </code>
+            ))}
+          </div>
         </div>
       </div>
     </div>

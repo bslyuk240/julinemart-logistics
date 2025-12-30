@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import { sendInfluencerReportEmail } from '../services/emailService.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || '',
@@ -522,5 +523,54 @@ export async function processInfluencerOrderFromWebhook(orderData: any) {
   } catch (error) {
     console.error('❌ Error processing influencer order:', error);
     throw error;
+  }
+}
+
+// POST /api/influencers/reports - Send periodic sales/commission report emails
+export async function sendInfluencerReportsHandler(req: Request, res: Response) {
+  try {
+    const {
+      influencer_id,
+      period,
+      start_date,
+      end_date
+    } = req.body || {};
+
+    let influencerIds: string[] = [];
+
+    if (influencer_id) {
+      influencerIds = [influencer_id];
+    } else {
+      const { data, error } = await supabase
+        .from('influencers')
+        .select('id, email')
+        .eq('status', 'active');
+
+      if (error) throw error;
+
+      influencerIds = (data || [])
+        .filter((row) => row.email)
+        .map((row) => row.id);
+    }
+
+    const results = [];
+
+    for (const id of influencerIds) {
+      const result = await sendInfluencerReportEmail({
+        influencerId: id,
+        period: typeof period === 'string' ? period : undefined,
+        startDate: typeof start_date === 'string' ? start_date : undefined,
+        endDate: typeof end_date === 'string' ? end_date : undefined,
+      });
+      results.push({ influencer_id: id, ...result });
+    }
+
+    return res.json({ success: true, data: results });
+  } catch (error) {
+    console.error('Error sending influencer reports:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to send influencer reports'
+    });
   }
 }

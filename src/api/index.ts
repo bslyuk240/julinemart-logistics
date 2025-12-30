@@ -45,6 +45,16 @@ import {
   updateEmailTemplateHandler,
   previewEmailTemplateHandler
 } from './routes/emailConfig.js';
+import {
+  getInfluencersHandler,
+  getInfluencerByIdHandler,
+  createInfluencerHandler,
+  updateInfluencerHandler,
+  deleteInfluencerHandler,
+  getInfluencerSalesHandler,
+  validateInfluencerCouponHandler,
+  recordInfluencerSaleHandler
+} from './handlers/influencers';
 import { sendTestEmail } from './services/emailService.js';
 import { getRefundRequests, updateRefundRequestMeta, addRefundOrderNote, createWooRefund } from './routes/refundRequests.js';
 import { getReturnShipmentsByOrder, updateReturnShipmentStatus, getReturnRequestIdByWooOrder, createReturnRequest, createReturnShipment } from './routes/returnShipments.js';
@@ -137,6 +147,18 @@ app.get('/', (_req: Request, res: Response) => {
 app.post('/api/calc-shipping', calcShippingHandler);
 app.get('/api/zones/:state', getZoneHandler);
 console.log('📦 Shipping routes registered');
+
+// Influencer routes
+app.get('/api/influencers', getInfluencersHandler);
+app.post('/api/influencers', createInfluencerHandler);
+app.get('/api/influencers/:id', getInfluencerByIdHandler);
+app.put('/api/influencers/:id', updateInfluencerHandler);
+app.delete('/api/influencers/:id', deleteInfluencerHandler);
+app.get('/api/influencers/:id/sales', getInfluencerSalesHandler);
+app.post('/api/influencers/validate-coupon', validateInfluencerCouponHandler);
+app.post('/api/influencers/record-sale', recordInfluencerSaleHandler);
+
+console.log('✅ Influencer routes registered');
 
 // Return shipment creation proxy (public - uses Supabase Function)
 app.post('/api/create-return-shipment', async (req: Request, res: Response) => {

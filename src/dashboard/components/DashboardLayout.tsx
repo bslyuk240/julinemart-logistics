@@ -1,4 +1,4 @@
-﻿import { ReactNode, useState } from 'react';
+﻿import { ReactNode, useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -16,7 +16,9 @@ import {
   Settings,
   ChevronDown,
   Mail,
-  Percent
+  Percent,
+  MessageSquare,
+  Megaphone
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
 import { BrandLogo } from '../../shared/BrandLogo';
@@ -30,6 +32,7 @@ const navigation = [
   // Agent can access: Dashboard, Orders, Shipping Rates
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'agent'] },
   { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent'] },
+  { name: 'WhatsApp Support', href: '/admin/whatsapp', icon: MessageSquare, roles: ['admin', 'agent'] },
   { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent'] },
   { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'agent'] },
   // Admin only pages
@@ -39,6 +42,7 @@ const navigation = [
   { name: 'Analytics', href: '/admin/analytics', icon: BarChart3, roles: ['admin'] },
   { name: 'Users', href: '/admin/users', icon: Users, roles: ['admin'] },
   { name: 'Shipping Discounts', href: '/admin/discounts', icon: Percent, roles: ['admin'] },
+  { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },
   { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
   { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },
   { name: 'Email Settings', href: '/admin/email-settings', icon: Mail, roles: ['admin'] },
@@ -50,6 +54,32 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { user, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [unreadWhatsAppCount, setUnreadWhatsAppCount] = useState(0);
+
+  // Fetch unread WhatsApp chat count
+  useEffect(() => {
+    const fetchUnreadCount = async () => {
+      try {
+        const response = await fetch('/.netlify/functions/whatsapp-chats?status=open');
+        const result = await response.json();
+        
+        if (result.success) {
+          // Count chats with unread messages
+          const unreadCount = result.data.filter((chat: { unread_count?: number | null }) => (chat.unread_count ?? 0) > 0).length;
+          setUnreadWhatsAppCount(unreadCount);
+        }
+      } catch (error) {
+        console.error('Error fetching unread count:', error);
+      }
+    };
+
+    fetchUnreadCount();
+    
+    // Refresh count every 30 seconds
+    const interval = setInterval(fetchUnreadCount, 30000);
+    
+    return () => clearInterval(interval);
+  }, []);
 
   const handleSignOut = async () => {
     await signOut();
@@ -103,13 +133,16 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               (item.href === '/admin/dashboard' && location.pathname.startsWith('/admin/dashboard'));
             const Icon = item.icon;
             
+            // Show unread badge for WhatsApp Support
+            const showBadge = item.href === '/admin/whatsapp' && unreadWhatsAppCount > 0;
+            
             return (
               <Link
                 key={item.name}
                 to={item.href}
                 onClick={() => setSidebarOpen(false)}
                 className={`
-                  flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors
+                  flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors relative
                   ${isActive 
                     ? 'bg-primary-50 text-primary-700' 
                     : 'text-gray-700 hover:bg-gray-100'
@@ -118,6 +151,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               >
                 <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-primary-600' : 'text-gray-500'}`} />
                 {item.name}
+                {showBadge && (
+                  <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
+                    {unreadWhatsAppCount > 9 ? '9+' : unreadWhatsAppCount}
+                  </span>
+                )}
               </Link>
             );
           })}

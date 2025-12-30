@@ -50,6 +50,8 @@ export function EmailSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testEmail, setTestEmail] = useState('');
+  const [testTemplateId, setTestTemplateId] = useState('');
+  const [testTemplateData, setTestTemplateData] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<'unknown' | 'connected' | 'error'>('unknown');
 
   useEffect(() => {
@@ -135,12 +137,26 @@ export function EmailSettingsPage() {
       return;
     }
 
+    let sampleData: Record<string, unknown> | undefined;
+    if (testTemplateId && testTemplateData.trim()) {
+      try {
+        sampleData = JSON.parse(testTemplateData);
+      } catch (error) {
+        notification.error('Invalid JSON', 'Template data must be valid JSON');
+        return;
+      }
+    }
+
     setTesting(true);
     try {
-      const response = await fetch('/api/emails/test', {
+      const response = await fetch('/api/email/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: testEmail }),
+        body: JSON.stringify({
+          email: testEmail,
+          template_id: testTemplateId || undefined,
+          sample_data: sampleData,
+        }),
       });
 
       const data = await response.json();
@@ -483,6 +499,24 @@ export function EmailSettingsPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Use Template (optional)
+                </label>
+                <select
+                  value={testTemplateId}
+                  onChange={(e) => setTestTemplateId(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                >
+                  <option value="">Default test email</option>
+                  {templates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   Test Email Address
                 </label>
                 <input
@@ -493,6 +527,20 @@ export function EmailSettingsPage() {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                 />
               </div>
+
+              {testTemplateId && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Template Data (JSON)
+                  </label>
+                  <textarea
+                    value={testTemplateData}
+                    onChange={(e) => setTestTemplateData(e.target.value)}
+                    placeholder='{"customerName":"Jane Doe","orderNumber":"12345"}'
+                    className="w-full min-h-[140px] px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm"
+                  />
+                </div>
+              )}
 
               <button
                 onClick={handleSendTestEmail}

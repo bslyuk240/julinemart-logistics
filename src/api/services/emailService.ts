@@ -204,6 +204,34 @@ async function getEmailTemplateByType(
   }
 }
 
+async function getEmailTemplateById(
+  id: string,
+  data: Record<string, string | number | null | undefined>
+) {
+  try {
+    const { data: template, error } = await supabase
+      .from('email_templates')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null;
+      console.error('Failed to load email template:', error);
+      return null;
+    }
+
+    return {
+      subject: renderTemplateString(template.subject, data),
+      html: renderTemplateString(template.html_content, data),
+      text: renderTemplateString(template.text_content, data),
+    };
+  } catch (error) {
+    console.error('Failed to load email template:', error);
+    return null;
+  }
+}
+
 // Create reusable transporter
 let transporter: nodemailer.Transporter | null = null;
 let transporterKey: string | null = null;
@@ -583,6 +611,25 @@ export async function sendTestEmail(to: string): Promise<boolean> {
     subject: testTemplate.subject,
     html: testTemplate.html,
     text: testTemplate.text,
+    allowDisabled: true,
+  });
+}
+
+export async function sendTestEmailWithTemplate(
+  to: string,
+  templateId: string,
+  sampleData: Record<string, string | number | null | undefined>
+): Promise<boolean> {
+  const template = await getEmailTemplateById(templateId, sampleData);
+  if (!template) {
+    return false;
+  }
+
+  return await sendEmail({
+    to,
+    subject: template.subject,
+    html: template.html,
+    text: template.text,
     allowDisabled: true,
   });
 }

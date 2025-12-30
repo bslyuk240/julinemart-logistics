@@ -1,4 +1,5 @@
 // Netlify Function: /api/email/*
+import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
@@ -10,6 +11,98 @@ const headers = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS'
+};
+
+const EMAIL_CONFIG = {
+  gmail: {
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASSWORD
+    }
+  },
+  sendgrid: {
+    host: 'smtp.sendgrid.net',
+    port: 587,
+    auth: {
+      user: 'apikey',
+      pass: process.env.SENDGRID_API_KEY
+    }
+  },
+  smtp: {
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587', 10),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASSWORD
+    }
+  }
+};
+
+const renderTemplateString = (template, data) => {
+  let output = template || '';
+  Object.keys(data || {}).forEach((key) => {
+    const value = data[key];
+    const replacement = value === null || value === undefined ? '' : String(value);
+    output = output.replace(new RegExp(`{{${key}}}`, 'g'), replacement);
+  });
+  return output;
+};
+
+const buildTransportConfigFromDb = (config) => {
+  switch (config.provider) {
+    case 'gmail':
+      return {
+        service: 'gmail',
+        auth: {
+          user: config.gmail_user || undefined,
+          pass: config.gmail_password || undefined
+        }
+      };
+    case 'sendgrid':
+      return {
+        host: 'smtp.sendgrid.net',
+        port: 587,
+        auth: {
+          user: 'apikey',
+          pass: config.sendgrid_api_key || undefined
+        }
+      };
+    case 'smtp':
+      return {
+        host: config.smtp_host || undefined,
+        port: config.smtp_port || 587,
+        secure: config.smtp_port === 465,
+        auth: {
+          user: config.smtp_user || undefined,
+          pass: config.smtp_password || undefined
+        }
+      };
+    default:
+      return EMAIL_CONFIG.gmail;
+  }
+};
+
+const buildTransportConfigFromEnv = () => {
+  const provider = process.env.EMAIL_PROVIDER || 'gmail';
+  return EMAIL_CONFIG[provider] || EMAIL_CONFIG.gmail;
+};
+
+const getRuntimeEmailConfig = async () => {
+  const { data, error } = await supabase.from('email_config').select('*').single();
+  if (error && error.code !== 'PGRST116') {
+    throw error;
+  }
+
+  const config = data || null;
+  const transportConfig = config ? buildTransportConfigFromDb(config) : buildTransportConfigFromEnv();
+  const from =
+    (config && (config.email_from || config.gmail_user || config.smtp_user)) ||
+    process.env.EMAIL_FROM ||
+    process.env.EMAIL_USER ||
+    '';
+  return { transportConfig, from };
 };
 
 export async function handler(event) {
@@ -78,6 +171,68 @@ export async function handler(event) {
       return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };
     }
 
+    // /api/email/test
+    if (next === 'test') {
+      if (event.httpMethod !== 'POST') {
+        return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };
+      }
+
+      const payload = JSON.parse(event.body || '{}');
+      const recipient = payload.to || payload.email;
+      if (!recipient) {
+        return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Missing recipient email' }) };
+      }
+
+      const { transportConfig, from } = await getRuntimeEmailConfig();
+      if (!from) {
+        return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Sender not configured' }) };
+      }
+
+      let subject;
+      let html;
+      let text;
+
+      if (payload.template_id) {
+        const { data: template, error } = await supabase
+          .from('email_templates')
+          .select('*')
+          .eq('id', payload.template_id)
+          .single();
+        if (error || !template) {
+          return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Template not found' }) };
+        }
+        const sampleData = payload.sample_data || {};
+        subject = renderTemplateString(template.subject, sampleData);
+        html = renderTemplateString(template.html_content, sampleData);
+        text = renderTemplateString(template.text_content, sampleData);
+      } else {
+        subject = 'JulineMart Email System Test';
+        html = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center;">
+              <h1>Email System Working! ✅</h1>
+            </div>
+            <div style="padding: 30px;">
+              <p>This is a test email from the JulineMart Logistics Orchestrator.</p>
+              <p>If you received this, your email configuration is working correctly!</p>
+            </div>
+          </div>
+        `;
+        text = 'JulineMart Email System Test - If you received this, your email is working!';
+      }
+
+      const transporter = nodemailer.createTransport(transportConfig);
+      await transporter.sendMail({
+        from,
+        to: recipient,
+        subject,
+        html,
+        text
+      });
+
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+    }
+
     // /api/email/templates
     if (next === 'templates') {
       if (event.httpMethod === 'GET' && !id) {
@@ -127,4 +282,3 @@ export async function handler(event) {
     return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Email API error' }) };
   }
 }
-

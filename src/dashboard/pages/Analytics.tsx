@@ -129,7 +129,7 @@ export function AnalyticsPage() {
       </div>
 
       {/* Metrics Grid */}
-      <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-6 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-6 mb-8">
         {metrics.map((metric) => {
           const Icon = metric.icon;
           return (
@@ -212,7 +212,7 @@ export function AnalyticsPage() {
       {/* Additional Stats */}
       <div className="card">
         <h2 className="text-xl font-semibold mb-4">Quick Stats</h2>
-        <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-6">
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-6">
           <div className="text-center p-3 sm:p-0">
             <p className="text-lg sm:text-3xl font-bold text-gray-900">{zonesCount}</p>
             <p className="text-[11px] sm:text-sm text-gray-600 mt-1">Delivery Zones</p>

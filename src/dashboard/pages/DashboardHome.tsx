@@ -194,7 +194,7 @@ export function DashboardHome() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-6 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-6 mb-8">
         {statCards.map((stat) => {
           const Icon = stat.icon;
           return (

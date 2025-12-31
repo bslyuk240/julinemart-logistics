@@ -97,11 +97,11 @@ export function DashboardHome() {
           : [];
       setRecentOrders(ordersList.slice(0, 5));
 
-      const zoneCounts = ordersList.reduce<Record<string, number>>((acc, order: any) => {
+      const zoneCounts: Record<string, number> = {};
+      for (const order of ordersList as any[]) {
         const zone = (order?.delivery_zone || order?.delivery_state || 'Unknown') as string;
-        acc[zone] = (acc[zone] || 0) + 1;
-        return acc;
-      }, {});
+        zoneCounts[zone] = (zoneCounts[zone] || 0) + 1;
+      }
       const zoneTotals = Object.entries(zoneCounts)
         .map(([zone, orders]) => ({ zone, orders }))
         .sort((a, b) => b.orders - a.orders)

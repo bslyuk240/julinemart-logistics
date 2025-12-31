@@ -1,6 +1,7 @@
 ﻿import { Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../../types/supabase';
+import { autoSendEmailOnStatusChange } from '../middleware/emailAutomation.js';
 
 type ShippingBreakdownInput = {
   hubId?: string | null;
@@ -209,6 +210,14 @@ export async function updateOrderStatusHandler(req: Request, res: Response) {
     const { id } = req.params;
     const { status } = req.body;
 
+    const { data: currentOrder, error: currentError } = await supabase
+      .from('orders')
+      .select('overall_status, email_notifications_enabled')
+      .eq('id', id)
+      .single();
+
+    if (currentError) throw currentError;
+
     const { data: order, error } = await supabase
       .from('orders')
       .update({ overall_status: status })
@@ -217,6 +226,10 @@ export async function updateOrderStatusHandler(req: Request, res: Response) {
       .single();
 
     if (error) throw error;
+
+    if (currentOrder?.email_notifications_enabled !== false) {
+      void autoSendEmailOnStatusChange(id, status, currentOrder?.overall_status);
+    }
 
     return res.status(200).json({
       success: true,

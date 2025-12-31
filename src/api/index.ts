@@ -53,9 +53,10 @@ import {
   deleteInfluencerHandler,
   getInfluencerSalesHandler,
   validateInfluencerCouponHandler,
-  recordInfluencerSaleHandler
+  recordInfluencerSaleHandler,
+  sendInfluencerReportsHandler
 } from './handlers/influencers';
-import { sendTestEmail } from './services/emailService.js';
+import { sendTestEmail, sendTestEmailWithTemplate } from './services/emailService.js';
 import { getRefundRequests, updateRefundRequestMeta, addRefundOrderNote, createWooRefund } from './routes/refundRequests.js';
 import { getReturnShipmentsByOrder, updateReturnShipmentStatus, getReturnRequestIdByWooOrder, createReturnRequest, createReturnShipment } from './routes/returnShipments.js';
 
@@ -157,6 +158,12 @@ app.delete('/api/influencers/:id', deleteInfluencerHandler);
 app.get('/api/influencers/:id/sales', getInfluencerSalesHandler);
 app.post('/api/influencers/validate-coupon', validateInfluencerCouponHandler);
 app.post('/api/influencers/record-sale', recordInfluencerSaleHandler);
+app.post(
+  '/api/influencers/reports',
+  authenticate,
+  requireRole('admin', 'manager'),
+  sendInfluencerReportsHandler
+);
 
 console.log('✅ Influencer routes registered');
 
@@ -281,18 +288,39 @@ app.get('/api/email/templates', getEmailTemplatesHandler);
 app.get('/api/email/templates/:id', getEmailTemplateHandler);
 app.put('/api/email/templates/:id', updateEmailTemplateHandler);
 app.post('/api/email/templates/:id/preview', previewEmailTemplateHandler);
-app.post('/api/emails/test', async (req: Request, res: Response) => {
+const testEmailHandler = async (req: Request, res: Response) => {
   try {
-    const { to } = req.body as { to?: string };
-    if (!to) {
-      return res.status(400).json({ success: false, error: 'Missing recipient email (to)' });
+    const { to, email, template_id, sample_data } = req.body as {
+      to?: string;
+      email?: string;
+      template_id?: string;
+      sample_data?: Record<string, string | number | null | undefined>;
+    };
+    const recipient = to || email;
+    if (!recipient) {
+      return res.status(400).json({ success: false, error: 'Missing recipient email' });
     }
-    const ok = await sendTestEmail(to);
-    return res.status(ok ? 200 : 500).json({ success: ok, message: ok ? 'Test email sent' : 'Failed to send test email' });
+
+    let ok = false;
+    if (template_id) {
+      ok = await sendTestEmailWithTemplate(recipient, template_id, sample_data || {});
+      if (!ok) {
+        return res.status(404).json({ success: false, error: 'Template not found' });
+      }
+    } else {
+      ok = await sendTestEmail(recipient);
+    }
+
+    return res
+      .status(ok ? 200 : 500)
+      .json({ success: ok, message: ok ? 'Test email sent' : 'Failed to send test email' });
   } catch (error) {
     return res.status(500).json({ success: false, error: 'Failed to send test email' });
   }
-});
+};
+
+app.post('/api/emails/test', testEmailHandler);
+app.post('/api/email/test', testEmailHandler);
 
 console.log('✉️  Email routes registered');
 

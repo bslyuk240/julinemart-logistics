@@ -4,6 +4,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 }
 
 serve(async (req) => {
@@ -75,13 +76,13 @@ serve(async (req) => {
           email: body.email || null,
           phone: body.phone || null,
           coupon_code: body.coupon_code.toUpperCase(),
-          discount_type: body.discount_type || 'percentage',
-          discount_value: body.discount_value || 0,
+          shipping_discount_type: body.shipping_discount_type || 'percentage',
+          shipping_discount_value: body.shipping_discount_value || 0,
           commission_rate: body.commission_rate || 5,
           commission_based_on: body.commission_based_on || 'product_total',
           platform: body.platform || null,
-          platform_handle: body.platform_handle || null,
-          min_order_value: body.min_order_value || 0,
+          handle: body.handle || null,
+          minimum_order_value: body.minimum_order_value || 0,
           tier: body.tier || 'TIER1',
           status: 'active',
         }])
@@ -141,13 +142,13 @@ serve(async (req) => {
       if (body.email !== undefined) updateData.email = body.email
       if (body.phone !== undefined) updateData.phone = body.phone
       if (body.coupon_code !== undefined) updateData.coupon_code = body.coupon_code.toUpperCase()
-      if (body.discount_type !== undefined) updateData.discount_type = body.discount_type
-      if (body.discount_value !== undefined) updateData.discount_value = body.discount_value
+      if (body.shipping_discount_type !== undefined) updateData.shipping_discount_type = body.shipping_discount_type
+      if (body.shipping_discount_value !== undefined) updateData.shipping_discount_value = body.shipping_discount_value
       if (body.commission_rate !== undefined) updateData.commission_rate = body.commission_rate
       if (body.commission_based_on !== undefined) updateData.commission_based_on = body.commission_based_on
       if (body.platform !== undefined) updateData.platform = body.platform
-      if (body.platform_handle !== undefined) updateData.platform_handle = body.platform_handle
-      if (body.min_order_value !== undefined) updateData.min_order_value = body.min_order_value
+      if (body.handle !== undefined) updateData.handle = body.handle
+      if (body.minimum_order_value !== undefined) updateData.minimum_order_value = body.minimum_order_value
       if (body.tier !== undefined) updateData.tier = body.tier
       if (body.status !== undefined) updateData.status = body.status
 
@@ -172,7 +173,7 @@ serve(async (req) => {
 
       const { data, error } = await supabaseClient
         .from('influencers')
-        .update({ status: 'inactive', deleted_at: new Date().toISOString() })
+        .update({ status: 'terminated' })
         .eq('id', id)
         .select()
         .single()
@@ -219,6 +220,8 @@ serve(async (req) => {
       const body = await req.json()
       const { coupon_code, cart_total, shipping_cost } = body
 
+      console.log('🔍 Validating coupon:', { coupon_code, cart_total, shipping_cost })
+
       if (!coupon_code) {
         return new Response(
           JSON.stringify({ success: false, error: 'Coupon code is required' }),
@@ -234,6 +237,8 @@ serve(async (req) => {
         .eq('status', 'active')
         .single()
 
+      console.log('📊 Database result:', { found: !!influencer, error })
+
       if (error || !influencer) {
         return new Response(
           JSON.stringify({ success: false, error: 'Invalid coupon code' }),
@@ -241,27 +246,38 @@ serve(async (req) => {
         )
       }
 
-      // Check minimum order value
-      if (cart_total < influencer.min_order_value) {
+      // Check minimum order value - HANDLE STRING VALUES
+      const minOrderValue = parseFloat(influencer.minimum_order_value || '0')
+      if (cart_total < minOrderValue) {
         return new Response(
           JSON.stringify({ 
             success: false, 
-            error: `Minimum order of ₦${influencer.min_order_value.toLocaleString()} required` 
+            error: `Minimum order of NGN ${minOrderValue.toLocaleString()} required` 
           }),
           { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         )
       }
 
-      // Calculate shipping discount
+      // Calculate shipping discount - HANDLE STRING VALUES
       let shippingDiscount = 0
-      if (influencer.discount_type === 'percentage') {
-        shippingDiscount = (shipping_cost * influencer.discount_value) / 100
-      } else if (influencer.discount_type === 'fixed') {
-        shippingDiscount = influencer.discount_value
+      const discountType = influencer.shipping_discount_type || 'percentage'
+      const discountValue = parseFloat(influencer.shipping_discount_value || '0')
+
+      console.log('💰 Calculating:', { discountType, discountValue, shipping_cost })
+
+      if (discountType === 'percentage') {
+        shippingDiscount = (shipping_cost * discountValue) / 100
+      } else if (discountType === 'fixed') {
+        shippingDiscount = discountValue
+      } else if (discountType === 'free') {
+        shippingDiscount = shipping_cost
       }
 
       // Cap discount at shipping cost
       shippingDiscount = Math.min(shippingDiscount, shipping_cost)
+      shippingDiscount = Math.round(shippingDiscount)
+
+      console.log('✅ Final discount:', shippingDiscount)
 
       return new Response(
         JSON.stringify({
@@ -269,8 +285,8 @@ serve(async (req) => {
           data: {
             influencer_id: influencer.id,
             influencer_name: influencer.name,
-            shipping_discount: Math.round(shippingDiscount),
-            message: `You saved ₦${Math.round(shippingDiscount).toLocaleString()} on shipping!`,
+            shipping_discount: shippingDiscount,
+            message: `You saved NGN ${shippingDiscount.toLocaleString()} on shipping!`,
           }
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

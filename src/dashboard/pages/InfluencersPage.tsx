@@ -54,7 +54,13 @@ export default function InfluencersPage() {
     try {
       setLoading(true);
       const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
-      const response = await fetch(`${API_BASE_URL}/influencers?status=active`);
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const response = await fetch(`${API_BASE_URL}/influencers?status=active`, {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`
+        }
+      });
       const result = await response.json();
 
       if (result.success) {
@@ -334,6 +340,39 @@ function InfluencerRow({
           >
             View
           </button>
+          {influencer.status === 'active' && (
+            <button
+              onClick={async () => {
+                if (!window.confirm('Terminate this influencer contract and deactivate their coupon?')) {
+                  return;
+                }
+                try {
+                  const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
+                  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+                  const response = await fetch(`${API_BASE_URL}/influencers/${influencer.id}`, {
+                    method: 'PUT',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      apikey: anonKey,
+                      Authorization: `Bearer ${anonKey}`
+                    },
+                    body: JSON.stringify({ status: 'terminated' })
+                  });
+                  const result = await response.json();
+                  if (!result.success) {
+                    window.alert(result.error || 'Failed to terminate influencer');
+                    return;
+                  }
+                  window.location.reload();
+                } catch (error) {
+                  window.alert('Failed to terminate influencer');
+                }
+              }}
+              className="text-red-600 hover:text-red-800 text-sm font-medium"
+            >
+              Terminate
+            </button>
+          )}
           {pendingCommission > 0 && (
             <button className="text-green-600 hover:text-green-800 text-sm font-medium">
               Pay
@@ -376,9 +415,14 @@ function AddInfluencerModal({
 
     try {
       const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       const response = await fetch(`${API_BASE_URL}/influencers`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`
+        },
         body: JSON.stringify(formData)
       });
 

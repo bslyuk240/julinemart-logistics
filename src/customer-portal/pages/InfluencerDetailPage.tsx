@@ -54,7 +54,13 @@ export default function InfluencerDetailPage() {
       const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
 
       // Load influencer
-      const influencerResponse = await fetch(`${API_BASE_URL}/influencers/${id}`);
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const influencerResponse = await fetch(`${API_BASE_URL}/influencers/${id}`, {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`
+        }
+      });
       const influencerResult = await influencerResponse.json();
 
       if (influencerResult.success) {
@@ -62,7 +68,12 @@ export default function InfluencerDetailPage() {
       }
 
       // Load sales
-      const salesResponse = await fetch(`${API_BASE_URL}/influencers/${id}/sales?period=${dateRange}`);
+      const salesResponse = await fetch(`${API_BASE_URL}/influencers/${id}/sales?period=${dateRange}`, {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`
+        }
+      });
       const salesResult = await salesResponse.json();
 
       if (salesResult.success) {
@@ -112,7 +123,7 @@ export default function InfluencerDetailPage() {
   const pendingCommission = influencer.total_commission_earned - influencer.total_commission_paid;
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       {/* Back Button */}
       <button
         onClick={() => navigate('/admin/influencers')}
@@ -122,10 +133,10 @@ export default function InfluencerDetailPage() {
       </button>
 
       {/* Influencer Header */}
-      <div className="bg-white p-6 rounded-lg shadow mb-6">
-        <div className="flex justify-between items-start">
-          <div className="flex gap-4">
-            <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center text-2xl font-bold text-purple-600">
+      <div className="bg-white p-4 sm:p-6 rounded-lg shadow mb-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:justify-between lg:items-start">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 bg-purple-100 rounded-full flex items-center justify-center text-2xl font-bold text-purple-600">
               {influencer.name.charAt(0)}
             </div>
             <div>
@@ -148,12 +159,12 @@ export default function InfluencerDetailPage() {
             </div>
           </div>
 
-          <div className="flex gap-2">
-            <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            <button className="w-full sm:w-auto px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
               Edit Details
             </button>
             {pendingCommission > 0 && (
-              <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+              <button className="w-full sm:w-auto px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
                 Process Payment
               </button>
             )}

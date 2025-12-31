@@ -48,6 +48,7 @@ export default function InfluencerDetailPage() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState('this_month');
+  const [showEditModal, setShowEditModal] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -55,7 +56,13 @@ export default function InfluencerDetailPage() {
       const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
 
       // Load influencer
-      const influencerResponse = await fetch(`${API_BASE_URL}/influencers/${id}`);
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const influencerResponse = await fetch(`${API_BASE_URL}/influencers/${id}`, {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`
+        }
+      });
       const influencerResult = await influencerResponse.json();
 
       if (influencerResult.success) {
@@ -63,7 +70,12 @@ export default function InfluencerDetailPage() {
       }
 
       // Load sales
-      const salesResponse = await fetch(`${API_BASE_URL}/influencers/${id}/sales?period=${dateRange}`);
+      const salesResponse = await fetch(`${API_BASE_URL}/influencers/${id}/sales?period=${dateRange}`, {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`
+        }
+      });
       const salesResult = await salesResponse.json();
 
       if (salesResult.success) {
@@ -113,7 +125,7 @@ export default function InfluencerDetailPage() {
   const pendingCommission = influencer.total_commission_earned - influencer.total_commission_paid;
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       {/* Back Button */}
       <button
         onClick={() => navigate('/admin/influencers')}
@@ -124,10 +136,10 @@ export default function InfluencerDetailPage() {
       </button>
 
       {/* Influencer Header */}
-      <div className="bg-white p-6 rounded-lg shadow mb-6">
-        <div className="flex justify-between items-start">
-          <div className="flex gap-4">
-            <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center text-2xl font-bold text-purple-600">
+      <div className="bg-white p-4 sm:p-6 rounded-lg shadow mb-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:justify-between lg:items-start">
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 bg-purple-100 rounded-full flex items-center justify-center text-2xl font-bold text-purple-600">
               {influencer.name.charAt(0)}
             </div>
             <div>
@@ -150,12 +162,48 @@ export default function InfluencerDetailPage() {
             </div>
           </div>
 
-          <div className="flex gap-2">
-            <button className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+          <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+            <button
+              onClick={() => setShowEditModal(true)}
+              className="w-full sm:w-auto px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
               Edit Details
             </button>
+            {influencer.status === 'active' && (
+              <button
+                onClick={async () => {
+                  if (!window.confirm('Terminate this influencer contract and deactivate their coupon?')) {
+                    return;
+                  }
+                  try {
+                    const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
+                    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+                    const response = await fetch(`${API_BASE_URL}/influencers/${influencer.id}`, {
+                      method: 'PUT',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        apikey: anonKey,
+                        Authorization: `Bearer ${anonKey}`
+                      },
+                      body: JSON.stringify({ status: 'terminated' })
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                      window.alert(result.error || 'Failed to terminate influencer');
+                      return;
+                    }
+                    loadData();
+                  } catch (error) {
+                    window.alert('Failed to terminate influencer');
+                  }
+                }}
+                className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Terminate Contract
+              </button>
+            )}
             {pendingCommission > 0 && (
-              <button className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
+              <button className="w-full sm:w-auto px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
                 Process Payment
               </button>
             )}
@@ -301,6 +349,17 @@ export default function InfluencerDetailPage() {
           </div>
         )}
       </div>
+
+      {showEditModal && influencer && (
+        <EditInfluencerModal
+          influencer={influencer}
+          onClose={() => setShowEditModal(false)}
+          onSuccess={() => {
+            setShowEditModal(false);
+            loadData();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -326,6 +385,309 @@ function StatCard({
           </p>
         </div>
         <div>{icon}</div>
+      </div>
+    </div>
+  );
+}
+
+function EditInfluencerModal({
+  influencer,
+  onClose,
+  onSuccess
+}: {
+  influencer: Influencer;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [formData, setFormData] = useState({
+    name: influencer.name || '',
+    email: influencer.email || '',
+    phone: influencer.phone || '',
+    platform: influencer.platform || 'instagram',
+    handle: influencer.handle || '',
+    coupon_code: influencer.coupon_code || '',
+    shipping_discount_type: influencer.shipping_discount_type || 'percentage',
+    shipping_discount_value: influencer.shipping_discount_value ?? 0,
+    minimum_order_value: influencer.minimum_order_value ?? 0,
+    commission_rate: influencer.commission_rate ?? 5,
+    tier: influencer.tier || 'TIER1',
+    status: influencer.status || 'active'
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const response = await fetch(`${API_BASE_URL}/influencers/${influencer.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`
+        },
+        body: JSON.stringify(formData)
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        setError(result.error || 'Failed to update influencer');
+        return;
+      }
+
+      onSuccess();
+    } catch (err) {
+      setError('Network error. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b sticky top-0 bg-white z-10">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-bold">Edit Influencer</h2>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+            >
+              x
+            </button>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
+              {error}
+            </div>
+          )}
+
+          <div className="space-y-4">
+            <h3 className="font-semibold text-gray-900">Personal Information</h3>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Full Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Phone
+                </label>
+                <input
+                  type="tel"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Platform
+                </label>
+                <select
+                  value={formData.platform}
+                  onChange={(e) => setFormData({ ...formData, platform: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="instagram">Instagram</option>
+                  <option value="tiktok">TikTok</option>
+                  <option value="facebook">Facebook</option>
+                  <option value="youtube">YouTube</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Handle
+                </label>
+                <input
+                  type="text"
+                  value={formData.handle}
+                  onChange={(e) => setFormData({ ...formData, handle: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 pt-4 border-t">
+            <h3 className="font-semibold text-gray-900">Coupon Configuration</h3>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Coupon Code <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.coupon_code}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  coupon_code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '')
+                })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono uppercase"
+                maxLength={20}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Discount Type
+                </label>
+                <select
+                  value={formData.shipping_discount_type}
+                  onChange={(e) => setFormData({ ...formData, shipping_discount_type: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="percentage">Percentage Off</option>
+                  <option value="fixed">Fixed Amount Off</option>
+                  <option value="free">Free Shipping</option>
+                </select>
+              </div>
+
+              {formData.shipping_discount_type !== 'free' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Discount Value
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.shipping_discount_value}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      shipping_discount_value: parseFloat(e.target.value)
+                    })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Minimum Order Value (ƒ'İ)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1000"
+                  value={formData.minimum_order_value}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    minimum_order_value: parseFloat(e.target.value)
+                  })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Commission Rate (%)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.5"
+                  value={formData.commission_rate}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    commission_rate: parseFloat(e.target.value)
+                  })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Tier
+                </label>
+                <select
+                  value={formData.tier}
+                  onChange={(e) => setFormData({ ...formData, tier: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="TIER1">Tier 1 (Micro-influencer, 1K-10K followers)</option>
+                  <option value="TIER2">Tier 2 (Mid-tier, 10K-50K followers)</option>
+                  <option value="TIER3">Tier 3 (Premium, 50K+ followers)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Status
+                </label>
+                <select
+                  value={formData.status}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                >
+                  <option value="active">Active</option>
+                  <option value="paused">Paused</option>
+                  <option value="terminated">Terminated</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-4 border-t">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              disabled={loading}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:bg-gray-400 transition-colors"
+              disabled={loading}
+            >
+              {loading ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

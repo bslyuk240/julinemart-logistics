@@ -212,7 +212,7 @@ export default function InfluencerDetailPage() {
 
         {/* Coupon Info */}
         <div className="mt-6 p-4 bg-purple-50 rounded-lg border border-purple-200">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <p className="text-sm text-gray-600">Coupon Code</p>
               <p className="text-lg font-mono font-bold text-purple-600">
@@ -244,7 +244,7 @@ export default function InfluencerDetailPage() {
       </div>
 
       {/* Performance Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
           label="Total Orders"
           value={influencer.total_orders}

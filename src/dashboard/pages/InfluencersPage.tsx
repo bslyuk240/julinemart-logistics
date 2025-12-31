@@ -120,7 +120,7 @@ export default function InfluencersPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 mb-6">
         <StatCard
           icon={<Users className="h-5 w-5 text-purple-600" />}
           label="Active Influencers"
@@ -166,8 +166,129 @@ export default function InfluencersPage() {
             </div>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <>
+            <div className="sm:hidden space-y-3 p-4">
+              {influencers.map((influencer) => {
+                const pendingCommission =
+                  (influencer.total_commission_earned || 0) -
+                  (influencer.total_commission_paid || 0);
+                return (
+                  <div key={influencer.id} className="border border-gray-200 rounded-lg p-4 bg-white">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-gray-900">{influencer.name}</p>
+                        {influencer.platform && influencer.handle && (
+                          <p className="text-sm text-gray-500">
+                            {influencer.platform === 'instagram' && 'IG'}
+                            {influencer.platform === 'tiktok' && 'TT'}
+                            {influencer.platform === 'facebook' && 'FB'}
+                            {influencer.platform === 'youtube' && 'YT'} @{influencer.handle}
+                          </p>
+                        )}
+                        <p className="text-xs text-gray-500 mt-1">
+                          Code: <span className="font-mono">{influencer.coupon_code}</span>
+                        </p>
+                      </div>
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          influencer.status === 'active'
+                            ? 'bg-green-100 text-green-800'
+                            : influencer.status === 'paused'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}
+                      >
+                        {influencer.status}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs text-gray-600 mt-3">
+                      <div>
+                        <p className="text-gray-400">Discount</p>
+                        <p className="text-gray-800">
+                          {influencer.shipping_discount_type === 'percentage' &&
+                            `${influencer.shipping_discount_value}% off`}
+                          {influencer.shipping_discount_type === 'fixed' &&
+                            `₦${influencer.shipping_discount_value} off`}
+                          {influencer.shipping_discount_type === 'free' && 'Free shipping'}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400">Orders</p>
+                        <p className="text-gray-800">{influencer.total_orders || 0}</p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400">Sales</p>
+                        <p className="text-gray-800">
+                          ₦{(influencer.total_sales || 0).toLocaleString()}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-gray-400">Commission</p>
+                        <p className="text-green-600">
+                          ₦{(influencer.total_commission_earned || 0).toLocaleString()}
+                        </p>
+                        {pendingCommission > 0 && (
+                          <p className="text-[10px] text-orange-600">
+                            ₦{pendingCommission.toLocaleString()} pending
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 mt-4">
+                      <button
+                        onClick={() => navigate(`/admin/influencers/${influencer.id}`)}
+                        className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 rounded-lg"
+                      >
+                        View
+                      </button>
+                      {influencer.status === 'active' && (
+                        <button
+                          onClick={async () => {
+                            if (!window.confirm('Terminate this influencer contract and deactivate their coupon?')) {
+                              return;
+                            }
+                            try {
+                              const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
+                              const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+                              const response = await fetch(`${API_BASE_URL}/influencers/${influencer.id}`, {
+                                method: 'PUT',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                  apikey: anonKey,
+                                  Authorization: `Bearer ${anonKey}`
+                                },
+                                body: JSON.stringify({ status: 'terminated' })
+                              });
+                              const result = await response.json();
+                              if (!result.success) {
+                                window.alert(result.error || 'Failed to terminate influencer');
+                                return;
+                              }
+                              loadInfluencers();
+                            } catch (error) {
+                              window.alert('Failed to terminate influencer');
+                            }
+                          }}
+                          className="px-3 py-1.5 text-xs bg-red-50 text-red-700 rounded-lg"
+                        >
+                          Terminate
+                        </button>
+                      )}
+                      {pendingCommission > 0 && (
+                        <button className="px-3 py-1.5 text-xs bg-green-50 text-green-700 rounded-lg">
+                          Pay
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -207,6 +328,7 @@ export default function InfluencersPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 
@@ -233,18 +355,18 @@ function StatCard({ icon, label, value, subtitle, highlight }: {
   highlight?: string;
 }) {
   return (
-    <div className="bg-white rounded-lg shadow p-6">
+    <div className="bg-white rounded-lg shadow p-3 sm:p-6">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm text-gray-600 mb-1">{label}</p>
-          <p className={`text-2xl font-bold ${highlight || 'text-gray-900'}`}>
+          <p className="text-[11px] sm:text-sm text-gray-600 mb-1">{label}</p>
+          <p className={`text-lg sm:text-2xl font-bold ${highlight || 'text-gray-900'}`}>
             {value}
           </p>
           {subtitle && (
-            <p className="text-xs text-gray-400 mt-1">{subtitle}</p>
+            <p className="text-[10px] sm:text-xs text-gray-400 mt-1">{subtitle}</p>
           )}
         </div>
-        <div>{icon}</div>
+        <div className="text-sm sm:text-base">{icon}</div>
       </div>
     </div>
   );

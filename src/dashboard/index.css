@@ -62,4 +62,22 @@
   button {
     @apply text-sm px-3 py-2 rounded-lg;
   }
+
+  .admin-portal h1 {
+    font-size: 15px;
+    line-height: 1.25;
+    font-weight: 700;
+  }
+
+  .admin-portal h2 {
+    font-size: 12px;
+    line-height: 1.25;
+    font-weight: 600;
+  }
+
+  .admin-portal h1 svg,
+  .admin-portal h1 .lucide {
+    width: 15px;
+    height: 15px;
+  }
 }

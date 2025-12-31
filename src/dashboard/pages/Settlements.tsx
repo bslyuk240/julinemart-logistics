@@ -74,8 +74,8 @@ export function SettlementsPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-          <DollarSign className="w-8 h-8 text-green-600" />
+        <h1 className="text-lg sm:text-lg sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+          <DollarSign className="w-5 h-5 sm:w-8 sm:h-8 text-green-600" />
           Courier Settlements
         </h1>
         <p className="text-gray-600 mt-2">
@@ -84,45 +84,45 @@ export function SettlementsPage() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <div className="card bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200">
+      <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-6 mb-8">
+        <div className="card bg-gradient-to-br from-yellow-50 to-yellow-100 border-yellow-200 p-3 sm:p-6">
           <div className="flex items-center justify-between mb-2">
-            <Clock className="w-8 h-8 text-yellow-600" />
+            <Clock className="w-5 h-5 sm:w-8 sm:h-8 text-yellow-600" />
           </div>
-          <div className="text-3xl font-bold text-yellow-900">
+          <div className="text-lg sm:text-lg sm:text-3xl font-bold text-yellow-900">
             ₦{totalPending.toLocaleString()}
           </div>
-          <div className="text-sm text-yellow-700 mt-1">Pending Payment</div>
+          <div className="text-[11px] sm:text-[11px] sm:text-sm text-yellow-700 mt-1">Pending Payment</div>
         </div>
 
-        <div className="card bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200">
+        <div className="card bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 p-3 sm:p-6">
           <div className="flex items-center justify-between mb-2">
-            <FileText className="w-8 h-8 text-blue-600" />
+            <FileText className="w-5 h-5 sm:w-8 sm:h-8 text-blue-600" />
           </div>
-          <div className="text-3xl font-bold text-blue-900">
+          <div className="text-lg sm:text-lg sm:text-3xl font-bold text-blue-900">
             ₦{totalApproved.toLocaleString()}
           </div>
-          <div className="text-sm text-blue-700 mt-1">Approved for Payment</div>
+          <div className="text-[11px] sm:text-[11px] sm:text-sm text-blue-700 mt-1">Approved for Payment</div>
         </div>
 
-        <div className="card bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+        <div className="card bg-gradient-to-br from-green-50 to-green-100 border-green-200 p-3 sm:p-6">
           <div className="flex items-center justify-between mb-2">
-            <CheckCircle className="w-8 h-8 text-green-600" />
+            <CheckCircle className="w-5 h-5 sm:w-8 sm:h-8 text-green-600" />
           </div>
-          <div className="text-3xl font-bold text-green-900">
+          <div className="text-lg sm:text-lg sm:text-3xl font-bold text-green-900">
             ₦{totalPaid.toLocaleString()}
           </div>
-          <div className="text-sm text-green-700 mt-1">Total Paid (All Time)</div>
+          <div className="text-[11px] sm:text-[11px] sm:text-sm text-green-700 mt-1">Total Paid (All Time)</div>
         </div>
 
-        <div className="card bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200">
+        <div className="card bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200 p-3 sm:p-6">
           <div className="flex items-center justify-between mb-2">
-            <TrendingUp className="w-8 h-8 text-purple-600" />
+            <TrendingUp className="w-5 h-5 sm:w-8 sm:h-8 text-purple-600" />
           </div>
-          <div className="text-3xl font-bold text-purple-900">
+          <div className="text-lg sm:text-lg sm:text-3xl font-bold text-purple-900">
             {pendingPayments.reduce((sum, p) => sum + p.pending_shipments, 0)}
           </div>
-          <div className="text-sm text-purple-700 mt-1">Pending Shipments</div>
+          <div className="text-[11px] sm:text-[11px] sm:text-sm text-purple-700 mt-1">Pending Shipments</div>
         </div>
       </div>
 
@@ -181,20 +181,20 @@ export function SettlementsPage() {
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
-                        <span className="text-sm text-gray-600">Total Amount Due</span>
+                        <span className="text-[11px] sm:text-sm text-gray-600">Total Amount Due</span>
                         <p className="text-2xl font-bold text-gray-900">
                           ₦{payment.total_amount_due.toLocaleString()}
                         </p>
                       </div>
                       <div>
-                        <span className="text-sm text-gray-600">Approved for Payment</span>
+                        <span className="text-[11px] sm:text-sm text-gray-600">Approved for Payment</span>
                         <p className="text-xl font-semibold text-blue-600">
                           ₦{payment.approved_amount.toLocaleString()}
                         </p>
                       </div>
                       <div>
-                        <span className="text-sm text-gray-600">Period</span>
-                        <p className="text-sm font-medium text-gray-900">
+                        <span className="text-[11px] sm:text-sm text-gray-600">Period</span>
+                        <p className="text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-900">
                           {new Date(payment.oldest_shipment).toLocaleDateString()} - {' '}
                           {new Date(payment.newest_shipment).toLocaleDateString()}
                         </p>
@@ -291,7 +291,7 @@ function SettlementHistoryCard({ settlement, onRefresh, notification }: any) {
       <div className="flex items-start justify-between mb-4">
         <div>
           <h3 className="text-lg font-bold text-gray-900">{settlement.courier_name}</h3>
-          <p className="text-sm text-gray-600">
+          <p className="text-[11px] sm:text-sm text-gray-600">
             {new Date(settlement.settlement_period_start).toLocaleDateString()} - {' '}
             {new Date(settlement.settlement_period_end).toLocaleDateString()}
           </p>
@@ -301,26 +301,26 @@ function SettlementHistoryCard({ settlement, onRefresh, notification }: any) {
         </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+      <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 mb-4">
         <div>
-          <span className="text-sm text-gray-600">Shipments</span>
-          <p className="text-lg font-semibold text-gray-900">{settlement.total_shipments}</p>
+          <span className="text-[11px] sm:text-sm text-gray-600">Shipments</span>
+          <p className="text-base sm:text-base sm:text-lg font-semibold text-gray-900">{settlement.total_shipments}</p>
         </div>
         <div>
-          <span className="text-sm text-gray-600">Amount Due</span>
-          <p className="text-lg font-semibold text-gray-900">
+          <span className="text-[11px] sm:text-sm text-gray-600">Amount Due</span>
+          <p className="text-base sm:text-base sm:text-lg font-semibold text-gray-900">
             ₦{settlement.total_amount_due.toLocaleString()}
           </p>
         </div>
         <div>
-          <span className="text-sm text-gray-600">Amount Paid</span>
-          <p className="text-lg font-semibold text-green-600">
+          <span className="text-[11px] sm:text-sm text-gray-600">Amount Paid</span>
+          <p className="text-base sm:text-base sm:text-lg font-semibold text-green-600">
             ₦{settlement.total_amount_paid.toLocaleString()}
           </p>
         </div>
         <div>
-          <span className="text-sm text-gray-600">Created</span>
-          <p className="text-sm font-medium text-gray-900">
+          <span className="text-[11px] sm:text-sm text-gray-600">Created</span>
+          <p className="text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-900">
             {new Date(settlement.created_at).toLocaleDateString()}
           </p>
         </div>
@@ -429,7 +429,7 @@ function CreateSettlementModal({ courier, onClose, onSuccess, notification }: an
 
         <div className="space-y-4 mb-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-700 mb-2">
               Period Start Date
             </label>
             <input
@@ -441,7 +441,7 @@ function CreateSettlementModal({ courier, onClose, onSuccess, notification }: an
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-700 mb-2">
               Period End Date
             </label>
             <input
@@ -525,13 +525,13 @@ function MarkPaidModal({ settlement, onClose, onSuccess, notification }: any) {
         <h2 className="text-2xl font-bold mb-4">Mark as Paid</h2>
         
         <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-          <p className="text-sm text-gray-600">Courier: <span className="font-semibold">{settlement.courier_name}</span></p>
-          <p className="text-sm text-gray-600">Amount: <span className="font-semibold text-lg">₦{settlement.total_amount_due.toLocaleString()}</span></p>
+          <p className="text-[11px] sm:text-sm text-gray-600">Courier: <span className="font-semibold">{settlement.courier_name}</span></p>
+          <p className="text-[11px] sm:text-sm text-gray-600">Amount: <span className="font-semibold text-lg">₦{settlement.total_amount_due.toLocaleString()}</span></p>
         </div>
 
         <div className="space-y-4 mb-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-700 mb-2">
               Payment Reference *
             </label>
             <input
@@ -544,7 +544,7 @@ function MarkPaidModal({ settlement, onClose, onSuccess, notification }: any) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-700 mb-2">
               Payment Method
             </label>
             <select
@@ -560,7 +560,7 @@ function MarkPaidModal({ settlement, onClose, onSuccess, notification }: any) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-700 mb-2">
               Payment Date
             </label>
             <input
@@ -572,7 +572,7 @@ function MarkPaidModal({ settlement, onClose, onSuccess, notification }: any) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-700 mb-2">
               Notes (Optional)
             </label>
             <textarea

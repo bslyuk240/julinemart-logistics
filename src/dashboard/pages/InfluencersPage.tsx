@@ -120,7 +120,7 @@ export default function InfluencersPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 mb-6">
         <StatCard
           icon={<Users className="h-5 w-5 text-purple-600" />}
           label="Active Influencers"

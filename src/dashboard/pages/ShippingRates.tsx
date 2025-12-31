@@ -188,12 +188,81 @@ export function ShippingRatesPage() {
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Route
+          <>
+            <div className="space-y-4 lg:hidden">
+              {filteredRates.map((rate) => (
+                <div key={rate.id} className="border border-gray-200 rounded-lg p-4 bg-white space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {rate.hubs?.name || 'Any Hub'}  {rate.zones?.name || 'Unknown'}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {rate.hubs?.code}  {rate.zones?.code}
+                      </p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      rate.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      {rate.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-xs text-gray-600">
+                    <div>
+                      <p className="text-[10px] uppercase text-gray-400">Courier</p>
+                      <p className="text-sm text-gray-900">{rate.couriers?.name || 'Any Courier'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-gray-400">Delivery</p>
+                      <p className="text-sm text-gray-900">{rate.delivery_timeline_days || 3} days</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-gray-400">Base Rate</p>
+                      <p className="text-sm text-gray-900">
+                        {(rate.flat_rate || rate.base_rate || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-gray-400">Per KG</p>
+                      <p className="text-sm text-gray-900">
+                        {(rate.additional_weight_rate || rate.per_kg_rate || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-gray-400">Weight Range</p>
+                      <p className="text-sm text-gray-900">
+                        {rate.min_weight || 0}kg - {rate.max_weight || 4}kg
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-2 border-t">
+                    <button
+                      onClick={() => handleEdit(rate)}
+                      className="btn-secondary flex-1 flex items-center justify-center gap-2"
+                    >
+                      <Edit className="w-4 h-4" />
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(rate.id)}
+                      className="btn-orange flex-1 flex items-center justify-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="overflow-x-auto hidden lg:block">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Route
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Courier
@@ -271,7 +340,8 @@ export function ShippingRatesPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </div>
 

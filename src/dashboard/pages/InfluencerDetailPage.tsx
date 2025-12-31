@@ -169,6 +169,39 @@ export default function InfluencerDetailPage() {
             >
               Edit Details
             </button>
+            {influencer.status === 'active' && (
+              <button
+                onClick={async () => {
+                  if (!window.confirm('Terminate this influencer contract and deactivate their coupon?')) {
+                    return;
+                  }
+                  try {
+                    const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
+                    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+                    const response = await fetch(`${API_BASE_URL}/influencers/${influencer.id}`, {
+                      method: 'PUT',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        apikey: anonKey,
+                        Authorization: `Bearer ${anonKey}`
+                      },
+                      body: JSON.stringify({ status: 'terminated' })
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                      window.alert(result.error || 'Failed to terminate influencer');
+                      return;
+                    }
+                    loadData();
+                  } catch (error) {
+                    window.alert('Failed to terminate influencer');
+                  }
+                }}
+                className="w-full sm:w-auto px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Terminate Contract
+              </button>
+            )}
             {pendingCommission > 0 && (
               <button className="w-full sm:w-auto px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
                 Process Payment

@@ -146,33 +146,33 @@ export default function WhatsAppSupportPage() {
       
       {/* Filters */}
       <div className="card">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
           {/* Search */}
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+          <div className="col-span-2">
+            <label className="block text-[11px] sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
               Search Customer
             </label>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Search className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 sm:w-5 sm:h-5 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search by name or phone..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="w-full pl-8 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent text-xs sm:text-sm"
               />
             </div>
           </div>
           
           {/* Status Filter */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-[11px] sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
               Status
             </label>
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="w-full px-2 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-xs sm:text-sm"
             >
               <option value="all">All Status</option>
               <option value="open">Open</option>
@@ -183,13 +183,13 @@ export default function WhatsAppSupportPage() {
           
           {/* Assignment Filter */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-[11px] sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
               Assignment
             </label>
             <select
               value={assignmentFilter}
               onChange={(e) => setAssignmentFilter(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="w-full px-2 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-xs sm:text-sm"
             >
               <option value="all">All Chats</option>
               <option value="assigned_to_me">Assigned to Me</option>
@@ -200,50 +200,50 @@ export default function WhatsAppSupportPage() {
       </div>
       
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="card">
+      <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
+        <div className="card p-3 sm:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Total Chats</p>
-              <p className="text-2xl font-bold text-gray-900">{chats.length}</p>
+              <p className="text-[11px] sm:text-sm text-gray-600">Total Chats</p>
+              <p className="text-lg sm:text-2xl font-bold text-gray-900">{chats.length}</p>
             </div>
-            <MessageSquare className="w-8 h-8 text-blue-500" />
+            <MessageSquare className="w-5 h-5 sm:w-8 sm:h-8 text-blue-500" />
           </div>
         </div>
         
-        <div className="card">
+        <div className="card p-3 sm:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Open</p>
-              <p className="text-2xl font-bold text-green-600">
+              <p className="text-[11px] sm:text-sm text-gray-600">Open</p>
+              <p className="text-lg sm:text-2xl font-bold text-green-600">
                 {chats.filter(c => c.status === 'open').length}
               </p>
             </div>
-            <Clock className="w-8 h-8 text-green-500" />
+            <Clock className="w-5 h-5 sm:w-8 sm:h-8 text-green-500" />
           </div>
         </div>
         
-        <div className="card">
+        <div className="card p-3 sm:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Assigned</p>
-              <p className="text-2xl font-bold text-blue-600">
+              <p className="text-[11px] sm:text-sm text-gray-600">Assigned</p>
+              <p className="text-lg sm:text-2xl font-bold text-blue-600">
                 {chats.filter(c => c.status === 'assigned').length}
               </p>
             </div>
-            <UserCheck className="w-8 h-8 text-blue-500" />
+            <UserCheck className="w-5 h-5 sm:w-8 sm:h-8 text-blue-500" />
           </div>
         </div>
         
-        <div className="card">
+        <div className="card p-3 sm:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Unread</p>
-              <p className="text-2xl font-bold text-red-600">
+              <p className="text-[11px] sm:text-sm text-gray-600">Unread</p>
+              <p className="text-lg sm:text-2xl font-bold text-red-600">
                 {chats.filter(c => c.unread_count > 0).length}
               </p>
             </div>
-            <Mail className="w-8 h-8 text-red-500" />
+            <Mail className="w-5 h-5 sm:w-8 sm:h-8 text-red-500" />
           </div>
         </div>
       </div>

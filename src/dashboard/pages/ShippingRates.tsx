@@ -139,15 +139,15 @@ export function ShippingRatesPage() {
 
       {/* Filters */}
       <div className="card mb-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+        <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 items-center">
+          <div className="col-span-2">
+            <label className="block text-[11px] sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
               Filter by Hub
             </label>
             <select
               value={filterHub}
               onChange={(e) => setFilterHub(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="w-full px-2 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-xs sm:text-sm"
             >
               <option value="all">All Hubs</option>
               {hubs.map(hub => (
@@ -155,14 +155,14 @@ export function ShippingRatesPage() {
               ))}
             </select>
           </div>
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+          <div className="col-span-2">
+            <label className="block text-[11px] sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
               Filter by Zone
             </label>
             <select
               value={filterZone}
               onChange={(e) => setFilterZone(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="w-full px-2 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-xs sm:text-sm"
             >
               <option value="all">All Zones</option>
               {zones.map(zone => (

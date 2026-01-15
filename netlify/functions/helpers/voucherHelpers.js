@@ -74,7 +74,7 @@ export async function validateVoucher(supabase, couponCode, orderData) {
  */
 export function validateVoucherItems(voucher, orderItems) {
   // If no restrictions, voucher applies to all items
-  if (!voucher.product_ids?.length && !voucher.vendor_ids?.length) {
+  if (!voucher.product_ids?.length && !voucher.product_skus?.length && !voucher.vendor_ids?.length) {
     return {
       isValid: true,
       matchingItems: orderItems,
@@ -82,17 +82,26 @@ export function validateVoucherItems(voucher, orderItems) {
     };
   }
 
+  const normalizedProductIds = (voucher.product_ids || []).map((pid) => pid?.toString().trim()).filter(Boolean);
+  const normalizedProductSkus = (voucher.product_skus || []).map((sku) => sku?.toString().trim().toUpperCase()).filter(Boolean);
+  const normalizedVendorIds = (voucher.vendor_ids || []).map((vid) => vid?.toString().trim()).filter(Boolean);
+  const requiresProductMatch = normalizedProductIds.length > 0 || normalizedProductSkus.length > 0;
+
   const matchingItems = orderItems.filter(item => {
-    // Check product ID restriction
-    if (voucher.product_ids?.length > 0) {
-      const matches = voucher.product_ids.includes(item.productId?.toString());
-      if (!matches) return false;
+    const itemSku = item.sku ? item.sku.toString().trim().toUpperCase() : '';
+    const matchesProductId =
+      normalizedProductIds.length > 0 && item.productId
+        ? normalizedProductIds.includes(item.productId.toString())
+        : false;
+    const matchesSku = normalizedProductSkus.length > 0 && itemSku && normalizedProductSkus.includes(itemSku);
+
+    if (requiresProductMatch && !matchesProductId && !matchesSku) {
+      return false;
     }
 
-    // Check vendor ID restriction
-    if (voucher.vendor_ids?.length > 0) {
-      const matches = voucher.vendor_ids.includes(item.vendorId);
-      if (!matches) return false;
+    if (normalizedVendorIds.length > 0) {
+      if (!item.vendorId) return false;
+      if (!normalizedVendorIds.includes(item.vendorId)) return false;
     }
 
     return true;

@@ -15,6 +15,7 @@ interface CampaignVoucher {
   discount_type: 'free' | 'percentage' | 'fixed_amount';
   discount_value: number | null;
   product_ids: string[] | null;
+  product_skus: string[] | null;
   vendor_ids: string[] | null;
   max_uses: number;
   current_uses: number;
@@ -50,6 +51,7 @@ interface FormState {
   discount_type: 'free' | 'percentage' | 'fixed_amount';
   discount_value: number | '';
   product_ids: string;
+  product_skus: string;
   vendor_ids: string;
   max_uses: number;
   max_uses_per_customer: number;
@@ -65,6 +67,7 @@ const emptyForm: FormState = {
   discount_type: 'free',
   discount_value: '',
   product_ids: '',
+  product_skus: '',
   vendor_ids: '',
   max_uses: 1,
   max_uses_per_customer: 1,
@@ -162,6 +165,7 @@ export function VouchersPage() {
       discount_type: voucher.discount_type,
       discount_value: voucher.discount_value ?? '',
       product_ids: (voucher.product_ids || []).join(', '),
+      product_skus: (voucher.product_skus || []).join(', '),
       vendor_ids: (voucher.vendor_ids || []).join(', '),
       max_uses: voucher.max_uses,
       max_uses_per_customer: voucher.max_uses_per_customer,
@@ -208,6 +212,7 @@ export function VouchersPage() {
       discount_type: formData.discount_type,
       discount_value: formData.discount_type === 'free' ? 0 : Number(formData.discount_value),
       product_ids: parseArray(formData.product_ids),
+      product_skus: parseArray(formData.product_skus).map((sku) => sku.toUpperCase()),
       vendor_ids: parseArray(formData.vendor_ids),
       max_uses: Number(formData.max_uses),
       max_uses_per_customer: Number(formData.max_uses_per_customer),
@@ -611,6 +616,19 @@ export function VouchersPage() {
                     onChange={(e) => setFormData({ ...formData, product_ids: e.target.value })}
                     placeholder="e.g., 123, 456, 789 (leave empty for all)"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 font-mono text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Product SKUs (comma-separated)
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.product_skus}
+                    onChange={(e) => setFormData({ ...formData, product_skus: e.target.value })}
+                    placeholder="e.g., SKU123, SKU456 (leave empty to not filter by SKU)"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 font-mono text-sm uppercase"
                   />
                 </div>
 

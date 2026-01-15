@@ -1,4 +1,4 @@
-// Updated Webhook Handler with Fez API Integration + Influencer Tracking
+// Updated Webhook Handler with Fez API Integration + Influencer Tracking + Campaign Vouchers
 // Location: /netlify/functions/woocommerce-webhook.js
 
 import { createClient } from '@supabase/supabase-js';
@@ -7,6 +7,13 @@ import {
   getShippingQuote, 
   calculateFallbackShipping 
 } from './services/fezDeliveryService.js';
+import {
+  validateVoucher,
+  validateVoucherItems,
+  calculateVoucherFinancials,
+  recordVoucherRedemption,
+  getVoucherSummary
+} from './helpers/voucherHelpers.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -47,7 +54,7 @@ async function getDefaultHubId(supabaseClient) {
 }
 
 // ============================================
-// 🎯 NEW: INFLUENCER TRACKING FUNCTION
+// 🎯 INFLUENCER TRACKING FUNCTION
 // ============================================
 async function processInfluencerOrder(orderData, supabaseClient) {
   try {
@@ -256,6 +263,75 @@ export async function handler(event) {
       };
     }
 
+    // ============================================
+    // 🎟️ VOUCHER & COUPON PROCESSING
+    // ============================================
+    console.log('\n=== PROCESSING COUPONS ===');
+
+    let voucherData = null;
+    let influencerData = null;
+    const appliedCoupons = wcOrder.coupon_lines || [];
+
+    for (const coupon of appliedCoupons) {
+      const couponCode = coupon.code?.trim();
+      if (!couponCode) continue;
+
+      console.log(`Checking coupon: ${couponCode}`);
+
+      // 1. CHECK FOR CAMPAIGN VOUCHER FIRST (higher priority)
+      if (!voucherData) {
+        const voucher = await validateVoucher(supabase, couponCode, {
+          customerEmail: customerInfo.email,
+          customerName: customerInfo.name
+        });
+
+        if (voucher) {
+          // We'll validate items after we parse them below
+          voucherData = {
+            voucher,
+            couponDiscount: parseFloat(coupon.discount || 0),
+            couponCode
+          };
+
+          console.log('✅ CAMPAIGN VOUCHER DETECTED:', couponCode);
+          console.log(`   Campaign: ${voucher.campaign_name}`);
+          console.log(`   Type: ${voucher.discount_type}`);
+          console.log(`   Usage: ${voucher.current_uses}/${voucher.max_uses}`);
+          continue; // Skip influencer check for this code
+        }
+      }
+
+      // 2. CHECK FOR INFLUENCER CODE (if not already found and no voucher)
+      if (!influencerData && !voucherData) {
+        const { data: influencer } = await supabase
+          .from('influencers')
+          .select('*')
+          .eq('coupon_code', couponCode.toUpperCase())
+          .eq('status', 'active')
+          .single();
+
+        if (influencer) {
+          influencerData = {
+            influencer,
+            couponCode,
+            discount: parseFloat(coupon.discount || 0)
+          };
+          console.log(`✅ INFLUENCER CODE: ${couponCode} (${influencer.name})`);
+        }
+      }
+    }
+
+    // Log what we found
+    if (voucherData) {
+      console.log(`\n📌 Order uses CAMPAIGN VOUCHER: ${voucherData.couponCode}`);
+    } else if (influencerData) {
+      console.log(`\n📌 Order uses INFLUENCER CODE: ${influencerData.couponCode}`);
+    } else if (appliedCoupons.length > 0) {
+      console.log(`\n📌 Order has regular WooCommerce coupons (non-JLO)`);
+    } else {
+      console.log(`\n📌 No coupons applied to this order`);
+    }
+
     // Group items by hub
     const orderItems = [];
     const itemsByHub = {};
@@ -310,7 +386,30 @@ export async function handler(event) {
       itemsByHub[resolvedHubId].push(orderItem);
     }
 
-    console.log('=== HUB SPLITTING ===');
+    // NOW validate voucher items (after we have orderItems)
+    if (voucherData) {
+      const itemValidation = validateVoucherItems(voucherData.voucher, orderItems);
+      
+      if (itemValidation.isValid) {
+        const financials = calculateVoucherFinancials(
+          voucherData.voucher,
+          itemValidation.matchingItems,
+          voucherData.couponDiscount
+        );
+
+        voucherData.matchingItems = itemValidation.matchingItems;
+        voucherData.financials = financials;
+
+        console.log('\n💰 VOUCHER FINANCIAL BREAKDOWN:');
+        console.log(getVoucherSummary(voucherData.voucher, financials));
+      } else {
+        console.log(`\n❌ Voucher items don't match restrictions: ${itemValidation.message}`);
+        console.log('   Proceeding without voucher discount');
+        voucherData = null; // Invalid voucher, nullify it
+      }
+    }
+
+    console.log('\n=== HUB SPLITTING ===');
     console.log('Items grouped by hub:', Object.keys(itemsByHub).length, 'hubs');
     Object.entries(itemsByHub).forEach(([hubKey, items]) => {
       console.log(`  📍 Hub ${hubKey}:`, items.length, 'items');
@@ -429,10 +528,6 @@ export async function handler(event) {
       // Option A: Equal split (simple)
       breakdown.allocatedShippingFee = customerPaidShipping / numberOfHubs;
       
-      // Option B: Proportional by real cost (more fair)
-      // breakdown.allocatedShippingFee = 
-      //   (breakdown.realShippingCost / totalFezQuotes) * customerPaidShipping;
-      
       // Calculate shipping P&L
       breakdown.shippingProfitLoss = 
         breakdown.allocatedShippingFee - breakdown.realShippingCost;
@@ -451,7 +546,9 @@ export async function handler(event) {
       console.log(`    Source: ${b.usedFezAPI ? '✅ Fez API' : '📊 Fallback'}`);
     });
 
-    // Create main order
+    // ============================================
+    // 📝 CREATE MAIN ORDER WITH VOUCHER METADATA
+    // ============================================
     const orderData = {
       woocommerce_order_id: wcOrder.id.toString(),
       customer_name: customerInfo.name,
@@ -464,8 +561,28 @@ export async function handler(event) {
       subtotal: parseFloat(wcOrder.total || 0) - customerPaidShipping,
       total_amount: parseFloat(wcOrder.total || 0),
       shipping_fee_paid: customerPaidShipping,
+      
+      // Add voucher discount tracking
+      discount_amount: voucherData ? voucherData.financials.discountApplied : 0,
+      
       payment_status: wcOrder.status === 'processing' ? 'paid' : 'pending',
       overall_status: wcOrder.status === 'processing' ? 'pending' : 'pending',
+      
+      // Enhanced metadata with voucher/influencer info
+      metadata: {
+        ...(voucherData && {
+          voucher_code: voucherData.voucher.code,
+          voucher_id: voucherData.voucher.id,
+          voucher_campaign: voucherData.voucher.campaign_name,
+          voucher_discount: voucherData.financials.discountApplied,
+          voucher_absorbed: voucherData.financials.julinemartAbsorbed
+        }),
+        ...(influencerData && {
+          influencer_code: influencerData.couponCode,
+          influencer_id: influencerData.influencer.id,
+          influencer_discount: influencerData.discount
+        })
+      }
     };
 
     const { data: order, error: orderError } = await supabase
@@ -481,30 +598,82 @@ export async function handler(event) {
 
     console.log('\n✅ Order created:', order.id);
 
-    // Create sub-orders with Fez data
+    // ============================================
+    // 📦 CREATE SUB-ORDERS WITH VOUCHER TRACKING
+    // ============================================
     if (shippingBreakdown.length > 0) {
-      const subOrdersData = shippingBreakdown.map(breakdown => ({
-        main_order_id: order.id,
-        hub_id: breakdown.hubId,
-        courier_id: breakdown.courierId || null,
-        status: 'pending',
-        tracking_number: `${(breakdown.courierName || 'JLO')
-          .substring(0, 3)
-          .toUpperCase()}-${Date.now()}-${Math.random()
-          .toString(36)
-          .substr(2, 6)
-          .toUpperCase()}`,
-        items: breakdown.items,
-        subtotal: breakdown.items.reduce((sum, item) => sum + item.total, 0),
-        real_shipping_cost: breakdown.realShippingCost,
-        allocated_shipping_fee: breakdown.allocatedShippingFee,
-        estimated_shipping_cost: breakdown.realShippingCost,
-        metadata: {
-          used_fez_api: breakdown.usedFezAPI,
-          shipping_profit_loss: breakdown.shippingProfitLoss,
-          quoted_at: new Date().toISOString()
+      const subOrdersData = shippingBreakdown.map(breakdown => {
+        const itemsSubtotal = breakdown.items.reduce((sum, item) => sum + item.total, 0);
+        
+        // Calculate vendor commission at FULL PRICE (pre-voucher)
+        const vendorCommissionRate = 0.10; // 10% - adjust based on your vendor settings
+        const vendorCommission = itemsSubtotal * vendorCommissionRate;
+        const vendorPayable = itemsSubtotal - vendorCommission;
+        
+        // Check if this sub-order contains voucher items
+        let voucherInfo = null;
+        if (voucherData) {
+          const subOrderHasVoucher = breakdown.items.some(item =>
+            voucherData.matchingItems.some(vItem => vItem.productId === item.productId)
+          );
+          
+          if (subOrderHasVoucher) {
+            // Calculate proportion of voucher discount for this sub-order
+            const subOrderVoucherItems = breakdown.items.filter(item =>
+              voucherData.matchingItems.some(vItem => vItem.productId === item.productId)
+            );
+            
+            const subOrderVoucherValue = subOrderVoucherItems.reduce((sum, item) => 
+              sum + (item.price * item.quantity), 0
+            );
+            
+            const proportionalDiscount = (subOrderVoucherValue / voucherData.financials.originalPrice) * 
+              voucherData.financials.discountApplied;
+            
+            voucherInfo = {
+              voucher_id: voucherData.voucher.id,
+              voucher_code: voucherData.voucher.code,
+              original_subtotal: itemsSubtotal,
+              discount_applied: proportionalDiscount,
+              customer_paid: itemsSubtotal - proportionalDiscount,
+              vendor_receives: vendorPayable, // FULL amount (pre-discount)
+              julinemart_absorbed: proportionalDiscount
+            };
+          }
         }
-      }));
+        
+        return {
+          main_order_id: order.id,
+          hub_id: breakdown.hubId,
+          courier_id: breakdown.courierId || null,
+          status: 'pending',
+          tracking_number: `${(breakdown.courierName || 'JLO')
+            .substring(0, 3)
+            .toUpperCase()}-${Date.now()}-${Math.random()
+            .toString(36)
+            .substr(2, 6)
+            .toUpperCase()}`,
+          items: breakdown.items,
+          subtotal: itemsSubtotal, // Original full price
+          real_shipping_cost: breakdown.realShippingCost,
+          allocated_shipping_fee: breakdown.allocatedShippingFee,
+          estimated_shipping_cost: breakdown.realShippingCost,
+          
+          // Add voucher metadata to sub-order
+          metadata: {
+            ...(voucherInfo && {
+              voucher: voucherInfo
+            }),
+            ...(influencerData && {
+              influencer_code: influencerData.couponCode,
+              influencer_id: influencerData.influencer.id
+            }),
+            used_fez_api: breakdown.usedFezAPI,
+            shipping_profit_loss: breakdown.shippingProfitLoss,
+            quoted_at: new Date().toISOString()
+          }
+        };
+      });
 
       const { data: subOrders, error: subOrdersError } = await supabase
         .from('sub_orders')
@@ -520,32 +689,89 @@ export async function handler(event) {
         const trackingEvents = subOrders.map(subOrder => ({
           sub_order_id: subOrder.id,
           status: 'pending',
-          description: 'Order received from JulineMArt',
+          description: 'Order received from JulineMart',
           location_name: 'Processing Center',
           event_time: new Date().toISOString(),
         }));
 
         await supabase.from('tracking_events').insert(trackingEvents);
+
+        // ============================================
+        // 🎟️ RECORD VOUCHER REDEMPTIONS
+        // ============================================
+        if (voucherData) {
+          console.log('\n=== RECORDING VOUCHER REDEMPTIONS ===');
+          
+          for (const subOrder of subOrders) {
+            const voucherInfo = subOrder.metadata?.voucher;
+            if (!voucherInfo) continue;
+            
+            // Get vendor for this sub-order
+            const { data: vendorData } = await supabase
+              .from('vendors')
+              .select('id')
+              .eq('hub_id', subOrder.hub_id)
+              .single();
+            
+            try {
+              await recordVoucherRedemption(supabase, {
+                voucherId: voucherInfo.voucher_id,
+                orderId: order.id,
+                subOrderId: subOrder.id,
+                woocommerceOrderId: wcOrder.id.toString(),
+                customerEmail: customerInfo.email,
+                customerName: customerInfo.name,
+                productId: subOrder.items[0]?.productId, // Primary product
+                vendorId: vendorData?.id,
+                financials: {
+                  originalPrice: voucherInfo.original_subtotal,
+                  discountApplied: voucherInfo.discount_applied,
+                  customerPaid: voucherInfo.customer_paid,
+                  julinemartAbsorbed: voucherInfo.julinemart_absorbed
+                },
+                vendorPayout: voucherInfo.vendor_receives,
+                orderMetadata: {
+                  hub_id: subOrder.hub_id,
+                  tracking_number: subOrder.tracking_number
+                }
+              });
+              
+              console.log(`✅ Voucher redemption recorded for sub-order: ${subOrder.id}`);
+            } catch (redemptionError) {
+              console.error(`❌ Failed to record redemption for sub-order ${subOrder.id}:`, redemptionError);
+            }
+          }
+        }
       }
     }
 
     // ============================================
-    // 🎯 NEW: PROCESS INFLUENCER TRACKING
+    // 🎯 PROCESS INFLUENCER TRACKING
+    // (Only if NOT a voucher order)
     // ============================================
-    try {
-      const influencerResult = await processInfluencerOrder(wcOrder, supabase);
-      
-      if (influencerResult) {
-        console.log(`\n✅ INFLUENCER SALE RECORDED!`);
-        console.log(`   Influencer: ${influencerResult.influencer}`);
-        console.log(`   Commission: ₦${influencerResult.commission.toLocaleString()}`);
+    let influencerResult = null;
+    
+    if (influencerData && !voucherData) {
+      try {
+        influencerResult = await processInfluencerOrder(wcOrder, supabase);
+        
+        if (influencerResult) {
+          console.log(`\n✅ INFLUENCER SALE RECORDED!`);
+          console.log(`   Influencer: ${influencerResult.influencer}`);
+          console.log(`   Commission: ₦${influencerResult.commission.toLocaleString()}`);
+        }
+      } catch (influencerError) {
+        // Don't fail the whole webhook if influencer tracking fails
+        console.error('\n⚠️  Influencer tracking error:', influencerError);
+        console.error('   Continuing with order processing...');
       }
-    } catch (influencerError) {
-      // Don't fail the whole webhook if influencer tracking fails
-      console.error('\n⚠️  Influencer tracking error:', influencerError);
-      console.error('   Continuing with order processing...');
+    } else if (voucherData) {
+      console.log('\n📌 Skipping influencer tracking (voucher order takes precedence)');
     }
 
+    // ============================================
+    // 🎉 SUCCESS RESPONSE
+    // ============================================
     return {
       statusCode: 200,
       headers,
@@ -558,7 +784,19 @@ export async function handler(event) {
           customerPaid: customerPaidShipping,
           realCost: totalCalculatedShipping,
           profitLoss: customerPaidShipping - totalCalculatedShipping
-        }
+        },
+        ...(voucherData && {
+          voucher: {
+            code: voucherData.voucher.code,
+            campaign: voucherData.voucher.campaign_name,
+            discount: voucherData.financials.discountApplied,
+            absorbed: voucherData.financials.julinemartAbsorbed
+          }
+        }),
+        ...(influencerResult && {
+          influencer: influencerResult.influencer,
+          commission: influencerResult.commission
+        })
       }),
     };
   } catch (error) {

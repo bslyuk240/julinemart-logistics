@@ -1,6 +1,51 @@
 // Voucher Validation Helper Functions
 // Location: /netlify/functions/helpers/voucherHelpers.js
 
+import { createClient } from '@supabase/supabase-js';
+
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_KEY ||
+  process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.VITE_SUPABASE_KEY ||
+  process.env.SUPABASE_ANON_KEY;
+
+const supabase = createClient(SUPABASE_URL || '', SERVICE_ROLE_KEY || '');
+
+const envOrigins = (process.env.VOUCHER_ALLOWED_ORIGIN || '')
+  .split(',')
+  .map((originEntry) => originEntry.trim())
+  .filter(Boolean);
+
+const ORIGIN_WHITELIST = [
+  ...envOrigins,
+  'https://dev-lab--julinemart-pwa.netlify.app',
+  'https://julinemart-pwa.netlify.app',
+]
+  .filter(Boolean)
+  .map((origin) => origin.trim());
+
+const DEFAULT_ORIGIN = ORIGIN_WHITELIST[0] || '*';
+
+function resolveOrigin(originHeader) {
+  if (!originHeader) return DEFAULT_ORIGIN;
+  if (ORIGIN_WHITELIST.includes('*') || ORIGIN_WHITELIST.includes(originHeader)) {
+    return originHeader;
+  }
+  return DEFAULT_ORIGIN;
+}
+
+function buildCorsHeaders(originHeader) {
+  const resolvedOrigin = resolveOrigin(originHeader);
+  return {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': resolvedOrigin,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  };
+}
+
 /**
  * Validate and process campaign voucher from WooCommerce coupon
  * @param {Object} supabase - Supabase client
@@ -283,4 +328,140 @@ export function getVoucherSummary(voucher, financials) {
     absorbed: financials.julinemartAbsorbed,
     usageCount: `${voucher.current_uses + 1}/${voucher.max_uses}`
   };
+}
+
+function normalizeItems(rawItems = []) {
+  return rawItems
+    .map((item) => {
+      const productId =
+        item.product_id ?? item.productId ?? item.id ?? item.sku ?? '';
+      return {
+        productId: productId?.toString(),
+        sku: (item.sku || item.product_sku || '').toString(),
+        vendorId: item.vendor_id ?? item.vendorId ?? '',
+        price: Number(item.price ?? item.unit_price ?? item.unitPrice ?? 0),
+        quantity: Number(item.quantity ?? item.qty ?? 1),
+      };
+    })
+    .filter((item) => item.productId);
+}
+
+export async function handler(event) {
+  const originHeader = event.headers?.origin || event.headers?.Origin || '';
+  const headers = buildCorsHeaders(originHeader);
+
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 204,
+      headers,
+      body: '',
+    };
+  }
+
+  if (event.httpMethod !== 'POST') {
+    return {
+      statusCode: 405,
+      headers,
+      body: JSON.stringify({ success: false, error: 'Method not allowed' }),
+    };
+  }
+
+  if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ success: false, error: 'Supabase not configured' }),
+    };
+  }
+
+  let payload = {};
+  try {
+    payload = event.body ? JSON.parse(event.body) : {};
+  } catch (error) {
+    console.error('Invalid JSON payload for voucher validation', error);
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ success: false, error: 'Invalid JSON payload' }),
+    };
+  }
+
+  const couponCode = (payload.coupon_code || payload.code || '').toString().trim();
+  if (!couponCode) {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ success: false, error: 'Missing coupon_code' }),
+    };
+  }
+
+  const orderData = {
+    customerEmail: payload.customer_email || payload.email || '',
+    customerName: payload.customer_name || '',
+  };
+
+  try {
+    const voucher = await validateVoucher(supabase, couponCode, orderData);
+    if (!voucher) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ success: false, error: 'Voucher not found or not valid' }),
+      };
+    }
+
+    const items = normalizeItems(Array.isArray(payload.items) ? payload.items : []);
+    const itemValidation = validateVoucherItems(voucher, items);
+    if (!itemValidation.isValid) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ success: false, error: itemValidation.message }),
+      };
+    }
+
+    const overrideDiscount = Number(
+      payload.discount_value ??
+        payload.shipping_discount ??
+        payload.coupon_discount ??
+        payload.discount ??
+        0
+    );
+
+    const financials = calculateVoucherFinancials(
+      voucher,
+      itemValidation.matchingItems,
+      Number.isFinite(overrideDiscount) ? overrideDiscount : 0
+    );
+
+    const responseData = {
+      id: voucher.id,
+      code: voucher.code,
+      discount_type: voucher.discount_type,
+      discount_value: Number(voucher.discount_value ?? financials.discountApplied) || 0,
+      shipping_discount: Number(financials.discountApplied) || 0,
+      campaign_name: voucher.campaign_name,
+      valid_until: voucher.valid_until ? new Date(voucher.valid_until).toISOString() : null,
+      message:
+        payload.message ||
+        voucher.description ||
+        `${voucher.code} is a valid campaign voucher`,
+    };
+
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        success: true,
+        data: responseData,
+      }),
+    };
+  } catch (error) {
+    console.error('Voucher validation handler error:', error);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ success: false, error: 'Failed to validate voucher' }),
+    };
+  }
 }

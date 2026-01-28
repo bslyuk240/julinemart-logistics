@@ -22,6 +22,8 @@ const ORIGIN_WHITELIST = [
   ...envOrigins,
   'https://dev-lab--julinemart-pwa.netlify.app',
   'https://julinemart-pwa.netlify.app',
+  'https://julinemart.com',               // ✅ add
+  'https://www.julinemart.com'
 ]
   .filter(Boolean)
   .map((origin) => origin.trim());

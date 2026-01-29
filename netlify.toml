@@ -100,6 +100,10 @@
   function = "cors"
   path = "/api/*"
 
+[[edge_functions]]
+  function = "cors"
+  path = "/.netlify/functions/helpers/voucherHelpers"
+
 # -------------------------------------------------
 # NETLIFY DEV
 # -------------------------------------------------

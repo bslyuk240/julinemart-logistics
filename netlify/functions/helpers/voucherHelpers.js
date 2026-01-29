@@ -22,19 +22,19 @@ const ORIGIN_WHITELIST = [
   ...envOrigins,
   'https://dev-lab--julinemart-pwa.netlify.app',
   'https://julinemart-pwa.netlify.app',
-  'https://julinemart.com',               // ✅ add
-  'https://www.julinemart.com'
+  'https://julinemart.com',
+  'https://www.julinemart.com',
 ]
   .filter(Boolean)
   .map((origin) => origin.trim());
 
-const DEFAULT_ORIGIN = ORIGIN_WHITELIST[0] || '*';
+const DEFAULT_ORIGIN = ORIGIN_WHITELIST.length > 0 ? ORIGIN_WHITELIST[0] : '*';
 
 function resolveOrigin(originHeader) {
-  if (!originHeader) return DEFAULT_ORIGIN;
-  if (ORIGIN_WHITELIST.includes('*') || ORIGIN_WHITELIST.includes(originHeader)) {
-    return originHeader;
-  }
+  const cleaned = (originHeader || '').trim();
+  if (!cleaned) return DEFAULT_ORIGIN;
+  if (ORIGIN_WHITELIST.includes('*')) return '*';
+  if (ORIGIN_WHITELIST.includes(cleaned)) return cleaned;
   return DEFAULT_ORIGIN;
 }
 
@@ -44,7 +44,8 @@ function buildCorsHeaders(originHeader) {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': resolvedOrigin,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-customer-id',
+    'Access-Control-Allow-Credentials': 'true',
   };
 }
 

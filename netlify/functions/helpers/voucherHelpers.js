@@ -22,29 +22,30 @@ const ORIGIN_WHITELIST = [
   ...envOrigins,
   'https://dev-lab--julinemart-pwa.netlify.app',
   'https://julinemart-pwa.netlify.app',
-  'https://julinemart.com',               // ✅ add
-  'https://www.julinemart.com'
+  'https://julinemart.com',
+  'https://www.julinemart.com',
 ]
   .filter(Boolean)
   .map((origin) => origin.trim());
 
-const DEFAULT_ORIGIN = ORIGIN_WHITELIST[0] || '*';
+const DEFAULT_ORIGIN = ORIGIN_WHITELIST.length > 0 ? ORIGIN_WHITELIST[0] : '*';
 
-function resolveOrigin(originHeader) {
-  if (!originHeader) return DEFAULT_ORIGIN;
-  if (ORIGIN_WHITELIST.includes('*') || ORIGIN_WHITELIST.includes(originHeader)) {
-    return originHeader;
-  }
+function resolveOrigin(originHeader = '') {
+  const cleaned = originHeader.trim();
+  if (!cleaned) return DEFAULT_ORIGIN;
+  if (ORIGIN_WHITELIST.includes('*')) return '*';
+  if (ORIGIN_WHITELIST.includes(cleaned)) return cleaned;
   return DEFAULT_ORIGIN;
 }
 
-function buildCorsHeaders(originHeader) {
+function buildCorsHeaders(originHeader = '') {
   const resolvedOrigin = resolveOrigin(originHeader);
   return {
     'Content-Type': 'application/json',
     'Access-Control-Allow-Origin': resolvedOrigin,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-customer-id',
+    'Access-Control-Allow-Credentials': 'true',
   };
 }
 
@@ -59,7 +60,6 @@ export async function validateVoucher(supabase, couponCode, orderData) {
   if (!couponCode) return null;
 
   try {
-    // Look up voucher (case-insensitive)
     const { data: voucher, error } = await supabase
       .from('campaign_vouchers')
       .select('*')
@@ -74,7 +74,6 @@ export async function validateVoucher(supabase, couponCode, orderData) {
 
     console.log(`✅ Found voucher: ${voucher.code} (${voucher.campaign_name})`);
 
-    // Check validity period
     const now = new Date();
     if (voucher.valid_from && new Date(voucher.valid_from) > now) {
       console.log(`❌ Voucher not yet valid: ${voucher.code}`);
@@ -86,13 +85,11 @@ export async function validateVoucher(supabase, couponCode, orderData) {
       return null;
     }
 
-    // Check usage limits
     if (voucher.current_uses >= voucher.max_uses) {
       console.log(`❌ Voucher fully redeemed: ${voucher.code} (${voucher.current_uses}/${voucher.max_uses})`);
       return null;
     }
 
-    // Check per-customer usage limit
     if (voucher.max_uses_per_customer > 0) {
       const { count } = await supabase
         .from('voucher_redemptions')
@@ -120,27 +117,33 @@ export async function validateVoucher(supabase, couponCode, orderData) {
  * @returns {Object} Matching items and validation result
  */
 export function validateVoucherItems(voucher, orderItems) {
-  // If no restrictions, voucher applies to all items
   if (!voucher.product_ids?.length && !voucher.product_skus?.length && !voucher.vendor_ids?.length) {
     return {
       isValid: true,
       matchingItems: orderItems,
-      message: 'Voucher applies to all items'
+      message: 'Voucher applies to all items',
     };
   }
 
-  const normalizedProductIds = (voucher.product_ids || []).map((pid) => pid?.toString().trim()).filter(Boolean);
-  const normalizedProductSkus = (voucher.product_skus || []).map((sku) => sku?.toString().trim().toUpperCase()).filter(Boolean);
-  const normalizedVendorIds = (voucher.vendor_ids || []).map((vid) => vid?.toString().trim()).filter(Boolean);
+  const normalizedProductIds = (voucher.product_ids || [])
+    .map((pid) => pid?.toString().trim())
+    .filter(Boolean);
+  const normalizedProductSkus = (voucher.product_skus || [])
+    .map((sku) => sku?.toString().trim().toUpperCase())
+    .filter(Boolean);
+  const normalizedVendorIds = (voucher.vendor_ids || [])
+    .map((vid) => vid?.toString().trim())
+    .filter(Boolean);
   const requiresProductMatch = normalizedProductIds.length > 0 || normalizedProductSkus.length > 0;
 
-  const matchingItems = orderItems.filter(item => {
+  const matchingItems = orderItems.filter((item) => {
     const itemSku = item.sku ? item.sku.toString().trim().toUpperCase() : '';
     const matchesProductId =
       normalizedProductIds.length > 0 && item.productId
         ? normalizedProductIds.includes(item.productId.toString())
         : false;
-    const matchesSku = normalizedProductSkus.length > 0 && itemSku && normalizedProductSkus.includes(itemSku);
+    const matchesSku =
+      normalizedProductSkus.length > 0 && itemSku && normalizedProductSkus.includes(itemSku);
 
     if (requiresProductMatch && !matchesProductId && !matchesSku) {
       return false;
@@ -158,14 +161,14 @@ export function validateVoucherItems(voucher, orderItems) {
     return {
       isValid: false,
       matchingItems: [],
-      message: 'No items match voucher restrictions'
+      message: 'No items match voucher restrictions',
     };
   }
 
   return {
     isValid: true,
     matchingItems,
-    message: `Voucher applies to ${matchingItems.length} item(s)`
+    message: `Voucher applies to ${matchingItems.length} item(s)`,
   };
 }
 
@@ -177,9 +180,8 @@ export function validateVoucherItems(voucher, orderItems) {
  * @returns {Object} Financial breakdown
  */
 export function calculateVoucherFinancials(voucher, matchingItems, wooCommerceDiscount) {
-  // Calculate original price of matching items
   const originalPrice = matchingItems.reduce((sum, item) => {
-    return sum + (item.price * item.quantity);
+    return sum + item.price * item.quantity;
   }, 0);
 
   let calculatedDiscount = 0;
@@ -188,20 +190,16 @@ export function calculateVoucherFinancials(voucher, matchingItems, wooCommerceDi
     case 'free':
       calculatedDiscount = originalPrice;
       break;
-    
     case 'percentage':
       calculatedDiscount = originalPrice * (voucher.discount_value / 100);
       break;
-    
     case 'fixed_amount':
       calculatedDiscount = Math.min(voucher.discount_value, originalPrice);
       break;
-    
     default:
       calculatedDiscount = wooCommerceDiscount || 0;
   }
 
-  // Use the actual discount from WooCommerce if available (it's authoritative)
   const finalDiscount = wooCommerceDiscount || calculatedDiscount;
   const customerPaid = Math.max(0, originalPrice - finalDiscount);
 
@@ -209,7 +207,7 @@ export function calculateVoucherFinancials(voucher, matchingItems, wooCommerceDi
     originalPrice,
     discountApplied: finalDiscount,
     customerPaid,
-    julinemartAbsorbed: finalDiscount
+    julinemartAbsorbed: finalDiscount,
   };
 }
 
@@ -231,11 +229,10 @@ export async function recordVoucherRedemption(supabase, params) {
     vendorId,
     financials,
     vendorPayout,
-    orderMetadata
+    orderMetadata,
   } = params;
 
   try {
-    // Create redemption record
     const { data: redemption, error: redemptionError } = await supabase
       .from('voucher_redemptions')
       .insert({
@@ -252,7 +249,7 @@ export async function recordVoucherRedemption(supabase, params) {
         customer_paid: financials.customerPaid,
         vendor_payout: vendorPayout,
         julinemart_absorbed: financials.julinemartAbsorbed,
-        order_metadata: orderMetadata || {}
+        order_metadata: orderMetadata || {},
       })
       .select()
       .single();
@@ -262,7 +259,6 @@ export async function recordVoucherRedemption(supabase, params) {
       throw redemptionError;
     }
 
-    // Increment usage counter and update financial totals
     const { data: voucher } = await supabase
       .from('campaign_vouchers')
       .select('current_uses, max_uses, total_cost_absorbed, total_vendor_payout')
@@ -279,7 +275,7 @@ export async function recordVoucherRedemption(supabase, params) {
           current_uses: newUses,
           status: newStatus,
           total_cost_absorbed: (voucher.total_cost_absorbed || 0) + financials.julinemartAbsorbed,
-          total_vendor_payout: (voucher.total_vendor_payout || 0) + vendorPayout
+          total_vendor_payout: (voucher.total_vendor_payout || 0) + vendorPayout,
         })
         .eq('id', voucherId);
 
@@ -303,10 +299,7 @@ export async function recordVoucherRedemption(supabase, params) {
  */
 async function markVoucherExpired(supabase, voucherId) {
   try {
-    await supabase
-      .from('campaign_vouchers')
-      .update({ status: 'expired' })
-      .eq('id', voucherId);
+    await supabase.from('campaign_vouchers').update({ status: 'expired' }).eq('id', voucherId);
     console.log(`Voucher marked as expired: ${voucherId}`);
   } catch (error) {
     console.error('Error marking voucher as expired:', error);
@@ -328,15 +321,14 @@ export function getVoucherSummary(voucher, financials) {
     discountApplied: financials.discountApplied,
     customerPaid: financials.customerPaid,
     absorbed: financials.julinemartAbsorbed,
-    usageCount: `${voucher.current_uses + 1}/${voucher.max_uses}`
+    usageCount: `${voucher.current_uses + 1}/${voucher.max_uses}`,
   };
 }
 
 function normalizeItems(rawItems = []) {
   return rawItems
     .map((item) => {
-      const productId =
-        item.product_id ?? item.productId ?? item.id ?? item.sku ?? '';
+      const productId = item.product_id ?? item.productId ?? item.id ?? item.sku ?? '';
       return {
         productId: productId?.toString(),
         sku: (item.sku || item.product_sku || '').toString(),

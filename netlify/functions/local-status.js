@@ -1,3 +1,6 @@
+// FIXED VERSION: netlify/functions/local-status.js
+// Added comprehensive logging and error handling for refreshOverallOrderStatus
+
 import { createClient } from '@supabase/supabase-js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
 
@@ -6,13 +9,13 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 );
 
+const ALLOWED_STATUSES = new Set(['out_for_delivery', 'delivered']);
+
 const headers = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Content-Type': 'application/json',
 };
-
-const ALLOWED_STATUSES = new Set(['out_for_delivery', 'delivered']);
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
@@ -41,6 +44,10 @@ exports.handler = async (event) => {
   try {
     const { sub_order_id, status } = JSON.parse(event.body || '{}');
 
+    console.log('=== LOCAL STATUS UPDATE REQUEST ===');
+    console.log('Sub-order ID:', sub_order_id);
+    console.log('Target status:', status);
+
     if (!sub_order_id || !status) {
       return {
         statusCode: 400,
@@ -63,13 +70,15 @@ exports.handler = async (event) => {
       };
     }
 
+    // Fetch sub-order with courier info AND main_order_id
     const { data: subOrder, error: subOrderError } = await supabase
       .from('sub_orders')
-      .select('id, courier_id, main_order_id')
+      .select('id, courier_id, main_order_id, status')
       .eq('id', sub_order_id)
       .single();
 
     if (subOrderError || !subOrder) {
+      console.error('Sub-order lookup failed:', subOrderError);
       return {
         statusCode: 404,
         headers,
@@ -77,6 +86,14 @@ exports.handler = async (event) => {
       };
     }
 
+    console.log('Found sub-order:', {
+      id: subOrder.id,
+      current_status: subOrder.status,
+      main_order_id: subOrder.main_order_id,
+      courier_id: subOrder.courier_id,
+    });
+
+    // Verify this is a local rider
     const { data: courier, error: courierError } = await supabase
       .from('couriers')
       .select('code')
@@ -84,6 +101,8 @@ exports.handler = async (event) => {
       .maybeSingle();
 
     const courierCode = courier?.code?.toLowerCase();
+    console.log('Courier code:', courierCode);
+
     if (courierError || courierCode !== 'local-rider') {
       return {
         statusCode: 400,
@@ -95,6 +114,9 @@ exports.handler = async (event) => {
       };
     }
 
+    // Update sub-order status
+    console.log(`Updating sub-order ${sub_order_id} from "${subOrder.status}" to "${status}"`);
+    
     const { data: updated, error: updateError } = await supabase
       .from('sub_orders')
       .update({ status })
@@ -103,6 +125,7 @@ exports.handler = async (event) => {
       .single();
 
     if (updateError) {
+      console.error('Sub-order update failed:', updateError);
       return {
         statusCode: 500,
         headers,
@@ -110,12 +133,15 @@ exports.handler = async (event) => {
       };
     }
 
+    console.log('✅ Sub-order status updated:', updated);
+
+    // Create tracking event
     const description =
       status === 'out_for_delivery'
         ? 'Local rider picked up the package and is out for delivery'
         : 'Local rider confirmed delivery';
 
-    await supabase.from('tracking_events').insert({
+    const { error: trackingError } = await supabase.from('tracking_events').insert({
       sub_order_id,
       status,
       description,
@@ -123,8 +149,30 @@ exports.handler = async (event) => {
       source: 'manual_assignment',
     });
 
+    if (trackingError) {
+      console.warn('Failed to create tracking event:', trackingError);
+      // Don't fail the whole request if tracking event fails
+    }
+
+    // ✅ CRITICAL: Refresh overall order status
     if (subOrder?.main_order_id) {
-      await refreshOverallOrderStatus(supabase, subOrder.main_order_id);
+      console.log('🔄 Refreshing overall order status for:', subOrder.main_order_id);
+      
+      try {
+        const newOverallStatus = await refreshOverallOrderStatus(supabase, subOrder.main_order_id);
+        console.log('✅ Overall order status refreshed to:', newOverallStatus);
+      } catch (refreshError) {
+        console.error('❌ FAILED to refresh overall order status:', refreshError);
+        // Log the error but don't fail the request
+        // The sub-order status was updated successfully
+        console.error('Full refresh error:', {
+          message: refreshError?.message,
+          stack: refreshError?.stack,
+          main_order_id: subOrder.main_order_id,
+        });
+      }
+    } else {
+      console.warn('⚠️ No main_order_id found, cannot refresh overall status');
     }
 
     return {
@@ -133,7 +181,7 @@ exports.handler = async (event) => {
       body: JSON.stringify({ success: true, data: updated }),
     };
   } catch (error) {
-    console.error('Local status update error:', error);
+    console.error('❌ Local status update error:', error);
     return {
       statusCode: 500,
       headers,

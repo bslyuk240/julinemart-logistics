@@ -1023,7 +1023,7 @@ export function OrderDetailsPage() {
 
                       {/* All Action Buttons */}
                       <div className="flex flex-wrap gap-2">
-                        {!subOrder.tracking_number && !subOrder.delivery_person_name && (
+                        {!subOrder.delivery_person_name && (
                           <div className="relative dispatch-dropdown">
                             <button
                               onClick={() =>

@@ -428,12 +428,15 @@ export async function handler(event) {
       Number.isFinite(overrideDiscount) ? overrideDiscount : 0
     );
 
+    // ✅ FIXED: Return product_discount instead of shipping_discount
     const responseData = {
       id: voucher.id,
       code: voucher.code,
       discount_type: voucher.discount_type,
       discount_value: Number(voucher.discount_value ?? financials.discountApplied) || 0,
-      shipping_discount: Number(financials.discountApplied) || 0,
+      product_discount: Number(financials.discountApplied) || 0, // ✅ Product discount
+      matching_items_count: itemValidation.matchingItems.length, // ✅ Count of matching items
+      total_items_count: items.length, // ✅ Total items in cart
       campaign_name: voucher.campaign_name,
       valid_until: voucher.valid_until ? new Date(voucher.valid_until).toISOString() : null,
       message:

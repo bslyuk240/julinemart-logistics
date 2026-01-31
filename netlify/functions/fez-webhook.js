@@ -2,6 +2,7 @@
 // Receives automatic status updates from Fez when order status changes
 
 import { createClient } from '@supabase/supabase-js';
+import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
@@ -128,24 +129,8 @@ exports.handler = async (event) => {
       raw_data: webhookData,
     });
 
-    // Check if all sub-orders are delivered/completed
-    const { data: allSubOrders } = await supabase
-      .from('sub_orders')
-      .select('status')
-      .eq('order_id', subOrder.orders.id);
-
-    const allDelivered = allSubOrders?.every(so => 
-      so.status === 'delivered' || so.status === 'cancelled'
-    );
-
-    // Update main order status if all sub-orders completed
-    if (allDelivered) {
-      await supabase
-        .from('orders')
-        .update({ overall_status: 'delivered' })
-        .eq('id', subOrder.orders.id);
-
-      console.log(`Main order ${subOrder.orders.id} marked as delivered`);
+    if (subOrder.orders?.id) {
+      await refreshOverallOrderStatus(supabase, subOrder.orders.id);
     }
 
     // Log activity

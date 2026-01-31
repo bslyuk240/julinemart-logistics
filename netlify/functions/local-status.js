@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -122,48 +123,8 @@ exports.handler = async (event) => {
       source: 'manual_assignment',
     });
 
-    // refresh overall order status so customer card shows latest badge
     if (subOrder?.main_order_id) {
-      const { data: order } = await supabase
-        .from('orders')
-        .select('overall_status')
-        .eq('id', subOrder.main_order_id)
-        .single();
-
-      if (order) {
-        const { data: statuses } = await supabase
-          .from('sub_orders')
-          .select('status')
-          .eq('main_order_id', subOrder.main_order_id);
-
-        if (statuses) {
-          const priority = {
-            pending: 1,
-            processing: 2,
-            assigned: 3,
-            picked_up: 4,
-            in_transit: 5,
-            out_for_delivery: 6,
-            delivered: 7,
-            returned: 8,
-            failed: 9,
-            cancelled: 10,
-          };
-
-          const best = statuses.reduce((acc, so) => {
-            if (!so?.status) return acc;
-            const current = priority[so.status] ?? 0;
-            return current > (priority[acc] ?? 0) ? so.status : acc;
-          }, order.overall_status || 'pending');
-
-          if (best && best !== order.overall_status) {
-            await supabase
-              .from('orders')
-              .update({ overall_status: best })
-              .eq('id', subOrder.main_order_id);
-          }
-        }
-      }
+      await refreshOverallOrderStatus(supabase, subOrder.main_order_id);
     }
 
     return {

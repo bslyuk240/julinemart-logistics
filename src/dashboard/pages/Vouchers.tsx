@@ -484,29 +484,35 @@ export function VouchersPage() {
                   >
                     View Details
                   </button>
-                  {isAdmin && voucher.status === 'active' && (
+                  {isAdmin && (
                     <>
-                      <button
-                        onClick={() => openEdit(voucher)}
-                        className="btn-secondary p-2"
-                        title="Edit"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleCancel(voucher.id)}
-                        className="btn-secondary p-2 text-orange-600 hover:text-orange-700"
-                        title="Cancel"
-                      >
-                        <XCircle className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(voucher.id)}
-                        className="btn-secondary p-2 text-red-600 hover:text-red-700"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {voucher.status === 'active' && (
+                        <>
+                          <button
+                            onClick={() => openEdit(voucher)}
+                            className="btn-secondary p-2"
+                            title="Edit"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleCancel(voucher.id)}
+                            className="btn-secondary p-2 text-orange-600 hover:text-orange-700"
+                            title="Cancel"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
+                      {voucher.status !== 'used' && (
+                        <button
+                          onClick={() => handleDelete(voucher.id)}
+                          className="btn-secondary p-2 text-red-600 hover:text-red-700"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </>
                   )}
                 </div>

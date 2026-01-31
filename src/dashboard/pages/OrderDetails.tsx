@@ -7,7 +7,6 @@ import {
   Truck,
   Download,
   ExternalLink,
-  Send,
   Loader,
   CheckCircle,
   Box,
@@ -66,6 +65,9 @@ type SubOrder = {
     code?: string;
     api_enabled?: boolean;
   };
+  delivery_person_name?: string | null;
+  delivery_person_phone?: string | null;
+  delivery_person_vehicle?: string | null;
 };
 
 type ReturnShipment = {
@@ -103,13 +105,6 @@ type ReturnShipment = {
     images?: string[];
     status?: string;
   };
-};
-
-type ReturnTrackingEvent = {
-  status?: string;
-  message?: string;
-  timestamp?: string;
-  location?: string;
 };
 
 type Order = {
@@ -319,24 +314,22 @@ export function OrderDetailsPage() {
   const notification = useNotification();
 
   // FIXED: Added functionsBase for Netlify functions
-  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
   const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
   
   const [order, setOrder] = useState<Order | null>(null);
   const [subOrders, setSubOrders] = useState<SubOrder[]>([]);
   const [loading, setLoading] = useState(true);
-  const [creatingShipment, setCreatingShipment] = useState<Identifier | null>(null);
   const [fetchingTracking, setFetchingTracking] = useState<Identifier | null>(null);
   const [returnShipments, setReturnShipments] = useState<ReturnShipment[]>([]);
-  const [updatingReturnStatus, setUpdatingReturnStatus] = useState<string | null>(null);
-  const [returnTrackingData, setReturnTrackingData] = useState<Record<string, ReturnTrackingEvent[]>>({});
-  const [returnTrackingLoading, setReturnTrackingLoading] = useState<Record<string, boolean>>({});
-  const [trackingInput, setTrackingInput] = useState<Record<string, string>>({});
   const [trackingFilter, setTrackingFilter] = useState<'all' | 'with' | 'without'>('all');
+  const [showDispatchMenu, setShowDispatchMenu] = useState<Identifier | null>(null);
+  const [showRiderModal, setShowRiderModal] = useState<Identifier | null>(null);
+  const [riderInfo, setRiderInfo] = useState({ name: '', phone: '', vehicle: '' });
+  const [statusUpdating, setStatusUpdating] = useState<Identifier | null>(null);
   const derivedStatus = useMemo(
     () => deriveOrderStatus(order, subOrders),
-    [order?.overall_status, subOrders]
+    [order, subOrders]
   );
 
   const formatCurrency = (value?: number | null) => {
@@ -431,42 +424,6 @@ export function OrderDetailsPage() {
     }
   };
 
-  // FIXED: Changed from ${apiBase}/api/ to ${functionsBase}/
-  const updateReturnShipmentStatus = async (shipmentId: string, status: string) => {
-    setUpdatingReturnStatus(shipmentId);
-    try {
-      const headers = await getAuthHeaders();
-      const response = await fetch(`${functionsBase}/return-shipments/${shipmentId}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ status }),
-      });
-
-      const data = await response.json();
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.error || 'Failed to update return shipment');
-      }
-
-      setReturnShipments((prev) =>
-        prev.map((shipment) =>
-          shipmentId === shipment.id
-            ? { ...shipment, status: data.data?.status || status }
-            : shipment
-        )
-      );
-
-      notification.success('Updated', 'Return shipment status updated');
-    } catch (error) {
-      console.error('Return shipment update error:', error);
-      notification.error(
-        'Update failed',
-        error instanceof Error ? error.message : 'Unable to update return shipment'
-      );
-    } finally {
-      setUpdatingReturnStatus(null);
-    }
-  };
-
   useEffect(() => {
     fetchOrderDetails();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -497,12 +454,22 @@ export function OrderDetailsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [returnShipments]);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showDispatchMenu && !(event.target as Element).closest('.dispatch-dropdown')) {
+        setShowDispatchMenu(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showDispatchMenu]);
+
   // FIXED: Changed from ${apiBase}/.netlify/functions/ to ${functionsBase}/
   const createCourierShipment = async (
     subOrderId: Identifier,
     options?: { force?: boolean }
   ) => {
-    setCreatingShipment(subOrderId);
     const force = Boolean(options?.force);
 
     try {
@@ -556,14 +523,86 @@ export function OrderDetailsPage() {
 
       // Refresh to show current state
       await fetchOrderDetails();
+    }
+  };
+
+  const assignLocalRider = async (subOrderId: Identifier | null) => {
+    if (!subOrderId) return;
+
+    try {
+      const token =
+        typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      const response = await fetch(`${functionsBase}/assign-rider`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          sub_order_id: subOrderId,
+          rider_name: riderInfo.name.trim(),
+          rider_phone: riderInfo.phone.trim(),
+          rider_vehicle: riderInfo.vehicle || null,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || data?.message || 'Failed to assign local rider');
+      }
+
+      notification.success('Rider assigned', 'Local rider saved for this shipment');
+      setShowRiderModal(null);
+      setRiderInfo({ name: '', phone: '', vehicle: '' });
+      await fetchOrderDetails();
+    } catch (error) {
+      console.error('Assign rider error', error);
+      notification.error(
+        'Assignment failed',
+        error instanceof Error ? error.message : 'Unable to assign local rider'
+      );
+    }
+  };
+
+  const updateLocalDeliveryStatus = async (subOrderId: Identifier, targetStatus: 'out_for_delivery' | 'delivered') => {
+    setStatusUpdating(subOrderId);
+    try {
+      const token =
+        typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      const response = await fetch(`${functionsBase}/local-status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          sub_order_id: subOrderId,
+          status: targetStatus,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || data?.message || 'Failed to update status');
+      }
+
+      notification.success('Status updated', `Marked ${targetStatus.replace('_', ' ')}`);
+      await fetchOrderDetails();
+    } catch (error) {
+      console.error('Local status update error', error);
+      notification.error(
+        'Update failed',
+        error instanceof Error ? error.message : 'Unable to update status'
+      );
     } finally {
-      setCreatingShipment(null);
+      setStatusUpdating(null);
     }
   };
 
   // FIXED: Changed from ${apiBase}/api/ to ${functionsBase}/
   const fetchReturnTracking = async (returnRequestId: string, shipmentId: string) => {
-    setReturnTrackingLoading((prev) => ({ ...prev, [shipmentId]: true }));
     try {
       const headers = await getAuthHeaders();
       const response = await fetch(`${functionsBase}/returns/${returnRequestId}/tracking`, { headers });
@@ -571,7 +610,6 @@ export function OrderDetailsPage() {
       if (!response.ok || !data?.success) {
         throw new Error(data?.error || 'Failed to fetch tracking');
       }
-      setReturnTrackingData((prev) => ({ ...prev, [shipmentId]: data.data?.events || [] }));
       if (data.data?.latest_status === 'delivered') {
         setReturnShipments((prev) =>
           prev.map((r) => (r.id === shipmentId ? { ...r, status: 'delivered_to_hub' } : r))
@@ -582,45 +620,6 @@ export function OrderDetailsPage() {
       notification.error(
         'Tracking failed',
         error instanceof Error ? error.message : 'Unable to fetch tracking'
-      );
-    } finally {
-      setReturnTrackingLoading((prev) => ({ ...prev, [shipmentId]: false }));
-    }
-  };
-
-  // FIXED: Changed from ${apiBase}/api/ to ${functionsBase}/
-  const submitReturnTracking = async (shipmentId: string, returnRequestId?: string) => {
-    const value = trackingInput[shipmentId];
-    if (!value) return;
-    try {
-      const headers = await getAuthHeaders();
-      const response = await fetch(`${functionsBase}/return-shipments/${shipmentId}/tracking`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...headers },
-        body: JSON.stringify({ tracking_number: value, courier: 'fez' }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data?.success) throw new Error(data?.error || 'Failed to save tracking');
-      setReturnShipments((prev) =>
-        prev.map((r) =>
-          r.id === shipmentId
-            ? {
-                ...r,
-                fez_tracking: value,
-                tracking_number: value,
-                customer_submitted_tracking: false,
-                status: 'in_transit',
-              }
-            : r
-        )
-      );
-      notification.success('Tracking saved', value);
-      if (returnRequestId) fetchReturnTracking(returnRequestId, shipmentId);
-    } catch (error) {
-      console.error('Submit tracking error', error);
-      notification.error(
-        'Save failed',
-        error instanceof Error ? error.message : 'Unable to save tracking'
       );
     }
   };
@@ -676,11 +675,6 @@ export function OrderDetailsPage() {
     window.open(labelUrl, '_blank');
   };
 
-  const formatReason = (reason?: string) => {
-    if (!reason) return '-';
-    return reason.replace(/_/g, ' ');
-  };
-
   const formatStatusText = (status?: string) => {
     if (!status) return 'pending';
     return status.replace(/_/g, ' ');
@@ -692,9 +686,6 @@ export function OrderDetailsPage() {
     const labelUrl = `${functionsBase}/generate-label?subOrderId=${subOrderId}&print=true`;
     window.open(labelUrl, '_blank');
   };
-
-  const normalizeImageUrl = (url: string) =>
-    url.replace('/return-images/return-images/', '/return-images/');
 
   const getDisplayTracking = (subOrder: SubOrder) => {
     // Only return tracking if it's a REAL Fez tracking number
@@ -862,6 +853,10 @@ export function OrderDetailsPage() {
             const validShipment = hasValidShipment(subOrder);
             const shipmentError = hasShipmentError(subOrder);
             const displayTracking = getDisplayTracking(subOrder);
+            const isLocalRider = subOrder.couriers?.code?.toLowerCase() === 'local-rider';
+            const canMarkOutForDelivery =
+              isLocalRider && !['out_for_delivery', 'delivered'].includes(subOrder.status);
+            const canMarkDelivered = isLocalRider && subOrder.status !== 'delivered';
 
             return (
               <div key={subOrder.id} className="card">
@@ -1069,41 +1064,108 @@ export function OrderDetailsPage() {
 
                       {/* All Action Buttons */}
                       <div className="flex flex-wrap gap-2">
-                        {/* Send to Fez - Always visible */}
-                        <button
-                          onClick={() => {
-                            if (validShipment) {
-                              const confirmed = window.confirm(
-                                'This will create a new Fez shipment and replace the current tracking. Continue?'
-                              );
-                              if (!confirmed) return;
-                            }
-                            createCourierShipment(subOrder.id, {
-                              force: validShipment,
-                            });
-                          }}
-                          disabled={creatingShipment === subOrder.id}
-                          className={`text-sm flex items-center ${
-                            validShipment ? 'btn-secondary' : 'btn-primary'
-                          }`}
-                        >
-                          {creatingShipment === subOrder.id ? (
-                            <>
-                              <Loader className="w-4 h-4 mr-2 animate-spin" />
-                              Creating...
-                            </>
-                          ) : validShipment ? (
-                            <>
-                              <RefreshCw className="w-4 h-4 mr-2" />
-                              Resend to Fez
-                            </>
-                          ) : (
-                            <>
-                              <Send className="w-4 h-4 mr-2" />
-                              Send to Fez
-                            </>
-                          )}
-                        </button>
+                        {!subOrder.delivery_person_name && (
+                          <div className="relative dispatch-dropdown">
+                            <button
+                              onClick={() =>
+                                setShowDispatchMenu((prev) =>
+                                  prev === subOrder.id ? null : subOrder.id
+                                )
+                              }
+                              className="btn-primary flex items-center gap-2 text-sm"
+                            >
+                              Dispatch Order
+                              <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M19 9l-7 7-7-7"
+                                />
+                              </svg>
+                            </button>
+
+                            {showDispatchMenu === subOrder.id && (
+                              <div className="absolute top-full left-0 mt-1 w-64 bg-white border rounded-lg shadow-lg z-10">
+                                <button
+                                  onClick={() => {
+                                    setShowDispatchMenu(null);
+                                    if (validShipment) {
+                                      const confirmed = window.confirm(
+                                        'This will create a new Fez shipment and replace the current tracking. Continue?'
+                                      );
+                                      if (!confirmed) return;
+                                    }
+                                    createCourierShipment(subOrder.id, {
+                                      force: validShipment,
+                                    });
+                                  }}
+                                  className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b flex items-start gap-3"
+                                >
+                                  <div className="mt-1">
+                                    <svg
+                                      className="w-5 h-5 text-blue-600"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
+                                      />
+                                    </svg>
+                                  </div>
+                                  <div>
+                                    <div className="font-semibold">Send to Fez</div>
+                                    <div className="text-xs text-gray-600">
+                                      API courier with tracking
+                                    </div>
+                                  </div>
+                                </button>
+
+                                <button
+                                  onClick={() => {
+                                    setShowDispatchMenu(null);
+                                    setShowRiderModal(subOrder.id);
+                                    setRiderInfo({ name: '', phone: '', vehicle: '' });
+                                  }}
+                                  className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-start gap-3"
+                                >
+                                  <div className="mt-1">
+                                    <svg
+                                      className="w-5 h-5 text-green-600"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                                      />
+                                    </svg>
+                                  </div>
+                                  <div>
+                                    <div className="font-semibold">
+                                      Assign Local Rider
+                                    </div>
+                                    <div className="text-xs text-gray-600">
+                                      Manual delivery (same state)
+                                    </div>
+                                  </div>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* Track on Fez - only if valid tracking exists */}
                         {displayTracking && (
@@ -1171,6 +1233,27 @@ export function OrderDetailsPage() {
                         )}
                       </div>
 
+                      {/* Already Dispatched - Show Method */}
+                      {(subOrder.tracking_number || subOrder.delivery_person_name) && (
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                          {subOrder.tracking_number && (
+                            <div>
+                              <span className="font-semibold">Fez Tracking:</span>{' '}
+                              {subOrder.tracking_number}
+                            </div>
+                          )}
+                          {subOrder.delivery_person_name && (
+                            <div className="mt-1">
+                              <span className="font-semibold">Local Rider:</span>{' '}
+                              {subOrder.delivery_person_name}{' '}
+                              {subOrder.delivery_person_phone && (
+                                <>({subOrder.delivery_person_phone})</>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {subOrder.last_tracking_update && (
                         <p className="text-xs text-gray-500">
                           Last updated:{' '}
@@ -1183,6 +1266,48 @@ export function OrderDetailsPage() {
                       {/* Tracking Timeline - Horizontal Progress Stepper */}
                       <TrackingTimeline status={subOrder.status} />
                     </div>
+                  </div>
+                )}
+
+                {isLocalRider && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4 space-y-3">
+                    <p className="text-sm text-yellow-900 font-semibold">
+                      Manual local delivery status
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {canMarkOutForDelivery && (
+                        <button
+                          onClick={() => updateLocalDeliveryStatus(subOrder.id, 'out_for_delivery')}
+                          disabled={statusUpdating === subOrder.id}
+                          className="btn-secondary text-sm flex items-center gap-2"
+                        >
+                          {statusUpdating === subOrder.id ? (
+                            <Loader className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Truck className="w-4 h-4" />
+                          )}
+                          Mark Out for Delivery
+                        </button>
+                      )}
+                      {canMarkDelivered && (
+                        <button
+                          onClick={() => updateLocalDeliveryStatus(subOrder.id, 'delivered')}
+                          disabled={statusUpdating === subOrder.id}
+                          className="btn-primary text-sm flex items-center gap-2"
+                        >
+                          {statusUpdating === subOrder.id ? (
+                            <Loader className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle className="w-4 h-4" />
+                          )}
+                          Mark Delivered
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-yellow-700">
+                      These buttons let dispatchers manually progress the tracking
+                      status once a local rider picks up or delivers the goods.
+                    </p>
                   </div>
                 )}
 
@@ -1247,10 +1372,6 @@ export function OrderDetailsPage() {
                 return true;
               })
               .map((ret) => {
-                const submittedLabel = ret.customer_submitted_tracking
-                  ? 'Customer'
-                  : 'Admin';
-                const events = returnTrackingData[ret.id] || [];
                 const tracking =
                   ret.tracking_number ??
                   ret.fez_tracking ??
@@ -1302,6 +1423,76 @@ export function OrderDetailsPage() {
           </div>
         )}
       </div>
+      {/* Rider Assignment Modal */}
+      {showRiderModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold mb-4">Assign Local Rider</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Rider Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={riderInfo.name}
+                  onChange={(e) => setRiderInfo({ ...riderInfo, name: e.target.value })}
+                  className="w-full px-3 py-2 border rounded"
+                  placeholder="Enter rider name"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Phone Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="tel"
+                  value={riderInfo.phone}
+                  onChange={(e) => setRiderInfo({ ...riderInfo, phone: e.target.value })}
+                  className="w-full px-3 py-2 border rounded"
+                  placeholder="+234 800 000 0000"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Vehicle Type</label>
+                <select
+                  value={riderInfo.vehicle}
+                  onChange={(e) => setRiderInfo({ ...riderInfo, vehicle: e.target.value })}
+                  className="w-full px-3 py-2 border rounded"
+                >
+                  <option value="">Select vehicle</option>
+                  <option value="Motorcycle">Motorcycle</option>
+                  <option value="Bicycle">Bicycle</option>
+                  <option value="Van">Van</option>
+                  <option value="Car">Car</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => {
+                  setShowRiderModal(null);
+                  setRiderInfo({ name: '', phone: '', vehicle: '' });
+                }}
+                className="flex-1 px-4 py-2 border rounded hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => assignLocalRider(showRiderModal)}
+                disabled={!riderInfo.name || !riderInfo.phone}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Assign Rider
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

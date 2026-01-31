@@ -102,7 +102,7 @@
 
 [[edge_functions]]
   function = "cors"
-  path = "/.netlify/functions/helpers/voucherHelpers"
+  path = "/.netlify/functions/voucherHelpers"
 
 # -------------------------------------------------
 # NETLIFY DEV

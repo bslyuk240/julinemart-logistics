@@ -326,6 +326,7 @@ export function OrderDetailsPage() {
   const [showDispatchMenu, setShowDispatchMenu] = useState<Identifier | null>(null);
   const [showRiderModal, setShowRiderModal] = useState<Identifier | null>(null);
   const [riderInfo, setRiderInfo] = useState({ name: '', phone: '', vehicle: '' });
+  const [statusUpdating, setStatusUpdating] = useState<Identifier | null>(null);
   const derivedStatus = useMemo(
     () => deriveOrderStatus(order, subOrders),
     [order, subOrders]
@@ -561,6 +562,42 @@ export function OrderDetailsPage() {
         'Assignment failed',
         error instanceof Error ? error.message : 'Unable to assign local rider'
       );
+    }
+  };
+
+  const updateLocalDeliveryStatus = async (subOrderId: Identifier, targetStatus: 'out_for_delivery' | 'delivered') => {
+    setStatusUpdating(subOrderId);
+    try {
+      const token =
+        typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      const response = await fetch(`${functionsBase}/local-status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          sub_order_id: subOrderId,
+          status: targetStatus,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || data?.message || 'Failed to update status');
+      }
+
+      notification.success('Status updated', `Marked ${targetStatus.replace('_', ' ')}`);
+      await fetchOrderDetails();
+    } catch (error) {
+      console.error('Local status update error', error);
+      notification.error(
+        'Update failed',
+        error instanceof Error ? error.message : 'Unable to update status'
+      );
+    } finally {
+      setStatusUpdating(null);
     }
   };
 
@@ -816,6 +853,10 @@ export function OrderDetailsPage() {
             const validShipment = hasValidShipment(subOrder);
             const shipmentError = hasShipmentError(subOrder);
             const displayTracking = getDisplayTracking(subOrder);
+            const isLocalRider = subOrder.couriers?.code?.toLowerCase() === 'local-rider';
+            const canMarkOutForDelivery =
+              isLocalRider && !['out_for_delivery', 'delivered'].includes(subOrder.status);
+            const canMarkDelivered = isLocalRider && subOrder.status !== 'delivered';
 
             return (
               <div key={subOrder.id} className="card">
@@ -1225,6 +1266,48 @@ export function OrderDetailsPage() {
                       {/* Tracking Timeline - Horizontal Progress Stepper */}
                       <TrackingTimeline status={subOrder.status} />
                     </div>
+                  </div>
+                )}
+
+                {isLocalRider && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4 space-y-3">
+                    <p className="text-sm text-yellow-900 font-semibold">
+                      Manual local delivery status
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {canMarkOutForDelivery && (
+                        <button
+                          onClick={() => updateLocalDeliveryStatus(subOrder.id, 'out_for_delivery')}
+                          disabled={statusUpdating === subOrder.id}
+                          className="btn-secondary text-sm flex items-center gap-2"
+                        >
+                          {statusUpdating === subOrder.id ? (
+                            <Loader className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Truck className="w-4 h-4" />
+                          )}
+                          Mark Out for Delivery
+                        </button>
+                      )}
+                      {canMarkDelivered && (
+                        <button
+                          onClick={() => updateLocalDeliveryStatus(subOrder.id, 'delivered')}
+                          disabled={statusUpdating === subOrder.id}
+                          className="btn-primary text-sm flex items-center gap-2"
+                        >
+                          {statusUpdating === subOrder.id ? (
+                            <Loader className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <CheckCircle className="w-4 h-4" />
+                          )}
+                          Mark Delivered
+                        </button>
+                      )}
+                    </div>
+                    <p className="text-xs text-yellow-700">
+                      These buttons let dispatchers manually progress the tracking
+                      status once a local rider picks up or delivers the goods.
+                    </p>
                   </div>
                 )}
 

@@ -642,17 +642,20 @@ export async function handler(event) {
           }
         }
         
+        // JLO placeholder tracking (10–13 chars) for manual/local rider; real Fez tracking overwrites when shipment is created
+        const jloPlaceholder = () => {
+          const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+          let s = 'JLO-';
+          for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+          return s; // e.g. JLO-A1B2C3D4 (12 chars)
+        };
+
         return {
           main_order_id: order.id,
           hub_id: breakdown.hubId,
           courier_id: breakdown.courierId || null,
           status: 'pending',
-          tracking_number: `${(breakdown.courierName || 'JLO')
-            .substring(0, 3)
-            .toUpperCase()}-${Date.now()}-${Math.random()
-            .toString(36)
-            .substr(2, 6)
-            .toUpperCase()}`,
+          tracking_number: jloPlaceholder(),
           items: breakdown.items,
           subtotal: itemsSubtotal, // Original full price
           real_shipping_cost: breakdown.realShippingCost,

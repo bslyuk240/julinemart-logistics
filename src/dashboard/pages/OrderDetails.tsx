@@ -278,8 +278,8 @@ function isRealFezTrackingNumber(value?: string): boolean {
   }
 
   // Reject auto-generated tracking numbers (these are NOT from Fez)
-  // Format: FEZ-1234567890-ABCDEF or JLO-1234567890-ABCDEF
-  if (/^(FEZ|JLO|CR)-\d+-[A-Z0-9]+$/i.test(value)) {
+  // Format: JLO-XXXXXXXX (10–13 chars) or legacy FEZ/CR-timestamp-random
+  if (/^(FEZ|JLO|CR)(-\d+-[A-Z0-9]+|-[A-Z0-9]{6,10})$/i.test(value)) {
     return false;
   }
 
@@ -1238,7 +1238,7 @@ export function OrderDetailsPage() {
                         <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                           {subOrder.tracking_number && (
                             <div>
-                              <span className="font-semibold">Fez Tracking:</span>{' '}
+                              <span className="font-semibold">JLO Tracking:</span>{' '}
                               {subOrder.tracking_number}
                             </div>
                           )}

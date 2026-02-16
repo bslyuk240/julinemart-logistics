@@ -477,11 +477,12 @@ export function VouchersPage() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-2 pt-2 border-t">
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t">
                   <button
                     onClick={() => openDetails(voucher)}
-                    className="flex-1 btn-secondary text-sm"
+                    className="inline-flex flex-1 min-w-[10rem] items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
                   >
+                    <Eye className="w-4 h-4" />
                     View Details
                   </button>
                   {isAdmin && (
@@ -490,27 +491,33 @@ export function VouchersPage() {
                         <>
                           <button
                             onClick={() => openEdit(voucher)}
-                            className="btn-secondary p-2"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 hover:text-blue-800"
                             title="Edit"
+                            aria-label="Edit voucher"
                           >
                             <Edit className="w-4 h-4" />
+                            Edit
                           </button>
                           <button
                             onClick={() => handleCancel(voucher.id)}
-                            className="btn-secondary p-2 text-orange-600 hover:text-orange-700"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 hover:text-orange-800"
                             title="Cancel"
+                            aria-label="Cancel voucher"
                           >
                             <XCircle className="w-4 h-4" />
+                            Cancel
                           </button>
                         </>
                       )}
                       {voucher.status !== 'used' && (
                         <button
                           onClick={() => handleDelete(voucher.id)}
-                          className="btn-secondary p-2 text-red-600 hover:text-red-700"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 hover:text-red-800"
                           title="Delete"
+                          aria-label="Delete voucher"
                         >
                           <Trash2 className="w-4 h-4" />
+                          Delete
                         </button>
                       )}
                     </>

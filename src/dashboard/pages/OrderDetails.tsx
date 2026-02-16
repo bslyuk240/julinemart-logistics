@@ -1438,6 +1438,16 @@ export function OrderDetailsPage() {
                     <p className="font-mono font-semibold text-lg">
                       {subOrder.tracking_number || 'Not assigned'}
                     </p>
+                    <div className="mt-3">
+                      <button
+                        onClick={() => printLabel(subOrder.id)}
+                        disabled={!subOrder.tracking_number}
+                        className="btn-secondary text-sm flex items-center disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <Printer className="w-4 h-4 mr-2" />
+                        Print Label
+                      </button>
+                    </div>
                     <p className="text-xs text-gray-500 mt-2">
                       Enable API integration in Courier Settings for automatic
                       shipment creation

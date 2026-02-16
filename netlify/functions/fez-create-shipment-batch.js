@@ -12,7 +12,7 @@ const headers = {
 };
 
 async function runSingleShipment(subOrderId, force) {
-  const singleModule = await import('./Fez-create-shipment.js');
+  const singleModule = await import('./fez-create-shipment.js');
   const singleHandler =
     singleModule?.handler ||
     singleModule?.default?.handler ||

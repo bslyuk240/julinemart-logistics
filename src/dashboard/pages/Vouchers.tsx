@@ -477,10 +477,10 @@ export function VouchersPage() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex flex-wrap items-center gap-2 pt-2 border-t">
+                <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pt-2 border-t pb-1">
                   <button
                     onClick={() => openDetails(voucher)}
-                    className="inline-flex flex-1 min-w-[10rem] items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
+                    className="inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-primary-600 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary-700"
                   >
                     <Eye className="w-4 h-4" />
                     View Details
@@ -491,7 +491,7 @@ export function VouchersPage() {
                         <>
                           <button
                             onClick={() => openEdit(voucher)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 hover:text-blue-800"
+                            className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 hover:text-blue-800"
                             title="Edit"
                             aria-label="Edit voucher"
                           >
@@ -500,7 +500,7 @@ export function VouchersPage() {
                           </button>
                           <button
                             onClick={() => handleCancel(voucher.id)}
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 hover:text-orange-800"
+                            className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-700 transition-colors hover:bg-orange-100 hover:text-orange-800"
                             title="Cancel"
                             aria-label="Cancel voucher"
                           >
@@ -512,7 +512,7 @@ export function VouchersPage() {
                       {voucher.status !== 'used' && (
                         <button
                           onClick={() => handleDelete(voucher.id)}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 hover:text-red-800"
+                          className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 hover:text-red-800"
                           title="Delete"
                           aria-label="Delete voucher"
                         >

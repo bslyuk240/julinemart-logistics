@@ -255,6 +255,18 @@ exports.handler = async (event) => {
       };
     }
 
+    const lane = subOrder?.metadata?.selected_lane || "fez";
+    if (lane !== "fez") {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: "Shipment lane is not FEZ. Switch lane to FEZ to dispatch."
+        })
+      };
+    }
+
     // Check if already has a VALID shipment (not an error message)
     if (
       !force &&

@@ -222,7 +222,11 @@ export async function handler(event) {
             items: b.items || [],
             subtotal: b.subtotal || b.subTotal || 0,
             real_shipping_cost: b.totalShippingFee || 0,
-            allocated_shipping_fee: b.totalShippingFee || 0
+            allocated_shipping_fee: b.totalShippingFee || 0,
+            metadata: {
+              selected_lane: 'fez',
+              eligible_lanes: ['fez', 'local_rider'],
+            },
           };
         });
 

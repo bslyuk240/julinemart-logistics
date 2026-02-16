@@ -21,6 +21,7 @@ import { CreateOrderPage } from './dashboard/pages/CreateOrder';
 import { DashboardHome } from './dashboard/pages/DashboardHome';
 import { EmailSettingsPage } from './dashboard/pages/EmailSettings';
 import { HubsPage } from './dashboard/pages/Hubs';
+import { HubDispatchPage } from './dashboard/pages/HubDispatch';
 import InfluencerDetailPage from './dashboard/pages/InfluencerDetailPage.tsx';
 import InfluencersPage from './dashboard/pages/InfluencersPage.tsx';
 import { OrderDetailsPage } from './dashboard/pages/OrderDetails';
@@ -42,6 +43,7 @@ const sharedRoutes = [
   { path: 'dashboard', element: <DashboardHome /> },
   { path: 'orders', element: <OrdersPage /> },
   { path: 'orders/create', element: <CreateOrderPage /> },
+  { path: 'dispatch/hub', element: <HubDispatchPage /> },
   { path: 'refunds', element: <RefundsPage /> },
   { path: 'orders/:id', element: <OrderDetailsPage /> },
   { path: 'rates', element: <ShippingRatesPage /> },

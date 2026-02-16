@@ -11,6 +11,25 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
+function generateJloTracking() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let value = 'JLO-';
+  for (let i = 0; i < 8; i++) {
+    value += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return value;
+}
+
+function shouldGenerateLocalTracking(value) {
+  if (!value || typeof value !== 'string') return true;
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  if (/^(FEZ|CR)-/i.test(trimmed)) return true;
+  if (/^[0-9a-f-]{36}$/i.test(trimmed)) return true;
+  if (/error|cannot|failed|invalid|wrong|already exists/i.test(trimmed)) return true;
+  return false;
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
@@ -69,16 +88,53 @@ exports.handler = async (event) => {
       };
     }
 
+    const { data: existingSubOrder, error: existingSubOrderError } = await supabase
+      .from('sub_orders')
+      .select('id, tracking_number, metadata')
+      .eq('id', sub_order_id)
+      .single();
+
+    if (existingSubOrderError || !existingSubOrder) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'Sub-order not found',
+        }),
+      };
+    }
+
+    const nextTrackingNumber = shouldGenerateLocalTracking(existingSubOrder.tracking_number)
+      ? generateJloTracking()
+      : existingSubOrder.tracking_number;
+    const existingMetadata =
+      existingSubOrder.metadata &&
+      typeof existingSubOrder.metadata === 'object' &&
+      !Array.isArray(existingSubOrder.metadata)
+        ? existingSubOrder.metadata
+        : {};
+
     const { data: updatedSubOrder, error } = await supabase
       .from('sub_orders')
       .update({
         courier_id: localCourier.id,
+        tracking_number: nextTrackingNumber,
         delivery_person_name: rider_name,
         delivery_person_phone: rider_phone,
         delivery_person_vehicle: rider_vehicle || null,
         status: 'assigned',
         rider_name: rider_name,
         rider_phone: rider_phone,
+        metadata: {
+          ...existingMetadata,
+          selected_lane: 'local_rider',
+          eligible_lanes:
+            Array.isArray(existingMetadata.eligible_lanes) &&
+            existingMetadata.eligible_lanes.length > 0
+              ? existingMetadata.eligible_lanes
+              : ['fez', 'local_rider'],
+        },
       })
       .eq('id', sub_order_id)
       .select()

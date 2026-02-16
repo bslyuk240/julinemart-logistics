@@ -33,6 +33,7 @@ const navigation = [
   // Agent can access: Dashboard, Orders, Shipping Rates
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'agent'] },
   { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent'] },
+  { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent'] },
   { name: 'WhatsApp Support', href: '/admin/whatsapp', icon: MessageSquare, roles: ['admin', 'agent'] },
   { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent'] },
   { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'agent'] },

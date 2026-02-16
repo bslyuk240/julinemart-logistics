@@ -44,6 +44,7 @@ type Item = {
 
 type SubOrder = {
   id: Identifier;
+  metadata?: Record<string, any> | null;
   tracking_number?: string;
   status: string;
   real_shipping_cost?: number;
@@ -107,6 +108,9 @@ type ReturnShipment = {
   };
 };
 
+type ShipmentLane = 'fez' | 'local_rider';
+const DEFAULT_ELIGIBLE_LANES: ShipmentLane[] = ['fez', 'local_rider'];
+
 type Order = {
   id: Identifier;
   woocommerce_order_id: string;
@@ -150,6 +154,24 @@ const deriveOrderStatus = (order: Order | null, subOrders: SubOrder[]) => {
     }
   });
   return bestStatus;
+};
+
+const getEligibleLanes = (subOrder: SubOrder): ShipmentLane[] => {
+  const lanes = subOrder?.metadata?.eligible_lanes;
+  if (!Array.isArray(lanes) || lanes.length === 0) {
+    return DEFAULT_ELIGIBLE_LANES;
+  }
+
+  const normalized = lanes
+    .map((lane) => (typeof lane === 'string' ? lane.toLowerCase() : ''))
+    .filter((lane): lane is ShipmentLane => lane === 'fez' || lane === 'local_rider');
+
+  return normalized.length > 0 ? normalized : DEFAULT_ELIGIBLE_LANES;
+};
+
+const getSelectedLane = (subOrder: SubOrder): ShipmentLane => {
+  const lane = subOrder?.metadata?.selected_lane;
+  return lane === 'local_rider' ? 'local_rider' : 'fez';
 };
 
 /**
@@ -465,14 +487,57 @@ export function OrderDetailsPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showDispatchMenu]);
 
+  const updateShipmentLane = async (
+    subOrder: SubOrder,
+    lane: ShipmentLane
+  ): Promise<boolean> => {
+    const existingMetadata =
+      subOrder.metadata &&
+      typeof subOrder.metadata === 'object' &&
+      !Array.isArray(subOrder.metadata)
+        ? subOrder.metadata
+        : {};
+    const eligibleLanes = getEligibleLanes(subOrder);
+    const metadata = {
+      ...existingMetadata,
+      selected_lane: lane,
+      eligible_lanes: eligibleLanes,
+    };
+
+    const { error } = await supabase
+      .from('sub_orders')
+      .update({ metadata })
+      .eq('id', String(subOrder.id));
+
+    if (error) {
+      console.error('Failed to update shipment lane:', error);
+      notification.error(
+        'Lane Update Failed',
+        error.message || 'Unable to update shipment lane'
+      );
+      return false;
+    }
+
+    setSubOrders((prev) =>
+      prev.map((row) =>
+        String(row.id) === String(subOrder.id) ? { ...row, metadata } : row
+      )
+    );
+    return true;
+  };
+
   // FIXED: Changed from ${apiBase}/.netlify/functions/ to ${functionsBase}/
   const createCourierShipment = async (
-    subOrderId: Identifier,
+    subOrder: SubOrder,
     options?: { force?: boolean }
   ) => {
+    const subOrderId = subOrder.id;
     const force = Boolean(options?.force);
 
     try {
+      const laneUpdated = await updateShipmentLane(subOrder, 'fez');
+      if (!laneUpdated) return;
+
       const response = await fetch(`${functionsBase}/fez-create-shipment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -853,6 +918,12 @@ export function OrderDetailsPage() {
             const validShipment = hasValidShipment(subOrder);
             const shipmentError = hasShipmentError(subOrder);
             const displayTracking = getDisplayTracking(subOrder);
+            const selectedLane = getSelectedLane(subOrder);
+            const eligibleLanes = getEligibleLanes(subOrder);
+            const fezLaneEligible = eligibleLanes.includes('fez');
+            const localLaneEligible = eligibleLanes.includes('local_rider');
+            const fezDisabledByLane = selectedLane === 'local_rider';
+            const localDisabledByLane = selectedLane === 'fez';
             const isLocalRider = subOrder.couriers?.code?.toLowerCase() === 'local-rider';
             const canMarkOutForDelivery =
               isLocalRider && !['out_for_delivery', 'delivered'].includes(subOrder.status);
@@ -1023,6 +1094,29 @@ export function OrderDetailsPage() {
                       </span>
                     </div>
 
+                    <div className="mb-3">
+                      <label className="block text-xs font-semibold text-blue-900 mb-1">
+                        Shipment Lane
+                      </label>
+                      <select
+                        value={selectedLane}
+                        onChange={async (event) => {
+                          const value = event.target.value === 'local_rider' ? 'local_rider' : 'fez';
+                          await updateShipmentLane(subOrder, value);
+                        }}
+                        className="w-full border border-blue-200 rounded-md px-2 py-2 text-sm bg-white"
+                      >
+                        {eligibleLanes.map((lane) => (
+                          <option key={lane} value={lane}>
+                            {lane === 'fez' ? 'Fez' : 'Local Rider'}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-blue-700 mt-1">
+                        Selected lane: {selectedLane === 'fez' ? 'Fez' : 'Local Rider'}.
+                      </p>
+                    </div>
+
                     {/* Show error alert if previous attempt failed */}
                     {shipmentError && (
                       <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-3 flex items-start gap-2">
@@ -1093,19 +1187,27 @@ export function OrderDetailsPage() {
                             {showDispatchMenu === subOrder.id && (
                               <div className="absolute top-full left-0 mt-1 w-64 bg-white border rounded-lg shadow-lg z-10">
                                 <button
-                                  onClick={() => {
+                                  onClick={async () => {
                                     setShowDispatchMenu(null);
+                                    if (!fezLaneEligible || fezDisabledByLane) {
+                                      return;
+                                    }
                                     if (validShipment) {
                                       const confirmed = window.confirm(
                                         'This will create a new Fez shipment and replace the current tracking. Continue?'
                                       );
                                       if (!confirmed) return;
                                     }
-                                    createCourierShipment(subOrder.id, {
+                                    await createCourierShipment(subOrder, {
                                       force: validShipment,
                                     });
                                   }}
-                                  className="w-full px-4 py-3 text-left hover:bg-gray-50 border-b flex items-start gap-3"
+                                  disabled={!fezLaneEligible || fezDisabledByLane}
+                                  className={`w-full px-4 py-3 text-left border-b flex items-start gap-3 ${
+                                    !fezLaneEligible || fezDisabledByLane
+                                      ? 'opacity-50 cursor-not-allowed bg-gray-50'
+                                      : 'hover:bg-gray-50'
+                                  }`}
                                 >
                                   <div className="mt-1">
                                     <svg
@@ -1131,12 +1233,25 @@ export function OrderDetailsPage() {
                                 </button>
 
                                 <button
-                                  onClick={() => {
+                                  onClick={async () => {
                                     setShowDispatchMenu(null);
+                                    if (!localLaneEligible || localDisabledByLane) {
+                                      return;
+                                    }
+                                    const laneUpdated = await updateShipmentLane(
+                                      subOrder,
+                                      'local_rider'
+                                    );
+                                    if (!laneUpdated) return;
                                     setShowRiderModal(subOrder.id);
                                     setRiderInfo({ name: '', phone: '', vehicle: '' });
                                   }}
-                                  className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-start gap-3"
+                                  disabled={!localLaneEligible || localDisabledByLane}
+                                  className={`w-full px-4 py-3 text-left flex items-start gap-3 ${
+                                    !localLaneEligible || localDisabledByLane
+                                      ? 'opacity-50 cursor-not-allowed bg-gray-50'
+                                      : 'hover:bg-gray-50'
+                                  }`}
                                 >
                                   <div className="mt-1">
                                     <svg

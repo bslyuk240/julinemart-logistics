@@ -170,6 +170,10 @@ export async function createOrderHandler(req: Request, res: Response) {
           // Store shipping cost in real_shipping_cost (schema column)
           real_shipping_cost: breakdown.totalShippingFee || 0,
           allocated_shipping_fee: breakdown.totalShippingFee || 0,
+          metadata: {
+            selected_lane: 'fez',
+            eligible_lanes: ['fez', 'local_rider'],
+          },
         };
       });
 

@@ -19,7 +19,8 @@ import {
   Percent,
   MessageSquare,
   Megaphone,
-  Ticket
+  Ticket,
+  BellRing
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
 import { BrandLogo } from '../../shared/BrandLogo';
@@ -49,6 +50,7 @@ const navigation = [
   { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
   { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },
   { name: 'Email Settings', href: '/admin/email-settings', icon: Mail, roles: ['admin'] },
+  { name: 'Notifications', href: '/admin/notifications', icon: BellRing, roles: ['admin'] },
 ];
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {

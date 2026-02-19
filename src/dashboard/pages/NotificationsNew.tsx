@@ -11,8 +11,17 @@ import {
 } from '../utils/notificationsHistory';
 
 type SendMode = 'now' | 'later';
+type ProductFormFields = {
+  productName: string;
+  productLink: string;
+  productId: string;
+  ctaText: string;
+};
 
 const defaultDataJson = '';
+const primaryProxyPath = '/api/admin/notifications/send';
+const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
+const fallbackProxyPath = `${functionsBase}/admin-notifications-send`;
 
 const buildRequestPayload = (params: {
   audience: NotificationAudience;
@@ -57,6 +66,46 @@ const parseDataJson = (value: string) => {
   return parsed as Record<string, unknown>;
 };
 
+const parseOptionalNumber = (value: string) => {
+  if (!value.trim()) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const normalizeProductLink = (rawValue: string) => {
+  const value = rawValue.trim();
+  if (!value) return undefined;
+
+  if (value.startsWith('/')) {
+    return value;
+  }
+
+  try {
+    const url = new URL(value);
+    const path = `${url.pathname}${url.search}${url.hash}`;
+    return path || '/';
+  } catch {
+    return `/product/${value.replace(/^\/+/, '')}`;
+  }
+};
+
+const buildProductData = (type: NotificationType, fields: ProductFormFields) => {
+  if (type !== 'product') return undefined;
+
+  const nextData: Record<string, unknown> = {};
+  const productName = fields.productName.trim();
+  const deepLink = normalizeProductLink(fields.productLink);
+  const productId = parseOptionalNumber(fields.productId);
+  const ctaText = fields.ctaText.trim();
+
+  if (productName) nextData.productName = productName;
+  if (deepLink) nextData.deepLink = deepLink;
+  if (productId !== undefined) nextData.productId = productId;
+  if (ctaText) nextData.ctaText = ctaText;
+
+  return Object.keys(nextData).length > 0 ? nextData : undefined;
+};
+
 const getErrorMessage = (payload: unknown) => {
   if (payload && typeof payload === 'object') {
     const record = payload as Record<string, unknown>;
@@ -83,6 +132,53 @@ const getCountText = (payload: unknown) => {
   return `Sent: ${sent ?? 0}, Failed: ${failed ?? 0}, Matched tokens: ${matched ?? 0}`;
 };
 
+const getProxyCandidates = () => {
+  const urls = [primaryProxyPath, fallbackProxyPath];
+
+  if (
+    typeof window !== 'undefined' &&
+    window.location.hostname === 'localhost' &&
+    window.location.port !== '8888'
+  ) {
+    urls.push('http://localhost:8888/api/admin/notifications/send');
+    urls.push('http://localhost:8888/.netlify/functions/admin-notifications-send');
+  }
+
+  return Array.from(new Set(urls));
+};
+
+const sendViaNotificationProxy = async (accessToken: string, payload: NotificationPayload) => {
+  const requestInit: RequestInit = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  };
+
+  const candidates = getProxyCandidates();
+  let lastNetworkError: unknown = null;
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const url = candidates[index];
+    const isLast = index === candidates.length - 1;
+
+    try {
+      const response = await fetch(url, requestInit);
+      if (response.status !== 404 || isLast) {
+        return response;
+      }
+    } catch (error) {
+      lastNetworkError = error;
+      if (isLast) throw error;
+    }
+  }
+
+  if (lastNetworkError) throw lastNetworkError;
+  throw new Error('Notification proxy endpoint is unavailable');
+};
+
 export function NotificationsNewPage() {
   const navigate = useNavigate();
   const { session, user } = useAuth();
@@ -94,6 +190,10 @@ export function NotificationsNewPage() {
   const [type, setType] = useState<NotificationType>('general');
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
+  const [productName, setProductName] = useState('');
+  const [productLink, setProductLink] = useState('');
+  const [productId, setProductId] = useState('');
+  const [ctaText, setCtaText] = useState('Shop now');
   const [dataJson, setDataJson] = useState(defaultDataJson);
   const [sendMode, setSendMode] = useState<SendMode>('now');
   const [scheduleAt, setScheduleAt] = useState('');
@@ -127,6 +227,15 @@ export function NotificationsNewPage() {
       return;
     }
 
+    const productData = buildProductData(type, {
+      productName,
+      productLink,
+      productId,
+      ctaText,
+    });
+    const mergedData =
+      parsedData || productData ? { ...(productData || {}), ...(parsedData || {}) } : undefined;
+
     const payload = buildRequestPayload({
       audience,
       customerId: customerId.trim(),
@@ -134,7 +243,7 @@ export function NotificationsNewPage() {
       title: title.trim(),
       message: message.trim(),
       type,
-      data: parsedData,
+      data: mergedData,
       sendMode,
       scheduleAt,
     });
@@ -142,14 +251,7 @@ export function NotificationsNewPage() {
     setSending(true);
 
     try {
-      const response = await fetch('/api/admin/notifications/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify(payload),
-      });
+      const response = await sendViaNotificationProxy(session.access_token, payload);
 
       const raw = await response.text();
       let body: unknown = {};
@@ -287,8 +389,58 @@ export function NotificationsNewPage() {
           />
         </div>
 
+        {type === 'product' && (
+          <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-4">
+            <h3 className="text-sm font-semibold text-blue-900">Product details (no JSON needed)</h3>
+            <p className="mt-1 text-sm text-blue-800">
+              Fill these in plain language. We will convert them into notification data automatically.
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Product name</label>
+                <input
+                  value={productName}
+                  onChange={(event) => setProductName(event.target.value)}
+                  placeholder="e.g. Glow Body Lotion"
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Product link or slug</label>
+                <input
+                  value={productLink}
+                  onChange={(event) => setProductLink(event.target.value)}
+                  placeholder="e.g. /product/glow-body-lotion or glow-body-lotion"
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Product ID (optional)</label>
+                <input
+                  value={productId}
+                  onChange={(event) => setProductId(event.target.value)}
+                  placeholder="e.g. 123"
+                  inputMode="numeric"
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">Button text (optional)</label>
+                <input
+                  value={ctaText}
+                  onChange={(event) => setCtaText(event.target.value)}
+                  placeholder="e.g. Shop now"
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">Optional data (JSON object)</label>
+          <label className="mb-1 block text-sm font-medium text-gray-700">
+            Optional advanced data (JSON object)
+          </label>
           <textarea
             value={dataJson}
             onChange={(event) => {
@@ -310,6 +462,9 @@ export function NotificationsNewPage() {
               jsonError ? 'border-red-300 focus:ring-red-500' : 'border-gray-300 focus:ring-primary-500'
             }`}
           />
+          <p className="mt-1 text-xs text-gray-500">
+            Leave this empty unless you need extra technical fields. Product details above already build data for you.
+          </p>
           {jsonError && <p className="mt-1 text-sm text-red-600">{jsonError}</p>}
         </div>
 

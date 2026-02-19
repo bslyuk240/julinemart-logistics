@@ -40,7 +40,7 @@ Open the admin app from the Netlify dev URL (usually `http://localhost:8888`), t
 ## Proxy Endpoint
 
 - JLO endpoint: `POST /api/admin/notifications/send`
-- Netlify function file: `netlify/functions/admin/notifications/send.js`
+- Netlify function file: `netlify/functions/admin-notifications-send.js`
 
 Behavior:
 

@@ -1,4 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
+import {
+  buildOrderDeepLink,
+  extractCustomerIdFromOrder,
+  extractOrderReference,
+  sendPushToCustomer,
+} from './services/pushNotifications.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -10,6 +16,25 @@ const headers = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Content-Type': 'application/json',
 };
+
+function generateJloTracking() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let value = 'JLO-';
+  for (let i = 0; i < 8; i++) {
+    value += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return value;
+}
+
+function shouldGenerateLocalTracking(value) {
+  if (!value || typeof value !== 'string') return true;
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  if (/^(FEZ|CR)-/i.test(trimmed)) return true;
+  if (/^[0-9a-f-]{36}$/i.test(trimmed)) return true;
+  if (/error|cannot|failed|invalid|wrong|already exists/i.test(trimmed)) return true;
+  return false;
+}
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
@@ -69,16 +94,53 @@ exports.handler = async (event) => {
       };
     }
 
+    const { data: existingSubOrder, error: existingSubOrderError } = await supabase
+      .from('sub_orders')
+      .select('id, tracking_number, metadata, main_order_id')
+      .eq('id', sub_order_id)
+      .single();
+
+    if (existingSubOrderError || !existingSubOrder) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: 'Sub-order not found',
+        }),
+      };
+    }
+
+    const nextTrackingNumber = shouldGenerateLocalTracking(existingSubOrder.tracking_number)
+      ? generateJloTracking()
+      : existingSubOrder.tracking_number;
+    const existingMetadata =
+      existingSubOrder.metadata &&
+      typeof existingSubOrder.metadata === 'object' &&
+      !Array.isArray(existingSubOrder.metadata)
+        ? existingSubOrder.metadata
+        : {};
+
     const { data: updatedSubOrder, error } = await supabase
       .from('sub_orders')
       .update({
         courier_id: localCourier.id,
+        tracking_number: nextTrackingNumber,
         delivery_person_name: rider_name,
         delivery_person_phone: rider_phone,
         delivery_person_vehicle: rider_vehicle || null,
         status: 'assigned',
         rider_name: rider_name,
         rider_phone: rider_phone,
+        metadata: {
+          ...existingMetadata,
+          selected_lane: 'local_rider',
+          eligible_lanes:
+            Array.isArray(existingMetadata.eligible_lanes) &&
+            existingMetadata.eligible_lanes.length > 0
+              ? existingMetadata.eligible_lanes
+              : ['fez', 'local_rider'],
+        },
       })
       .eq('id', sub_order_id)
       .select()
@@ -104,6 +166,37 @@ exports.handler = async (event) => {
       actor_type: 'user',
       source: 'manual_assignment',
     });
+
+    if (existingSubOrder.main_order_id) {
+      const { data: orderRecord, error: orderError } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', existingSubOrder.main_order_id)
+        .maybeSingle();
+
+      if (orderError) {
+        console.warn('Failed to load order for push notification:', orderError.message);
+      } else {
+        const customerId = extractCustomerIdFromOrder(orderRecord);
+        const orderRef = extractOrderReference(orderRecord) || existingSubOrder.main_order_id;
+        const deepLink = buildOrderDeepLink(orderRef);
+
+        const pushResult = await sendPushToCustomer(customerId, {
+          title: 'Rider assigned',
+          message: `A rider has been assigned to your order ${orderRef}.`,
+          type: 'order_update',
+          data: {
+            status: 'assigned',
+            orderReference: String(orderRef),
+            ...(deepLink ? { deepLink } : {}),
+          },
+        });
+
+        if (!pushResult.success && !pushResult.skipped) {
+          console.warn('Assign rider push failed:', pushResult);
+        }
+      }
+    }
 
     return {
       statusCode: 200,

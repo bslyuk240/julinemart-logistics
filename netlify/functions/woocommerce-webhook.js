@@ -29,6 +29,12 @@ function verifyWebhookSignature(body, signature, secret) {
   return signature === hexHash || signature === base64Hash;
 }
 
+function getMeta(meta_data, key) {
+  if (!Array.isArray(meta_data)) return null;
+  const entry = meta_data.find((meta) => meta?.key === key);
+  return entry?.value ?? null;
+}
+
 async function getDefaultHubId(supabaseClient) {
   try {
     const { data: hub, error: defaultHubError } = await supabaseClient
@@ -237,6 +243,15 @@ export async function handler(event) {
       postcode: shipping.postcode || billing.postcode,
     };
 
+    const destinationZoneId = getMeta(
+      wcOrder.meta_data,
+      '_jlo_destination_zone_id'
+    );
+    const destinationZoneName = getMeta(
+      wcOrder.meta_data,
+      '_jlo_destination_zone_name'
+    );
+
     console.log('Customer:', customerInfo.name, customerInfo.email);
 
     const defaultHubId = await getDefaultHubId(supabase);
@@ -332,9 +347,9 @@ export async function handler(event) {
       console.log(`\n📌 No coupons applied to this order`);
     }
 
-    // Group items by hub
+    // Group items by hub + vendor
     const orderItems = [];
-    const itemsByHub = {};
+    const itemsByGroup = {};
 
     for (const item of wcOrder.line_items || []) {
       const hubId = item.meta_data?.find(m => m.key === '_hub_id' || m.key === 'hub_id')?.value;
@@ -380,10 +395,16 @@ export async function handler(event) {
         continue;
       }
 
-      if (!itemsByHub[resolvedHubId]) {
-        itemsByHub[resolvedHubId] = [];
+      const resolvedVendorId = orderItem.vendorId || 'default-vendor';
+      const groupKey = `${resolvedHubId}::${resolvedVendorId}`;
+      if (!itemsByGroup[groupKey]) {
+        itemsByGroup[groupKey] = {
+          hubId: resolvedHubId,
+          vendorId: resolvedVendorId,
+          items: [],
+        };
       }
-      itemsByHub[resolvedHubId].push(orderItem);
+      itemsByGroup[groupKey].items.push(orderItem);
     }
 
     // NOW validate voucher items (after we have orderItems)
@@ -409,10 +430,14 @@ export async function handler(event) {
       }
     }
 
-    console.log('\n=== HUB SPLITTING ===');
-    console.log('Items grouped by hub:', Object.keys(itemsByHub).length, 'hubs');
-    Object.entries(itemsByHub).forEach(([hubKey, items]) => {
-      console.log(`  📍 Hub ${hubKey}:`, items.length, 'items');
+    console.log('\n=== SHIPMENT SPLITTING (HUB + VENDOR) ===');
+    console.log(
+      'Items grouped by hub+vendor:',
+      Object.keys(itemsByGroup).length,
+      'groups'
+    );
+    Object.entries(itemsByGroup).forEach(([groupKey, group]) => {
+      console.log(`  📦 ${groupKey}:`, group.items.length, 'items');
     });
 
     // Fetch hubs and zones
@@ -443,11 +468,11 @@ export async function handler(event) {
     // ============================================
     const shippingBreakdown = [];
     let totalCalculatedShipping = 0;
-    let totalFezQuotes = 0;
     const customerPaidShipping = parseFloat(wcOrder.shipping_total || 0);
 
     if (zone) {
-      for (const [hubId, items] of Object.entries(itemsByHub)) {
+      for (const [groupKey, group] of Object.entries(itemsByGroup)) {
+        const { hubId, vendorId, items } = group;
         const hub = hubMap.get(hubId);
         if (!hub) {
           console.warn('No hub record found for', hubId);
@@ -493,8 +518,6 @@ export async function handler(event) {
           console.log(`📊 Fallback rate: ₦${realShippingCost.toLocaleString()}`);
         }
 
-        totalFezQuotes += realShippingCost;
-
         // Get courier info (Fez for now)
         const { data: couriers } = await supabase
           .from('couriers')
@@ -505,7 +528,9 @@ export async function handler(event) {
         const courier = couriers?.[0] || null;
 
         shippingBreakdown.push({
+          groupKey,
           hubId,
+          vendorId,
           hubName: hub.name,
           courierId: courier?.id || null,
           courierName: courier?.name || 'Fez Delivery',
@@ -522,11 +547,13 @@ export async function handler(event) {
     // ============================================
     // 💰 ALLOCATE CUSTOMER'S SHIPPING PAYMENT
     // ============================================
-    const numberOfHubs = shippingBreakdown.length;
+    const numberOfGroups = shippingBreakdown.length;
     
-    shippingBreakdown.forEach((breakdown, index) => {
+    shippingBreakdown.forEach((breakdown) => {
       // Option A: Equal split (simple)
-      breakdown.allocatedShippingFee = customerPaidShipping / numberOfHubs;
+      breakdown.allocatedShippingFee = numberOfGroups > 0
+        ? customerPaidShipping / numberOfGroups
+        : 0;
       
       // Calculate shipping P&L
       breakdown.shippingProfitLoss = 
@@ -570,6 +597,9 @@ export async function handler(event) {
       
       // Enhanced metadata with voucher/influencer info
       metadata: {
+        destination_zone_id: destinationZoneId || null,
+        destination_zone_name: destinationZoneName || null,
+        wc_customer_id: wcOrder.customer_id || null,
         ...(voucherData && {
           voucher_code: voucherData.voucher.code,
           voucher_id: voucherData.voucher.id,
@@ -642,17 +672,21 @@ export async function handler(event) {
           }
         }
         
+        // JLO placeholder tracking (10–13 chars) for manual/local rider; real Fez tracking overwrites when shipment is created
+        const jloPlaceholder = () => {
+          const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+          let s = 'JLO-';
+          for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+          return s; // e.g. JLO-A1B2C3D4 (12 chars)
+        };
+
         return {
           main_order_id: order.id,
           hub_id: breakdown.hubId,
+          vendor_id: breakdown.vendorId || null,
           courier_id: breakdown.courierId || null,
           status: 'pending',
-          tracking_number: `${(breakdown.courierName || 'JLO')
-            .substring(0, 3)
-            .toUpperCase()}-${Date.now()}-${Math.random()
-            .toString(36)
-            .substr(2, 6)
-            .toUpperCase()}`,
+          tracking_number: jloPlaceholder(),
           items: breakdown.items,
           subtotal: itemsSubtotal, // Original full price
           real_shipping_cost: breakdown.realShippingCost,
@@ -661,6 +695,10 @@ export async function handler(event) {
           
           // Add voucher metadata to sub-order
           metadata: {
+            selected_lane: 'fez',
+            eligible_lanes: ['fez', 'local_rider'],
+            destination_zone_id: destinationZoneId || null,
+            destination_zone_name: destinationZoneName || null,
             ...(voucherInfo && {
               voucher: voucherInfo
             }),

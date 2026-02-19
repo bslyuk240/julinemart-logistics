@@ -19,7 +19,8 @@ import {
   Percent,
   MessageSquare,
   Megaphone,
-  Ticket
+  Ticket,
+  BellRing
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
 import { BrandLogo } from '../../shared/BrandLogo';
@@ -33,6 +34,7 @@ const navigation = [
   // Agent can access: Dashboard, Orders, Shipping Rates
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'agent'] },
   { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent'] },
+  { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent'] },
   { name: 'WhatsApp Support', href: '/admin/whatsapp', icon: MessageSquare, roles: ['admin', 'agent'] },
   { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent'] },
   { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'agent'] },
@@ -48,6 +50,7 @@ const navigation = [
   { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
   { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },
   { name: 'Email Settings', href: '/admin/email-settings', icon: Mail, roles: ['admin'] },
+  { name: 'Notifications', href: '/admin/notifications', icon: BellRing, roles: ['admin'] },
 ];
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {

@@ -52,6 +52,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/admin/notifications/send"
+  to = "/.netlify/functions/admin-notifications-send"
+  status = 200
+
+[[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200

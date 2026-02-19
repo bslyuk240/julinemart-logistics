@@ -3,6 +3,12 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
+import {
+  buildOrderDeepLink,
+  extractCustomerIdFromOrder,
+  extractOrderReference,
+  sendPushToCustomer,
+} from './services/pushNotifications.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
@@ -79,7 +85,7 @@ exports.handler = async (event) => {
     // Find sub-order by tracking number
     const { data: subOrders, error: findError } = await supabase
       .from('sub_orders')
-      .select('*, orders(id, overall_status)')
+      .select('*, orders(id, overall_status, woocommerce_order_id, customer_email, metadata)')
       .eq('tracking_number', orderNo);
 
     if (findError) {
@@ -102,6 +108,7 @@ exports.handler = async (event) => {
 
     const subOrder = subOrders[0];
     const jloStatus = mapFezStatus(orderStatus);
+    const previousStatus = subOrder.status;
 
     console.log(`Updating sub-order ${subOrder.id} to status: ${jloStatus}`);
 
@@ -133,6 +140,46 @@ exports.handler = async (event) => {
       await refreshOverallOrderStatus(supabase, subOrder.orders.id);
     }
 
+    if (previousStatus !== jloStatus) {
+      const customerId = extractCustomerIdFromOrder(subOrder.orders);
+      const orderRef = extractOrderReference(subOrder.orders) || subOrder.orders?.id || subOrder.id;
+      const deepLink = buildOrderDeepLink(orderRef);
+
+      let pushInput = null;
+      if (jloStatus === 'in_transit') {
+        pushInput = {
+          title: 'Order in transit',
+          message: `Your order ${orderRef} is on the move.`,
+          type: 'order_update',
+          data: {
+            status: jloStatus,
+            orderReference: String(orderRef),
+            trackingNumber: orderNo,
+            ...(deepLink ? { deepLink } : {}),
+          },
+        };
+      } else if (jloStatus === 'delivered') {
+        pushInput = {
+          title: 'Order delivered',
+          message: `Your order ${orderRef} has been delivered.`,
+          type: 'order_update',
+          data: {
+            status: jloStatus,
+            orderReference: String(orderRef),
+            trackingNumber: orderNo,
+            ...(deepLink ? { deepLink } : {}),
+          },
+        };
+      }
+
+      if (pushInput) {
+        const pushResult = await sendPushToCustomer(customerId, pushInput);
+        if (!pushResult.success && !pushResult.skipped) {
+          console.warn('Fez webhook push failed:', pushResult);
+        }
+      }
+    }
+
     // Log activity
     await supabase.from('activity_logs').insert({
       user_id: 'fez_webhook',
@@ -140,12 +187,6 @@ exports.handler = async (event) => {
       description: `Fez webhook: ${orderNo} → ${orderStatus}`,
       metadata: webhookData,
     });
-
-    // Send notification to customer (optional)
-    if (jloStatus === 'delivered') {
-      // TODO: Trigger email/SMS notification
-      console.log('Order delivered - notification should be sent');
-    }
 
     return {
       statusCode: 200,

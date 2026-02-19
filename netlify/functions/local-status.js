@@ -3,6 +3,12 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
+import {
+  buildOrderDeepLink,
+  extractCustomerIdFromOrder,
+  extractOrderReference,
+  sendPushToCustomer,
+} from './services/pushNotifications.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -173,6 +179,47 @@ exports.handler = async (event) => {
       }
     } else {
       console.warn('⚠️ No main_order_id found, cannot refresh overall status');
+    }
+
+    if (subOrder.status !== status && subOrder.main_order_id) {
+      const { data: orderRecord, error: orderError } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', subOrder.main_order_id)
+        .maybeSingle();
+
+      if (orderError) {
+        console.warn('Failed to load order for local-status push:', orderError.message);
+      } else {
+        const customerId = extractCustomerIdFromOrder(orderRecord);
+        const orderRef = extractOrderReference(orderRecord) || subOrder.main_order_id;
+        const deepLink = buildOrderDeepLink(orderRef);
+        const pushMeta = {
+          status,
+          orderReference: String(orderRef),
+          ...(deepLink ? { deepLink } : {}),
+        };
+
+        const pushInput =
+          status === 'out_for_delivery'
+            ? {
+                title: 'Order out for delivery',
+                message: `Your order ${orderRef} is on the way.`,
+                type: 'order_update',
+                data: pushMeta,
+              }
+            : {
+                title: 'Order delivered',
+                message: `Your order ${orderRef} has been delivered.`,
+                type: 'order_update',
+                data: pushMeta,
+              };
+
+        const pushResult = await sendPushToCustomer(customerId, pushInput);
+        if (!pushResult.success && !pushResult.skipped) {
+          console.warn('Local-status push failed:', pushResult);
+        }
+      }
     }
 
     return {

@@ -599,6 +599,7 @@ export async function handler(event) {
       metadata: {
         destination_zone_id: destinationZoneId || null,
         destination_zone_name: destinationZoneName || null,
+        wc_customer_id: wcOrder.customer_id || null,
         ...(voucherData && {
           voucher_code: voucherData.voucher.code,
           voucher_id: voucherData.voucher.id,

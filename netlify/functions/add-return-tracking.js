@@ -1,5 +1,6 @@
 // POST /api/return-shipments/:id/tracking - Save customer tracking number (DROP-OFF VERSION)
 import { createClient } from '@supabase/supabase-js';
+import { buildOrderDeepLink, sendPushToCustomer } from './services/pushNotifications.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -117,13 +118,38 @@ export async function handler(event) {
     }
 
     // 2️⃣ Update parent return_request
-    await supabase
+    const { data: returnRequest, error: returnUpdateError } = await supabase
       .from("return_requests")
       .update({
         status: "in_transit",                      // KEEP STATUSES ALIGNED
         fez_tracking: tracking_number,
       })
-      .eq("id", shipment.return_request_id);
+      .eq("id", shipment.return_request_id)
+      .select("id, wc_customer_id, order_id, order_number")
+      .maybeSingle();
+
+    if (returnUpdateError) {
+      console.warn("Failed to update parent return request:", returnUpdateError.message);
+    } else {
+      const orderRef = returnRequest?.order_number || returnRequest?.order_id || shipment.return_request_id;
+      const deepLink = buildOrderDeepLink(orderRef);
+      const pushResult = await sendPushToCustomer(returnRequest?.wc_customer_id, {
+        title: "Return in transit",
+        message: `We have received your return tracking number for order ${orderRef}.`,
+        type: "order_update",
+        data: {
+          status: "in_transit",
+          returnCode: shipment.return_code || null,
+          trackingNumber: tracking_number,
+          orderReference: String(orderRef),
+          ...(deepLink ? { deepLink } : {}),
+        },
+      });
+
+      if (!pushResult.success && !pushResult.skipped) {
+        console.warn("Return tracking push failed:", pushResult);
+      }
+    }
 
     console.log("✅ Tracking saved successfully");
 

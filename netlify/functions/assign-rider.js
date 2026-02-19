@@ -1,4 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
+import {
+  buildOrderDeepLink,
+  extractCustomerIdFromOrder,
+  extractOrderReference,
+  sendPushToCustomer,
+} from './services/pushNotifications.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -90,7 +96,7 @@ exports.handler = async (event) => {
 
     const { data: existingSubOrder, error: existingSubOrderError } = await supabase
       .from('sub_orders')
-      .select('id, tracking_number, metadata')
+      .select('id, tracking_number, metadata, main_order_id')
       .eq('id', sub_order_id)
       .single();
 
@@ -160,6 +166,37 @@ exports.handler = async (event) => {
       actor_type: 'user',
       source: 'manual_assignment',
     });
+
+    if (existingSubOrder.main_order_id) {
+      const { data: orderRecord, error: orderError } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('id', existingSubOrder.main_order_id)
+        .maybeSingle();
+
+      if (orderError) {
+        console.warn('Failed to load order for push notification:', orderError.message);
+      } else {
+        const customerId = extractCustomerIdFromOrder(orderRecord);
+        const orderRef = extractOrderReference(orderRecord) || existingSubOrder.main_order_id;
+        const deepLink = buildOrderDeepLink(orderRef);
+
+        const pushResult = await sendPushToCustomer(customerId, {
+          title: 'Rider assigned',
+          message: `A rider has been assigned to your order ${orderRef}.`,
+          type: 'order_update',
+          data: {
+            status: 'assigned',
+            orderReference: String(orderRef),
+            ...(deepLink ? { deepLink } : {}),
+          },
+        });
+
+        if (!pushResult.success && !pushResult.skipped) {
+          console.warn('Assign rider push failed:', pushResult);
+        }
+      }
+    }
 
     return {
       statusCode: 200,

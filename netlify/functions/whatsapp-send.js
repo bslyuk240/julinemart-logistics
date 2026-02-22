@@ -10,9 +10,18 @@ import fetch from 'node-fetch';
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const WHATSAPP_PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID;
-const WHATSAPP_ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN;
-const WHATSAPP_API_VERSION = process.env.WHATSAPP_API_VERSION || 'v21.0';
+
+const WHATSAPP_PHONE_NUMBER_ID_KEYS = [
+  'WHATSAPP_PHONE_NUMBER_ID',
+  'META_WHATSAPP_PHONE_NUMBER_ID',
+  'WHATSAPP_BUSINESS_PHONE_NUMBER_ID'
+];
+
+const WHATSAPP_ACCESS_TOKEN_KEYS = [
+  'WHATSAPP_ACCESS_TOKEN',
+  'META_WHATSAPP_ACCESS_TOKEN',
+  'WHATSAPP_BUSINESS_ACCESS_TOKEN'
+];
 
 const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
 
@@ -34,7 +43,7 @@ function formatPhoneForWhatsApp(localPhone) {
   if (!localPhone) return null;
   
   // Remove spaces, dashes, parentheses
-  let cleaned = localPhone.replace(/[\s\-\(\)]/g, '');
+  let cleaned = localPhone.replace(/[\s\-()]/g, '');
   
   // If starts with 0, replace with 234
   if (cleaned.startsWith('0')) {
@@ -63,11 +72,72 @@ function isWithinServiceWindow(chat) {
   return new Date(chat.customer_service_window_expires_at) > new Date();
 }
 
+function resolveEnvValue(keys) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === 'string' && value.trim()) {
+      return { key, value: value.trim() };
+    }
+  }
+  return { key: null, value: null };
+}
+
+function resolveWhatsAppConfig() {
+  const phoneNumberId = resolveEnvValue(WHATSAPP_PHONE_NUMBER_ID_KEYS);
+  const accessToken = resolveEnvValue(WHATSAPP_ACCESS_TOKEN_KEYS);
+  const apiVersion = (
+    process.env.WHATSAPP_API_VERSION ||
+    process.env.META_WHATSAPP_API_VERSION ||
+    'v21.0'
+  ).trim();
+
+  const missing = [];
+  if (!phoneNumberId.value) {
+    missing.push(`phone number id (${WHATSAPP_PHONE_NUMBER_ID_KEYS.join(' or ')})`);
+  }
+  if (!accessToken.value) {
+    missing.push(`access token (${WHATSAPP_ACCESS_TOKEN_KEYS.join(' or ')})`);
+  }
+
+  return {
+    apiVersion,
+    phoneNumberId: phoneNumberId.value,
+    accessToken: accessToken.value,
+    phoneNumberIdSource: phoneNumberId.key,
+    accessTokenSource: accessToken.key,
+    missing
+  };
+}
+
+function buildMetaApiError(result, fallbackMessage) {
+  const metaError = result?.error || {};
+  const rawMessage = metaError.message || fallbackMessage;
+  const isAuthError = metaError.code === 190;
+  const isExpiredSession = isAuthError && /session has expired/i.test(rawMessage || '');
+
+  const error = new Error(
+    isExpiredSession
+      ? 'WhatsApp access token expired. Generate a new token in Meta and update WHATSAPP_ACCESS_TOKEN in Netlify and local env.'
+      : rawMessage || 'Meta API request failed'
+  );
+
+  error.statusCode = isAuthError ? 401 : 502;
+  error.meta = {
+    code: metaError.code || null,
+    subcode: metaError.error_subcode || null,
+    type: metaError.type || null,
+    fbtrace_id: metaError.fbtrace_id || null,
+    message: rawMessage || null
+  };
+
+  return error;
+}
+
 /**
  * Send text message via Meta API
  */
-async function sendTextMessage(to, text, contextMessageId = null) {
-  const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
+async function sendTextMessage(to, text, contextMessageId = null, whatsappConfig) {
+  const url = `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.phoneNumberId}/messages`;
   
   const payload = {
     messaging_product: 'whatsapp',
@@ -92,7 +162,7 @@ async function sendTextMessage(to, text, contextMessageId = null) {
   const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
+      'Authorization': `Bearer ${whatsappConfig.accessToken}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(payload)
@@ -102,7 +172,7 @@ async function sendTextMessage(to, text, contextMessageId = null) {
   
   if (!response.ok) {
     console.error('❌ Meta API error:', result);
-    throw new Error(result.error?.message || 'Failed to send message');
+    throw buildMetaApiError(result, 'Failed to send message');
   }
   
   console.log('✅ Message sent successfully:', result);
@@ -112,8 +182,8 @@ async function sendTextMessage(to, text, contextMessageId = null) {
 /**
  * Send template message (for outside 24h window)
  */
-async function sendTemplateMessage(to, templateName, languageCode = 'en', parameters = []) {
-  const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${WHATSAPP_PHONE_NUMBER_ID}/messages`;
+async function sendTemplateMessage(to, templateName, languageCode = 'en', parameters = [], whatsappConfig) {
+  const url = `https://graph.facebook.com/${whatsappConfig.apiVersion}/${whatsappConfig.phoneNumberId}/messages`;
   
   const payload = {
     messaging_product: 'whatsapp',
@@ -141,7 +211,7 @@ async function sendTemplateMessage(to, templateName, languageCode = 'en', parame
   const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${WHATSAPP_ACCESS_TOKEN}`,
+      'Authorization': `Bearer ${whatsappConfig.accessToken}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(payload)
@@ -151,7 +221,7 @@ async function sendTemplateMessage(to, templateName, languageCode = 'en', parame
   
   if (!response.ok) {
     console.error('❌ Meta API error:', result);
-    throw new Error(result.error?.message || 'Failed to send template');
+    throw buildMetaApiError(result, 'Failed to send template');
   }
   
   console.log('✅ Template sent successfully:', result);
@@ -195,9 +265,17 @@ export async function handler(event) {
   
   try {
     // Validate environment variables
-    if (!WHATSAPP_PHONE_NUMBER_ID || !WHATSAPP_ACCESS_TOKEN) {
-      throw new Error('WhatsApp API credentials not configured');
+    const whatsappConfig = resolveWhatsAppConfig();
+
+    if (whatsappConfig.missing.length > 0) {
+      throw new Error(`WhatsApp API credentials not configured: missing ${whatsappConfig.missing.join(' and ')}`);
     }
+
+    console.log('WhatsApp configuration resolved', {
+      apiVersion: whatsappConfig.apiVersion,
+      phoneNumberIdSource: whatsappConfig.phoneNumberIdSource,
+      accessTokenSource: whatsappConfig.accessTokenSource
+    });
     
     const body = JSON.parse(event.body || '{}');
     const { 
@@ -278,14 +356,16 @@ export async function handler(event) {
         whatsappPhone,
         templateToUse,
         'en',
-        params
+        params,
+        whatsappConfig
       );
     } else {
       // Send regular text message
       metaResponse = await sendTextMessage(
         whatsappPhone,
         message,
-        context_message_id
+        context_message_id,
+        whatsappConfig
       );
     }
     
@@ -344,11 +424,12 @@ export async function handler(event) {
     console.error('❌ Error sending message:', error);
     
     return {
-      statusCode: 500,
+      statusCode: Number.isInteger(error?.statusCode) ? error.statusCode : 500,
       headers: corsHeaders,
       body: JSON.stringify({
         success: false,
-        error: error.message || 'Failed to send message'
+        error: error.message || 'Failed to send message',
+        meta_error: error?.meta || undefined
       })
     };
   }

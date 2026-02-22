@@ -49,7 +49,7 @@ interface ChatData {
 export default function WhatsAppChatView() {
   const { chatId } = useParams<{ chatId: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const notification = useNotification();
   
   const [chatData, setChatData] = useState<ChatData | null>(null);
@@ -57,10 +57,15 @@ export default function WhatsAppChatView() {
   const [sending, setSending] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [showActions, setShowActions] = useState(false);
+  const [showMobileDetails, setShowMobileDetails] = useState(false);
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [staff, setStaff] = useState<any[]>([]);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const quickActionBaseClass = 'w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1';
+  const assignActionClass = `${quickActionBaseClass} bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-300`;
+  const reopenActionClass = `${quickActionBaseClass} bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-300`;
+  const closeActionClass = `${quickActionBaseClass} bg-red-600 text-white hover:bg-red-700 focus:ring-red-300`;
   
   // Scroll to bottom of messages
   const scrollToBottom = () => {
@@ -99,7 +104,15 @@ export default function WhatsAppChatView() {
   // Fetch staff list for assignment
   const fetchStaff = async () => {
     try {
-      const response = await fetch(`/.netlify/functions/users?role=admin,agent`);
+      if (!session?.access_token) {
+        return;
+      }
+      const headers: HeadersInit = {
+        Authorization: `Bearer ${session.access_token}`
+      };
+      const response = await fetch(`/.netlify/functions/users?role=admin,agent`, {
+        headers
+      });
       const result = await response.json();
       if (result.success) {
         setStaff(result.data);
@@ -116,7 +129,7 @@ export default function WhatsAppChatView() {
     // Refresh chat every 5 seconds
     const interval = setInterval(fetchChatData, 5000);
     return () => clearInterval(interval);
-  }, [chatId]);
+  }, [chatId, session?.access_token]);
   
   useEffect(() => {
     scrollToBottom();
@@ -261,46 +274,174 @@ export default function WhatsAppChatView() {
   }
   
   const { chat, messages, order } = chatData;
+  const detailsPanel = (
+    <div className="space-y-6 p-4 sm:p-6">
+      {/* Customer Info */}
+      <div>
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Customer Info</h3>
+        <div className="space-y-3">
+          <div className="flex items-start gap-3">
+            <User className="w-5 h-5 text-gray-400 mt-0.5" />
+            <div>
+              <p className="text-sm text-gray-600">Name</p>
+              <p className="font-medium">{chat.customer_name || 'Not provided'}</p>
+            </div>
+          </div>
+          
+          <div className="flex items-start gap-3">
+            <Phone className="w-5 h-5 text-gray-400 mt-0.5" />
+            <div>
+              <p className="text-sm text-gray-600">Phone</p>
+              <p className="font-medium">{chat.customer_phone}</p>
+            </div>
+          </div>
+          
+          <div className="flex items-start gap-3">
+            <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
+            <div>
+              <p className="text-sm text-gray-600">First Contact</p>
+              <p className="font-medium">
+                {new Date(chat.created_at).toLocaleDateString()}
+              </p>
+            </div>
+          </div>
+          
+          {chat.assigned_staff_name && (
+            <div className="flex items-start gap-3">
+              <UserCheck className="w-5 h-5 text-gray-400 mt-0.5" />
+              <div>
+                <p className="text-sm text-gray-600">Assigned To</p>
+                <p className="font-medium">{chat.assigned_staff_name}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      {/* Linked Order */}
+      {order && (
+        <div className="border-t border-gray-200 pt-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Linked Order</h3>
+          <div className="space-y-3">
+            <div className="flex items-start gap-3">
+              <Package className="w-5 h-5 text-gray-400 mt-0.5" />
+              <div>
+                <p className="text-sm text-gray-600">Order Number</p>
+                <button
+                  onClick={() => navigate(`/admin/orders/${order.id}`)}
+                  className="font-medium text-primary-600 hover:text-primary-700"
+                >
+                  #{order.woocommerce_order_id}
+                </button>
+              </div>
+            </div>
+            
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="w-5 h-5 text-gray-400 mt-0.5" />
+              <div>
+                <p className="text-sm text-gray-600">Status</p>
+                <p className="font-medium capitalize">{order.overall_status}</p>
+              </div>
+            </div>
+            
+            <div className="flex items-start gap-3">
+              <Mail className="w-5 h-5 text-gray-400 mt-0.5" />
+              <div>
+                <p className="text-sm text-gray-600">Email</p>
+                <p className="font-medium text-sm">{order.customer_email}</p>
+              </div>
+            </div>
+            
+            <div className="flex items-start gap-3">
+              <MapPin className="w-5 h-5 text-gray-400 mt-0.5" />
+              <div>
+                <p className="text-sm text-gray-600">Delivery</p>
+                <p className="font-medium text-sm">{order.delivery_city}, {order.delivery_state}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Quick Actions */}
+      <div className="border-t border-gray-200 pt-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+        <div className="space-y-2">
+          <button
+            onClick={() => setAssignModalOpen(true)}
+            className={assignActionClass}
+          >
+            <UserCheck className="w-4 h-4" />
+            Change Assignment
+          </button>
+          
+          {chat.status === 'closed' ? (
+            <button
+              onClick={handleReopenChat}
+              className={reopenActionClass}
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              Reopen Chat
+            </button>
+          ) : (
+            <button
+              onClick={handleCloseChat}
+              className={closeActionClass}
+            >
+              <XCircle className="w-4 h-4" />
+              Close Chat
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
   
   return (
-    <div className="h-[calc(100vh-4rem)] flex">
+    <div className="h-[calc(100dvh-4rem)] flex flex-col lg:flex-row bg-white">
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col bg-white border-r border-gray-200">
+      <div className="flex-1 min-h-0 flex flex-col bg-white lg:border-r lg:border-gray-200">
         {/* Chat Header */}
-        <div className="border-b border-gray-200 p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+        <div className="border-b border-gray-200 p-3 sm:p-4">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex items-center gap-2 sm:gap-4">
               <button
                 onClick={() => navigate('/admin/whatsapp')}
-                className="text-gray-600 hover:text-gray-900"
+                className="text-gray-600 hover:text-gray-900 shrink-0"
               >
-                <ArrowLeft className="w-6 h-6" />
+                <ArrowLeft className="w-5 h-5 sm:w-6 sm:h-6" />
               </button>
               
-              <div className="flex items-center gap-3">
+              <div className="min-w-0 flex items-center gap-2 sm:gap-3">
                 {chat.customer_profile_pic_url ? (
                   <img
                     src={chat.customer_profile_pic_url}
                     alt={chat.customer_name || 'Customer'}
-                    className="w-10 h-10 rounded-full"
+                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full"
                   />
                 ) : (
-                  <div className="w-10 h-10 bg-gradient-to-br from-primary-500 to-primary-600 rounded-full flex items-center justify-center text-white font-semibold">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-primary-500 to-primary-600 rounded-full flex items-center justify-center text-white font-semibold">
                     {chat.customer_name?.charAt(0) || 'C'}
                   </div>
                 )}
                 
-                <div>
-                  <h2 className="text-lg font-semibold text-gray-900">
+                <div className="min-w-0">
+                  <h2 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
                     {chat.customer_name || 'Unknown Customer'}
                   </h2>
-                  <p className="text-sm text-gray-600">{chat.customer_phone}</p>
+                  <p className="text-xs sm:text-sm text-gray-600 truncate">{chat.customer_phone}</p>
                 </div>
               </div>
             </div>
             
-            <div className="flex items-center gap-2">
-              <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+              <button
+                onClick={() => setShowMobileDetails(!showMobileDetails)}
+                className="lg:hidden px-2 py-1 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50"
+              >
+                {showMobileDetails ? 'Hide Info' : 'Info'}
+              </button>
+              <span className={`px-2 sm:px-3 py-1 rounded-full text-xs font-medium ${
                 chat.status === 'open' ? 'bg-green-100 text-green-800' :
                 chat.status === 'assigned' ? 'bg-blue-100 text-blue-800' :
                 'bg-gray-100 text-gray-800'
@@ -350,15 +491,22 @@ export default function WhatsAppChatView() {
           </div>
           
           {!chat.within_service_window && (
-            <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-sm text-amber-800">
+            <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-xs sm:text-sm text-amber-800">
               <Clock className="w-4 h-4" />
               <span>24-hour service window expired. Use templates for new messages.</span>
             </div>
           )}
         </div>
+
+        {/* Mobile Details */}
+        {showMobileDetails && (
+          <div className="lg:hidden border-b border-gray-200 bg-white max-h-[45vh] overflow-y-auto">
+            {detailsPanel}
+          </div>
+        )}
         
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+        <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4 space-y-4 bg-gray-50">
           {messages.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
               No messages yet. Waiting for customer...
@@ -369,7 +517,7 @@ export default function WhatsAppChatView() {
                 key={message.id}
                 className={`flex ${message.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}
               >
-                <div className={`max-w-[70%] ${message.direction === 'outbound' ? 'order-2' : 'order-1'}`}>
+                <div className={`max-w-[85%] sm:max-w-[70%] ${message.direction === 'outbound' ? 'order-2' : 'order-1'}`}>
                   <div className={`rounded-lg p-3 ${
                     message.direction === 'outbound'
                       ? 'bg-primary-600 text-white'
@@ -431,14 +579,14 @@ export default function WhatsAppChatView() {
         
         {/* Message Input */}
         {chat.status !== 'closed' && (
-          <form onSubmit={handleSendMessage} className="border-t border-gray-200 p-4">
+          <form onSubmit={handleSendMessage} className="border-t border-gray-200 p-3 sm:p-4 bg-white">
             <div className="flex items-end gap-2">
               <textarea
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
                 placeholder="Type your message..."
                 rows={3}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 resize-none"
+                className="flex-1 px-3 sm:px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 resize-none"
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
@@ -449,14 +597,14 @@ export default function WhatsAppChatView() {
               <button
                 type="submit"
                 disabled={sending || !messageText.trim()}
-                className="btn-primary px-6 py-2 h-fit"
+                className="btn-primary px-4 sm:px-6 h-11 shrink-0 inline-flex items-center justify-center"
               >
                 {sending ? (
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
                 ) : (
                   <>
-                    <Send className="w-5 h-5 mr-2" />
-                    Send
+                    <Send className="w-5 h-5 sm:mr-2" />
+                    <span className="hidden sm:inline">Send</span>
                   </>
                 )}
               </button>
@@ -464,127 +612,10 @@ export default function WhatsAppChatView() {
           </form>
         )}
       </div>
-      
-      {/* Right Sidebar - Customer & Order Info */}
-      <div className="w-96 bg-white p-6 overflow-y-auto space-y-6">
-        {/* Customer Info */}
-        <div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Customer Info</h3>
-          <div className="space-y-3">
-            <div className="flex items-start gap-3">
-              <User className="w-5 h-5 text-gray-400 mt-0.5" />
-              <div>
-                <p className="text-sm text-gray-600">Name</p>
-                <p className="font-medium">{chat.customer_name || 'Not provided'}</p>
-              </div>
-            </div>
-            
-            <div className="flex items-start gap-3">
-              <Phone className="w-5 h-5 text-gray-400 mt-0.5" />
-              <div>
-                <p className="text-sm text-gray-600">Phone</p>
-                <p className="font-medium">{chat.customer_phone}</p>
-              </div>
-            </div>
-            
-            <div className="flex items-start gap-3">
-              <Clock className="w-5 h-5 text-gray-400 mt-0.5" />
-              <div>
-                <p className="text-sm text-gray-600">First Contact</p>
-                <p className="font-medium">
-                  {new Date(chat.created_at).toLocaleDateString()}
-                </p>
-              </div>
-            </div>
-            
-            {chat.assigned_staff_name && (
-              <div className="flex items-start gap-3">
-                <UserCheck className="w-5 h-5 text-gray-400 mt-0.5" />
-                <div>
-                  <p className="text-sm text-gray-600">Assigned To</p>
-                  <p className="font-medium">{chat.assigned_staff_name}</p>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-        
-        {/* Linked Order */}
-        {order && (
-          <div className="border-t border-gray-200 pt-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Linked Order</h3>
-            <div className="space-y-3">
-              <div className="flex items-start gap-3">
-                <Package className="w-5 h-5 text-gray-400 mt-0.5" />
-                <div>
-                  <p className="text-sm text-gray-600">Order Number</p>
-                  <button
-                    onClick={() => navigate(`/admin/orders/${order.id}`)}
-                    className="font-medium text-primary-600 hover:text-primary-700"
-                  >
-                    #{order.woocommerce_order_id}
-                  </button>
-                </div>
-              </div>
-              
-              <div className="flex items-start gap-3">
-                <CheckCircle2 className="w-5 h-5 text-gray-400 mt-0.5" />
-                <div>
-                  <p className="text-sm text-gray-600">Status</p>
-                  <p className="font-medium capitalize">{order.overall_status}</p>
-                </div>
-              </div>
-              
-              <div className="flex items-start gap-3">
-                <Mail className="w-5 h-5 text-gray-400 mt-0.5" />
-                <div>
-                  <p className="text-sm text-gray-600">Email</p>
-                  <p className="font-medium text-sm">{order.customer_email}</p>
-                </div>
-              </div>
-              
-              <div className="flex items-start gap-3">
-                <MapPin className="w-5 h-5 text-gray-400 mt-0.5" />
-                <div>
-                  <p className="text-sm text-gray-600">Delivery</p>
-                  <p className="font-medium text-sm">{order.delivery_city}, {order.delivery_state}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        
-        {/* Quick Actions */}
-        <div className="border-t border-gray-200 pt-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
-          <div className="space-y-2">
-            <button
-              onClick={() => setAssignModalOpen(true)}
-              className="w-full btn-secondary justify-start"
-            >
-              <UserCheck className="w-4 h-4 mr-2" />
-              Change Assignment
-            </button>
-            
-            {chat.status === 'closed' ? (
-              <button
-                onClick={handleReopenChat}
-                className="w-full btn-secondary justify-start text-green-600"
-              >
-                <CheckCircle2 className="w-4 h-4 mr-2" />
-                Reopen Chat
-              </button>
-            ) : (
-              <button
-                onClick={handleCloseChat}
-                className="w-full btn-secondary justify-start text-red-600"
-              >
-                <XCircle className="w-4 h-4 mr-2" />
-                Close Chat
-              </button>
-            )}
-          </div>
-        </div>
+
+      {/* Desktop Sidebar */}
+      <div className="hidden lg:block w-96 bg-white overflow-y-auto">
+        {detailsPanel}
       </div>
       
       {/* Assignment Modal */}
@@ -613,7 +644,7 @@ export default function WhatsAppChatView() {
             <div className="mt-4 flex justify-end">
               <button
                 onClick={() => setAssignModalOpen(false)}
-                className="btn-secondary"
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>

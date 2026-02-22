@@ -53,6 +53,30 @@ const navigation = [
   { name: 'Notifications', href: '/admin/notifications', icon: BellRing, roles: ['admin'] },
 ];
 
+const ADMIN_MANIFEST_LINK_ID = 'admin-manifest-link';
+const ADMIN_MANIFEST_HREF = '/admin-manifest.webmanifest';
+const ADMIN_APPLE_TOUCH_ICON_LINK_ID = 'admin-apple-touch-icon-link';
+const ADMIN_APPLE_TOUCH_ICON_HREF = '/apple-touch-icon.png';
+
+const ensureHeadLink = (id: string, rel: string, href: string) => {
+  const existingLink = document.getElementById(id) as HTMLLinkElement | null;
+  if (existingLink) return existingLink;
+
+  const link = document.createElement('link');
+  link.id = id;
+  link.rel = rel;
+  link.href = href;
+  document.head.appendChild(link);
+  return link;
+};
+
+const removeHeadLink = (id: string) => {
+  const link = document.getElementById(id);
+  if (link?.parentNode) {
+    link.parentNode.removeChild(link);
+  }
+};
+
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -60,6 +84,53 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [unreadWhatsAppCount, setUnreadWhatsAppCount] = useState(0);
+
+  useEffect(() => {
+    document.body.classList.add('admin-shell');
+    return () => {
+      document.body.classList.remove('admin-shell');
+    };
+  }, []);
+
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const isMobileSidebar = sidebarOpen && window.matchMedia('(max-width: 1023px)').matches;
+    if (!isMobileSidebar) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [sidebarOpen]);
+
+  useEffect(() => {
+    if (user?.role !== 'admin') {
+      removeHeadLink(ADMIN_MANIFEST_LINK_ID);
+      removeHeadLink(ADMIN_APPLE_TOUCH_ICON_LINK_ID);
+      return;
+    }
+
+    ensureHeadLink(ADMIN_MANIFEST_LINK_ID, 'manifest', ADMIN_MANIFEST_HREF);
+    ensureHeadLink(ADMIN_APPLE_TOUCH_ICON_LINK_ID, 'apple-touch-icon', ADMIN_APPLE_TOUCH_ICON_HREF);
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('/admin-sw.js', { scope: '/admin/' })
+        .catch((error) => {
+          console.error('Failed to register admin service worker:', error);
+        });
+    }
+
+    return () => {
+      removeHeadLink(ADMIN_MANIFEST_LINK_ID);
+      removeHeadLink(ADMIN_APPLE_TOUCH_ICON_LINK_ID);
+    };
+  }, [user?.role]);
 
   // Fetch unread WhatsApp chat count
   useEffect(() => {
@@ -105,7 +176,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 admin-portal">
+    <div className="admin-portal admin-shell-root bg-gray-50">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div 
@@ -116,11 +187,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
       {/* Sidebar */}
       <div className={`
-        fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 
+        fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 flex flex-col
         transform transition-transform duration-300 ease-in-out lg:translate-x-0
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
+        <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200 shrink-0">
           <BrandLogo withText size={32} />
           <button
             onClick={() => setSidebarOpen(false)}
@@ -130,7 +201,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           </button>
         </div>
 
-        <nav className="px-4 py-6 space-y-1">
+        <nav className="admin-sidebar-scroll flex-1 overflow-y-auto px-4 py-6 space-y-1">
           {filteredNavigation.map((item) => {
             const isActive =
               location.pathname === item.href ||
@@ -168,102 +239,104 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       </div>
 
       {/* Main content */}
-      <div className="lg:pl-64">
-        {/* Top bar */}
-        <div className="sticky top-0 z-40 h-16 bg-white border-b border-gray-200 flex items-center px-6">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="lg:hidden text-gray-500 hover:text-gray-700 mr-4"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-          
-          <div className="flex-1 flex justify-end items-center gap-4">
-            {/* Notifications Panel */}
-            <NotificationsPanel />
+      <div className="lg:pl-64 h-full">
+        <div className="flex h-full flex-col">
+          {/* Top bar */}
+          <div className="sticky top-0 z-40 h-16 bg-white border-b border-gray-200 flex items-center px-4 sm:px-6 shrink-0">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden text-gray-500 hover:text-gray-700 mr-4"
+            >
+              <Menu className="w-6 h-6" />
+            </button>
             
-            {/* User Menu */}
-            <div className="relative">
-              <button
-                onClick={() => setUserMenuOpen(!userMenuOpen)}
-                className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                  {user?.full_name?.charAt(0) || user?.email?.charAt(0).toUpperCase()}
-                </div>
-                <div className="hidden md:block text-left">
-                  <p className="text-sm font-medium text-gray-900">
-                    {user?.full_name || 'User'}
-                  </p>
-                  <p className={`text-xs px-2 py-0.5 rounded-full inline-block ${getRoleBadgeColor(user?.role || '')}`}>
-                    {user?.role}
-                  </p>
-                </div>
-                <ChevronDown className="w-4 h-4 text-gray-500" />
-              </button>
+            <div className="flex-1 flex justify-end items-center gap-4">
+              {/* Notifications Panel */}
+              <NotificationsPanel />
+              
+              {/* User Menu */}
+              <div className="relative">
+                <button
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
+                    {user?.full_name?.charAt(0) || user?.email?.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="hidden md:block text-left">
+                    <p className="text-sm font-medium text-gray-900">
+                      {user?.full_name || 'User'}
+                    </p>
+                    <p className={`text-xs px-2 py-0.5 rounded-full inline-block ${getRoleBadgeColor(user?.role || '')}`}>
+                      {user?.role}
+                    </p>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-gray-500" />
+                </button>
 
-              {/* Dropdown Menu */}
-              {userMenuOpen && (
-                <>
-                  <div 
-                    className="fixed inset-0 z-40"
-                    onClick={() => setUserMenuOpen(false)}
-                  />
-                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
-                    <div className="px-4 py-3 border-b border-gray-200">
-                      <p className="text-sm font-medium text-gray-900">
-                        {user?.full_name || 'User'}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-1">{user?.email}</p>
-                    </div>
-                    
-                    <button
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        navigate('/admin/profile');
-                      }}
-                    >
-                      <User className="w-4 h-4" />
-                      Profile
-                    </button>
-                    
-                    {user?.role === 'admin' && (
+                {/* Dropdown Menu */}
+                {userMenuOpen && (
+                  <>
+                    <div 
+                      className="fixed inset-0 z-40"
+                      onClick={() => setUserMenuOpen(false)}
+                    />
+                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+                      <div className="px-4 py-3 border-b border-gray-200">
+                        <p className="text-sm font-medium text-gray-900">
+                          {user?.full_name || 'User'}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">{user?.email}</p>
+                      </div>
+                      
                       <button
                         className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
                         onClick={() => {
                           setUserMenuOpen(false);
-                          navigate('/admin/settings');
+                          navigate('/admin/profile');
                         }}
                       >
-                        <Settings className="w-4 h-4" />
-                        Settings
+                        <User className="w-4 h-4" />
+                        Profile
                       </button>
-                    )}
-                    
-                    <div className="border-t border-gray-200 my-2" />
-                    
-                    <button
-                      className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        handleSignOut();
-                      }}
-                    >
-                      <LogOut className="w-4 h-4" />
-                      Sign Out
-                    </button>
-                  </div>
-                </>
-              )}
+                      
+                      {user?.role === 'admin' && (
+                        <button
+                          className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-3"
+                          onClick={() => {
+                            setUserMenuOpen(false);
+                            navigate('/admin/settings');
+                          }}
+                        >
+                          <Settings className="w-4 h-4" />
+                          Settings
+                        </button>
+                      )}
+                      
+                      <div className="border-t border-gray-200 my-2" />
+                      
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-3"
+                        onClick={() => {
+                          setUserMenuOpen(false);
+                          handleSignOut();
+                        }}
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Sign Out
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Page content */}
-        <main className="p-6">
-          {children}
-        </main>
+          {/* Page content */}
+          <main className="admin-main-scroll flex-1 overflow-y-auto p-4 sm:p-6">
+            {children}
+          </main>
+        </div>
       </div>
     </div>
   );

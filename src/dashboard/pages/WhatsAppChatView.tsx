@@ -49,7 +49,7 @@ interface ChatData {
 export default function WhatsAppChatView() {
   const { chatId } = useParams<{ chatId: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const notification = useNotification();
   
   const [chatData, setChatData] = useState<ChatData | null>(null);
@@ -99,7 +99,15 @@ export default function WhatsAppChatView() {
   // Fetch staff list for assignment
   const fetchStaff = async () => {
     try {
-      const response = await fetch(`/.netlify/functions/users?role=admin,agent`);
+      if (!session?.access_token) {
+        return;
+      }
+      const headers: HeadersInit = {
+        Authorization: `Bearer ${session.access_token}`
+      };
+      const response = await fetch(`/.netlify/functions/users?role=admin,agent`, {
+        headers
+      });
       const result = await response.json();
       if (result.success) {
         setStaff(result.data);
@@ -116,7 +124,7 @@ export default function WhatsAppChatView() {
     // Refresh chat every 5 seconds
     const interval = setInterval(fetchChatData, 5000);
     return () => clearInterval(interval);
-  }, [chatId]);
+  }, [chatId, session?.access_token]);
   
   useEffect(() => {
     scrollToBottom();

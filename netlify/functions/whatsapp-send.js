@@ -109,6 +109,30 @@ function resolveWhatsAppConfig() {
   };
 }
 
+function buildMetaApiError(result, fallbackMessage) {
+  const metaError = result?.error || {};
+  const rawMessage = metaError.message || fallbackMessage;
+  const isAuthError = metaError.code === 190;
+  const isExpiredSession = isAuthError && /session has expired/i.test(rawMessage || '');
+
+  const error = new Error(
+    isExpiredSession
+      ? 'WhatsApp access token expired. Generate a new token in Meta and update WHATSAPP_ACCESS_TOKEN in Netlify and local env.'
+      : rawMessage || 'Meta API request failed'
+  );
+
+  error.statusCode = isAuthError ? 401 : 502;
+  error.meta = {
+    code: metaError.code || null,
+    subcode: metaError.error_subcode || null,
+    type: metaError.type || null,
+    fbtrace_id: metaError.fbtrace_id || null,
+    message: rawMessage || null
+  };
+
+  return error;
+}
+
 /**
  * Send text message via Meta API
  */
@@ -148,7 +172,7 @@ async function sendTextMessage(to, text, contextMessageId = null, whatsappConfig
   
   if (!response.ok) {
     console.error('❌ Meta API error:', result);
-    throw new Error(result.error?.message || 'Failed to send message');
+    throw buildMetaApiError(result, 'Failed to send message');
   }
   
   console.log('✅ Message sent successfully:', result);
@@ -197,7 +221,7 @@ async function sendTemplateMessage(to, templateName, languageCode = 'en', parame
   
   if (!response.ok) {
     console.error('❌ Meta API error:', result);
-    throw new Error(result.error?.message || 'Failed to send template');
+    throw buildMetaApiError(result, 'Failed to send template');
   }
   
   console.log('✅ Template sent successfully:', result);
@@ -400,11 +424,12 @@ export async function handler(event) {
     console.error('❌ Error sending message:', error);
     
     return {
-      statusCode: 500,
+      statusCode: Number.isInteger(error?.statusCode) ? error.statusCode : 500,
       headers: corsHeaders,
       body: JSON.stringify({
         success: false,
-        error: error.message || 'Failed to send message'
+        error: error.message || 'Failed to send message',
+        meta_error: error?.meta || undefined
       })
     };
   }

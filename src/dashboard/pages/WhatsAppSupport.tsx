@@ -226,7 +226,7 @@ export default function WhatsAppSupportPage() {
         <div className="card p-3 sm:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] sm:text-sm text-gray-600">Assigned</p>
+              <p className="text-[11px] sm:text-sm text-gray-600">Joined</p>
               <p className="text-lg sm:text-2xl font-bold text-blue-600">
                 {chats.filter(c => c.status === 'assigned').length}
               </p>

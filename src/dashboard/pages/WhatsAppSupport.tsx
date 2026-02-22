@@ -192,8 +192,8 @@ export default function WhatsAppSupportPage() {
               className="w-full px-2 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-xs sm:text-sm"
             >
               <option value="all">All Chats</option>
-              <option value="assigned_to_me">Assigned to Me</option>
-              <option value="unassigned">Unassigned</option>
+              <option value="assigned_to_me">Joined by Me</option>
+              <option value="unassigned">Unjoined</option>
             </select>
           </div>
         </div>
@@ -226,7 +226,7 @@ export default function WhatsAppSupportPage() {
         <div className="card p-3 sm:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] sm:text-sm text-gray-600">Assigned</p>
+              <p className="text-[11px] sm:text-sm text-gray-600">Joined</p>
               <p className="text-lg sm:text-2xl font-bold text-blue-600">
                 {chats.filter(c => c.status === 'assigned').length}
               </p>
@@ -332,11 +332,13 @@ export default function WhatsAppSupportPage() {
                         {chat.total_messages} {chat.total_messages === 1 ? 'message' : 'messages'}
                       </span>
                       
-                      {chat.assigned_staff_name && (
+                      {chat.assigned_staff_name ? (
                         <span className="flex items-center gap-1">
                           <User className="w-3 h-3" />
-                          {chat.assigned_staff_name}
+                          Joined by {chat.assigned_staff_name}
                         </span>
+                      ) : (
+                        <span className="text-gray-400">Unjoined</span>
                       )}
                       
                       {chat.woocommerce_order_id && (

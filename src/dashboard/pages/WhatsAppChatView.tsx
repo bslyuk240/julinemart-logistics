@@ -58,18 +58,26 @@ export default function WhatsAppChatView() {
   const [messageText, setMessageText] = useState('');
   const [showActions, setShowActions] = useState(false);
   const [showMobileDetails, setShowMobileDetails] = useState(false);
-  const [assignModalOpen, setAssignModalOpen] = useState(false);
-  const [staff, setStaff] = useState<any[]>([]);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const quickActionBaseClass = 'w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1';
-  const assignActionClass = `${quickActionBaseClass} bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-300`;
+  const joinActionClass = `${quickActionBaseClass} bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-300`;
+  const takeOverActionClass = `${quickActionBaseClass} bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-300`;
+  const leaveActionClass = `${quickActionBaseClass} bg-slate-700 text-white hover:bg-slate-800 focus:ring-slate-300`;
   const reopenActionClass = `${quickActionBaseClass} bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-300`;
   const closeActionClass = `${quickActionBaseClass} bg-red-600 text-white hover:bg-red-700 focus:ring-red-300`;
   
   // Scroll to bottom of messages
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const getJsonHeaders = (): HeadersInit => {
+    const headers: HeadersInit = { 'Content-Type': 'application/json' };
+    if (session?.access_token) {
+      headers.Authorization = `Bearer ${session.access_token}`;
+    }
+    return headers;
   };
   
   // Fetch chat data
@@ -82,14 +90,15 @@ export default function WhatsAppChatView() {
         setChatData(result.data);
         
         // Mark as read
-        await fetch(`/.netlify/functions/whatsapp-chats/${chatId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            mark_as_read: true,
-            staff_id: user?.id
-          })
-        });
+        if (session?.access_token) {
+          await fetch(`/.netlify/functions/whatsapp-chats/${chatId}`, {
+            method: 'PATCH',
+            headers: getJsonHeaders(),
+            body: JSON.stringify({
+              mark_as_read: true
+            })
+          });
+        }
       } else {
         throw new Error(result.error || 'Failed to fetch chat');
       }
@@ -101,30 +110,8 @@ export default function WhatsAppChatView() {
     }
   };
   
-  // Fetch staff list for assignment
-  const fetchStaff = async () => {
-    try {
-      if (!session?.access_token) {
-        return;
-      }
-      const headers: HeadersInit = {
-        Authorization: `Bearer ${session.access_token}`
-      };
-      const response = await fetch(`/.netlify/functions/users?role=admin,agent`, {
-        headers
-      });
-      const result = await response.json();
-      if (result.success) {
-        setStaff(result.data);
-      }
-    } catch (error) {
-      console.error('Error fetching staff:', error);
-    }
-  };
-  
   useEffect(() => {
     fetchChatData();
-    fetchStaff();
     
     // Refresh chat every 5 seconds
     const interval = setInterval(fetchChatData, 5000);
@@ -140,16 +127,20 @@ export default function WhatsAppChatView() {
     e.preventDefault();
     
     if (!messageText.trim()) return;
+    if (!session?.access_token) {
+      notification.error('Authentication required', 'Please sign in again to send messages');
+      return;
+    }
     
     setSending(true);
     try {
       const response = await fetch(`/.netlify/functions/whatsapp-send`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getJsonHeaders(),
         body: JSON.stringify({
           chat_id: chatId,
           message: messageText.trim(),
-          staff_id: user?.id
+          context_message_id: null
         })
       });
       
@@ -170,30 +161,39 @@ export default function WhatsAppChatView() {
     }
   };
   
-  // Assign chat
-  const handleAssign = async (staffId: string | null) => {
+  const handleJoinAction = async (action: 'join' | 'take_over' | 'leave') => {
     try {
+      if (!session?.access_token) {
+        notification.error('Authentication required', 'Please sign in again to continue');
+        return;
+      }
+
+      const payload =
+        action === 'join' ? { join_chat: true } :
+        action === 'take_over' ? { take_over: true } :
+        { leave_chat: true };
+
       const response = await fetch(`/.netlify/functions/whatsapp-chats/${chatId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          assigned_staff_id: staffId,
-          staff_id: user?.id
-        })
+        headers: getJsonHeaders(),
+        body: JSON.stringify(payload)
       });
       
       const result = await response.json();
       
       if (result.success) {
         await fetchChatData();
-        setAssignModalOpen(false);
-        notification.success('Assigned', 'Chat assignment updated');
+        const message =
+          action === 'join' ? 'You joined this chat' :
+          action === 'take_over' ? 'You took over this chat' :
+          'You left this chat';
+        notification.success('Updated', message);
       } else {
-        throw new Error(result.error || 'Failed to assign chat');
+        throw new Error(result.error || 'Failed to update chat ownership');
       }
     } catch (error: any) {
-      console.error('Error assigning chat:', error);
-      notification.error('Error', error.message || 'Failed to assign chat');
+      console.error('Error updating join action:', error);
+      notification.error('Error', error.message || 'Failed to update chat ownership');
     }
   };
   
@@ -204,10 +204,9 @@ export default function WhatsAppChatView() {
     try {
       const response = await fetch(`/.netlify/functions/whatsapp-chats/${chatId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getJsonHeaders(),
         body: JSON.stringify({
-          status: 'closed',
-          staff_id: user?.id
+          status: 'closed'
         })
       });
       
@@ -230,10 +229,9 @@ export default function WhatsAppChatView() {
     try {
       const response = await fetch(`/.netlify/functions/whatsapp-chats/${chatId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getJsonHeaders(),
         body: JSON.stringify({
-          status: 'open',
-          staff_id: user?.id
+          status: 'open'
         })
       });
       
@@ -274,6 +272,33 @@ export default function WhatsAppChatView() {
   }
   
   const { chat, messages, order } = chatData;
+  const isClosed = chat.status === 'closed';
+  const joinedByMe = Boolean(user?.id && chat.assigned_staff_id === user.id);
+  const joinedByAnother = Boolean(chat.assigned_staff_id && !joinedByMe);
+
+  const ownershipAction = isClosed
+    ? null
+    : joinedByMe
+      ? {
+          label: 'Leave Chat',
+          icon: UserCheck,
+          className: leaveActionClass,
+          action: 'leave' as const
+        }
+      : joinedByAnother
+        ? {
+            label: 'Take Over Chat',
+            icon: UserCheck,
+            className: takeOverActionClass,
+            action: 'take_over' as const
+          }
+        : {
+            label: 'Join Chat',
+            icon: UserCheck,
+            className: joinActionClass,
+            action: 'join' as const
+          };
+
   const detailsPanel = (
     <div className="space-y-6 p-4 sm:p-6">
       {/* Customer Info */}
@@ -310,7 +335,7 @@ export default function WhatsAppChatView() {
             <div className="flex items-start gap-3">
               <UserCheck className="w-5 h-5 text-gray-400 mt-0.5" />
               <div>
-                <p className="text-sm text-gray-600">Assigned To</p>
+                <p className="text-sm text-gray-600">Joined By</p>
                 <p className="font-medium">{chat.assigned_staff_name}</p>
               </div>
             </div>
@@ -367,15 +392,17 @@ export default function WhatsAppChatView() {
       <div className="border-t border-gray-200 pt-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
         <div className="space-y-2">
-          <button
-            onClick={() => setAssignModalOpen(true)}
-            className={assignActionClass}
-          >
-            <UserCheck className="w-4 h-4" />
-            Change Assignment
-          </button>
+          {ownershipAction && (
+            <button
+              onClick={() => handleJoinAction(ownershipAction.action)}
+              className={ownershipAction.className}
+            >
+              <ownershipAction.icon className="w-4 h-4" />
+              {ownershipAction.label}
+            </button>
+          )}
           
-          {chat.status === 'closed' ? (
+          {isClosed ? (
             <button
               onClick={handleReopenChat}
               className={reopenActionClass}
@@ -430,6 +457,11 @@ export default function WhatsAppChatView() {
                     {chat.customer_name || 'Unknown Customer'}
                   </h2>
                   <p className="text-xs sm:text-sm text-gray-600 truncate">{chat.customer_phone}</p>
+                  {chat.assigned_staff_name && (
+                    <p className="text-[11px] sm:text-xs text-blue-700 truncate">
+                      Joined by {chat.assigned_staff_name}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
@@ -459,15 +491,17 @@ export default function WhatsAppChatView() {
                 
                 {showActions && (
                   <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
-                    <button
-                      onClick={() => { setAssignModalOpen(true); setShowActions(false); }}
-                      className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
-                    >
-                      <UserCheck className="w-4 h-4" />
-                      Assign Chat
-                    </button>
+                    {ownershipAction && (
+                      <button
+                        onClick={() => { handleJoinAction(ownershipAction.action); setShowActions(false); }}
+                        className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2"
+                      >
+                        <ownershipAction.icon className="w-4 h-4" />
+                        {ownershipAction.label}
+                      </button>
+                    )}
                     
-                    {chat.status !== 'closed' ? (
+                    {!isClosed ? (
                       <button
                         onClick={() => { handleCloseChat(); setShowActions(false); }}
                         className="w-full text-left px-4 py-2 hover:bg-gray-50 flex items-center gap-2 text-red-600"
@@ -617,41 +651,6 @@ export default function WhatsAppChatView() {
       <div className="hidden lg:block w-96 bg-white overflow-y-auto">
         {detailsPanel}
       </div>
-      
-      {/* Assignment Modal */}
-      {assignModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-xl font-semibold mb-4">Assign Chat</h3>
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              <button
-                onClick={() => handleAssign(null)}
-                className="w-full text-left px-4 py-2 hover:bg-gray-50 rounded-lg"
-              >
-                Unassigned
-              </button>
-              {staff.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => handleAssign(s.id)}
-                  className="w-full text-left px-4 py-2 hover:bg-gray-50 rounded-lg flex items-center gap-2"
-                >
-                  <User className="w-4 h-4" />
-                  {s.full_name} ({s.role})
-                </button>
-              ))}
-            </div>
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={() => setAssignModalOpen(false)}
-                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -10,6 +10,12 @@ import fetch from 'node-fetch';
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const READ_ONLY_KEY =
+  process.env.SUPABASE_KEY ||
+  process.env.VITE_SUPABASE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  SERVICE_KEY;
 
 const WHATSAPP_PHONE_NUMBER_ID_KEYS = [
   'WHATSAPP_PHONE_NUMBER_ID',
@@ -24,6 +30,7 @@ const WHATSAPP_ACCESS_TOKEN_KEYS = [
 ];
 
 const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
+const supabaseAuth = createClient(SUPABASE_URL || '', READ_ONLY_KEY || '');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -31,6 +38,18 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Content-Type': 'application/json'
 };
+
+const unauthorized = (message = 'Unauthorized') => ({
+  statusCode: 401,
+  headers: corsHeaders,
+  body: JSON.stringify({ success: false, error: 'unauthorized', message })
+});
+
+const forbidden = (message = 'Forbidden') => ({
+  statusCode: 403,
+  headers: corsHeaders,
+  body: JSON.stringify({ success: false, error: 'forbidden', message })
+});
 
 // ============================================================
 // HELPER FUNCTIONS
@@ -107,6 +126,51 @@ function resolveWhatsAppConfig() {
     accessTokenSource: accessToken.key,
     missing
   };
+}
+
+async function requireStaffAuth(event) {
+  if (!SUPABASE_URL || !SERVICE_KEY || !READ_ONLY_KEY) {
+    return {
+      errorResponse: {
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: false,
+          error: 'Server not configured',
+          message: 'Supabase credentials missing for authentication'
+        })
+      }
+    };
+  }
+
+  const authHeader = event.headers?.authorization || event.headers?.Authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return { errorResponse: unauthorized('Missing bearer token') };
+  }
+
+  const token = authHeader.split(' ')[1];
+  const { data: authData, error: authError } = await supabaseAuth.auth.getUser(token);
+  if (authError || !authData?.user) {
+    return { errorResponse: unauthorized('Invalid or expired token') };
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('users')
+    .select('id, role, is_active')
+    .eq('id', authData.user.id)
+    .single();
+
+  if (profileError || !profile) {
+    return { errorResponse: forbidden('User profile not found') };
+  }
+  if (!profile.is_active) {
+    return { errorResponse: forbidden('User is inactive') };
+  }
+  if (!['admin', 'agent'].includes(profile.role)) {
+    return { errorResponse: forbidden('Insufficient permissions') };
+  }
+
+  return { profile };
 }
 
 function buildMetaApiError(result, fallbackMessage) {
@@ -264,6 +328,10 @@ export async function handler(event) {
   }
   
   try {
+    const auth = await requireStaffAuth(event);
+    if (auth.errorResponse) return auth.errorResponse;
+    const actor = auth.profile;
+
     // Validate environment variables
     const whatsappConfig = resolveWhatsAppConfig();
 
@@ -281,7 +349,6 @@ export async function handler(event) {
     const { 
       chat_id, 
       message, 
-      staff_id, 
       context_message_id,
       use_template,
       template_name,
@@ -326,6 +393,18 @@ export async function handler(event) {
         body: JSON.stringify({ 
           success: false, 
           error: 'Cannot send message to closed chat' 
+        })
+      };
+    }
+
+    // Enforce join ownership: if chat is joined, only joiner or admin can send.
+    if (chat.assigned_staff_id && chat.assigned_staff_id !== actor.id && actor.role !== 'admin') {
+      return {
+        statusCode: 403,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: false,
+          error: 'This chat is currently joined by another staff member. Join/take over the chat to continue.'
         })
       };
     }
@@ -380,7 +459,7 @@ export async function handler(event) {
         meta_message_id: metaResponse.messages?.[0]?.id,
         meta_wamid: metaResponse.messages?.[0]?.id,
         status: 'sent',
-        sent_by_staff_id: staff_id,
+        sent_by_staff_id: actor.id,
         context_message_id: context_message_id
       })
       .select()
@@ -392,12 +471,10 @@ export async function handler(event) {
     }
     
     // Log activity
-    if (staff_id) {
-      await logActivity(staff_id, chat_id, 'whatsapp_message_sent', {
-        message_preview: message.substring(0, 100),
-        meta_message_id: metaResponse.messages?.[0]?.id
-      });
-    }
+    await logActivity(actor.id, chat_id, 'whatsapp_message_sent', {
+      message_preview: message.substring(0, 100),
+      meta_message_id: metaResponse.messages?.[0]?.id
+    });
     
     // Reset unread count since staff replied
     await supabase

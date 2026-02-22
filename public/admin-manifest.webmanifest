@@ -1,6 +1,6 @@
 {
   "name": "JulineMart Admin Dashboard",
-  "short_name": "JM Admin",
+  "short_name": "JLO APP",
   "description": "JulineMart logistics operations dashboard for admin users.",
   "start_url": "/admin/dashboard",
   "scope": "/admin/",

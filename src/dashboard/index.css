@@ -7,8 +7,17 @@
     /* Use a standard Tailwind color to avoid custom token lookup issues */
     @apply border-gray-200;
   }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
   body {
     @apply bg-gray-50 text-gray-900;
+  }
+  body.admin-shell {
+    overscroll-behavior-y: none;
+    -webkit-overflow-scrolling: auto;
   }
 }
 
@@ -34,6 +43,23 @@
   }
   .card {
     @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6;
+  }
+
+  .admin-shell-root {
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  @supports (height: 100dvh) {
+    .admin-shell-root {
+      height: 100dvh;
+    }
+  }
+
+  .admin-main-scroll,
+  .admin-sidebar-scroll {
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
   }
 }
 

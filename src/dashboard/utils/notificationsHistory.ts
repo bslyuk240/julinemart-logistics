@@ -132,3 +132,10 @@ export const addNotificationHistoryEntry = (input: {
 
 export const findNotificationHistoryEntry = (id: string) =>
   loadNotificationHistory().find((entry) => entry.id === id) || null;
+
+export const removeNotificationHistoryEntry = (id: string) => {
+  const current = loadNotificationHistory();
+  const next = current.filter((entry) => entry.id !== id);
+  saveNotificationHistory(next);
+  return next.length !== current.length;
+};

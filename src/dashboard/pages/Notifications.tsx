@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BellRing, ChevronRight, Clock, Plus } from 'lucide-react';
+import { BellRing, ChevronRight, Clock, Plus, Trash2 } from 'lucide-react';
 import {
   loadNotificationHistory,
   NotificationHistoryEntry,
+  removeNotificationHistoryEntry,
 } from '../utils/notificationsHistory';
 
 const getAudienceLabel = (audience: NotificationHistoryEntry['request']['audience']) => {
@@ -31,6 +32,13 @@ export function NotificationsPage() {
     setEntries(loadNotificationHistory());
   }, []);
 
+  const handleDelete = (entryId: string) => {
+    const shouldDelete = window.confirm('Delete this notification history record?');
+    if (!shouldDelete) return;
+    removeNotificationHistoryEntry(entryId);
+    setEntries(loadNotificationHistory());
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -55,13 +63,12 @@ export function NotificationsPage() {
       ) : (
         <div className="space-y-3">
           {entries.map((entry) => (
-            <button
-              key={entry.id}
-              onClick={() => navigate(`/admin/notifications/${entry.id}`)}
-              className="card w-full text-left transition-shadow hover:shadow-md"
-            >
+            <div key={entry.id} className="card transition-shadow hover:shadow-md">
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
+                <button
+                  onClick={() => navigate(`/admin/notifications/${entry.id}`)}
+                  className="min-w-0 flex-1 text-left"
+                >
                   <div className="flex flex-wrap items-center gap-2">
                     <span
                       className={`rounded-full px-3 py-1 text-xs font-medium ${
@@ -88,10 +95,20 @@ export function NotificationsPage() {
                     <span>Failed: {entry.failed ?? 0}</span>
                     <span>Matched: {entry.matchedTokensCount ?? 0}</span>
                   </div>
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(entry.id)}
+                    className="inline-flex items-center gap-1 rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </button>
+                  <ChevronRight className="h-5 w-5 flex-shrink-0 text-gray-400" />
                 </div>
-                <ChevronRight className="h-5 w-5 flex-shrink-0 text-gray-400" />
               </div>
-            </button>
+            </div>
           ))}
         </div>
       )}

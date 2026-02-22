@@ -14,7 +14,6 @@ import { AnalyticsPage } from './dashboard/pages/Analytics';
 import { ForgotPasswordPage } from './dashboard/pages/auth/ForgotPassword';
 import { LoginPage } from './dashboard/pages/auth/Login';
 import { ResetPasswordPage } from './dashboard/pages/auth/ResetPassword';
-import { SignUpPage } from './dashboard/pages/auth/SignUp';
 import { CouriersPage } from './dashboard/pages/Couriers';
 import { CourierSettingsPage } from './dashboard/pages/CourierSettings';
 import { CreateOrderPage } from './dashboard/pages/CreateOrder';
@@ -99,10 +98,6 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: <LoginPage />,
-  },
-  {
-    path: '/signup',
-    element: <SignUpPage />,
   },
   {
     path: '/forgot-password',

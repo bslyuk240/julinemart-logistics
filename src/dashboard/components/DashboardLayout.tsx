@@ -53,6 +53,28 @@ const navigation = [
   { name: 'Notifications', href: '/admin/notifications', icon: BellRing, roles: ['admin'] },
 ];
 
+const ADMIN_MANIFEST_LINK_ID = 'admin-manifest-link';
+const ADMIN_MANIFEST_HREF = '/admin-manifest.webmanifest';
+
+const ensureAdminManifestLink = () => {
+  const existingLink = document.getElementById(ADMIN_MANIFEST_LINK_ID) as HTMLLinkElement | null;
+  if (existingLink) return existingLink;
+
+  const manifestLink = document.createElement('link');
+  manifestLink.id = ADMIN_MANIFEST_LINK_ID;
+  manifestLink.rel = 'manifest';
+  manifestLink.href = ADMIN_MANIFEST_HREF;
+  document.head.appendChild(manifestLink);
+  return manifestLink;
+};
+
+const removeAdminManifestLink = () => {
+  const manifestLink = document.getElementById(ADMIN_MANIFEST_LINK_ID);
+  if (manifestLink?.parentNode) {
+    manifestLink.parentNode.removeChild(manifestLink);
+  }
+};
+
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -60,6 +82,27 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [unreadWhatsAppCount, setUnreadWhatsAppCount] = useState(0);
+
+  useEffect(() => {
+    if (user?.role !== 'admin') {
+      removeAdminManifestLink();
+      return;
+    }
+
+    ensureAdminManifestLink();
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('/admin-sw.js', { scope: '/admin/' })
+        .catch((error) => {
+          console.error('Failed to register admin service worker:', error);
+        });
+    }
+
+    return () => {
+      removeAdminManifestLink();
+    };
+  }, [user?.role]);
 
   // Fetch unread WhatsApp chat count
   useEffect(() => {

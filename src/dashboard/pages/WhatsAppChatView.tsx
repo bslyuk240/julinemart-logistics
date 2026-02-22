@@ -55,6 +55,7 @@ export default function WhatsAppChatView() {
   const [chatData, setChatData] = useState<ChatData | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [showActions, setShowActions] = useState(false);
   const [showMobileDetails, setShowMobileDetails] = useState(false);
@@ -78,6 +79,17 @@ export default function WhatsAppChatView() {
       headers.Authorization = `Bearer ${session.access_token}`;
     }
     return headers;
+  };
+
+  const getValidAvatarUrl = (rawUrl: string | null) => {
+    if (!rawUrl || typeof rawUrl !== 'string') return null;
+    const trimmed = rawUrl.trim();
+    if (!trimmed) return null;
+    const lowered = trimmed.toLowerCase();
+    if (lowered === 'null' || lowered === 'undefined' || lowered === 'n/a') return null;
+    if (trimmed.startsWith('http://')) return `https://${trimmed.substring('http://'.length)}`;
+    if (trimmed.startsWith('https://') || trimmed.startsWith('data:image/')) return trimmed;
+    return null;
   };
   
   // Fetch chat data
@@ -121,6 +133,10 @@ export default function WhatsAppChatView() {
   useEffect(() => {
     scrollToBottom();
   }, [chatData?.messages]);
+
+  useEffect(() => {
+    setAvatarLoadFailed(false);
+  }, [chatId, chatData?.chat?.customer_profile_pic_url]);
   
   // Send message
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -272,6 +288,8 @@ export default function WhatsAppChatView() {
   }
   
   const { chat, messages, order } = chatData;
+  const customerAvatarUrl = getValidAvatarUrl(chat.customer_profile_pic_url);
+  const showCustomerAvatar = Boolean(customerAvatarUrl && !avatarLoadFailed);
   const isClosed = chat.status === 'closed';
   const joinedByMe = Boolean(user?.id && chat.assigned_staff_id === user.id);
   const joinedByAnother = Boolean(chat.assigned_staff_id && !joinedByMe);
@@ -440,11 +458,13 @@ export default function WhatsAppChatView() {
               </button>
               
               <div className="min-w-0 flex items-center gap-2 sm:gap-3">
-                {chat.customer_profile_pic_url ? (
+                {showCustomerAvatar ? (
                   <img
-                    src={chat.customer_profile_pic_url}
+                    src={customerAvatarUrl || ''}
                     alt={chat.customer_name || 'Customer'}
-                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full"
+                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover"
+                    referrerPolicy="no-referrer"
+                    onError={() => setAvatarLoadFailed(true)}
                   />
                 ) : (
                   <div className="w-9 h-9 sm:w-10 sm:h-10 bg-gradient-to-br from-primary-500 to-primary-600 rounded-full flex items-center justify-center text-white font-semibold">

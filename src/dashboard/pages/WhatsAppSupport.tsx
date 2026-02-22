@@ -47,6 +47,7 @@ export default function WhatsAppSupportPage() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [assignmentFilter, setAssignmentFilter] = useState<string>('all');
   const [orderFilter, setOrderFilter] = useState<string>('all');
+  const [avatarLoadErrors, setAvatarLoadErrors] = useState<Record<string, boolean>>({});
   
   // Fetch chats
   const fetchChats = async () => {
@@ -118,6 +119,24 @@ export default function WhatsAppSupportPage() {
       return phone.replace(/(\d{4})(\d{3})(\d{4})/, '$1 $2 $3');
     }
     return phone;
+  };
+
+  const getValidAvatarUrl = (rawUrl: string | null) => {
+    if (!rawUrl || typeof rawUrl !== 'string') return null;
+    const trimmed = rawUrl.trim();
+    if (!trimmed) return null;
+    const lowered = trimmed.toLowerCase();
+    if (lowered === 'null' || lowered === 'undefined' || lowered === 'n/a') return null;
+    if (trimmed.startsWith('http://')) return `https://${trimmed.substring('http://'.length)}`;
+    if (trimmed.startsWith('https://') || trimmed.startsWith('data:image/')) return trimmed;
+    return null;
+  };
+
+  const markAvatarLoadError = (chatId: string) => {
+    setAvatarLoadErrors((prev) => {
+      if (prev[chatId]) return prev;
+      return { ...prev, [chatId]: true };
+    });
   };
   
   return (
@@ -267,98 +286,106 @@ export default function WhatsAppSupportPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {chats.map((chat) => (
-              <div
-                key={chat.id}
-                onClick={() => navigate(`/admin/whatsapp/${chat.id}`)}
-                className={`p-4 border rounded-lg cursor-pointer transition-all hover:border-primary-300 hover:shadow-md ${
-                  chat.unread_count > 0 ? 'bg-blue-50 border-blue-200' : 'border-gray-200'
-                }`}
-              >
-                <div className="flex items-start gap-4">
-                  {/* Avatar */}
-                  <div className="flex-shrink-0">
-                    {chat.customer_profile_pic_url ? (
-                      <img
-                        src={chat.customer_profile_pic_url}
-                        alt={chat.customer_name || 'Customer'}
-                        className="w-12 h-12 rounded-full"
-                      />
-                    ) : (
-                      <div className="w-12 h-12 bg-gradient-to-br from-primary-500 to-primary-600 rounded-full flex items-center justify-center text-white font-semibold text-lg">
-                        {chat.customer_name?.charAt(0) || 'C'}
-                      </div>
-                    )}
-                  </div>
-                  
-                  {/* Chat Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between mb-1">
-                      <div>
-                        <h3 className="text-lg font-semibold text-gray-900">
-                          {chat.customer_name || 'Unknown Customer'}
-                        </h3>
-                        <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
-                          <Phone className="w-4 h-4" />
-                          <span>{formatPhone(chat.customer_phone)}</span>
+            {chats.map((chat) => {
+              const avatarUrl = getValidAvatarUrl(chat.customer_profile_pic_url);
+              const showAvatar = Boolean(avatarUrl && !avatarLoadErrors[chat.id]);
+
+              return (
+                <div
+                  key={chat.id}
+                  onClick={() => navigate(`/admin/whatsapp/${chat.id}`)}
+                  className={`p-4 border rounded-lg cursor-pointer transition-all hover:border-primary-300 hover:shadow-md ${
+                    chat.unread_count > 0 ? 'bg-blue-50 border-blue-200' : 'border-gray-200'
+                  }`}
+                >
+                  <div className="flex items-start gap-4">
+                    {/* Avatar */}
+                    <div className="flex-shrink-0">
+                      {showAvatar ? (
+                        <img
+                          src={avatarUrl || ''}
+                          alt={chat.customer_name || 'Customer'}
+                          className="w-12 h-12 rounded-full object-cover"
+                          referrerPolicy="no-referrer"
+                          loading="lazy"
+                          onError={() => markAvatarLoadError(chat.id)}
+                        />
+                      ) : (
+                        <div className="w-12 h-12 bg-gradient-to-br from-primary-500 to-primary-600 rounded-full flex items-center justify-center text-white font-semibold text-lg">
+                          {chat.customer_name?.charAt(0) || 'C'}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Chat Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between mb-1">
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900">
+                            {chat.customer_name || 'Unknown Customer'}
+                          </h3>
+                          <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+                            <Phone className="w-4 h-4" />
+                            <span>{formatPhone(chat.customer_phone)}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(chat.status)}`}>
+                            {chat.status}
+                          </span>
+                          {chat.unread_count > 0 && (
+                            <span className="px-2 py-1 bg-red-500 text-white rounded-full text-xs font-bold">
+                              {chat.unread_count}
+                            </span>
+                          )}
                         </div>
                       </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(chat.status)}`}>
-                          {chat.status}
+
+                      {/* Last Message */}
+                      <p className="text-sm text-gray-600 truncate mb-2">
+                        {chat.last_message_preview || 'No messages yet'}
+                      </p>
+
+                      {/* Meta Info */}
+                      <div className="flex items-center gap-4 text-xs text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {formatRelativeTime(chat.last_message_at)}
                         </span>
-                        {chat.unread_count > 0 && (
-                          <span className="px-2 py-1 bg-red-500 text-white rounded-full text-xs font-bold">
-                            {chat.unread_count}
+
+                        <span>
+                          {chat.total_messages} {chat.total_messages === 1 ? 'message' : 'messages'}
+                        </span>
+
+                        {chat.assigned_staff_name ? (
+                          <span className="flex items-center gap-1">
+                            <User className="w-3 h-3" />
+                            Joined by {chat.assigned_staff_name}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">Unjoined</span>
+                        )}
+
+                        {chat.woocommerce_order_id && (
+                          <span className="flex items-center gap-1 text-primary-600">
+                            <Package className="w-3 h-3" />
+                            {chat.woocommerce_order_id}
+                          </span>
+                        )}
+
+                        {!chat.within_service_window && (
+                          <span className="flex items-center gap-1 text-amber-600 font-medium">
+                            <Clock className="w-3 h-3" />
+                            Outside 24h window
                           </span>
                         )}
                       </div>
                     </div>
-                    
-                    {/* Last Message */}
-                    <p className="text-sm text-gray-600 truncate mb-2">
-                      {chat.last_message_preview || 'No messages yet'}
-                    </p>
-                    
-                    {/* Meta Info */}
-                    <div className="flex items-center gap-4 text-xs text-gray-500">
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {formatRelativeTime(chat.last_message_at)}
-                      </span>
-                      
-                      <span>
-                        {chat.total_messages} {chat.total_messages === 1 ? 'message' : 'messages'}
-                      </span>
-                      
-                      {chat.assigned_staff_name ? (
-                        <span className="flex items-center gap-1">
-                          <User className="w-3 h-3" />
-                          Joined by {chat.assigned_staff_name}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400">Unjoined</span>
-                      )}
-                      
-                      {chat.woocommerce_order_id && (
-                        <span className="flex items-center gap-1 text-primary-600">
-                          <Package className="w-3 h-3" />
-                          {chat.woocommerce_order_id}
-                        </span>
-                      )}
-                      
-                      {!chat.within_service_window && (
-                        <span className="flex items-center gap-1 text-amber-600 font-medium">
-                          <Clock className="w-3 h-3" />
-                          Outside 24h window
-                        </span>
-                      )}
-                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

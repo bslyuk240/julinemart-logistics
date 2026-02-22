@@ -61,6 +61,10 @@ export default function WhatsAppChatView() {
   const [staff, setStaff] = useState<any[]>([]);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const quickActionBaseClass = 'w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1';
+  const assignActionClass = `${quickActionBaseClass} bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-300`;
+  const reopenActionClass = `${quickActionBaseClass} bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-emerald-300`;
+  const closeActionClass = `${quickActionBaseClass} bg-red-600 text-white hover:bg-red-700 focus:ring-red-300`;
   
   // Scroll to bottom of messages
   const scrollToBottom = () => {
@@ -568,26 +572,26 @@ export default function WhatsAppChatView() {
           <div className="space-y-2">
             <button
               onClick={() => setAssignModalOpen(true)}
-              className="w-full btn-secondary justify-start"
+              className={assignActionClass}
             >
-              <UserCheck className="w-4 h-4 mr-2" />
+              <UserCheck className="w-4 h-4" />
               Change Assignment
             </button>
             
             {chat.status === 'closed' ? (
               <button
                 onClick={handleReopenChat}
-                className="w-full btn-secondary justify-start text-green-600"
+                className={reopenActionClass}
               >
-                <CheckCircle2 className="w-4 h-4 mr-2" />
+                <CheckCircle2 className="w-4 h-4" />
                 Reopen Chat
               </button>
             ) : (
               <button
                 onClick={handleCloseChat}
-                className="w-full btn-secondary justify-start text-red-600"
+                className={closeActionClass}
               >
-                <XCircle className="w-4 h-4 mr-2" />
+                <XCircle className="w-4 h-4" />
                 Close Chat
               </button>
             )}
@@ -621,7 +625,7 @@ export default function WhatsAppChatView() {
             <div className="mt-4 flex justify-end">
               <button
                 onClick={() => setAssignModalOpen(false)}
-                className="btn-secondary"
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
               >
                 Cancel
               </button>

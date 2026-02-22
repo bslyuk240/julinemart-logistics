@@ -30,6 +30,14 @@ interface DashboardLayoutProps {
   children: ReactNode;
 }
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{
+    outcome: 'accepted' | 'dismissed';
+    platform: string;
+  }>;
+}
+
 const navigation = [
   // Agent can access: Dashboard, Orders, Shipping Rates
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'agent'] },
@@ -84,6 +92,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [unreadWhatsAppCount, setUnreadWhatsAppCount] = useState(0);
+  const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
+  const [isInstalled, setIsInstalled] = useState(false);
 
   useEffect(() => {
     document.body.classList.add('admin-shell');
@@ -107,6 +117,34 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       document.body.style.overflow = previousOverflow;
     };
   }, [sidebarOpen]);
+
+  useEffect(() => {
+    const checkInstalled = () => {
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+      const isIosStandalone = (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
+      setIsInstalled(isStandalone || isIosStandalone);
+    };
+
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPromptEvent(event as BeforeInstallPromptEvent);
+    };
+
+    const handleAppInstalled = () => {
+      setIsInstalled(true);
+      setInstallPromptEvent(null);
+    };
+
+    checkInstalled();
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
 
   useEffect(() => {
     if (user?.role !== 'admin') {
@@ -162,6 +200,17 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     navigate('/login');
   };
 
+  const handleInstallApp = async () => {
+    if (!installPromptEvent) {
+      window.alert('To install, open your browser menu and tap "Add to Home screen".');
+      return;
+    }
+
+    await installPromptEvent.prompt();
+    await installPromptEvent.userChoice;
+    setInstallPromptEvent(null);
+  };
+
   const getRoleBadgeColor = (role: string) => {
     const colors: Record<string, string> = {
       admin: 'bg-red-100 text-red-800',
@@ -174,6 +223,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const filteredNavigation = navigation.filter(item => 
     !item.roles || item.roles.includes(user?.role || '')
   );
+  const canInstallApp = user?.role === 'admin' && !isInstalled;
 
   return (
     <div className="admin-portal admin-shell-root bg-gray-50">
@@ -251,6 +301,15 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             </button>
             
             <div className="flex-1 flex justify-end items-center gap-4">
+              {canInstallApp && (
+                <button
+                  type="button"
+                  onClick={handleInstallApp}
+                  className="inline-flex items-center rounded-lg border border-primary-600 px-3 py-2 text-sm font-semibold text-primary-700 hover:bg-primary-50 transition-colors"
+                >
+                  Install App
+                </button>
+              )}
               {/* Notifications Panel */}
               <NotificationsPanel />
               

@@ -40,29 +40,74 @@ function normalizePhone(waPhone) {
 }
 
 /**
+ * Normalize and validate profile image URLs from webhook payload
+ */
+function normalizeProfilePicUrl(profilePicUrl) {
+  if (typeof profilePicUrl !== 'string') return null;
+
+  const trimmed = profilePicUrl.trim();
+  if (!trimmed) return null;
+
+  const lowered = trimmed.toLowerCase();
+  if (lowered === 'null' || lowered === 'undefined' || lowered === 'n/a') {
+    return null;
+  }
+
+  if (trimmed.startsWith('http://')) {
+    return `https://${trimmed.substring('http://'.length)}`;
+  }
+
+  if (trimmed.startsWith('https://') || trimmed.startsWith('data:image/')) {
+    return trimmed;
+  }
+
+  return null;
+}
+
+/**
  * Get or create chat for customer
  */
 async function getOrCreateChat(customerPhone, customerName = null, profilePicUrl = null) {
   const normalizedPhone = normalizePhone(customerPhone);
+  const normalizedProfilePicUrl = normalizeProfilePicUrl(profilePicUrl);
   
   // Try to find existing chat
-  let { data: existingChat, error: fetchError } = await supabase
+  let { data: existingChat } = await supabase
     .from('whatsapp_chats')
     .select('*')
     .eq('customer_phone', normalizedPhone)
     .single();
   
   if (existingChat) {
+    const updates = {};
+
+    if (customerName && customerName !== existingChat.customer_name) {
+      updates.customer_name = customerName;
+    }
+
+    if (normalizedProfilePicUrl && normalizedProfilePicUrl !== existingChat.customer_profile_pic_url) {
+      updates.customer_profile_pic_url = normalizedProfilePicUrl;
+    }
+
     // Reopen chat if it was closed
     if (existingChat.status === 'closed') {
-      await supabase
-        .from('whatsapp_chats')
-        .update({ 
-          status: 'open',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', existingChat.id);
+      updates.status = 'open';
     }
+
+    if (Object.keys(updates).length > 0) {
+      updates.updated_at = new Date().toISOString();
+      const { data: updatedChat } = await supabase
+        .from('whatsapp_chats')
+        .update(updates)
+        .eq('id', existingChat.id)
+        .select('*')
+        .single();
+
+      if (updatedChat) {
+        return updatedChat;
+      }
+    }
+
     return existingChat;
   }
   
@@ -72,7 +117,7 @@ async function getOrCreateChat(customerPhone, customerName = null, profilePicUrl
     .insert({
       customer_phone: normalizedPhone,
       customer_name: customerName,
-      customer_profile_pic_url: profilePicUrl,
+      customer_profile_pic_url: normalizedProfilePicUrl,
       status: 'open',
       customer_service_window_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
     })

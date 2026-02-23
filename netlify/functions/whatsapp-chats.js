@@ -6,6 +6,7 @@
 //   GET  /api/whatsapp-chats - List chats with filters
 //   GET  /api/whatsapp-chats/:id - Get single chat with messages
 //   PATCH /api/whatsapp-chats/:id - Update chat (assign, close, etc.)
+//   DELETE /api/whatsapp-chats/:id - Delete chat and messages (admin only)
 // ============================================================
 
 import { createClient } from '@supabase/supabase-js';
@@ -25,7 +26,7 @@ const supabaseAuth = createClient(SUPABASE_URL || '', READ_ONLY_KEY || '');
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'GET, PATCH, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, PATCH, DELETE, OPTIONS',
   'Content-Type': 'application/json'
 };
 
@@ -490,6 +491,78 @@ export async function handler(event) {
         body: JSON.stringify({
           success: false,
           error: error.message || 'Failed to update chat'
+        })
+      };
+    }
+  }
+
+  // ============================================================
+  // DELETE /api/whatsapp-chats/:id - Delete chat
+  // ============================================================
+  if (event.httpMethod === 'DELETE' && chatId) {
+    try {
+      const auth = await requireStaffAuth(event);
+      if (auth.errorResponse) return auth.errorResponse;
+      const actor = auth.profile;
+
+      if (actor.role !== 'admin') {
+        return forbidden('Only admin can delete chats');
+      }
+
+      const { data: currentChat, error: currentChatError } = await supabase
+        .from('whatsapp_chats')
+        .select('id, customer_phone, assigned_staff_id, status')
+        .eq('id', chatId)
+        .single();
+
+      if (currentChatError || !currentChat) {
+        return {
+          statusCode: 404,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            success: false,
+            error: 'Chat not found'
+          })
+        };
+      }
+
+      // Remove child messages first in case FK cascade is not configured.
+      const { error: messagesDeleteError } = await supabase
+        .from('whatsapp_messages')
+        .delete()
+        .eq('chat_id', chatId);
+
+      if (messagesDeleteError) throw messagesDeleteError;
+
+      const { error: chatDeleteError } = await supabase
+        .from('whatsapp_chats')
+        .delete()
+        .eq('id', chatId);
+
+      if (chatDeleteError) throw chatDeleteError;
+
+      await logActivity(actor.id, chatId, 'whatsapp_chat_deleted', {
+        customer_phone: currentChat.customer_phone,
+        previous_status: currentChat.status,
+        previous_assigned_staff_id: currentChat.assigned_staff_id
+      });
+
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: true,
+          message: 'Chat deleted successfully'
+        })
+      };
+    } catch (error) {
+      console.error('Error deleting chat:', error);
+      return {
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: false,
+          error: error.message || 'Failed to delete chat'
         })
       };
     }

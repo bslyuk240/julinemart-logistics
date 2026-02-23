@@ -11,7 +11,8 @@ import {
   XCircle,
   UserCheck,
   Mail,
-  Phone
+  Phone,
+  Trash2
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
@@ -38,7 +39,7 @@ interface WhatsAppChat {
 
 export default function WhatsAppSupportPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const notification = useNotification();
   
   const [chats, setChats] = useState<WhatsAppChat[]>([]);
@@ -48,6 +49,7 @@ export default function WhatsAppSupportPage() {
   const [assignmentFilter, setAssignmentFilter] = useState<string>('all');
   const [orderFilter, setOrderFilter] = useState<string>('all');
   const [avatarLoadErrors, setAvatarLoadErrors] = useState<Record<string, boolean>>({});
+  const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   
   // Fetch chats
   const fetchChats = async () => {
@@ -137,6 +139,45 @@ export default function WhatsAppSupportPage() {
       if (prev[chatId]) return prev;
       return { ...prev, [chatId]: true };
     });
+  };
+
+  const handleDeleteChat = async (chatId: string, customerName: string | null) => {
+    if (user?.role !== 'admin') {
+      notification.error('Not allowed', 'Only admins can delete chats');
+      return;
+    }
+
+    if (!session?.access_token) {
+      notification.error('Unauthorized', 'Please sign in again');
+      return;
+    }
+
+    const label = customerName || 'this customer';
+    const shouldDelete = window.confirm(`Delete chat with ${label}? This will remove the chat history.`);
+    if (!shouldDelete) return;
+
+    setDeletingChatId(chatId);
+    try {
+      const response = await fetch(`/.netlify/functions/whatsapp-chats/${chatId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`
+        }
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || 'Failed to delete chat');
+      }
+
+      setChats((prev) => prev.filter((chat) => chat.id !== chatId));
+      notification.success('Deleted', 'Chat removed successfully');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unable to delete chat';
+      notification.error('Delete failed', message);
+    } finally {
+      setDeletingChatId(null);
+    }
   };
   
   return (
@@ -334,6 +375,21 @@ export default function WhatsAppSupportPage() {
                           <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(chat.status)}`}>
                             {chat.status}
                           </span>
+                          {user?.role === 'admin' && (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDeleteChat(chat.id, chat.customer_name);
+                              }}
+                              disabled={deletingChatId === chat.id}
+                              className="inline-flex items-center gap-1 rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              title="Delete chat"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              {deletingChatId === chat.id ? 'Deleting...' : 'Delete'}
+                            </button>
+                          )}
                           {chat.unread_count > 0 && (
                             <span className="px-2 py-1 bg-red-500 text-white rounded-full text-xs font-bold">
                               {chat.unread_count}

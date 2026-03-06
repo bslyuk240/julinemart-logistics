@@ -16,6 +16,14 @@ const PROVIDER = 'cj';
 const INBOUND_STATUS_AWAITING = 'awaiting_supplier_fulfillment';
 const INBOUND_STATUS_CREATED = 'supplier_order_created';
 const CJ_TRANSIENT_RATE_LIMIT_CODE = 1600200;
+const DEFAULT_ORIGIN_COUNTRY_CODE =
+  String(
+    process.env.GLOBAL_SOURCING_DEFAULT_ORIGIN_COUNTRY_CODE ||
+      process.env.CJ_DEFAULT_ORIGIN_COUNTRY_CODE ||
+      'CN'
+  )
+    .trim()
+    .toUpperCase() || 'CN';
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -257,10 +265,15 @@ export async function quoteCjInboundFreight({
   const hub = await resolveReceivingHub(client, receivingHubId);
   const token = await getCjAccessToken();
   const requestPayload = {
-    vid: externalVariantId,
-    quantity,
+    startCountryCode: DEFAULT_ORIGIN_COUNTRY_CODE,
     endCountryCode: hub.countryCode,
     zip: hub.postcode || undefined,
+    products: [
+      {
+        vid: externalVariantId,
+        quantity,
+      },
+    ],
   };
 
   let result;

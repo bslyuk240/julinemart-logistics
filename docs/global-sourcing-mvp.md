@@ -55,7 +55,8 @@
 - `netlify/functions/services/cjAuth.js`
   - CJ access token requests
   - In-memory token caching for the current function runtime
-  - CJ request fallback attempts for slightly different endpoint shapes
+  - Prefers the documented `/v1/authentication/getAccessToken` route
+  - Keeps fallback attempts for slightly different endpoint shapes
 
 ## Woo meta keys used
 
@@ -127,6 +128,14 @@ Existing metadata such as `selected_lane`, `eligible_lanes`, voucher data, influ
   - `GLOBAL_SOURCING_MARKUP_PERCENT`
   - `GLOBAL_SOURCING_MARKUP_FLAT_NGN`
 - Product and variation meta snapshots include supplier price, landed cost, exchange rate, and sale price when present
+
+## CJ auth configuration
+
+- Keep `CJ_API_BASE_URL` at the API root, for example `https://developers.cjdropshipping.com/api2.0`
+- The backend now prefers the documented auth path under `/v1/authentication/getAccessToken`
+- Optional override:
+  - `CJ_AUTH_PATH`
+- Use `CJ_AUTH_PATH` only if CJ changes the token route for your account or region
 
 ## Content normalization
 

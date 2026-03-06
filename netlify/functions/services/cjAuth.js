@@ -8,12 +8,13 @@ let cachedTokenExpiresAt = 0;
 function getCjConfig() {
   const apiKey = process.env.CJ_API_KEY || '';
   const baseUrl = sanitizeBaseUrl(process.env.CJ_API_BASE_URL || '');
+  const authPathOverride = sanitizeBaseUrl(process.env.CJ_AUTH_PATH || '');
 
   if (!apiKey || !baseUrl) {
     throw new Error('CJ API credentials are not fully configured');
   }
 
-  return { apiKey, baseUrl };
+  return { apiKey, baseUrl, authPathOverride };
 }
 
 function resolveAccessToken(payload) {
@@ -97,9 +98,27 @@ export async function getCjAccessToken({ forceRefresh = false } = {}) {
     };
   }
 
-  const { apiKey, baseUrl } = getCjConfig();
+  const { apiKey, baseUrl, authPathOverride } = getCjConfig();
 
   const attempts = [
+    ...(authPathOverride
+      ? [
+          {
+            path: authPathOverride.startsWith('/') ? authPathOverride : `/${authPathOverride}`,
+            method: 'POST',
+            body: { apiKey },
+          },
+        ]
+      : []),
+    {
+      path: '/v1/authentication/getAccessToken',
+      method: 'POST',
+      body: { apiKey },
+    },
+    {
+      path: '/v1/authentication/getAccessToken',
+      method: 'GET',
+    },
     {
       path: '/authentication/getAccessToken',
       method: 'POST',
@@ -122,6 +141,7 @@ export async function getCjAccessToken({ forceRefresh = false } = {}) {
     const { response, body } = await requestTokenAttempt(baseUrl, apiKey, attempt);
     if (!response.ok) {
       failures.push({
+        baseUrl,
         path: attempt.path,
         method: attempt.method,
         status: response.status,
@@ -136,6 +156,7 @@ export async function getCjAccessToken({ forceRefresh = false } = {}) {
     const accessToken = resolveAccessToken(body);
     if (!accessToken) {
       failures.push({
+        baseUrl,
         path: attempt.path,
         method: attempt.method,
         status: response.status,

@@ -165,6 +165,20 @@ function toneClasses(tone: 'red' | 'amber' | 'green') {
   return 'border-green-200 bg-green-50 text-green-700';
 }
 
+function getVariantOptionLabel(variant: ProductVariant, index: number) {
+  const attributeLabel = Object.entries(variant.attributes || {})
+    .map(([name, value]) => `${name}: ${value}`)
+    .join(' / ');
+  const baseLabel =
+    variant.title?.trim() ||
+    attributeLabel ||
+    (variant.external_variant_id ? `Variant ${variant.external_variant_id}` : `Variant ${index + 1}`);
+
+  return variant.source_price !== null
+    ? `${baseLabel} - ${variant.currency} ${variant.source_price}`
+    : baseLabel;
+}
+
 interface SettingsStatus {
   configured: boolean;
   wooConfigured: boolean;
@@ -900,8 +914,7 @@ export function GlobalSourcingPage() {
                       key={`${variant.external_variant_id || 'default'}-${index}`}
                       value={variant.external_variant_id || ''}
                     >
-                      {variant.title || 'Default variant'}
-                      {variant.source_price !== null ? ` � ${variant.currency} ${variant.source_price}` : ''}
+                      {getVariantOptionLabel(variant, index)}
                     </option>
                   ))}
                 </select>
@@ -1194,4 +1207,5 @@ export function GlobalSourcingPage() {
     </div>
   );
 }
+
 

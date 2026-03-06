@@ -168,15 +168,22 @@ export async function handler(event) {
   const targetVendorId = String(
     payload?.target_vendor_mapping?.vendor_id || payload?.target_vendor_mapping?.id || ''
   ).trim();
+  const targetWooVendorId = String(
+    payload?.target_vendor_mapping?.woocommerce_vendor_id ||
+      payload?.target_vendor_mapping?.woo_vendor_id ||
+      payload?.target_vendor_mapping?.wcfm_vendor_id ||
+      ''
+  ).trim();
 
   if (provider !== 'cj') {
     return jsonResponse(400, { success: false, error: 'Only provider=cj is supported in this MVP' });
   }
 
-  if (!externalProductId || !targetVendorId) {
+  if (!externalProductId || (!targetVendorId && !targetWooVendorId)) {
     return jsonResponse(400, {
       success: false,
-      error: 'external_product_id and target_vendor_mapping.vendor_id are required',
+      error:
+        'external_product_id and target_vendor_mapping.vendor_id or target_vendor_mapping.woocommerce_vendor_id are required',
     });
   }
 
@@ -188,7 +195,11 @@ export async function handler(event) {
   }
 
   try {
-    const vendorMapping = await resolveVendorMapping(auth.adminClient, targetVendorId);
+    const vendorMapping = await resolveVendorMapping(
+      auth.adminClient,
+      targetVendorId,
+      payload?.target_vendor_mapping || {}
+    );
     const selectedVariant = normalizeSelectedVariant(payload);
     if (!selectedVariant.externalVariantId) {
       return jsonResponse(400, {

@@ -267,6 +267,15 @@ export function normalizeProductTitle(value) {
   return dedupedWords.slice(0, 180).trim();
 }
 
+function slugifyStoreName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
 export function normalizeProductDescription(value, title = '') {
   const raw = String(value || '')
     .replace(/<br\s*\/?>/gi, '\n')
@@ -570,24 +579,83 @@ export async function fetchWooProductSourcingContext({ productId, variationId })
   }
 }
 
-export async function resolveVendorMapping(client, targetVendorId) {
-  if (!targetVendorId) {
-    throw new Error('target_vendor_mapping.vendor_id is required');
+export async function resolveVendorMapping(client, targetVendorId, targetVendorMapping = {}) {
+  const normalizedTargetVendorId = String(targetVendorId || '').trim();
+  const normalizedWooVendorId = String(
+    targetVendorMapping?.woocommerce_vendor_id ||
+      targetVendorMapping?.woo_vendor_id ||
+      targetVendorMapping?.wcfm_vendor_id ||
+      ''
+  ).trim();
+
+  if (normalizedTargetVendorId) {
+    const { data: vendor, error } = await client
+      .from('vendors')
+      .select('id, store_name, store_slug, woocommerce_vendor_id, hub_id, is_active, email')
+      .eq('id', normalizedTargetVendorId)
+      .single();
+
+    if (error || !vendor?.is_active) {
+      throw new Error('Target vendor mapping is missing or inactive');
+    }
+
+    if (!vendor.woocommerce_vendor_id) {
+      throw new Error('Target vendor mapping is missing woocommerce_vendor_id');
+    }
+
+    return vendor;
   }
 
-  const { data: vendor, error } = await client
+  if (!normalizedWooVendorId) {
+    throw new Error(
+      'target_vendor_mapping.vendor_id or target_vendor_mapping.woocommerce_vendor_id is required'
+    );
+  }
+
+  const { data: existingVendor } = await client
     .from('vendors')
-    .select('id, store_name, store_slug, woocommerce_vendor_id, hub_id, is_active')
-    .eq('id', targetVendorId)
+    .select('id, store_name, store_slug, woocommerce_vendor_id, hub_id, is_active, email')
+    .eq('woocommerce_vendor_id', normalizedWooVendorId)
+    .maybeSingle();
+
+  if (existingVendor?.id) {
+    return existingVendor;
+  }
+
+  const storeName =
+    String(targetVendorMapping?.store_name || '').trim() || `Woo Vendor ${normalizedWooVendorId}`;
+  const storeSlug =
+    String(targetVendorMapping?.store_slug || '').trim() ||
+    slugifyStoreName(storeName) ||
+    `woo-vendor-${normalizedWooVendorId}`;
+  const email =
+    String(targetVendorMapping?.email || '').trim() ||
+    `vendor-${normalizedWooVendorId}@wcfm.local`;
+  const hubId = String(targetVendorMapping?.hub_id || '').trim() || null;
+
+  const { data: insertedVendor, error: insertError } = await client
+    .from('vendors')
+    .insert({
+      store_name: storeName,
+      store_slug: storeSlug,
+      email,
+      hub_id: hubId,
+      is_active: true,
+      woocommerce_vendor_id: normalizedWooVendorId,
+      metadata: {
+        source: 'global_sourcing',
+        auto_created_from: 'woocommerce_vendor_id',
+      },
+    })
+    .select('id, store_name, store_slug, woocommerce_vendor_id, hub_id, is_active, email')
     .single();
 
-  if (error || !vendor?.is_active) {
-    throw new Error('Target vendor mapping is missing or inactive');
+  if (insertError || !insertedVendor?.id) {
+    throw new Error(
+      insertError?.message ||
+        'Unable to create a JLO vendor mapping from the provided Woo/WCFM vendor id'
+    );
   }
 
-  if (!vendor.woocommerce_vendor_id) {
-    throw new Error('Target vendor mapping is missing woocommerce_vendor_id');
-  }
-
-  return vendor;
+  return insertedVendor;
 }

@@ -9,7 +9,7 @@ import {
   Search,
   Truck,
 } from 'lucide-react';
-import { supabase, useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 
 type TabKey = 'cj-products' | 'imported-products' | 'inbound-shipments' | 'settings';
@@ -173,9 +173,20 @@ interface SettingsStatus {
   expires_at?: string;
 }
 
+interface ReferenceDataResponse {
+  hubs: HubOption[];
+  vendors: VendorOption[];
+  counts: {
+    hubs: number;
+    vendors: number;
+  };
+}
+
 const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 const sourcingVendorStorageKey = 'global-sourcing:selected-vendor-id';
 const sourcingHubStorageKey = 'global-sourcing:selected-hub-id';
+const sourcingWooVendorStorageKey = 'global-sourcing:selected-woo-vendor-id';
+const sourcingWooVendorNameStorageKey = 'global-sourcing:selected-woo-vendor-name';
 
 const tabs: Array<{ key: TabKey; label: string }> = [
   { key: 'cj-products', label: 'CJ Products' },
@@ -266,8 +277,11 @@ export function GlobalSourcingPage() {
 
   const [activeTab, setActiveTab] = useState<TabKey>('cj-products');
   const [loadingReferenceData, setLoadingReferenceData] = useState(true);
+  const [referenceDataError, setReferenceDataError] = useState<string | null>(null);
   const [hubs, setHubs] = useState<HubOption[]>([]);
   const [vendors, setVendors] = useState<VendorOption[]>([]);
+  const [hubCount, setHubCount] = useState<number | null>(null);
+  const [vendorCount, setVendorCount] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<SearchProduct[]>([]);
@@ -280,6 +294,8 @@ export function GlobalSourcingPage() {
   const [pricingLoading, setPricingLoading] = useState(false);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [selectedVendorId, setSelectedVendorId] = useState('');
+  const [manualWooVendorId, setManualWooVendorId] = useState('');
+  const [manualWooVendorName, setManualWooVendorName] = useState('');
   const [selectedHubId, setSelectedHubId] = useState('');
   const [price, setPrice] = useState('');
   const [title, setTitle] = useState('');
@@ -288,6 +304,7 @@ export function GlobalSourcingPage() {
   const [importing, setImporting] = useState(false);
   const [importedProducts, setImportedProducts] = useState<ImportedProduct[]>([]);
   const [loadingImported, setLoadingImported] = useState(false);
+  const [importedProductsCount, setImportedProductsCount] = useState<number | null>(null);
   const [shipments, setShipments] = useState<InboundShipment[]>([]);
   const [loadingShipments, setLoadingShipments] = useState(false);
   const [shipmentActionId, setShipmentActionId] = useState<string | null>(null);
@@ -319,26 +336,21 @@ export function GlobalSourcingPage() {
   }, []);
 
   const loadReferenceData = useCallback(async () => {
+    if (!session?.access_token) return;
     setLoadingReferenceData(true);
+    setReferenceDataError(null);
     try {
-      const [{ data: hubRows, error: hubError }, { data: vendorRows, error: vendorError }] = await Promise.all([
-        supabase
-          .from('hubs')
-          .select('id, name, code, is_default, metadata')
-          .eq('is_active', true)
-          .order('name', { ascending: true }),
-        supabase
-          .from('vendors')
-          .select('id, store_name, woocommerce_vendor_id')
-          .eq('is_active', true)
-          .order('store_name', { ascending: true }),
-      ]);
-      if (hubError) throw hubError;
-      if (vendorError) throw vendorError;
-      const nextHubs = (hubRows || []) as HubOption[];
-      const nextVendors = (vendorRows || []) as VendorOption[];
+      const response = await callAdmin<{ data: ReferenceDataResponse }>(
+        'global-sourcing-reference-data',
+        session.access_token,
+        { method: 'GET' }
+      );
+      const nextHubs = response.data?.hubs || [];
+      const nextVendors = response.data?.vendors || [];
       const storedHubId = readStoredSelection(sourcingHubStorageKey);
       const storedVendorId = readStoredSelection(sourcingVendorStorageKey);
+      setManualWooVendorId(readStoredSelection(sourcingWooVendorStorageKey));
+      setManualWooVendorName(readStoredSelection(sourcingWooVendorNameStorageKey));
       const defaultHubId =
         nextHubs.find((hub) => hub.id === storedHubId)?.id ||
         pickDefaultInboundHub(nextHubs)?.id ||
@@ -350,18 +362,34 @@ export function GlobalSourcingPage() {
 
       setHubs(nextHubs);
       setVendors(nextVendors);
+      setHubCount(response.data?.counts?.hubs ?? nextHubs.length);
+      setVendorCount(response.data?.counts?.vendors ?? nextVendors.length);
       setSelectedHubId(defaultHubId);
       setSelectedVendorId(defaultVendorId);
     } catch (error: unknown) {
-      notification.error('Load failed', getErrorMessage(error, 'Unable to load hubs and vendors'));
+      const message = getErrorMessage(error, 'Unable to load hubs and vendors');
+      setReferenceDataError(message);
+      setHubs([]);
+      setVendors([]);
+      setHubCount(0);
+      setVendorCount(0);
+      notification.error('Load failed', message);
     } finally {
       setLoadingReferenceData(false);
     }
-  }, [notification, pickDefaultInboundHub]);
+  }, [notification, pickDefaultInboundHub, session?.access_token]);
 
   useEffect(() => {
     persistSelection(sourcingVendorStorageKey, selectedVendorId);
   }, [selectedVendorId]);
+
+  useEffect(() => {
+    persistSelection(sourcingWooVendorStorageKey, manualWooVendorId);
+  }, [manualWooVendorId]);
+
+  useEffect(() => {
+    persistSelection(sourcingWooVendorNameStorageKey, manualWooVendorName);
+  }, [manualWooVendorName]);
 
   useEffect(() => {
     persistSelection(sourcingHubStorageKey, selectedHubId);
@@ -373,6 +401,7 @@ export function GlobalSourcingPage() {
     try {
       const response = await callAdmin<{ data: ImportedProduct[] }>('global-sourcing-products', session.access_token, { method: 'GET' });
       setImportedProducts(response.data || []);
+      setImportedProductsCount(response.data?.length || 0);
     } catch (error: unknown) {
       notification.error('Load failed', getErrorMessage(error, 'Unable to load imported products'));
     } finally {
@@ -407,8 +436,9 @@ export function GlobalSourcingPage() {
   }, [notification, session?.access_token]);
 
   useEffect(() => {
+    if (!session?.access_token) return;
     void loadReferenceData();
-  }, [loadReferenceData]);
+  }, [loadReferenceData, session?.access_token]);
 
   useEffect(() => {
     if (!productDetails) return;
@@ -492,16 +522,19 @@ export function GlobalSourcingPage() {
         method: 'POST',
         body: JSON.stringify({ external_product_id: product.external_product_id }),
       });
+      const fallbackImages = Array.isArray(product.images) ? product.images.filter(Boolean) : [];
       const hydratedProduct: ProductDetails = {
         ...response.data.product,
         external_product_id:
           response.data.product.external_product_id || product.external_product_id,
         title: response.data.product.title?.trim() || product.title,
         description: response.data.product.description?.trim() || '',
-        images:
-          Array.isArray(response.data.product.images) && response.data.product.images.length > 0
-            ? response.data.product.images
-            : product.images,
+        images: (() => {
+          const candidateImages = Array.isArray(response.data.product.images)
+            ? response.data.product.images.filter(Boolean)
+            : [];
+          return candidateImages.length > 0 ? candidateImages : fallbackImages;
+        })(),
         source_price: response.data.product.source_price ?? product.source_price,
         currency: response.data.product.currency || product.currency || 'USD',
       };
@@ -521,8 +554,11 @@ export function GlobalSourcingPage() {
 
   const importProduct = async () => {
     if (!session?.access_token || !productDetails) return;
-    if (!selectedVendorId || !selectedHubId) {
-      notification.error('Missing mapping', 'Select a target vendor and receiving hub');
+    if ((!selectedVendorId && !manualWooVendorId.trim()) || !selectedHubId) {
+      notification.error(
+        'Missing mapping',
+        'Select a target vendor or enter a Woo/WCFM vendor id, and choose a receiving hub'
+      );
       return;
     }
     if (!pricingPreview) {
@@ -554,7 +590,15 @@ export function GlobalSourcingPage() {
         fulfillment_mode: 'cj_hub',
         receiving_hub_id: selectedHubId,
         pricing_preview: pricingPreview,
-        target_vendor_mapping: { vendor_id: selectedVendorId },
+        target_vendor_mapping: {
+          ...(selectedVendorId ? { vendor_id: selectedVendorId } : {}),
+          ...(manualWooVendorId.trim()
+            ? {
+                woocommerce_vendor_id: manualWooVendorId.trim(),
+                store_name: manualWooVendorName.trim() || `Woo Vendor ${manualWooVendorId.trim()}`,
+              }
+            : {}),
+        },
         supplier_price_snapshot: selectedVariant?.source_price ?? productDetails.source_price ?? null,
       };
       const response = await callAdmin<{ data: { woo_product_id: string } }>('global-sourcing-import-product', session.access_token, {
@@ -651,9 +695,9 @@ export function GlobalSourcingPage() {
           </p>
         </div>
         <div className="rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-700">
-          <p>Hubs: {hubs.length}</p>
-          <p>Vendors: {vendors.length}</p>
-          <p>Imported products: {importedProducts.length}</p>
+          <p>Hubs: {hubCount ?? '—'}</p>
+          <p>Vendors: {vendorCount ?? '—'}</p>
+          <p>Imported products: {importedProductsCount ?? '—'}</p>
         </div>
       </div>
 
@@ -672,6 +716,12 @@ export function GlobalSourcingPage() {
           </button>
         ))}
       </div>
+
+      {referenceDataError ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Unable to load hubs/vendors: {referenceDataError}
+        </div>
+      ) : null}
 
       {loadingReferenceData ? (
         <div className="card py-16 text-center">
@@ -846,37 +896,107 @@ export function GlobalSourcingPage() {
                   className="w-full rounded-lg border border-gray-300 px-4 py-3"
                 >
                   {productDetails.variants.map((variant, index) => (
-                    <option key={`${variant.external_variant_id || 'default'}-${index}`} value={variant.external_variant_id || ''}>
-                      {variant.title || 'Default variant'} {variant.source_price !== null ? `· ${variant.currency} ${variant.source_price}` : ''}
+                    <option
+                      key={`${variant.external_variant_id || 'default'}-${index}`}
+                      value={variant.external_variant_id || ''}
+                    >
+                      {variant.title || 'Default variant'}
+                      {variant.source_price !== null ? ` � ${variant.currency} ${variant.source_price}` : ''}
                     </option>
                   ))}
                 </select>
 
-                <input value={title} onChange={(event) => setTitle(event.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3" placeholder="Woo title" />
-                <textarea value={description} onChange={(event) => setDescription(event.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3" rows={4} placeholder="Description" />
+                <input
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                  placeholder="Woo title"
+                />
+                <textarea
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                  rows={4}
+                  placeholder="Description"
+                />
                 <input
                   value={price}
                   readOnly
                   className="w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-3 text-gray-700"
                   placeholder="Final Woo regular price (NGN)"
                 />
-                <input value={sourcingTag} onChange={(event) => setSourcingTag(event.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3" placeholder="Customer label" />
+                <input
+                  value={sourcingTag}
+                  onChange={(event) => setSourcingTag(event.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                  placeholder="Customer label"
+                />
 
-                <select value={selectedVendorId} onChange={(event) => setSelectedVendorId(event.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3">
-                  {vendors.map((vendor) => (
-                    <option key={vendor.id} value={vendor.id}>
-                      {vendor.store_name} · Woo vendor {vendor.woocommerce_vendor_id}
-                    </option>
-                  ))}
-                </select>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-gray-700">Target Vendor</span>
+                  <select
+                    value={selectedVendorId}
+                    onChange={(event) => setSelectedVendorId(event.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                    disabled={vendors.length === 0}
+                  >
+                    {vendors.length === 0 ? (
+                      <option value="">No active vendors found</option>
+                    ) : (
+                      vendors.map((vendor) => (
+                        <option key={`vendor-visible-${vendor.id}`} value={vendor.id}>
+                          {vendor.store_name} � Woo vendor {vendor.woocommerce_vendor_id}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </label>
 
-                <select value={selectedHubId} onChange={(event) => setSelectedHubId(event.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3">
-                  {hubs.map((hub) => (
-                    <option key={hub.id} value={hub.id}>
-                      {hub.name} · {hub.code}
-                    </option>
-                  ))}
-                </select>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium text-gray-700">
+                      Woo/WCFM Vendor ID
+                    </span>
+                    <input
+                      value={manualWooVendorId}
+                      onChange={(event) => setManualWooVendorId(event.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                      placeholder="Optional fallback vendor id"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium text-gray-700">
+                      Vendor Store Name
+                    </span>
+                    <input
+                      value={manualWooVendorName}
+                      onChange={(event) => setManualWooVendorName(event.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                      placeholder="Optional store name for auto-created mapping"
+                    />
+                  </label>
+                </div>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-gray-700">Receiving Hub</span>
+                  <select
+                    value={selectedHubId}
+                    onChange={(event) => setSelectedHubId(event.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                    disabled={hubs.length === 0}
+                  >
+                    {hubs.length === 0 ? (
+                      <option value="">No active hubs found</option>
+                    ) : (
+                      hubs.map((hub) => (
+                        <option key={`hub-visible-${hub.id}`} value={hub.id}>
+                          {hub.name} � {hub.code}
+                          {hub.is_default ? ' � Default' : ''}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </label>
 
                 <button
                   type="button"
@@ -1074,3 +1194,4 @@ export function GlobalSourcingPage() {
     </div>
   );
 }
+

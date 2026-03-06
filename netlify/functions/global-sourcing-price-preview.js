@@ -30,6 +30,10 @@ export async function handler(event) {
   ).trim();
   const sourcePrice = payload.source_price ?? payload.supplier_price_snapshot ?? null;
   const sourceCurrency = String(payload.currency || 'USD').trim().toUpperCase();
+  const importBufferUsd = payload.import_buffer_usd;
+  const markupPercent = payload.markup_percent;
+  const markupFlatNgn = payload.markup_flat_ngn;
+  const usdToNgnRate = payload.usd_to_ngn_rate;
 
   if (!externalVariantId || sourcePrice === null || sourcePrice === undefined) {
     return jsonResponse(400, {
@@ -41,11 +45,15 @@ export async function handler(event) {
   try {
     const pricing = await buildLandedPricingPreview({
       client: auth.adminClient,
-      receivingHubId,
-      externalVariantId,
-      sourcePrice,
-      sourceCurrency,
-    });
+        receivingHubId,
+        externalVariantId,
+        sourcePrice,
+        sourceCurrency,
+        importBufferUsd,
+        markupPercent,
+        markupFlatNgn,
+        usdToNgnRate,
+      });
 
     return jsonResponse(200, {
       success: true,

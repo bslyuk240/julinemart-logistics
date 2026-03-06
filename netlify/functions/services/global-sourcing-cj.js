@@ -323,6 +323,10 @@ export async function buildLandedPricingPreview({
   sourcePrice,
   sourceCurrency = 'USD',
   quantity = 1,
+  importBufferUsd,
+  markupPercent,
+  markupFlatNgn,
+  usdToNgnRate,
 }) {
   const quote = await quoteCjInboundFreight({
     client,
@@ -335,6 +339,10 @@ export async function buildLandedPricingPreview({
     sourcePrice,
     sourceCurrency,
     inboundShippingUsd: quote.shippingUsd,
+    importBufferUsd,
+    markupPercent,
+    markupFlatNgn,
+    usdToNgnRate,
   });
 
   return {

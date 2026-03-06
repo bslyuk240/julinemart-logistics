@@ -382,11 +382,88 @@ export function getGlobalSourcingPricingConfig() {
   };
 }
 
+export async function loadGlobalSourcingPricingDefaults(client, provider = 'cj') {
+  const envDefaults = getGlobalSourcingPricingConfig();
+
+  if (!client) {
+    return {
+      provider,
+      saved: false,
+      updated_at: null,
+      values: {
+        import_buffer_usd: envDefaults.importBufferUsd,
+        markup_percent: envDefaults.markupPercent,
+        markup_flat_ngn: envDefaults.markupFlatNgn,
+        usd_to_ngn_rate: envDefaults.usdToNgnRate,
+      },
+    };
+  }
+
+  try {
+    const { data, error } = await client
+      .from('global_sourcing_settings')
+      .select(
+        'provider, default_import_buffer_usd, default_markup_percent, default_markup_flat_ngn, default_usd_to_ngn_rate, updated_at'
+      )
+      .eq('provider', provider)
+      .maybeSingle();
+
+    if (error) {
+      if (/global_sourcing_settings/i.test(String(error.message || ''))) {
+        return {
+          provider,
+          saved: false,
+          updated_at: null,
+          values: {
+            import_buffer_usd: envDefaults.importBufferUsd,
+            markup_percent: envDefaults.markupPercent,
+            markup_flat_ngn: envDefaults.markupFlatNgn,
+            usd_to_ngn_rate: envDefaults.usdToNgnRate,
+          },
+        };
+      }
+
+      throw error;
+    }
+
+    return {
+      provider,
+      saved: Boolean(data),
+      updated_at: data?.updated_at || null,
+      values: {
+        import_buffer_usd:
+          asFiniteNumber(data?.default_import_buffer_usd) ?? envDefaults.importBufferUsd,
+        markup_percent:
+          asFiniteNumber(data?.default_markup_percent) ?? envDefaults.markupPercent,
+        markup_flat_ngn:
+          asFiniteNumber(data?.default_markup_flat_ngn) ?? envDefaults.markupFlatNgn,
+        usd_to_ngn_rate:
+          asFiniteNumber(data?.default_usd_to_ngn_rate) ?? envDefaults.usdToNgnRate,
+      },
+    };
+  } catch {
+    return {
+      provider,
+      saved: false,
+      updated_at: null,
+      values: {
+        import_buffer_usd: envDefaults.importBufferUsd,
+        markup_percent: envDefaults.markupPercent,
+        markup_flat_ngn: envDefaults.markupFlatNgn,
+        usd_to_ngn_rate: envDefaults.usdToNgnRate,
+      },
+    };
+  }
+}
+
 export function computeWooNgnPricing({
   sourcePrice,
   sourceCurrency = 'USD',
   inboundShippingUsd = 0,
   importBufferUsd,
+  usdToNgnRate,
+  markupPercent,
+  markupFlatNgn,
   explicitRegularPrice,
   explicitSalePrice,
 }) {
@@ -397,24 +474,29 @@ export function computeWooNgnPricing({
 
   const normalizedCurrency = String(sourceCurrency || 'USD').trim().toUpperCase();
   const pricingConfig = getGlobalSourcingPricingConfig();
+  const exchangeRate = asFiniteNumber(usdToNgnRate) ?? pricingConfig.usdToNgnRate;
   const normalizedInboundShippingUsd = asFiniteNumber(inboundShippingUsd) || 0;
   const normalizedImportBufferUsd =
     asFiniteNumber(importBufferUsd) ?? pricingConfig.importBufferUsd;
+  const normalizedMarkupPercent =
+    asFiniteNumber(markupPercent) ?? pricingConfig.markupPercent;
+  const normalizedMarkupFlatNgn =
+    asFiniteNumber(markupFlatNgn) ?? pricingConfig.markupFlatNgn;
 
   let supplierPriceUsd;
   if (normalizedCurrency === 'USD') {
     supplierPriceUsd = parsedSourcePrice;
   } else if (normalizedCurrency === 'NGN') {
-    supplierPriceUsd = parsedSourcePrice / pricingConfig.usdToNgnRate;
+    supplierPriceUsd = parsedSourcePrice / exchangeRate;
   } else {
     throw new Error(`Unsupported supplier currency for landed pricing: ${normalizedCurrency}`);
   }
 
   const landedCostUsd =
     supplierPriceUsd + normalizedInboundShippingUsd + normalizedImportBufferUsd;
-  const baseNgn = landedCostUsd * pricingConfig.usdToNgnRate;
-  const landedCostNgn = baseNgn + pricingConfig.markupFlatNgn;
-  const markedUpNgn = landedCostNgn * (1 + pricingConfig.markupPercent / 100);
+  const baseNgn = landedCostUsd * exchangeRate;
+  const landedCostNgn = baseNgn + normalizedMarkupFlatNgn;
+  const markedUpNgn = landedCostNgn * (1 + normalizedMarkupPercent / 100);
   const regularPriceNgn = asFiniteNumber(explicitRegularPrice) ?? markedUpNgn;
   const salePriceNgn = asFiniteNumber(explicitSalePrice);
 
@@ -425,9 +507,9 @@ export function computeWooNgnPricing({
     inboundShippingUsd: normalizedInboundShippingUsd,
     importBufferUsd: normalizedImportBufferUsd,
     landedCostUsd,
-    exchangeRate: pricingConfig.usdToNgnRate,
-    markupPercent: pricingConfig.markupPercent,
-    markupFlatNgn: pricingConfig.markupFlatNgn,
+    exchangeRate,
+    markupPercent: normalizedMarkupPercent,
+    markupFlatNgn: normalizedMarkupFlatNgn,
     landedCostNgn,
     regularPriceNgn,
     salePriceNgn,

@@ -187,6 +187,18 @@ interface SettingsStatus {
   expires_at?: string;
 }
 
+interface GlobalSourcingSettingsData {
+  provider: string;
+  saved: boolean;
+  updated_at: string | null;
+  values: {
+    import_buffer_usd: number | null;
+    markup_percent: number | null;
+    markup_flat_ngn: number | null;
+    usd_to_ngn_rate: number | null;
+  };
+}
+
 interface ReferenceDataResponse {
   hubs: HubOption[];
   vendors: VendorOption[];
@@ -315,6 +327,9 @@ export function GlobalSourcingPage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [sourcingTag, setSourcingTag] = useState('Ships from Abroad');
+  const [importBufferUsd, setImportBufferUsd] = useState('');
+  const [markupPercent, setMarkupPercent] = useState('');
+  const [markupFlatNgn, setMarkupFlatNgn] = useState('');
   const [importing, setImporting] = useState(false);
   const [importedProducts, setImportedProducts] = useState<ImportedProduct[]>([]);
   const [loadingImported, setLoadingImported] = useState(false);
@@ -325,6 +340,9 @@ export function GlobalSourcingPage() {
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus | null>(null);
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [testingSettings, setTestingSettings] = useState(false);
+  const [pricingSettings, setPricingSettings] = useState<GlobalSourcingSettingsData | null>(null);
+  const [loadingPricingSettings, setLoadingPricingSettings] = useState(false);
+  const [savingPricingSettings, setSavingPricingSettings] = useState(false);
 
   const selectedVariant = useMemo(
     () => productDetails?.variants.find((variant) => variant.external_variant_id === selectedVariantId) || null,
@@ -332,6 +350,31 @@ export function GlobalSourcingPage() {
   );
   const previewImage = selectedVariant?.image || productDetails?.images?.[0] || null;
   const inspectedFlags = useMemo(() => getInspectedProductFlags(productDetails), [productDetails]);
+
+  const parsedImportBufferUsd = useMemo(() => {
+    const trimmed = importBufferUsd.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [importBufferUsd]);
+  const parsedMarkupPercent = useMemo(() => {
+    const trimmed = markupPercent.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [markupPercent]);
+  const parsedMarkupFlatNgn = useMemo(() => {
+    const trimmed = markupFlatNgn.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [markupFlatNgn]);
+  const effectiveImportBufferUsd =
+    parsedImportBufferUsd ?? pricingSettings?.values?.import_buffer_usd ?? null;
+  const effectiveMarkupPercent =
+    parsedMarkupPercent ?? pricingSettings?.values?.markup_percent ?? null;
+  const effectiveMarkupFlatNgn =
+    parsedMarkupFlatNgn ?? pricingSettings?.values?.markup_flat_ngn ?? null;
 
   const pickDefaultInboundHub = useCallback((hubRows: HubOption[]) => {
     return (
@@ -348,6 +391,40 @@ export function GlobalSourcingPage() {
       }) || hubRows[0]
     );
   }, []);
+
+  const applyPricingDefaultsToForm = useCallback(
+    (settings: GlobalSourcingSettingsData, force = false) => {
+      const values = settings.values || {
+        import_buffer_usd: null,
+        markup_percent: null,
+        markup_flat_ngn: null,
+        usd_to_ngn_rate: null,
+      };
+
+      setImportBufferUsd((current) =>
+        force || !current.trim()
+          ? values.import_buffer_usd !== null
+            ? String(values.import_buffer_usd)
+            : ''
+          : current
+      );
+      setMarkupPercent((current) =>
+        force || !current.trim()
+          ? values.markup_percent !== null
+            ? String(values.markup_percent)
+            : ''
+          : current
+      );
+      setMarkupFlatNgn((current) =>
+        force || !current.trim()
+          ? values.markup_flat_ngn !== null
+            ? String(values.markup_flat_ngn)
+            : ''
+          : current
+      );
+    },
+    []
+  );
 
   const loadReferenceData = useCallback(async () => {
     if (!session?.access_token) return;
@@ -449,10 +526,32 @@ export function GlobalSourcingPage() {
     }
   }, [notification, session?.access_token]);
 
+  const loadPricingSettings = useCallback(async () => {
+    if (!session?.access_token) return;
+    setLoadingPricingSettings(true);
+    try {
+      const response = await callAdmin<{ data: GlobalSourcingSettingsData }>(
+        'global-sourcing-settings',
+        session.access_token,
+        { method: 'GET' }
+      );
+      setPricingSettings(response.data);
+      applyPricingDefaultsToForm(response.data, false);
+    } catch (error: unknown) {
+      notification.error(
+        'Pricing defaults failed',
+        getErrorMessage(error, 'Unable to load Global Sourcing pricing defaults')
+      );
+    } finally {
+      setLoadingPricingSettings(false);
+    }
+  }, [applyPricingDefaultsToForm, notification, session?.access_token]);
+
   useEffect(() => {
     if (!session?.access_token) return;
     void loadReferenceData();
-  }, [loadReferenceData, session?.access_token]);
+    void loadPricingSettings();
+  }, [loadPricingSettings, loadReferenceData, session?.access_token]);
 
   useEffect(() => {
     if (!productDetails) return;
@@ -466,20 +565,32 @@ export function GlobalSourcingPage() {
 
   useEffect(() => {
     setPricingPreview(null);
-  }, [selectedVariantId, selectedHubId, productDetails?.external_product_id]);
+    setPrice('');
+  }, [
+    selectedVariantId,
+    selectedHubId,
+    productDetails?.external_product_id,
+    importBufferUsd,
+    markupPercent,
+    markupFlatNgn,
+  ]);
 
   useEffect(() => {
     if (!session?.access_token) return;
     if (activeTab === 'imported-products' && importedProducts.length === 0) void loadImportedProducts();
     if (activeTab === 'inbound-shipments' && shipments.length === 0) void loadShipments();
     if (activeTab === 'settings' && !settingsStatus) void loadSettingsStatus();
+    if (activeTab === 'settings' && !pricingSettings && !loadingPricingSettings) void loadPricingSettings();
   }, [
     activeTab,
     importedProducts.length,
     loadImportedProducts,
+    loadPricingSettings,
     loadSettingsStatus,
     loadShipments,
+    loadingPricingSettings,
     session?.access_token,
+    pricingSettings,
     settingsStatus,
     shipments.length,
   ]);
@@ -495,6 +606,36 @@ export function GlobalSourcingPage() {
       notification.error('CJ auth failed', getErrorMessage(error, 'Unable to authenticate with CJ'));
     } finally {
       setTestingSettings(false);
+    }
+  };
+
+  const savePricingSettings = async () => {
+    if (!session?.access_token) return;
+    setSavingPricingSettings(true);
+    try {
+      const response = await callAdmin<{ data: GlobalSourcingSettingsData }>(
+        'global-sourcing-settings',
+        session.access_token,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            import_buffer_usd: parsedImportBufferUsd,
+            markup_percent: parsedMarkupPercent,
+            markup_flat_ngn: parsedMarkupFlatNgn,
+            usd_to_ngn_rate: pricingSettings?.values?.usd_to_ngn_rate ?? null,
+          }),
+        }
+      );
+      setPricingSettings(response.data);
+      applyPricingDefaultsToForm(response.data, true);
+      notification.success('Saved', 'Global Sourcing pricing defaults updated');
+    } catch (error: unknown) {
+      notification.error(
+        'Save failed',
+        getErrorMessage(error, 'Unable to save Global Sourcing pricing defaults')
+      );
+    } finally {
+      setSavingPricingSettings(false);
     }
   };
 
@@ -647,6 +788,15 @@ export function GlobalSourcingPage() {
             external_variant_id: selectedVariant.external_variant_id,
             source_price: selectedVariant.source_price,
             currency: selectedVariant.currency,
+            ...(effectiveImportBufferUsd !== null
+              ? { import_buffer_usd: effectiveImportBufferUsd }
+              : {}),
+            ...(effectiveMarkupPercent !== null
+              ? { markup_percent: effectiveMarkupPercent }
+              : {}),
+            ...(effectiveMarkupFlatNgn !== null
+              ? { markup_flat_ngn: effectiveMarkupFlatNgn }
+              : {}),
           }),
         }
       );
@@ -938,6 +1088,38 @@ export function GlobalSourcingPage() {
                   className="w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-3 text-gray-700"
                   placeholder="Final Woo regular price (NGN)"
                 />
+                <div className="grid gap-3 md:grid-cols-3">
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium text-gray-700">Import Buffer (USD)</span>
+                    <input
+                      value={importBufferUsd}
+                      onChange={(event) => setImportBufferUsd(event.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                      inputMode="decimal"
+                      placeholder="Optional buffer"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium text-gray-700">Markup %</span>
+                    <input
+                      value={markupPercent}
+                      onChange={(event) => setMarkupPercent(event.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                      inputMode="decimal"
+                      placeholder="Percent margin"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-medium text-gray-700">Flat Markup (NGN)</span>
+                    <input
+                      value={markupFlatNgn}
+                      onChange={(event) => setMarkupFlatNgn(event.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                      inputMode="decimal"
+                      placeholder="Flat uplift"
+                    />
+                  </label>
+                </div>
                 <input
                   value={sourcingTag}
                   onChange={(event) => setSourcingTag(event.target.value)}
@@ -1188,6 +1370,97 @@ export function GlobalSourcingPage() {
             <h2 className="text-lg font-semibold text-gray-900">Operational Notes</h2>
             <p>Products remain in WooCommerce. Vendor ownership is resolved from the existing JLO vendors table.</p>
             <p>Inbound shipment state is stored in JLO without changing the existing last-mile delivery enum.</p>
+            <div className="rounded-lg border border-gray-200 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-gray-900">Global Pricing Defaults</h3>
+                  <p className="mt-1 text-sm text-gray-600">
+                    These values prefill the import form and act as the default pricing rule when you do not override a product manually.
+                  </p>
+                  {pricingSettings?.updated_at ? (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Last saved: {formatDate(pricingSettings.updated_at)}
+                    </p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadPricingSettings()}
+                  className="btn-secondary inline-flex items-center gap-2"
+                  disabled={loadingPricingSettings}
+                >
+                  {loadingPricingSettings ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
+                  Refresh
+                </button>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-gray-700">
+                    Default Buffer (USD)
+                  </span>
+                  <input
+                    value={importBufferUsd}
+                    onChange={(event) => setImportBufferUsd(event.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                    inputMode="decimal"
+                    placeholder="Cover FX swings"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-gray-700">
+                    Default Markup %
+                  </span>
+                  <input
+                    value={markupPercent}
+                    onChange={(event) => setMarkupPercent(event.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                    inputMode="decimal"
+                    placeholder="Margin rule"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-gray-700">
+                    Default Flat Markup (NGN)
+                  </span>
+                  <input
+                    value={markupFlatNgn}
+                    onChange={(event) => setMarkupFlatNgn(event.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                    inputMode="decimal"
+                    placeholder="Optional uplift"
+                  />
+                </label>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => void savePricingSettings()}
+                  className="btn-primary inline-flex items-center gap-2"
+                  disabled={savingPricingSettings}
+                >
+                  {savingPricingSettings ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle className="h-4 w-4" />
+                  )}
+                  Save Pricing Defaults
+                </button>
+                <button
+                  type="button"
+                  onClick={() => pricingSettings && applyPricingDefaultsToForm(pricingSettings, true)}
+                  className="btn-secondary inline-flex items-center gap-2"
+                  disabled={!pricingSettings}
+                >
+                  Use Saved Defaults
+                </button>
+              </div>
+            </div>
             <button type="button" onClick={() => void testSettings()} className="btn-primary inline-flex items-center gap-2" disabled={testingSettings}>
               {testingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
               Test CJ backend authentication

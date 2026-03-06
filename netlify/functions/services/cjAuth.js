@@ -282,6 +282,7 @@ export async function requestCjJson({
   bodyCandidates = [undefined],
   queryCandidates = [undefined],
   accessToken,
+  extraHeaders = {},
 }) {
   const { baseUrl } = getCjConfig();
   const failures = [];
@@ -304,6 +305,7 @@ export async function requestCjJson({
             Authorization: `Bearer ${accessToken}`,
             'CJ-Access-Token': accessToken,
             'Content-Type': 'application/json',
+            ...extraHeaders,
           },
           body: body !== undefined ? JSON.stringify(body) : undefined,
         });

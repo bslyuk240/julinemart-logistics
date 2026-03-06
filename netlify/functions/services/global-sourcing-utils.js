@@ -329,6 +329,10 @@ export function getGlobalSourcingPricingConfig() {
       asFiniteNumber(process.env.GLOBAL_SOURCING_USD_TO_NGN_RATE) ||
       asFiniteNumber(process.env.USD_TO_NGN_RATE) ||
       1650,
+    importBufferUsd:
+      asFiniteNumber(process.env.GLOBAL_SOURCING_IMPORT_BUFFER_USD) ||
+      asFiniteNumber(process.env.GLOBAL_SOURCING_IMPORT_BUFFER) ||
+      0,
     markupPercent:
       asFiniteNumber(process.env.GLOBAL_SOURCING_MARKUP_PERCENT) ||
       asFiniteNumber(process.env.GLOBAL_SOURCING_MARKUP_RATE_PERCENT) ||
@@ -343,6 +347,8 @@ export function getGlobalSourcingPricingConfig() {
 export function computeWooNgnPricing({
   sourcePrice,
   sourceCurrency = 'USD',
+  inboundShippingUsd = 0,
+  importBufferUsd,
   explicitRegularPrice,
   explicitSalePrice,
 }) {
@@ -353,10 +359,22 @@ export function computeWooNgnPricing({
 
   const normalizedCurrency = String(sourceCurrency || 'USD').trim().toUpperCase();
   const pricingConfig = getGlobalSourcingPricingConfig();
-  const baseNgn =
-    normalizedCurrency === 'NGN'
-      ? parsedSourcePrice
-      : parsedSourcePrice * pricingConfig.usdToNgnRate;
+  const normalizedInboundShippingUsd = asFiniteNumber(inboundShippingUsd) || 0;
+  const normalizedImportBufferUsd =
+    asFiniteNumber(importBufferUsd) ?? pricingConfig.importBufferUsd;
+
+  let supplierPriceUsd;
+  if (normalizedCurrency === 'USD') {
+    supplierPriceUsd = parsedSourcePrice;
+  } else if (normalizedCurrency === 'NGN') {
+    supplierPriceUsd = parsedSourcePrice / pricingConfig.usdToNgnRate;
+  } else {
+    throw new Error(`Unsupported supplier currency for landed pricing: ${normalizedCurrency}`);
+  }
+
+  const landedCostUsd =
+    supplierPriceUsd + normalizedInboundShippingUsd + normalizedImportBufferUsd;
+  const baseNgn = landedCostUsd * pricingConfig.usdToNgnRate;
   const landedCostNgn = baseNgn + pricingConfig.markupFlatNgn;
   const markedUpNgn = landedCostNgn * (1 + pricingConfig.markupPercent / 100);
   const regularPriceNgn = asFiniteNumber(explicitRegularPrice) ?? markedUpNgn;
@@ -365,6 +383,10 @@ export function computeWooNgnPricing({
   return {
     sourcePrice: parsedSourcePrice,
     sourceCurrency: normalizedCurrency,
+    supplierPriceUsd,
+    inboundShippingUsd: normalizedInboundShippingUsd,
+    importBufferUsd: normalizedImportBufferUsd,
+    landedCostUsd,
     exchangeRate: pricingConfig.usdToNgnRate,
     markupPercent: pricingConfig.markupPercent,
     markupFlatNgn: pricingConfig.markupFlatNgn,
@@ -391,6 +413,12 @@ export function buildGlobalSourcingMeta({
   supplierPriceSnapshot,
   exchangeRateSnapshot,
   salePriceSnapshot,
+  inboundShippingSnapshotUsd,
+  landedCostSnapshotUsd,
+  supplierPriceSnapshotUsd,
+  usdToNgnRateSnapshot,
+  finalPriceSnapshotNgn,
+  pricingMode,
   vendorId,
   woocommerceVendorId,
 }) {
@@ -420,6 +448,24 @@ export function buildGlobalSourcingMeta({
       : {}),
     ...(salePriceSnapshot !== undefined
       ? { _sale_price_snapshot: String(salePriceSnapshot) }
+      : {}),
+    ...(supplierPriceSnapshotUsd !== undefined
+      ? { _supplier_price_snapshot_usd: String(supplierPriceSnapshotUsd) }
+      : {}),
+    ...(inboundShippingSnapshotUsd !== undefined
+      ? { _inbound_shipping_snapshot_usd: String(inboundShippingSnapshotUsd) }
+      : {}),
+    ...(landedCostSnapshotUsd !== undefined
+      ? { _landed_cost_snapshot_usd: String(landedCostSnapshotUsd) }
+      : {}),
+    ...(usdToNgnRateSnapshot !== undefined
+      ? { _usd_to_ngn_rate_snapshot: String(usdToNgnRateSnapshot) }
+      : {}),
+    ...(finalPriceSnapshotNgn !== undefined
+      ? { _final_price_snapshot_ngn: String(finalPriceSnapshotNgn) }
+      : {}),
+    ...(pricingMode !== undefined
+      ? { _global_sourcing_pricing_mode: String(pricingMode) }
       : {}),
     ...(vendorId ? { _jlo_vendor_id: vendorId, vendor_id: vendorId, _vendor_id: vendorId } : {}),
     ...(woocommerceVendorId

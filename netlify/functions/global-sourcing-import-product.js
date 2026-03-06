@@ -1,7 +1,6 @@
 import {
   applyMetaUpdates,
   buildGlobalSourcingMeta,
-  computeWooNgnPricing,
   headers,
   isPlainObject,
   jsonResponse,
@@ -15,6 +14,11 @@ import {
   requireAdmin,
   resolveVendorMapping,
 } from './services/global-sourcing-utils.js';
+import {
+  buildLandedPricingPreview,
+  isUsablePricingPreview,
+  resolveReceivingHub,
+} from './services/global-sourcing-cj.js';
 
 function normalizeSelectedVariant(payload) {
   const source = isPlainObject(payload?.selected_variant) ? payload.selected_variant : {};
@@ -169,11 +173,10 @@ export async function handler(event) {
     return jsonResponse(400, { success: false, error: 'Only provider=cj is supported in this MVP' });
   }
 
-  if (!externalProductId || !targetVendorId || !receivingHubId) {
+  if (!externalProductId || !targetVendorId) {
     return jsonResponse(400, {
       success: false,
-      error:
-        'external_product_id, receiving_hub_id, and target_vendor_mapping.vendor_id are required',
+      error: 'external_product_id and target_vendor_mapping.vendor_id are required',
     });
   }
 
@@ -187,6 +190,13 @@ export async function handler(event) {
   try {
     const vendorMapping = await resolveVendorMapping(auth.adminClient, targetVendorId);
     const selectedVariant = normalizeSelectedVariant(payload);
+    if (!selectedVariant.externalVariantId) {
+      return jsonResponse(400, {
+        success: false,
+        error: 'A CJ variant selection is required for landed-price import',
+      });
+    }
+
     const attributes = normalizeSelectedAttributes(payload, selectedVariant);
     const sourceCurrency = selectedVariant.currency || String(payload.currency || 'USD').trim().toUpperCase();
     const sourcePrice =
@@ -194,12 +204,19 @@ export async function handler(event) {
       payload.source_price ??
       payload.supplier_price_snapshot ??
       payload.regular_price;
-    const pricing = computeWooNgnPricing({
-      sourcePrice,
-      sourceCurrency,
-      explicitRegularPrice: payload.final_regular_price_ngn,
-      explicitSalePrice: payload.final_sale_price_ngn || payload.sale_price_ngn,
-    });
+    const receivingHub = await resolveReceivingHub(auth.adminClient, receivingHubId);
+    const pricingPreview = isUsablePricingPreview(payload?.pricing_preview, {
+      receivingHubId: receivingHub.id,
+      externalVariantId: selectedVariant.externalVariantId,
+    })
+      ? payload.pricing_preview
+      : await buildLandedPricingPreview({
+          client: auth.adminClient,
+          receivingHubId: receivingHub.id,
+          externalVariantId: selectedVariant.externalVariantId,
+          sourcePrice,
+          sourceCurrency,
+        });
 
     const normalizedTitle = normalizeProductTitle(payload.title || '');
     if (!normalizedTitle) {
@@ -227,14 +244,22 @@ export async function handler(event) {
       cjPid: externalProductId,
       cjVid: null,
       fulfillmentMode,
-      receivingHubId,
+      receivingHubId: receivingHub.id,
       sourcingTag: shortDescription,
-      estimatedInboundDaysMin: payload.estimated_inbound_days_min,
-      estimatedInboundDaysMax: payload.estimated_inbound_days_max,
-      landedCostSnapshot: pricing.landedCostNgn.toFixed(2),
-      supplierPriceSnapshot: pricing.sourcePrice,
-      exchangeRateSnapshot: pricing.exchangeRate,
-      salePriceSnapshot: pricing.salePriceWoo || undefined,
+      estimatedInboundDaysMin:
+        pricingPreview.estimated_inbound_days_min ?? payload.estimated_inbound_days_min,
+      estimatedInboundDaysMax:
+        pricingPreview.estimated_inbound_days_max ?? payload.estimated_inbound_days_max,
+      landedCostSnapshot: pricingPreview.final_price_ngn,
+      supplierPriceSnapshot: pricingPreview.supplier_price_usd,
+      exchangeRateSnapshot: pricingPreview.exchange_rate,
+      salePriceSnapshot: pricingPreview.sale_price_ngn || undefined,
+      supplierPriceSnapshotUsd: pricingPreview.supplier_price_usd,
+      inboundShippingSnapshotUsd: pricingPreview.inbound_shipping_quote_usd,
+      landedCostSnapshotUsd: pricingPreview.landed_cost_usd,
+      usdToNgnRateSnapshot: pricingPreview.exchange_rate,
+      finalPriceSnapshotNgn: pricingPreview.final_price_ngn,
+      pricingMode: 'landed',
       vendorId: vendorMapping.id,
       woocommerceVendorId: vendorMapping.woocommerce_vendor_id,
     });
@@ -249,7 +274,10 @@ export async function handler(event) {
         ...ownershipMeta,
       }),
       attributes,
-      pricing,
+      pricing: {
+        regularPriceWoo: pricingPreview.final_price_ngn,
+        salePriceWoo: pricingPreview.sale_price_ngn || null,
+      },
       wooStatus: String(payload.woo_status || 'draft'),
       vendorMapping,
     });
@@ -282,21 +310,32 @@ export async function handler(event) {
         cjPid: externalProductId,
         cjVid: selectedVariant.externalVariantId,
         fulfillmentMode,
-        receivingHubId,
+        receivingHubId: receivingHub.id,
         sourcingTag: shortDescription,
-        estimatedInboundDaysMin: payload.estimated_inbound_days_min,
-        estimatedInboundDaysMax: payload.estimated_inbound_days_max,
-        landedCostSnapshot: pricing.landedCostNgn.toFixed(2),
-        supplierPriceSnapshot: pricing.sourcePrice,
-        exchangeRateSnapshot: pricing.exchangeRate,
-        salePriceSnapshot: pricing.salePriceWoo || undefined,
+        estimatedInboundDaysMin:
+          pricingPreview.estimated_inbound_days_min ?? payload.estimated_inbound_days_min,
+        estimatedInboundDaysMax:
+          pricingPreview.estimated_inbound_days_max ?? payload.estimated_inbound_days_max,
+        landedCostSnapshot: pricingPreview.final_price_ngn,
+        supplierPriceSnapshot: pricingPreview.supplier_price_usd,
+        exchangeRateSnapshot: pricingPreview.exchange_rate,
+        salePriceSnapshot: pricingPreview.sale_price_ngn || undefined,
+        supplierPriceSnapshotUsd: pricingPreview.supplier_price_usd,
+        inboundShippingSnapshotUsd: pricingPreview.inbound_shipping_quote_usd,
+        landedCostSnapshotUsd: pricingPreview.landed_cost_usd,
+        usdToNgnRateSnapshot: pricingPreview.exchange_rate,
+        finalPriceSnapshotNgn: pricingPreview.final_price_ngn,
+        pricingMode: 'landed',
         vendorId: vendorMapping.id,
         woocommerceVendorId: vendorMapping.woocommerce_vendor_id,
       });
 
       const variationPayload = buildVariationPayload({
         attributes,
-        pricing,
+        pricing: {
+          regularPriceWoo: pricingPreview.final_price_ngn,
+          salePriceWoo: pricingPreview.sale_price_ngn || null,
+        },
         variationImage: selectedVariant.image || productImages[0]?.src || null,
         metaData: applyMetaUpdates(existingVariationMeta, {
           ...variationMeta,
@@ -334,14 +373,16 @@ export async function handler(event) {
         fulfillment_mode: fulfillmentMode,
         receiving_hub_id: receivingHubId,
         pricing: {
-          source_currency: pricing.sourceCurrency,
-          source_price: pricing.sourcePrice,
-          exchange_rate: pricing.exchangeRate,
-          markup_percent: pricing.markupPercent,
-          markup_flat_ngn: pricing.markupFlatNgn,
-          landed_cost_ngn: pricing.landedCostNgn.toFixed(2),
-          regular_price_ngn: pricing.regularPriceWoo,
-          sale_price_ngn: pricing.salePriceWoo,
+          source_currency: sourceCurrency,
+          supplier_price_usd: pricingPreview.supplier_price_usd,
+          inbound_shipping_quote_usd: pricingPreview.inbound_shipping_quote_usd,
+          import_buffer_usd: pricingPreview.import_buffer_usd,
+          landed_cost_usd: pricingPreview.landed_cost_usd,
+          exchange_rate: pricingPreview.exchange_rate,
+          markup_percent: pricingPreview.markup_percent,
+          markup_flat_ngn: pricingPreview.markup_flat_ngn,
+          regular_price_ngn: pricingPreview.final_price_ngn,
+          sale_price_ngn: pricingPreview.sale_price_ngn,
         },
         notes: [
           'WooCommerce remains the source of truth for the imported product record.',

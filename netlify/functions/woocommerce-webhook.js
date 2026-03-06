@@ -19,6 +19,9 @@ import {
   fetchWooProductSourcingContext,
   mergeGlobalSourcingMetadata,
 } from './services/global-sourcing-utils.js';
+import {
+  autoCreateCjOrdersForSubOrders,
+} from './services/global-sourcing-cj.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -42,22 +45,25 @@ function getMeta(meta_data, key) {
 
 async function getDefaultHubId(supabaseClient) {
   try {
-    const { data: hub, error: defaultHubError } = await supabaseClient
+    const { data: hubs, error } = await supabaseClient
       .from('hubs')
-      .select('id')
-      .eq('is_default', true)
-      .single();
-    if (defaultHubError) throw defaultHubError;
-    if (hub?.id) return hub.id;
-
-    const { data: firstHub, error: firstHubError } = await supabaseClient
-      .from('hubs')
-      .select('id')
+      .select('id, metadata')
       .eq('is_active', true)
-      .limit(1)
-      .single();
-    if (firstHubError) throw firstHubError;
-    return firstHub?.id || null;
+      .order('name', { ascending: true });
+    if (error) throw error;
+
+    const defaultHub =
+      (hubs || []).find((hub) => {
+        const metadata = hub?.metadata && typeof hub.metadata === 'object' ? hub.metadata : {};
+        return (
+          metadata.default_inbound === true ||
+          metadata.is_default_inbound === true ||
+          metadata.defaultInbound === true ||
+          metadata.isDefaultInbound === true
+        );
+      }) || hubs?.[0];
+
+    return defaultHub?.id || null;
   } catch (error) {
     console.error('Error fetching default hub:', error);
     return null;
@@ -727,20 +733,22 @@ export async function handler(event) {
 	        const metadata = sourceSeed
 	          ? mergeGlobalSourcingMetadata(baseMetadata, {
 	              fulfillment_mode: sourceSeed.fulfillmentMode || 'cj_hub',
-	              global_sourcing: {
-	                provider: sourceSeed.provider || 'cj',
-	                cj_order_id: null,
-	                receiving_hub_id: sourceSeed.receivingHubId || breakdown.hubId,
-	                inbound_status: 'awaiting_supplier_fulfillment',
-	                inbound_tracking_number: null,
-	                items: sourcedItems.map(item => ({
-	                  product_id: item.productId,
-	                  variation_id: item.variationId,
-	                  cj_pid: item.globalSourcing?.cjPid || null,
-	                  cj_vid: item.globalSourcing?.cjVid || null,
-	                })),
-	              },
-	            })
+		              global_sourcing: {
+		                provider: sourceSeed.provider || 'cj',
+		                cj_order_id: null,
+		                receiving_hub_id: sourceSeed.receivingHubId || breakdown.hubId,
+		                inbound_status: 'awaiting_supplier_fulfillment',
+		                inbound_tracking_number: null,
+		                items: sourcedItems.map(item => ({
+		                  product_id: item.productId,
+		                  variation_id: item.variationId,
+		                  cj_pid: item.globalSourcing?.cjPid || null,
+		                  cj_vid: item.globalSourcing?.cjVid || null,
+		                  quantity: item.quantity || 1,
+		                  name: item.name || null,
+		                })),
+		              },
+		            })
 	          : baseMetadata;
 
 	        return {
@@ -817,7 +825,20 @@ export async function handler(event) {
 	          }
 	        }
 
-        // ============================================
+	        try {
+	          const cjResults = await autoCreateCjOrdersForSubOrders({
+	            client: supabase,
+	            subOrders,
+	            wooOrderId: wcOrder.id.toString(),
+	          });
+	          if (cjResults.length > 0) {
+	            console.log('🧾 CJ supplier order results:', cjResults);
+	          }
+	        } catch (cjOrderError) {
+	          console.warn('Unable to auto-create CJ supplier orders:', cjOrderError);
+	        }
+
+	        // ============================================
         // 🎟️ RECORD VOUCHER REDEMPTIONS
         // ============================================
         if (voucherData) {

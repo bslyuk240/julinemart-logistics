@@ -5,6 +5,7 @@ import {
   parseJsonBody,
   requireAdmin,
 } from './services/global-sourcing-utils.js';
+import { createCjOrderForSubOrder } from './services/global-sourcing-cj.js';
 import {
   buildOrderDeepLink,
   extractCustomerIdFromOrder,
@@ -78,39 +79,39 @@ async function markReceivedAtHub(client, shipmentId) {
     throw new Error('Inbound shipment not found');
   }
 
-  if (shipment.inbound_status === 'received_at_hub' && shipment.received_at_hub_at) {
-    return shipment;
-  }
-
-  const { data: updatedShipment, error: updateError } = await client
-    .from('cj_inbound_shipments')
-    .update({
-      inbound_status: 'received_at_hub',
-      received_at_hub_at: now,
-      updated_at: now,
-    })
-    .eq('id', shipmentId)
-    .select(
+  let updatedShipment = shipment;
+  if (shipment.inbound_status !== 'received_at_hub' || !shipment.received_at_hub_at) {
+    const { data, error: updateError } = await client
+      .from('cj_inbound_shipments')
+      .update({
+        inbound_status: 'received_at_hub',
+        received_at_hub_at: now,
+        updated_at: now,
+      })
+      .eq('id', shipmentId)
+      .select(
+        `
+        *,
+        hubs ( id, name, code ),
+        vendors ( id, store_name, woocommerce_vendor_id )
       `
-      *,
-      hubs ( id, name, code ),
-      vendors ( id, store_name, woocommerce_vendor_id )
-    `
-    )
-    .single();
+      )
+      .single();
 
-  if (updateError) throw updateError;
+    if (updateError) throw updateError;
+    updatedShipment = data;
+  }
 
   const subOrder = shipment.sub_orders;
   if (subOrder?.id) {
     const nextMetadata = mergeGlobalSourcingMetadata(subOrder.metadata, {
       fulfillment_mode: 'cj_hub',
       global_sourcing: {
-        provider: shipment.provider || 'cj',
-        cj_order_id: shipment.cj_order_id || null,
-        receiving_hub_id: shipment.hub_id || null,
+        provider: updatedShipment.provider || 'cj',
+        cj_order_id: updatedShipment.cj_order_id || null,
+        receiving_hub_id: updatedShipment.hub_id || null,
         inbound_status: 'received_at_hub',
-        inbound_tracking_number: shipment.inbound_tracking_number || null,
+        inbound_tracking_number: updatedShipment.inbound_tracking_number || null,
       },
     });
 
@@ -121,23 +122,36 @@ async function markReceivedAtHub(client, shipmentId) {
 
     if (subOrderError) throw subOrderError;
 
-    const { error: trackingError } = await client.from('tracking_events').insert({
-      sub_order_id: subOrder.id,
-      status: subOrder.status || 'pending',
-      description: 'Global sourcing shipment received at JulineMart hub',
-      location_name: shipment.hubs?.name || 'JulineMart Hub',
-      event_time: now,
-      actor_type: 'hub',
-      source: 'global_sourcing',
-      metadata: {
-        provider: shipment.provider || 'cj',
-        inbound_status: 'received_at_hub',
-        cj_order_id: shipment.cj_order_id || null,
-        inbound_tracking_number: shipment.inbound_tracking_number || null,
-      },
-    });
+    const { data: existingTracking, error: existingTrackingError } = await client
+      .from('tracking_events')
+      .select('id')
+      .eq('sub_order_id', subOrder.id)
+      .eq('source', 'global_sourcing')
+      .eq('description', 'Global sourcing shipment received at JulineMart hub')
+      .limit(1)
+      .maybeSingle();
 
-    if (trackingError) throw trackingError;
+    if (existingTrackingError) throw existingTrackingError;
+
+    if (!existingTracking?.id) {
+      const { error: trackingError } = await client.from('tracking_events').insert({
+        sub_order_id: subOrder.id,
+        status: subOrder.status || 'pending',
+        description: 'Global sourcing shipment received at JulineMart hub',
+        location_name: updatedShipment.hubs?.name || 'JulineMart Hub',
+        event_time: now,
+        actor_type: 'hub',
+        source: 'global_sourcing',
+        metadata: {
+          provider: updatedShipment.provider || 'cj',
+          inbound_status: 'received_at_hub',
+          cj_order_id: updatedShipment.cj_order_id || null,
+          inbound_tracking_number: updatedShipment.inbound_tracking_number || null,
+        },
+      });
+
+      if (trackingError) throw trackingError;
+    }
 
     if (subOrder.main_order_id) {
       const { data: orderRecord } = await client
@@ -148,29 +162,65 @@ async function markReceivedAtHub(client, shipmentId) {
 
       if (orderRecord) {
         const customerId = extractCustomerIdFromOrder(orderRecord);
-        const orderRef = extractOrderReference(orderRecord) || shipment.woo_order_id || subOrder.id;
+        const orderRef =
+          extractOrderReference(orderRecord) || updatedShipment.woo_order_id || subOrder.id;
         const deepLink = buildOrderDeepLink(orderRef);
 
-        const pushResult = await sendPushToCustomer(customerId, {
-          title: 'Order received at hub',
-          message: `Your order ${orderRef} has been received at the JulineMart hub.`,
-          type: 'order_update',
-          data: {
-            status: 'received_at_hub',
-            orderReference: String(orderRef),
-            shipmentId: shipmentId,
-            ...(deepLink ? { deepLink } : {}),
-          },
-        });
+        if (!existingTracking?.id) {
+          const pushResult = await sendPushToCustomer(customerId, {
+            title: 'Order received at hub',
+            message: `Your order ${orderRef} has been received at the JulineMart hub.`,
+            type: 'order_update',
+            data: {
+              status: 'received_at_hub',
+              orderReference: String(orderRef),
+              shipmentId: shipmentId,
+              ...(deepLink ? { deepLink } : {}),
+            },
+          });
 
-        if (!pushResult.success && !pushResult.skipped) {
-          console.warn('Global sourcing received-at-hub push failed:', pushResult);
+          if (!pushResult.success && !pushResult.skipped) {
+            console.warn('Global sourcing received-at-hub push failed:', pushResult);
+          }
         }
       }
     }
   }
 
   return updatedShipment;
+}
+
+async function createSupplierOrder(client, shipmentId) {
+  const { data: shipment, error } = await client
+    .from('cj_inbound_shipments')
+    .select(
+      `
+      *,
+      sub_orders (
+        id,
+        main_order_id,
+        hub_id,
+        vendor_id,
+        items,
+        status,
+        tracking_number,
+        metadata
+      )
+    `
+    )
+    .eq('id', shipmentId)
+    .single();
+
+  if (error || !shipment?.sub_orders?.id) {
+    throw new Error('Inbound shipment is missing its linked sub-order');
+  }
+
+  return createCjOrderForSubOrder({
+    client,
+    subOrder: shipment.sub_orders,
+    wooOrderId: shipment.woo_order_id,
+    triggerSource: 'admin_retry',
+  });
 }
 
 export async function handler(event) {
@@ -193,15 +243,27 @@ export async function handler(event) {
         return jsonResponse(400, { success: false, error: 'Malformed JSON body' });
       }
 
-      if (payload.action !== 'mark_received_at_hub' || !payload.shipment_id) {
+      if (!payload.shipment_id) {
         return jsonResponse(400, {
           success: false,
-          error: 'action=mark_received_at_hub and shipment_id are required',
+          error: 'shipment_id is required',
         });
       }
 
-      const shipment = await markReceivedAtHub(auth.adminClient, payload.shipment_id);
-      return jsonResponse(200, { success: true, data: shipment });
+      if (payload.action === 'mark_received_at_hub') {
+        const shipment = await markReceivedAtHub(auth.adminClient, payload.shipment_id);
+        return jsonResponse(200, { success: true, data: shipment });
+      }
+
+      if (payload.action === 'create_supplier_order') {
+        const result = await createSupplierOrder(auth.adminClient, payload.shipment_id);
+        return jsonResponse(200, { success: true, data: result });
+      }
+
+      return jsonResponse(400, {
+        success: false,
+        error: 'Unsupported action',
+      });
     }
 
     return jsonResponse(405, { success: false, error: 'Method not allowed' });

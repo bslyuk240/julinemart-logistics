@@ -3,6 +3,7 @@ import {
   AlertCircle,
   CheckCircle,
   Download,
+  Image as ImageIcon,
   Loader2,
   RefreshCw,
   Search,
@@ -17,6 +18,7 @@ interface HubOption {
   id: string;
   name: string;
   code: string;
+  metadata?: Record<string, unknown> | null;
 }
 
 interface VendorOption {
@@ -77,8 +79,30 @@ interface InboundShipment {
   inbound_tracking_number: string | null;
   estimated_arrival_at: string | null;
   received_at_hub_at: string | null;
+  carrier_name?: string | null;
   hubs?: { name: string } | null;
-  sub_orders?: { tracking_number: string | null } | null;
+  sub_orders?: { tracking_number: string | null; metadata?: Record<string, unknown> | null } | null;
+}
+
+interface PricingPreview {
+  provider: string;
+  pricing_mode: string;
+  generated_at: string;
+  receiving_hub_id: string;
+  receiving_hub_name: string;
+  selected_variant_id: string;
+  supplier_price_usd: number;
+  inbound_shipping_quote_usd: number;
+  import_buffer_usd: number;
+  landed_cost_usd: number;
+  exchange_rate: number;
+  markup_percent: number;
+  markup_flat_ngn: number;
+  final_price_ngn: string;
+  sale_price_ngn: string | null;
+  estimated_inbound_days_min?: number | null;
+  estimated_inbound_days_max?: number | null;
+  carrier_name?: string | null;
 }
 
 interface SettingsStatus {
@@ -166,6 +190,10 @@ export function GlobalSourcingPage() {
   const [searchAttempted, setSearchAttempted] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [productDetails, setProductDetails] = useState<ProductDetails | null>(null);
+  const [inspectError, setInspectError] = useState<string | null>(null);
+  const [inspectingProductId, setInspectingProductId] = useState<string | null>(null);
+  const [pricingPreview, setPricingPreview] = useState<PricingPreview | null>(null);
+  const [pricingLoading, setPricingLoading] = useState(false);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [selectedVendorId, setSelectedVendorId] = useState('');
   const [selectedHubId, setSelectedHubId] = useState('');
@@ -187,12 +215,32 @@ export function GlobalSourcingPage() {
     () => productDetails?.variants.find((variant) => variant.external_variant_id === selectedVariantId) || null,
     [productDetails, selectedVariantId]
   );
+  const previewImage = selectedVariant?.image || productDetails?.images?.[0] || null;
+
+  const pickDefaultInboundHub = useCallback((hubRows: HubOption[]) => {
+    return (
+      hubRows.find((hub) => {
+        const metadata =
+          hub.metadata && typeof hub.metadata === 'object' ? hub.metadata : {};
+        return (
+          metadata.default_inbound === true ||
+          metadata.is_default_inbound === true ||
+          metadata.defaultInbound === true ||
+          metadata.isDefaultInbound === true
+        );
+      }) || hubRows[0]
+    );
+  }, []);
 
   const loadReferenceData = useCallback(async () => {
     setLoadingReferenceData(true);
     try {
       const [{ data: hubRows, error: hubError }, { data: vendorRows, error: vendorError }] = await Promise.all([
-        supabase.from('hubs').select('id, name, code').eq('is_active', true).order('name', { ascending: true }),
+        supabase
+          .from('hubs')
+          .select('id, name, code, metadata')
+          .eq('is_active', true)
+          .order('name', { ascending: true }),
         supabase
           .from('vendors')
           .select('id, store_name, woocommerce_vendor_id')
@@ -203,14 +251,14 @@ export function GlobalSourcingPage() {
       if (vendorError) throw vendorError;
       setHubs((hubRows || []) as HubOption[]);
       setVendors((vendorRows || []) as VendorOption[]);
-      setSelectedHubId(hubRows?.[0]?.id || '');
+      setSelectedHubId(pickDefaultInboundHub((hubRows || []) as HubOption[])?.id || '');
       setSelectedVendorId(vendorRows?.[0]?.id || '');
     } catch (error: unknown) {
       notification.error('Load failed', getErrorMessage(error, 'Unable to load hubs and vendors'));
     } finally {
       setLoadingReferenceData(false);
     }
-  }, [notification]);
+  }, [notification, pickDefaultInboundHub]);
 
   const loadImportedProducts = useCallback(async () => {
     if (!session?.access_token) return;
@@ -259,11 +307,15 @@ export function GlobalSourcingPage() {
     if (!productDetails) return;
     setTitle(productDetails.title);
     setDescription(productDetails.description);
-    setPrice(String(selectedVariant?.source_price ?? productDetails.source_price ?? ''));
+    setPrice('');
     if (!selectedVariantId && productDetails.variants[0]) {
       setSelectedVariantId(productDetails.variants[0].external_variant_id);
     }
   }, [productDetails, selectedVariant, selectedVariantId]);
+
+  useEffect(() => {
+    setPricingPreview(null);
+  }, [selectedVariantId, selectedHubId, productDetails?.external_product_id]);
 
   useEffect(() => {
     if (!session?.access_token) return;
@@ -305,6 +357,7 @@ export function GlobalSourcingPage() {
     setSearching(true);
     setSearchAttempted(true);
     setSearchError(null);
+    setInspectError(null);
     setProductDetails(null);
     try {
       const response = await callAdmin<{ data: { results: SearchProduct[] } }>('cj-search-products', session.access_token, {
@@ -324,15 +377,38 @@ export function GlobalSourcingPage() {
 
   const inspectProduct = async (product: SearchProduct) => {
     if (!session?.access_token) return;
+    setInspectingProductId(product.external_product_id);
+    setInspectError(null);
+    setPricingPreview(null);
     try {
       const response = await callAdmin<{ data: { product: ProductDetails } }>('cj-product-details', session.access_token, {
         method: 'POST',
         body: JSON.stringify({ external_product_id: product.external_product_id }),
       });
-      setProductDetails(response.data.product);
-      setSelectedVariantId(response.data.product.variants[0]?.external_variant_id || null);
+      const hydratedProduct: ProductDetails = {
+        ...response.data.product,
+        external_product_id:
+          response.data.product.external_product_id || product.external_product_id,
+        title: response.data.product.title?.trim() || product.title,
+        description: response.data.product.description?.trim() || '',
+        images:
+          Array.isArray(response.data.product.images) && response.data.product.images.length > 0
+            ? response.data.product.images
+            : product.images,
+        source_price: response.data.product.source_price ?? product.source_price,
+        currency: response.data.product.currency || product.currency || 'USD',
+      };
+      setProductDetails(hydratedProduct);
+      setSelectedVariantId(hydratedProduct.variants[0]?.external_variant_id || null);
+      setTitle(hydratedProduct.title);
+      setDescription(hydratedProduct.description);
+      setPrice('');
     } catch (error: unknown) {
-      notification.error('Inspect failed', getErrorMessage(error, 'Unable to load product details'));
+      const message = getErrorMessage(error, 'Unable to load product details');
+      setInspectError(message);
+      notification.error('Inspect failed', message);
+    } finally {
+      setInspectingProductId(null);
     }
   };
 
@@ -340,6 +416,10 @@ export function GlobalSourcingPage() {
     if (!session?.access_token || !productDetails) return;
     if (!selectedVendorId || !selectedHubId) {
       notification.error('Missing mapping', 'Select a target vendor and receiving hub');
+      return;
+    }
+    if (!pricingPreview) {
+      notification.error('Quote required', 'Generate a landed price quote before importing');
       return;
     }
     setImporting(true);
@@ -366,6 +446,7 @@ export function GlobalSourcingPage() {
         sourcing_tag_label_suggestion: sourcingTag,
         fulfillment_mode: 'cj_hub',
         receiving_hub_id: selectedHubId,
+        pricing_preview: pricingPreview,
         target_vendor_mapping: { vendor_id: selectedVendorId },
         supplier_price_snapshot: selectedVariant?.source_price ?? productDetails.source_price ?? null,
       };
@@ -383,6 +464,38 @@ export function GlobalSourcingPage() {
     }
   };
 
+  const quotePricing = async () => {
+    if (!session?.access_token || !selectedVariant || !selectedHubId) {
+      notification.error('Missing inputs', 'Select a hub and CJ variant before quoting landed price');
+      return;
+    }
+
+    setPricingLoading(true);
+    try {
+      const response = await callAdmin<{ data: PricingPreview }>(
+        'global-sourcing-price-preview',
+        session.access_token,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            receiving_hub_id: selectedHubId,
+            external_variant_id: selectedVariant.external_variant_id,
+            source_price: selectedVariant.source_price,
+            currency: selectedVariant.currency,
+          }),
+        }
+      );
+
+      setPricingPreview(response.data);
+      setPrice(response.data.final_price_ngn);
+    } catch (error: unknown) {
+      setPricingPreview(null);
+      notification.error('Quote failed', getErrorMessage(error, 'Unable to quote landed pricing'));
+    } finally {
+      setPricingLoading(false);
+    }
+  };
+
   const markReceived = async (shipmentId: string) => {
     if (!session?.access_token) return;
     setShipmentActionId(shipmentId);
@@ -395,6 +508,26 @@ export function GlobalSourcingPage() {
       await loadShipments();
     } catch (error: unknown) {
       notification.error('Update failed', getErrorMessage(error, 'Unable to update shipment'));
+    } finally {
+      setShipmentActionId(null);
+    }
+  };
+
+  const createSupplierOrder = async (shipmentId: string) => {
+    if (!session?.access_token) return;
+    setShipmentActionId(shipmentId);
+    try {
+      await callAdmin('global-sourcing-inbound-shipments', session.access_token, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'create_supplier_order', shipment_id: shipmentId }),
+      });
+      notification.success('Supplier order created', 'CJ order placement completed');
+      await loadShipments();
+    } catch (error: unknown) {
+      notification.error(
+        'Supplier order failed',
+        getErrorMessage(error, 'Unable to create supplier order')
+      );
     } finally {
       setShipmentActionId(null);
     }
@@ -472,7 +605,14 @@ export function GlobalSourcingPage() {
                 </div>
               ) : (
                 results.map((product) => (
-                  <div key={product.external_product_id} className="rounded-lg border border-gray-200 p-4">
+                  <div
+                    key={product.external_product_id}
+                    className={`rounded-lg border p-4 ${
+                      productDetails?.external_product_id === product.external_product_id
+                        ? 'border-primary-400 bg-primary-50'
+                        : 'border-gray-200'
+                    }`}
+                  >
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <p className="font-semibold text-gray-900">{product.title}</p>
@@ -483,8 +623,18 @@ export function GlobalSourcingPage() {
                           {product.source_price !== null ? `${product.currency} ${product.source_price}` : 'No source price'}
                         </p>
                       </div>
-                      <button type="button" onClick={() => void inspectProduct(product)} className="btn-secondary">
-                        Inspect
+                      <button
+                        type="button"
+                        onClick={() => void inspectProduct(product)}
+                        disabled={inspectingProductId === product.external_product_id}
+                        className="btn-secondary inline-flex items-center gap-2 disabled:opacity-60"
+                      >
+                        {inspectingProductId === product.external_product_id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : null}
+                        {productDetails?.external_product_id === product.external_product_id
+                          ? 'Inspected'
+                          : 'Inspect'}
                       </button>
                     </div>
                   </div>
@@ -499,12 +649,64 @@ export function GlobalSourcingPage() {
               <p className="text-sm text-gray-600">Woo remains the product source of truth.</p>
             </div>
 
+            {inspectError ? (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                Inspect failed: {inspectError}
+              </div>
+            ) : null}
+
+            {inspectingProductId && !productDetails ? (
+              <div className="rounded-lg border border-dashed border-gray-300 px-6 py-10 text-center text-sm text-gray-600">
+                <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary-600" />
+                <p className="mt-3">Loading CJ product details...</p>
+              </div>
+            ) : null}
+
             {!productDetails ? (
               <div className="rounded-lg border border-dashed border-gray-300 px-6 py-10 text-center text-sm text-gray-600">
                 Inspect a CJ product to continue.
               </div>
             ) : (
               <>
+                <div className="grid gap-4 rounded-lg border border-gray-200 bg-white p-4 md:grid-cols-[140px_1fr]">
+                  <div className="overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
+                    {previewImage ? (
+                      <img
+                        src={previewImage}
+                        alt={productDetails.title || 'CJ product'}
+                        className="h-36 w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-36 items-center justify-center text-gray-400">
+                        <ImageIcon className="h-8 w-8" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-2 text-sm text-gray-700">
+                    <p className="font-semibold text-gray-900">
+                      {productDetails.title || 'CJ product ready for import'}
+                    </p>
+                    <p>PID {productDetails.external_product_id}</p>
+                    <p>Variants: {productDetails.variants.length}</p>
+                    <p>
+                      Base source price:{' '}
+                      {productDetails.source_price !== null
+                        ? `${productDetails.currency || 'USD'} ${productDetails.source_price}`
+                        : 'Not provided'}
+                    </p>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {(productDetails.images || []).slice(0, 4).map((image, index) => (
+                        <img
+                          key={`${image}-${index}`}
+                          src={image}
+                          alt={`CJ product ${index + 1}`}
+                          className="h-12 w-12 rounded-md border border-gray-200 object-cover"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-700">
                   <p className="font-semibold text-gray-900">{productDetails.title}</p>
                   <p className="mt-1">PID {productDetails.external_product_id}</p>
@@ -525,7 +727,12 @@ export function GlobalSourcingPage() {
 
                 <input value={title} onChange={(event) => setTitle(event.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3" placeholder="Woo title" />
                 <textarea value={description} onChange={(event) => setDescription(event.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3" rows={4} placeholder="Description" />
-                <input value={price} onChange={(event) => setPrice(event.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3" placeholder="Source price in supplier currency" />
+                <input
+                  value={price}
+                  readOnly
+                  className="w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-3 text-gray-700"
+                  placeholder="Final Woo regular price (NGN)"
+                />
                 <input value={sourcingTag} onChange={(event) => setSourcingTag(event.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3" placeholder="Customer label" />
 
                 <select value={selectedVendorId} onChange={(event) => setSelectedVendorId(event.target.value)} className="w-full rounded-lg border border-gray-300 px-4 py-3">
@@ -543,6 +750,35 @@ export function GlobalSourcingPage() {
                     </option>
                   ))}
                 </select>
+
+                <button
+                  type="button"
+                  onClick={() => void quotePricing()}
+                  className="btn-secondary inline-flex w-full items-center justify-center gap-2"
+                  disabled={pricingLoading || !selectedVariant?.external_variant_id}
+                >
+                  {pricingLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  Quote Landed Price
+                </button>
+
+                {pricingPreview ? (
+                  <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+                    <p className="font-semibold text-gray-900">Landed Pricing</p>
+                    <p className="mt-2">Supplier price: USD {pricingPreview.supplier_price_usd}</p>
+                    <p className="mt-1">Inbound shipping: USD {pricingPreview.inbound_shipping_quote_usd}</p>
+                    <p className="mt-1">Import buffer: USD {pricingPreview.import_buffer_usd}</p>
+                    <p className="mt-1">Landed cost: USD {pricingPreview.landed_cost_usd}</p>
+                    <p className="mt-1">Exchange rate: {pricingPreview.exchange_rate}</p>
+                    <p className="mt-1">Final NGN price: ₦{pricingPreview.final_price_ngn}</p>
+                    <p className="mt-1">
+                      ETA:{' '}
+                      {pricingPreview.estimated_inbound_days_min && pricingPreview.estimated_inbound_days_max
+                        ? `${pricingPreview.estimated_inbound_days_min}-${pricingPreview.estimated_inbound_days_max} days`
+                        : 'Not provided'}
+                    </p>
+                    <p className="mt-1">Carrier: {pricingPreview.carrier_name || 'Not provided'}</p>
+                  </div>
+                ) : null}
 
                 <button type="button" onClick={() => void importProduct()} className="btn-primary inline-flex w-full items-center justify-center gap-2" disabled={importing}>
                   {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
@@ -614,7 +850,20 @@ export function GlobalSourcingPage() {
                   <p className="mt-1">Created: {formatDate(shipment.created_at)}</p>
                   <p className="mt-1">Hub: {shipment.hubs?.name || 'Not linked'} · Sub-order: {shipment.sub_orders?.tracking_number || 'Not linked'}</p>
                   <p className="mt-1">Status: {shipment.inbound_status} · Tracking: {shipment.inbound_tracking_number || 'Not set'}</p>
+                  <p className="mt-1">Supplier order: {shipment.cj_order_id || 'Not created'}</p>
+                  <p className="mt-1">Carrier: {shipment.carrier_name || 'Not set'}</p>
                   <p className="mt-1">ETA: {formatDate(shipment.estimated_arrival_at)} · Received: {formatDate(shipment.received_at_hub_at)}</p>
+                  {!shipment.cj_order_id ? (
+                    <button
+                      type="button"
+                      onClick={() => void createSupplierOrder(shipment.id)}
+                      disabled={shipmentActionId === shipment.id}
+                      className="btn-secondary mt-3 inline-flex items-center gap-2 disabled:opacity-60"
+                    >
+                      {shipmentActionId === shipment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                      Create Supplier Order
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => void markReceived(shipment.id)}
@@ -687,8 +936,8 @@ export function GlobalSourcingPage() {
               <div className="flex gap-3">
                 <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
                 <p>
-                  This MVP writes sourcing meta to Woo and prepares inbound records in JLO. It does not
-                  automate CJ order placement yet.
+                  Landed pricing now includes CJ freight-to-hub quoting, and sourced sub-orders can place
+                  supplier orders into CJ automatically. Final-mile delivery still stays in JLO.
                 </p>
               </div>
             </div>

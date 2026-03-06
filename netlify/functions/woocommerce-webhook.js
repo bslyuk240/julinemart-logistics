@@ -47,13 +47,14 @@ async function getDefaultHubId(supabaseClient) {
   try {
     const { data: hubs, error } = await supabaseClient
       .from('hubs')
-      .select('id, metadata')
+      .select('id, is_default, metadata')
       .eq('is_active', true)
       .order('name', { ascending: true });
     if (error) throw error;
 
     const defaultHub =
       (hubs || []).find((hub) => {
+        if (hub?.is_default === true) return true;
         const metadata = hub?.metadata && typeof hub.metadata === 'object' ? hub.metadata : {};
         return (
           metadata.default_inbound === true ||

@@ -18,6 +18,7 @@ interface HubOption {
   id: string;
   name: string;
   code: string;
+  is_default?: boolean | null;
   metadata?: Record<string, unknown> | null;
 }
 
@@ -105,6 +106,65 @@ interface PricingPreview {
   carrier_name?: string | null;
 }
 
+function getSearchResultFlags(product: SearchProduct) {
+  const flags: Array<{ label: string; tone: 'red' | 'amber' | 'green' }> = [];
+
+  if (!product.title?.trim()) {
+    flags.push({ label: 'Missing title', tone: 'red' });
+  }
+  if (!Array.isArray(product.images) || product.images.length === 0) {
+    flags.push({ label: 'Missing image', tone: 'red' });
+  }
+  if (product.source_price === null) {
+    flags.push({ label: 'Missing price', tone: 'red' });
+  }
+  if (!product.variants_summary?.trim()) {
+    flags.push({ label: 'Inspect variants', tone: 'amber' });
+  }
+
+  if (flags.length === 0) {
+    flags.push({ label: 'Looks usable', tone: 'green' });
+  }
+
+  return flags;
+}
+
+function getInspectedProductFlags(product: ProductDetails | null) {
+  if (!product) return [];
+
+  const flags: Array<{ label: string; tone: 'red' | 'amber' | 'green' }> = [];
+  const validVariants = product.variants.filter(
+    (variant) => variant.external_variant_id && variant.source_price !== null
+  );
+
+  if (!product.title?.trim()) {
+    flags.push({ label: 'Missing title', tone: 'red' });
+  }
+  if (!Array.isArray(product.images) || product.images.length === 0) {
+    flags.push({ label: 'Missing image', tone: 'red' });
+  }
+  if (!product.description?.trim()) {
+    flags.push({ label: 'Missing description', tone: 'amber' });
+  }
+  if (product.variants.length === 0) {
+    flags.push({ label: 'No variants returned', tone: 'red' });
+  } else if (validVariants.length === 0) {
+    flags.push({ label: 'No priced variant', tone: 'red' });
+  }
+
+  if (flags.length === 0) {
+    flags.push({ label: 'Import ready', tone: 'green' });
+  }
+
+  return flags;
+}
+
+function toneClasses(tone: 'red' | 'amber' | 'green') {
+  if (tone === 'red') return 'border-red-200 bg-red-50 text-red-700';
+  if (tone === 'amber') return 'border-amber-200 bg-amber-50 text-amber-800';
+  return 'border-green-200 bg-green-50 text-green-700';
+}
+
 interface SettingsStatus {
   configured: boolean;
   wooConfigured: boolean;
@@ -114,6 +174,8 @@ interface SettingsStatus {
 }
 
 const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
+const sourcingVendorStorageKey = 'global-sourcing:selected-vendor-id';
+const sourcingHubStorageKey = 'global-sourcing:selected-hub-id';
 
 const tabs: Array<{ key: TabKey; label: string }> = [
   { key: 'cj-products', label: 'CJ Products' },
@@ -139,6 +201,28 @@ function endpointCandidates(endpoint: string) {
     urls.push(`http://localhost:8888${functionsBase}/${endpoint}`);
   }
   return Array.from(new Set(urls));
+}
+
+function readStoredSelection(key: string) {
+  if (typeof window === 'undefined') return '';
+  try {
+    return window.localStorage.getItem(key) || '';
+  } catch {
+    return '';
+  }
+}
+
+function persistSelection(key: string, value: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (value) {
+      window.localStorage.setItem(key, value);
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Ignore local storage failures in private or restricted browsers.
+  }
 }
 
 async function callAdmin<T>(endpoint: string, accessToken: string, init: RequestInit = {}): Promise<T> {
@@ -216,10 +300,12 @@ export function GlobalSourcingPage() {
     [productDetails, selectedVariantId]
   );
   const previewImage = selectedVariant?.image || productDetails?.images?.[0] || null;
+  const inspectedFlags = useMemo(() => getInspectedProductFlags(productDetails), [productDetails]);
 
   const pickDefaultInboundHub = useCallback((hubRows: HubOption[]) => {
     return (
       hubRows.find((hub) => {
+        if (hub.is_default === true) return true;
         const metadata =
           hub.metadata && typeof hub.metadata === 'object' ? hub.metadata : {};
         return (
@@ -238,7 +324,7 @@ export function GlobalSourcingPage() {
       const [{ data: hubRows, error: hubError }, { data: vendorRows, error: vendorError }] = await Promise.all([
         supabase
           .from('hubs')
-          .select('id, name, code, metadata')
+          .select('id, name, code, is_default, metadata')
           .eq('is_active', true)
           .order('name', { ascending: true }),
         supabase
@@ -249,16 +335,37 @@ export function GlobalSourcingPage() {
       ]);
       if (hubError) throw hubError;
       if (vendorError) throw vendorError;
-      setHubs((hubRows || []) as HubOption[]);
-      setVendors((vendorRows || []) as VendorOption[]);
-      setSelectedHubId(pickDefaultInboundHub((hubRows || []) as HubOption[])?.id || '');
-      setSelectedVendorId(vendorRows?.[0]?.id || '');
+      const nextHubs = (hubRows || []) as HubOption[];
+      const nextVendors = (vendorRows || []) as VendorOption[];
+      const storedHubId = readStoredSelection(sourcingHubStorageKey);
+      const storedVendorId = readStoredSelection(sourcingVendorStorageKey);
+      const defaultHubId =
+        nextHubs.find((hub) => hub.id === storedHubId)?.id ||
+        pickDefaultInboundHub(nextHubs)?.id ||
+        '';
+      const defaultVendorId =
+        nextVendors.find((vendor) => vendor.id === storedVendorId)?.id ||
+        nextVendors[0]?.id ||
+        '';
+
+      setHubs(nextHubs);
+      setVendors(nextVendors);
+      setSelectedHubId(defaultHubId);
+      setSelectedVendorId(defaultVendorId);
     } catch (error: unknown) {
       notification.error('Load failed', getErrorMessage(error, 'Unable to load hubs and vendors'));
     } finally {
       setLoadingReferenceData(false);
     }
   }, [notification, pickDefaultInboundHub]);
+
+  useEffect(() => {
+    persistSelection(sourcingVendorStorageKey, selectedVendorId);
+  }, [selectedVendorId]);
+
+  useEffect(() => {
+    persistSelection(sourcingHubStorageKey, selectedHubId);
+  }, [selectedHubId]);
 
   const loadImportedProducts = useCallback(async () => {
     if (!session?.access_token) return;
@@ -622,6 +729,16 @@ export function GlobalSourcingPage() {
                         <p className="mt-1 text-sm text-gray-600">
                           {product.source_price !== null ? `${product.currency} ${product.source_price}` : 'No source price'}
                         </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {getSearchResultFlags(product).map((flag) => (
+                            <span
+                              key={`${product.external_product_id}-${flag.label}`}
+                              className={`rounded-full border px-2.5 py-1 text-xs font-medium ${toneClasses(flag.tone)}`}
+                            >
+                              {flag.label}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                       <button
                         type="button"
@@ -702,6 +819,16 @@ export function GlobalSourcingPage() {
                           alt={`CJ product ${index + 1}`}
                           className="h-12 w-12 rounded-md border border-gray-200 object-cover"
                         />
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {inspectedFlags.map((flag) => (
+                        <span
+                          key={`inspected-${flag.label}`}
+                          className={`rounded-full border px-2.5 py-1 text-xs font-medium ${toneClasses(flag.tone)}`}
+                        >
+                          {flag.label}
+                        </span>
                       ))}
                     </div>
                   </div>

@@ -57,6 +57,7 @@ function resolveCountryName(countryCode, metadata) {
 function resolveDefaultInboundHub(hubs) {
   return (
     hubs.find((hub) => {
+      if (hub?.is_default === true) return true;
       const metadata = parseObject(hub.metadata);
       return (
         metadata.default_inbound === true ||
@@ -130,7 +131,7 @@ export async function resolveReceivingHub(client, receivingHubId) {
     const { data: hub, error } = await client
       .from('hubs')
       .select(
-        'id, name, code, address, city, state, phone, email, manager_name, manager_phone, metadata, is_active'
+        'id, name, code, address, city, state, phone, email, manager_name, manager_phone, metadata, is_active, is_default'
       )
       .eq('id', receivingHubId)
       .single();
@@ -145,7 +146,7 @@ export async function resolveReceivingHub(client, receivingHubId) {
   const { data: hubs, error } = await client
     .from('hubs')
     .select(
-      'id, name, code, address, city, state, phone, email, manager_name, manager_phone, metadata, is_active'
+      'id, name, code, address, city, state, phone, email, manager_name, manager_phone, metadata, is_active, is_default'
     )
     .eq('is_active', true)
     .order('name', { ascending: true });

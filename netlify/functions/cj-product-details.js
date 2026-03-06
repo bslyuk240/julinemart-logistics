@@ -3,6 +3,7 @@ import {
   headers,
   jsonResponse,
   normalizeImages,
+  normalizeProductDescription,
   parseJsonBody,
   requireAdmin,
 } from './services/global-sourcing-utils.js';
@@ -216,13 +217,14 @@ function normalizeProduct(payload, externalProductId) {
       product?.pid ?? product?.productId ?? product?.id ?? externalProductId ?? ''
     ),
     title: productName,
-    description: String(
+    description: normalizeProductDescription(
       product?.description ??
         product?.productDescription ??
         product?.descriptionEn ??
         product?.remark ??
-        ''
-    ).trim(),
+        '',
+      productName
+    ),
     images,
     category: product?.categoryName ?? product?.category ?? null,
     source_price:

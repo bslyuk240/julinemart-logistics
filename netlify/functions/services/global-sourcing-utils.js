@@ -229,6 +229,16 @@ function collapseWhitespace(value) {
     .trim();
 }
 
+function decodeHtmlEntities(value) {
+  return String(value || '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+}
+
 function dedupeDelimitedSegments(value) {
   const segments = String(value || '')
     .split(/\s*[\-|,/]+\s*/g)
@@ -277,17 +287,26 @@ function slugifyStoreName(value) {
 }
 
 export function normalizeProductDescription(value, title = '') {
-  const raw = String(value || '')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\r/g, '\n');
+  const raw = decodeHtmlEntities(
+    String(value || '')
+      .replace(/<img[^>]*>/gi, '\n')
+      .replace(/<li[^>]*>/gi, '\n- ')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<\/?(ul|ol)[^>]*>/gi, '\n')
+      .replace(/<\/?(b|strong)[^>]*>/gi, '')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n')
+      .replace(/<p[^>]*>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\r/g, '\n')
+  );
 
   const titleKey = collapseWhitespace(title).toLowerCase();
   const lines = raw
     .split('\n')
     .map((line) => collapseWhitespace(line))
-    .map((line) => line.replace(/^[-*•]+\s*/, ''))
+    .map((line) => line.replace(/^[-*\u2022]+\s*/, '- '))
+    .map((line) => line.replace(/\s*:\s*/g, ': '))
     .filter(Boolean);
 
   const seen = new Set();
@@ -295,6 +314,16 @@ export function normalizeProductDescription(value, title = '') {
   for (const line of lines) {
     const key = line.toLowerCase();
     if (titleKey && key === titleKey) continue;
+    if (
+      key === 'product information:' ||
+      key === 'product information' ||
+      key === 'size information:' ||
+      key === 'size information' ||
+      key === 'packing list:' ||
+      key === 'packing list'
+    ) {
+      continue;
+    }
     if (seen.has(key)) continue;
     seen.add(key);
     next.push(line);
@@ -659,3 +688,4 @@ export async function resolveVendorMapping(client, targetVendorId, targetVendorM
 
   return insertedVendor;
 }
+

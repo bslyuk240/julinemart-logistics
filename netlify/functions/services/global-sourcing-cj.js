@@ -15,6 +15,11 @@ import {
 const PROVIDER = 'cj';
 const INBOUND_STATUS_AWAITING = 'awaiting_supplier_fulfillment';
 const INBOUND_STATUS_CREATED = 'supplier_order_created';
+const CJ_TRANSIENT_RATE_LIMIT_CODE = 1600200;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function parseObject(value) {
   if (isPlainObject(value)) return value;
@@ -230,6 +235,15 @@ function normalizeFreightQuote(payload) {
   return options[0] || null;
 }
 
+function isCjRateLimitError(error) {
+  const details = Array.isArray(error?.details) ? error.details : [];
+  return details.some((entry) => {
+    const status = Number(entry?.status || 0);
+    const code = Number(entry?.response?.code || entry?.cjError?.code || 0);
+    return status === 429 || code === CJ_TRANSIENT_RATE_LIMIT_CODE;
+  });
+}
+
 export async function quoteCjInboundFreight({
   client,
   receivingHubId,
@@ -242,19 +256,35 @@ export async function quoteCjInboundFreight({
 
   const hub = await resolveReceivingHub(client, receivingHubId);
   const token = await getCjAccessToken();
-  const result = await requestCjJson({
-    pathCandidates: ['/v1/logistic/freightCalculate'],
-    method: 'POST',
-    accessToken: token.accessToken,
-    bodyCandidates: [
-      {
-        vid: externalVariantId,
-        quantity,
-        endCountryCode: hub.countryCode,
-        zip: hub.postcode || undefined,
-      },
-    ],
-  });
+  const requestPayload = {
+    vid: externalVariantId,
+    quantity,
+    endCountryCode: hub.countryCode,
+    zip: hub.postcode || undefined,
+  };
+
+  let result;
+  try {
+    result = await requestCjJson({
+      pathCandidates: ['/v1/logistic/freightCalculate'],
+      method: 'POST',
+      accessToken: token.accessToken,
+      bodyCandidates: [requestPayload],
+    });
+  } catch (error) {
+    if (!isCjRateLimitError(error)) {
+      throw error;
+    }
+
+    await sleep(1200);
+
+    result = await requestCjJson({
+      pathCandidates: ['/v1/logistic/freightCalculate'],
+      method: 'POST',
+      accessToken: token.accessToken,
+      bodyCandidates: [requestPayload],
+    });
+  }
 
   const quote = normalizeFreightQuote(result.data);
   if (!quote) {

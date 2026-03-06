@@ -179,6 +179,7 @@ function normalizeVariant(record, product) {
 
 function normalizeProduct(payload, externalProductId) {
   const product =
+    payload?.data ||
     payload?.data?.product ||
     payload?.data?.detail ||
     payload?.data?.data ||

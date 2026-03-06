@@ -74,6 +74,7 @@ function normalizeReceivingHub(hub) {
   const countryCode = (
     pickHubMetadataValue(metadata, ['country_code', 'countryCode']) ||
     process.env.GLOBAL_SOURCING_DEFAULT_COUNTRY_CODE ||
+    'NG' ||
     ''
   ).toUpperCase();
   const countryName = resolveCountryName(countryCode, metadata);

@@ -8,6 +8,7 @@
 - Netlify Woo import writeback function
 - Netlify inbound shipment admin function
 - Supabase migration for `cj_inbound_shipments`
+- Supabase migration for shared provider auth token caching
 - Woo webhook placeholder logic for sourced sub-orders
 
 ## Route and page
@@ -55,6 +56,7 @@
 - `netlify/functions/services/cjAuth.js`
   - CJ access token requests
   - In-memory token caching for the current function runtime
+  - Shared Supabase token caching for live/serverless reuse
   - Prefers the documented `/v1/authentication/getAccessToken` route
   - Keeps fallback attempts for slightly different endpoint shapes
 
@@ -136,6 +138,7 @@ Existing metadata such as `selected_lane`, `eligible_lanes`, voucher data, influ
 - Optional override:
   - `CJ_AUTH_PATH`
 - Use `CJ_AUTH_PATH` only if CJ changes the token route for your account or region
+- Live deployments reuse a shared cached token from `provider_auth_tokens` to avoid CJ's token rate limit on serverless instances
 
 ## Content normalization
 

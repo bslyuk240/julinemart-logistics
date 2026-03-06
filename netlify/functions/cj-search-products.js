@@ -10,6 +10,9 @@ import {
 
 function pickProductList(payload) {
   const candidates = [
+    payload?.data?.content?.flatMap?.((entry) =>
+      Array.isArray(entry?.productList) ? entry.productList : []
+    ),
     payload?.data?.list,
     payload?.data?.records,
     payload?.data?.dataList,
@@ -38,6 +41,7 @@ function normalizeProduct(record) {
   ]);
 
   const sourcePrice =
+    record?.nowPrice ??
     record?.sourcePrice ??
     record?.sellPrice ??
     record?.price ??
@@ -53,9 +57,11 @@ function normalizeProduct(record) {
     external_product_id: String(
       record?.pid ?? record?.productId ?? record?.id ?? record?.product_id ?? ''
     ),
-    title: String(record?.productName ?? record?.name ?? record?.title ?? '').trim(),
+    title: String(
+      record?.productNameEn ?? record?.nameEn ?? record?.productName ?? record?.name ?? record?.title ?? ''
+    ).trim(),
     images,
-    category: record?.categoryName ?? record?.category ?? null,
+    category: record?.threeCategoryName ?? record?.categoryName ?? record?.category ?? null,
     source_price: sourcePrice !== null && sourcePrice !== undefined ? Number(sourcePrice) : null,
     currency: record?.currency || record?.currencyCode || 'USD',
     variants_summary:
@@ -95,13 +101,14 @@ export async function handler(event) {
   try {
     const token = await getCjAccessToken();
     const result = await requestCjJson({
-      pathCandidates: ['/product/query', '/product/list', '/products/search'],
-      method: 'POST',
+      pathCandidates: ['/v1/product/listV2', '/v1/product/list'],
+      method: 'GET',
       accessToken: token.accessToken,
-      bodyCandidates: [
+      bodyCandidates: [undefined],
+      queryCandidates: [
+        { keyWord: query, page, size: pageSize },
+        { productNameEn: query, pageNum: page, pageSize },
         { productName: query, pageNum: page, pageSize },
-        { keyword: query, pageNum: page, pageSize },
-        { query, pageNum: page, pageSize },
       ],
     });
 
@@ -116,6 +123,7 @@ export async function handler(event) {
         query,
         endpoint: result.endpoint,
         results,
+        count: results.length,
         raw_snapshot:
           isPlainObject(result.data) && Array.isArray(result.data?.data) ? undefined : result.data,
       },

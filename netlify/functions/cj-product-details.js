@@ -9,6 +9,7 @@ import {
 
 function pickVariantList(payload) {
   const candidates = [
+    payload?.data,
     payload?.data?.variants,
     payload?.data?.variantList,
     payload?.data?.skuList,
@@ -146,19 +147,37 @@ export async function handler(event) {
 
   try {
     const token = await getCjAccessToken();
-    const result = await requestCjJson({
-      pathCandidates: ['/product/queryByPid', '/product/detail', '/products/detail'],
-      method: 'POST',
-      accessToken: token.accessToken,
-      bodyCandidates: [{ pid: externalProductId }, { productId: externalProductId }],
-      query: { pid: externalProductId },
-    });
+    const [productResult, variantsResult] = await Promise.all([
+      requestCjJson({
+        pathCandidates: ['/v1/product/query'],
+        method: 'GET',
+        accessToken: token.accessToken,
+        bodyCandidates: [undefined],
+        queryCandidates: [{ pid: externalProductId }],
+      }),
+      requestCjJson({
+        pathCandidates: ['/v1/product/variant/queryByPid', '/v1/product/variant/query'],
+        method: 'GET',
+        accessToken: token.accessToken,
+        bodyCandidates: [undefined],
+        queryCandidates: [{ pid: externalProductId }],
+      }),
+    ]);
+
+    const mergedPayload = {
+      ...(productResult.data || {}),
+      data: {
+        ...(productResult.data?.data || {}),
+        variants: pickVariantList(variantsResult.data),
+      },
+    };
 
     return jsonResponse(200, {
       success: true,
       data: {
-        endpoint: result.endpoint,
-        product: normalizeProduct(result.data, externalProductId),
+        endpoint: productResult.endpoint,
+        variant_endpoint: variantsResult.endpoint,
+        product: normalizeProduct(mergedPayload, externalProductId),
       },
     });
   } catch (error) {

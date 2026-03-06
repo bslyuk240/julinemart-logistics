@@ -163,6 +163,8 @@ export function GlobalSourcingPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<SearchProduct[]>([]);
+  const [searchAttempted, setSearchAttempted] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [productDetails, setProductDetails] = useState<ProductDetails | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [selectedVendorId, setSelectedVendorId] = useState('');
@@ -301,6 +303,8 @@ export function GlobalSourcingPage() {
       return;
     }
     setSearching(true);
+    setSearchAttempted(true);
+    setSearchError(null);
     setProductDetails(null);
     try {
       const response = await callAdmin<{ data: { results: SearchProduct[] } }>('cj-search-products', session.access_token, {
@@ -309,7 +313,10 @@ export function GlobalSourcingPage() {
       });
       setResults(response.data?.results || []);
     } catch (error: unknown) {
-      notification.error('CJ search failed', getErrorMessage(error, 'Unable to search CJ products'));
+      const message = getErrorMessage(error, 'Unable to search CJ products');
+      setResults([]);
+      setSearchError(message);
+      notification.error('CJ search failed', message);
     } finally {
       setSearching(false);
     }
@@ -450,9 +457,18 @@ export function GlobalSourcingPage() {
             </form>
 
             <div className="space-y-3">
+              {searchError ? (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  CJ search failed: {searchError}
+                </div>
+              ) : null}
               {results.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-gray-300 px-6 py-10 text-center text-sm text-gray-600">
-                  No CJ products loaded yet.
+                  {searchError
+                    ? 'Fix the CJ search error and try again.'
+                    : searchAttempted
+                    ? 'No CJ products matched this search.'
+                    : 'No CJ products loaded yet.'}
                 </div>
               ) : (
                 results.map((product) => (

@@ -1,9 +1,18 @@
 import { sanitizeBaseUrl } from './global-sourcing-utils.js';
+import { createClient } from '@supabase/supabase-js';
 
 const DEFAULT_TOKEN_TTL_MS = 45 * 60 * 1000;
+const PROVIDER = 'cj';
 
 let cachedToken = null;
 let cachedTokenExpiresAt = 0;
+
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || '';
+
+const tokenStoreClient =
+  SUPABASE_URL && SERVICE_ROLE_KEY ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY) : null;
 
 function getCjConfig() {
   const apiKey = process.env.CJ_API_KEY || '';
@@ -65,6 +74,75 @@ function resolveExpiryMs(payload) {
   return DEFAULT_TOKEN_TTL_MS;
 }
 
+function buildTokenResponse(accessToken, expiresAt, cached) {
+  return {
+    accessToken,
+    expiresAt,
+    cached,
+  };
+}
+
+function isTokenUsable(expiresAt) {
+  const timestamp = Date.parse(String(expiresAt || ''));
+  return !Number.isNaN(timestamp) && timestamp > Date.now() + 30 * 1000;
+}
+
+async function loadStoredToken() {
+  if (!tokenStoreClient) return null;
+
+  const { data, error } = await tokenStoreClient
+    .from('provider_auth_tokens')
+    .select('access_token, expires_at')
+    .eq('provider', PROVIDER)
+    .maybeSingle();
+
+  if (error || !data?.access_token || !isTokenUsable(data.expires_at)) {
+    return null;
+  }
+
+  cachedToken = data.access_token;
+  cachedTokenExpiresAt = Date.parse(data.expires_at);
+
+  return buildTokenResponse(data.access_token, data.expires_at, true);
+}
+
+async function saveStoredToken(accessToken, expiresAt, metadata = {}) {
+  if (!tokenStoreClient) return;
+
+  await tokenStoreClient.from('provider_auth_tokens').upsert(
+    {
+      provider: PROVIDER,
+      access_token: accessToken,
+      expires_at: expiresAt,
+      metadata,
+    },
+    { onConflict: 'provider' }
+  );
+}
+
+function extractCjFailure(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+
+  const success = payload.success;
+  const result = payload.result;
+  const code = payload.code;
+  const message = payload.message || payload.msg || payload.error_description || payload.error;
+
+  const explicitFailure =
+    success === false ||
+    result === false ||
+    (typeof code === 'number' && code !== 200 && code !== 0) ||
+    (typeof code === 'string' && code !== '200' && code !== '0');
+
+  if (!explicitFailure) return null;
+
+  return {
+    code: code ?? null,
+    message: message || 'CJ API returned an application-level error',
+    payload,
+  };
+}
+
 async function requestTokenAttempt(baseUrl, apiKey, attempt) {
   const response = await fetch(`${baseUrl}${attempt.path}`, {
     method: attempt.method,
@@ -91,11 +169,18 @@ async function requestTokenAttempt(baseUrl, apiKey, attempt) {
 
 export async function getCjAccessToken({ forceRefresh = false } = {}) {
   if (!forceRefresh && cachedToken && cachedTokenExpiresAt > Date.now() + 30 * 1000) {
-    return {
-      accessToken: cachedToken,
-      expiresAt: new Date(cachedTokenExpiresAt).toISOString(),
-      cached: true,
-    };
+    return buildTokenResponse(
+      cachedToken,
+      new Date(cachedTokenExpiresAt).toISOString(),
+      true
+    );
+  }
+
+  if (!forceRefresh) {
+    const storedToken = await loadStoredToken();
+    if (storedToken) {
+      return storedToken;
+    }
   }
 
   const { apiKey, baseUrl, authPathOverride } = getCjConfig();
@@ -147,6 +232,13 @@ export async function getCjAccessToken({ forceRefresh = false } = {}) {
         status: response.status,
         body,
       });
+      if (response.status === 429 && !forceRefresh) {
+        const storedToken = await loadStoredToken();
+        if (storedToken) {
+          return storedToken;
+        }
+      }
+
       if (![400, 404, 405].includes(response.status)) {
         break;
       }
@@ -169,12 +261,14 @@ export async function getCjAccessToken({ forceRefresh = false } = {}) {
     const ttlMs = resolveExpiryMs(body);
     cachedToken = accessToken;
     cachedTokenExpiresAt = Date.now() + ttlMs;
+    const expiresAt = new Date(cachedTokenExpiresAt).toISOString();
 
-    return {
-      accessToken,
-      expiresAt: new Date(cachedTokenExpiresAt).toISOString(),
-      cached: false,
-    };
+    await saveStoredToken(accessToken, expiresAt, {
+      base_url: baseUrl,
+      token_path: attempt.path,
+    });
+
+    return buildTokenResponse(accessToken, expiresAt, false);
   }
 
   const error = new Error('Unable to acquire CJ access token');
@@ -186,59 +280,65 @@ export async function requestCjJson({
   pathCandidates,
   method = 'GET',
   bodyCandidates = [undefined],
+  queryCandidates = [undefined],
   accessToken,
-  query,
 }) {
   const { baseUrl } = getCjConfig();
   const failures = [];
 
   for (const path of pathCandidates) {
     for (const body of bodyCandidates) {
-      const url = new URL(`${baseUrl}${path}`);
-      if (query && typeof query === 'object') {
-        Object.entries(query).forEach(([key, value]) => {
-          if (value !== undefined && value !== null && value !== '') {
-            url.searchParams.set(key, String(value));
-          }
-        });
-      }
-
-      const response = await fetch(url, {
-        method,
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          'CJ-Access-Token': accessToken,
-          'Content-Type': 'application/json',
-        },
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-      });
-
-      const raw = await response.text();
-      let parsed = {};
-      try {
-        parsed = raw ? JSON.parse(raw) : {};
-      } catch {
-        parsed = { raw };
-      }
-
-      if (!response.ok) {
-        failures.push({
-          path,
-          method,
-          status: response.status,
-          body,
-          response: parsed,
-        });
-        if ([400, 404, 405].includes(response.status)) {
-          continue;
+      for (const query of queryCandidates) {
+        const url = new URL(`${baseUrl}${path}`);
+        if (query && typeof query === 'object') {
+          Object.entries(query).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== '') {
+              url.searchParams.set(key, String(value));
+            }
+          });
         }
-        break;
-      }
 
-      return {
-        data: parsed,
-        endpoint: path,
-      };
+        const response = await fetch(url, {
+          method,
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'CJ-Access-Token': accessToken,
+            'Content-Type': 'application/json',
+          },
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+        });
+
+        const raw = await response.text();
+        let parsed = {};
+        try {
+          parsed = raw ? JSON.parse(raw) : {};
+        } catch {
+          parsed = { raw };
+        }
+
+        const cjFailure = extractCjFailure(parsed);
+
+        if (!response.ok || cjFailure) {
+          failures.push({
+            path,
+            method,
+            status: response.status,
+            body,
+            query,
+            response: parsed,
+            cjError: cjFailure,
+          });
+          if (cjFailure || [400, 404, 405].includes(response.status)) {
+            continue;
+          }
+          break;
+        }
+
+        return {
+          data: parsed,
+          endpoint: path,
+        };
+      }
     }
   }
 

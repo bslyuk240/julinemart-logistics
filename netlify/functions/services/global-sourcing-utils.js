@@ -330,25 +330,46 @@ export async function requestWordPress(path, init = {}) {
   return body;
 }
 
-export async function ensureWooProductTag(tagName) {
-  const normalizedName = String(tagName || '').trim();
+export async function ensureWooProductTag(tagInput) {
+  const normalizedName = String(
+    typeof tagInput === 'object' && tagInput !== null ? tagInput.name : tagInput || ''
+  ).trim();
+  const normalizedSlug = String(
+    typeof tagInput === 'object' && tagInput !== null ? tagInput.slug : ''
+  ).trim();
   if (!normalizedName) return null;
 
-  const existing = await requestWoo(
-    `/products/tags?search=${encodeURIComponent(normalizedName)}&per_page=100`
-  );
+  const existing = normalizedSlug
+    ? await requestWoo(`/products/tags?slug=${encodeURIComponent(normalizedSlug)}&per_page=100`)
+    : await requestWoo(`/products/tags?search=${encodeURIComponent(normalizedName)}&per_page=100`);
   const exactMatch = (Array.isArray(existing) ? existing : []).find(
-    (tag) => String(tag?.name || '').trim().toLowerCase() === normalizedName.toLowerCase()
+    (tag) =>
+      String(tag?.name || '').trim().toLowerCase() === normalizedName.toLowerCase() ||
+      (normalizedSlug &&
+        String(tag?.slug || '').trim().toLowerCase() === normalizedSlug.toLowerCase())
   );
   if (exactMatch?.id) {
-    return { id: Number(exactMatch.id), name: exactMatch.name || normalizedName };
+    return {
+      id: Number(exactMatch.id),
+      name: exactMatch.name || normalizedName,
+      slug: exactMatch.slug || normalizedSlug || null,
+    };
   }
 
   const created = await requestWoo('/products/tags', {
     method: 'POST',
-    body: JSON.stringify({ name: normalizedName }),
+    body: JSON.stringify({
+      name: normalizedName,
+      ...(normalizedSlug ? { slug: normalizedSlug } : {}),
+    }),
   });
-  return created?.id ? { id: Number(created.id), name: created.name || normalizedName } : null;
+  return created?.id
+    ? {
+        id: Number(created.id),
+        name: created.name || normalizedName,
+        slug: created.slug || normalizedSlug || null,
+      }
+    : null;
 }
 
 export async function updateWordPressProductAuthor(productId, authorId) {

@@ -957,23 +957,24 @@ async function prepareJob(adminClient, job) {
     );
   }
 
-  const normalizedTagNames = Array.from(
-    new Set(
-      [shortDescription, 'Ships from Abroad']
-        .map((tag) => String(tag || '').trim())
-        .filter(Boolean)
-    )
-  );
+  const normalizedTagSpecs = [
+    {
+      name: 'Ships from Abroad',
+      slug: 'ships-from-abroad',
+    },
+  ];
   const ensuredTags = [];
-  for (const tagName of normalizedTagNames) {
+  for (const tagSpec of normalizedTagSpecs) {
     try {
-      importStage = `ensure_tag:${tagName}`;
-      const tag = await ensureWooProductTag(tagName);
+      importStage = `ensure_tag:${tagSpec.slug || tagSpec.name}`;
+      const tag = await ensureWooProductTag(tagSpec);
       if (tag?.id) {
         ensuredTags.push({ id: Number(tag.id) });
       }
     } catch (error) {
-      importWarnings.push(`Skipped Woo tag "${tagName}": ${error?.message || 'unable to create tag'}`);
+      importWarnings.push(
+        `Skipped Woo tag "${tagSpec.name}": ${error?.message || 'unable to create tag'}`
+      );
     }
   }
 

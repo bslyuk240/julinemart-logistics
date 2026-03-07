@@ -612,30 +612,48 @@ export async function submitCjSourceLinkRequest({
   const accessToken = (await getCjAccessToken()).accessToken;
   const quantity = Math.max(Number(requestedQuantity || 1) || 1, 1);
   const remark = pickString(note);
-
-  const requestPayload = {
+  const basePayload = {
     productUrl: sourceUrl,
-    productName: pickString(sourceSnapshot?.title),
-    productImage: pickString(sourceSnapshot?.image),
     amount: quantity,
     ...(remark ? { remark } : {}),
   };
+  const productName = pickString(sourceSnapshot?.title);
+  const productImage = pickString(sourceSnapshot?.image);
+  const bodyCandidates = [];
 
-  if (!requestPayload.productName || !requestPayload.productImage) {
-    throw new Error('CJ sourcing requires a product title and image extracted from the source URL');
+  if (productName && productImage) {
+    bodyCandidates.push({
+      ...basePayload,
+      productName,
+      productImage,
+    });
   }
+
+  if (productName) {
+    bodyCandidates.push({
+      ...basePayload,
+      productName,
+    });
+  }
+
+  if (productImage) {
+    bodyCandidates.push({
+      ...basePayload,
+      productImage,
+    });
+  }
+
+  bodyCandidates.push(basePayload);
+  bodyCandidates.push({
+    ...basePayload,
+    sourceUrl,
+  });
 
   const result = await requestCjJson({
     pathCandidates: ['/v1/product/sourcing'],
     method: 'POST',
     accessToken,
-    bodyCandidates: [
-      requestPayload,
-      {
-        ...requestPayload,
-        sourceUrl,
-      },
-    ],
+    bodyCandidates,
   });
 
   const record =
@@ -645,7 +663,7 @@ export async function submitCjSourceLinkRequest({
 
   return {
     endpoint: result.endpoint,
-    requestPayload,
+    requestPayload: bodyCandidates[0] || basePayload,
     request: record,
     raw: result.data,
   };

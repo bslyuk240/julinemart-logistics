@@ -937,49 +937,53 @@ function extractProductSnapshotFromJsonLd(html, baseUrl) {
 }
 
 export async function fetchSourceLinkProductSnapshot(sourceUrl) {
-  const response = await fetch(sourceUrl, {
-    method: 'GET',
-    redirect: 'follow',
-    headers: {
-      'User-Agent': 'JulineMart-Global-Sourcing/1.0',
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    },
-  });
+  try {
+    const response = await fetch(sourceUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'JulineMart-Global-Sourcing/1.0',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+    });
 
-  if (!response.ok) {
-    throw new Error(`Unable to fetch source URL (${response.status})`);
+    if (!response.ok) {
+      throw new Error(`Unable to fetch source URL (${response.status})`);
+    }
+
+    const html = await response.text();
+    const finalUrl = response.url || sourceUrl;
+    const jsonLdSnapshot = extractProductSnapshotFromJsonLd(html, finalUrl) || {};
+    const title = jsonLdSnapshot.title || extractTitleFromHtml(html) || null;
+    const image =
+      jsonLdSnapshot.image ||
+      toAbsoluteUrl(extractMetaContent(html, 'property', 'og:image'), finalUrl) ||
+      toAbsoluteUrl(extractMetaContent(html, 'name', 'twitter:image'), finalUrl) ||
+      toAbsoluteUrl(extractMetaContent(html, 'itemprop', 'image'), finalUrl) ||
+      null;
+    const price =
+      jsonLdSnapshot.price ??
+      asFiniteNumber(extractMetaContent(html, 'property', 'product:price:amount')) ??
+      asFiniteNumber(extractMetaContent(html, 'name', 'price'));
+
+    return {
+      title: title ? title.slice(0, 200) : null,
+      image: image || null,
+      price,
+      finalUrl,
+      metadata_complete: Boolean(title && image),
+      fetch_error: null,
+    };
+  } catch (error) {
+    return {
+      title: null,
+      image: null,
+      price: null,
+      finalUrl: sourceUrl,
+      metadata_complete: false,
+      fetch_error: error instanceof Error ? error.message : 'Unable to fetch source metadata',
+    };
   }
-
-  const html = await response.text();
-  const finalUrl = response.url || sourceUrl;
-  const jsonLdSnapshot = extractProductSnapshotFromJsonLd(html, finalUrl) || {};
-  const title =
-    jsonLdSnapshot.title ||
-    extractTitleFromHtml(html) ||
-    '';
-  const image =
-    jsonLdSnapshot.image ||
-    toAbsoluteUrl(extractMetaContent(html, 'property', 'og:image'), finalUrl) ||
-    toAbsoluteUrl(extractMetaContent(html, 'name', 'twitter:image'), finalUrl) ||
-    toAbsoluteUrl(extractMetaContent(html, 'itemprop', 'image'), finalUrl) ||
-    '';
-  const price =
-    jsonLdSnapshot.price ??
-    asFiniteNumber(extractMetaContent(html, 'property', 'product:price:amount')) ??
-    asFiniteNumber(extractMetaContent(html, 'name', 'price'));
-
-  if (!title || !image) {
-    throw new Error(
-      'Unable to extract the product title and image required for CJ sourcing from this source URL'
-    );
-  }
-
-  return {
-    title: title.slice(0, 200),
-    image,
-    price,
-    finalUrl,
-  };
 }
 
 export function getGlobalSourcingPricingConfig() {

@@ -305,9 +305,21 @@ async function callAdmin<T>(endpoint: string, accessToken: string, init: Request
       if (response.status === 404 && !isLast) continue;
 
       const raw = await response.text();
-      const body = raw ? JSON.parse(raw) : {};
+      let body: Record<string, unknown> = {};
+      try {
+        body = raw ? JSON.parse(raw) : {};
+      } catch {
+        body = raw ? { raw } : {};
+      }
       if (!response.ok) {
-        throw new Error(body?.message || body?.error || `Request failed (${response.status})`);
+        const detail =
+          typeof body?.details === 'object' && body?.details && 'stage' in body.details
+            ? ` [stage: ${String((body.details as { stage?: unknown }).stage || 'unknown')}]`
+            : '';
+        throw new Error(
+          String(body?.message || body?.error || body?.raw || `Request failed (${response.status})`) +
+            detail
+        );
       }
       return body as T;
     } catch (error) {

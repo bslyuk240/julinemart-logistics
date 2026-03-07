@@ -494,7 +494,10 @@ export async function handler(event) {
     });
   }
 
+  let importStage = 'initialize';
+
   try {
+    importStage = 'resolve_vendor';
     const vendorMapping = await resolveVendorMapping(
       auth.adminClient,
       targetVendorId,
@@ -538,7 +541,9 @@ export async function handler(event) {
       payload.source_price ??
       payload.supplier_price_snapshot ??
       payload.regular_price;
+    importStage = 'resolve_receiving_hub';
     const receivingHub = await resolveReceivingHub(auth.adminClient, receivingHubId);
+    importStage = 'quote_anchor_variant';
     const pricingPreview = isUsablePricingPreview(payload?.pricing_preview, {
       receivingHubId: receivingHub.id,
       externalVariantId: selectedVariant.externalVariantId,
@@ -570,6 +575,7 @@ export async function handler(event) {
       }
 
       try {
+        importStage = `price_variant:${variant.externalVariantId}`;
         const variantPricingPreview =
           variant.externalVariantId === selectedVariant.externalVariantId
             ? pricingPreview
@@ -622,10 +628,12 @@ export async function handler(event) {
 
     let existingProductMeta = [];
     if (payload.woo_product_id) {
+      importStage = 'load_existing_product';
       const existingProduct = await requestWoo(`/products/${payload.woo_product_id}`);
       existingProductMeta = Array.isArray(existingProduct?.meta_data) ? existingProduct.meta_data : [];
     }
 
+    importStage = 'upload_product_images';
     const uploadedProductImages = await resolveWooProductImages(sourceProductImages, {
       title: normalizedTitle,
       cache: imageUploadCache,
@@ -650,6 +658,7 @@ export async function handler(event) {
     const ensuredTags = [];
     for (const tagName of normalizedTagNames) {
       try {
+        importStage = `ensure_tag:${tagName}`;
         const tag = await ensureWooProductTag(tagName);
         if (tag?.id) {
           ensuredTags.push({ id: Number(tag.id) });
@@ -719,16 +728,23 @@ export async function handler(event) {
 
     const product =
       payload.woo_product_id
-        ? await requestWoo(`/products/${payload.woo_product_id}`, {
-            method: 'PUT',
-            body: JSON.stringify(productPayload),
-          })
-        : await requestWoo('/products', {
-            method: 'POST',
-            body: JSON.stringify(productPayload),
-          });
+        ? await (async () => {
+            importStage = 'update_product';
+            return requestWoo(`/products/${payload.woo_product_id}`, {
+              method: 'PUT',
+              body: JSON.stringify(productPayload),
+            });
+          })()
+        : await (async () => {
+            importStage = 'create_product';
+            return requestWoo('/products', {
+              method: 'POST',
+              body: JSON.stringify(productPayload),
+            });
+          })();
 
     try {
+      importStage = 'assign_product_owner';
       const authorUpdate = await updateWordPressProductAuthor(
         product.id,
         vendorMapping.woocommerce_vendor_id
@@ -750,6 +766,7 @@ export async function handler(event) {
     let selectedVariationId = null;
 
     if (shouldCreateVariations) {
+      importStage = 'load_existing_variations';
       const existingVariations = payload.woo_product_id ? await listWooVariations(product.id) : [];
       const lookup = buildExistingVariationLookup(existingVariations);
 
@@ -770,7 +787,10 @@ export async function handler(event) {
           null;
 
         const existingVariationMeta = matchedVariation?.id
-          ? await getExistingVariationMeta(product.id, matchedVariation)
+          ? await (async () => {
+              importStage = `load_variation_meta:${variant.externalVariantId}`;
+              return getExistingVariationMeta(product.id, matchedVariation);
+            })()
           : [];
 
         const variationMeta = buildGlobalSourcingMeta({
@@ -798,6 +818,7 @@ export async function handler(event) {
           woocommerceVendorId: vendorMapping.woocommerce_vendor_id,
         });
 
+        importStage = `upload_variation_image:${variant.externalVariantId}`;
         const variationPayload = buildVariationPayload({
           attributes: variant.attributes,
           pricing: {
@@ -819,14 +840,20 @@ export async function handler(event) {
         });
 
         const savedVariation = matchedVariation?.id
-          ? await requestWoo(`/products/${product.id}/variations/${matchedVariation.id}`, {
-              method: 'PUT',
-              body: JSON.stringify(variationPayload),
-            })
-          : await requestWoo(`/products/${product.id}/variations`, {
-              method: 'POST',
-              body: JSON.stringify(variationPayload),
-            });
+          ? await (async () => {
+              importStage = `update_variation:${variant.externalVariantId}`;
+              return requestWoo(`/products/${product.id}/variations/${matchedVariation.id}`, {
+                method: 'PUT',
+                body: JSON.stringify(variationPayload),
+              });
+            })()
+          : await (async () => {
+              importStage = `create_variation:${variant.externalVariantId}`;
+              return requestWoo(`/products/${product.id}/variations`, {
+                method: 'POST',
+                body: JSON.stringify(variationPayload),
+              });
+            })();
 
         importedVariationIds.push(String(savedVariation.id));
         if (variant.externalVariantId === selectedVariant.externalVariantId) {
@@ -898,7 +925,10 @@ export async function handler(event) {
       success: false,
       error: 'Global sourcing import failed',
       message: error?.message || 'Unable to create or update Woo product',
-      details: error?.responseBody || error?.details || null,
+      details: {
+        stage: typeof importStage === 'string' ? importStage : 'unknown',
+        response: error?.responseBody || error?.details || null,
+      },
     });
   }
 }

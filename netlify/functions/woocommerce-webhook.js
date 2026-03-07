@@ -270,24 +270,44 @@ export async function handler(event) {
     console.log('Default hub:', defaultHubId);
 
     // Check for duplicate
-    const { data: existingOrder } = await supabase
+    const { data: existingOrder, error: existingOrderError } = await supabase
       .from('orders')
       .select('id, woocommerce_order_id')
       .eq('woocommerce_order_id', wcOrder.id.toString())
-      .single();
+      .maybeSingle();
+
+    if (existingOrderError) {
+      throw existingOrderError;
+    }
 
     if (existingOrder) {
-      console.log('Order already processed:', wcOrder.id);
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          success: true,
-          message: 'Order already processed',
-          orderId: existingOrder.id,
-          duplicate: true,
-        }),
-      };
+      const { count: existingSubOrdersCount, error: existingSubOrdersError } = await supabase
+        .from('sub_orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('main_order_id', existingOrder.id);
+
+      if (existingSubOrdersError) {
+        throw existingSubOrdersError;
+      }
+
+      if ((existingSubOrdersCount || 0) > 0) {
+        console.log('Order already processed:', wcOrder.id);
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: true,
+            message: 'Order already processed',
+            orderId: existingOrder.id,
+            duplicate: true,
+          }),
+        };
+      }
+
+      console.warn(
+        'Existing order has no sub-orders; continuing recovery for order:',
+        existingOrder.id
+      );
     }
 
     // ============================================
@@ -402,7 +422,7 @@ export async function handler(event) {
         weight: sanitizedWeight,
         hubId: hubId || defaultHubId,
         hubName: hubName,
-	        vendorId: vendorId || 'default-vendor',
+	        vendorId,
 	        variationId,
 	        variationAttributes,
 	        globalSourcing: productSourcing
@@ -425,12 +445,12 @@ export async function handler(event) {
         continue;
       }
 
-      const resolvedVendorId = orderItem.vendorId || 'default-vendor';
+      const resolvedVendorId = orderItem.vendorId || 'unassigned-vendor';
       const groupKey = `${resolvedHubId}::${resolvedVendorId}`;
       if (!itemsByGroup[groupKey]) {
         itemsByGroup[groupKey] = {
           hubId: resolvedHubId,
-          vendorId: resolvedVendorId,
+          vendorId: orderItem.vendorId || null,
           items: [],
         };
       }
@@ -645,15 +665,23 @@ export async function handler(event) {
       }
     };
 
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .insert([orderData])
-      .select()
-      .single();
+    let order = existingOrder;
 
-    if (orderError) {
-      console.error('Order creation error:', orderError);
-      throw orderError;
+    if (!order) {
+      const { data: createdOrder, error: orderError } = await supabase
+        .from('orders')
+        .insert([orderData])
+        .select()
+        .single();
+
+      if (orderError) {
+        console.error('Order creation error:', orderError);
+        throw orderError;
+      }
+
+      order = createdOrder;
+    } else {
+      console.log('\n↺ Reusing incomplete order:', order.id);
     }
 
     console.log('\n✅ Order created:', order.id);
@@ -759,11 +787,10 @@ export async function handler(event) {
           courier_id: breakdown.courierId || null,
           status: 'pending',
           tracking_number: jloPlaceholder(),
-          items: breakdown.items,
-          subtotal: itemsSubtotal, // Original full price
-          real_shipping_cost: breakdown.realShippingCost,
-          allocated_shipping_fee: breakdown.allocatedShippingFee,
-          estimated_shipping_cost: breakdown.realShippingCost,
+	          items: breakdown.items,
+	          subtotal: itemsSubtotal, // Original full price
+	          real_shipping_cost: breakdown.realShippingCost,
+	          allocated_shipping_fee: breakdown.allocatedShippingFee,
 	          metadata
 	        };
 	      });
@@ -773,9 +800,10 @@ export async function handler(event) {
         .insert(subOrdersData)
         .select();
 
-      if (subOrdersError) {
-        console.error('Sub-orders error:', subOrdersError);
-      } else {
+	      if (subOrdersError) {
+	        console.error('Sub-orders error:', subOrdersError);
+	        throw subOrdersError;
+	      } else {
         console.log('✅ Created', subOrders.length, 'sub-orders');
 
         // Create tracking events

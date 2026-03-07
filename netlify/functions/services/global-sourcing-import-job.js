@@ -13,7 +13,6 @@ import {
   normalizeProductTitle,
   requestWoo,
   resolveVendorMapping,
-  updateWordPressProductAuthor,
   uploadRemoteImageToWordPress,
 } from './global-sourcing-utils.js';
 import {
@@ -413,6 +412,7 @@ function buildProductPayload({
   attributes,
   pricing,
   wooStatus,
+  stockStatus = 'instock',
   vendorMapping,
 }) {
   return {
@@ -426,6 +426,7 @@ function buildProductPayload({
     images: images.length > 0 ? images : undefined,
     tags: tags.length > 0 ? tags : undefined,
     meta_data: metaData,
+    stock_status: stockStatus,
     attributes:
       attributes.length > 0
         ? attributes.map((attribute) => ({
@@ -446,6 +447,7 @@ function buildVariationPayload({ attributes, pricing, variationImageId, metaData
   return {
     regular_price: pricing.regularPriceWoo,
     sale_price: pricing.salePriceWoo || undefined,
+    stock_status: 'instock',
     image: variationImageId ? { id: variationImageId } : undefined,
     attributes: attributes.map((attribute) => ({
       name: attribute.name,
@@ -759,7 +761,7 @@ function buildCompletionResult(cursor) {
     },
     notes: [
       'WooCommerce remains the source of truth for the imported product record.',
-      'Ownership is written using vendor bridge meta and a best-effort WordPress post-author assignment.',
+      'Vendor/store ownership is not reassigned automatically during import; staff can update it manually in WordPress/WCFM after import.',
       cursor.shouldCreateVariations
         ? `Imported ${importedVariationIds.length} CJ variant(s) into Woo variations using the current landed-pricing rules.`
         : 'The imported item was stored as a Woo simple product.',
@@ -788,14 +790,51 @@ async function failJob(adminClient, job, stage, error) {
   });
 }
 
+async function finalizeImportedProduct(cursor) {
+  const productId = String(cursor?.productSummary?.id || '').trim();
+  const desiredStatus = String(cursor?.desiredWooStatus || '').trim();
+  if (!productId || !desiredStatus) return cursor;
+
+  try {
+    const finalizedProduct = await requestWoo(`/products/${productId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        status: desiredStatus,
+        stock_status: 'instock',
+      }),
+    });
+
+    return {
+      ...cursor,
+      productSummary: {
+        ...(isPlainObject(cursor?.productSummary) ? cursor.productSummary : {}),
+        id: String(finalizedProduct?.id || productId),
+        name: finalizedProduct?.name || cursor?.productSummary?.name || null,
+        status: finalizedProduct?.status || desiredStatus,
+        type: finalizedProduct?.type || cursor?.productSummary?.type || null,
+        permalink: finalizedProduct?.permalink || cursor?.productSummary?.permalink || null,
+      },
+    };
+  } catch (error) {
+    return {
+      ...cursor,
+      warnings: [
+        ...(Array.isArray(cursor?.warnings) ? cursor.warnings : []),
+        `Unable to finalize Woo product visibility/status: ${error?.message || 'update failed'}`,
+      ],
+    };
+  }
+}
+
 async function completeJob(adminClient, job, cursor) {
-  const result = buildCompletionResult(cursor);
+  const finalizedCursor = await finalizeImportedProduct(cursor);
+  const result = buildCompletionResult(finalizedCursor);
   const completed = await updateJobRow(adminClient, job.id, {
     status: 'completed',
     progress_stage: 'completed',
-    progress_current: Number(job.progress_total || 0) || Number(cursor.progressTotal || 1),
-    progress_total: Number(job.progress_total || 0) || Number(cursor.progressTotal || 1),
-    cursor,
+    progress_current: Number(job.progress_total || 0) || Number(finalizedCursor.progressTotal || 1),
+    progress_total: Number(job.progress_total || 0) || Number(finalizedCursor.progressTotal || 1),
+    cursor: finalizedCursor,
     result,
     error_message: null,
     error_details: null,
@@ -806,6 +845,7 @@ async function completeJob(adminClient, job, cursor) {
 
 async function prepareJob(adminClient, job) {
   const payload = isPlainObject(job.payload) ? job.payload : {};
+  const existingCursor = isPlainObject(job.cursor) ? job.cursor : {};
   const {
     provider,
     externalProductId,
@@ -814,124 +854,202 @@ async function prepareJob(adminClient, job) {
     targetVendorId,
   } = validateImportPayload(payload);
 
-  let importStage = 'resolve_vendor';
-  const vendorMapping = await resolveVendorMapping(
-    adminClient,
-    targetVendorId,
-    payload?.target_vendor_mapping || {}
-  );
-
-  const selectedVariant = normalizeSelectedVariant(payload);
-  if (!selectedVariant.externalVariantId) {
-    throw createImportError('A CJ variant selection is required for landed-price import', 400);
-  }
-
-  const selectedAttributes = normalizeSelectedAttributes(payload, selectedVariant);
-  const importVariants = ensureVariantAttributes(
-    buildImportVariants(payload, selectedVariant, selectedAttributes),
-    payload.title || ''
-  );
-  const importableVariants = importVariants.filter(
-    (variant) => variant.externalVariantId && variant.sourcePrice !== null
-  );
-  if (importableVariants.length === 0) {
-    throw createImportError('No importable CJ variants were provided', 400);
-  }
-
-  const variantCandidatesWithAttributes = importableVariants.filter(
-    (variant) => variant.attributes.length > 0
-  );
-  if (importableVariants.length > 1 && variantCandidatesWithAttributes.length === 0) {
-    throw createImportError(
-      'CJ returned multiple variants but none included usable attributes for Woo variation creation',
-      400
+  if (!existingCursor.prepared) {
+    let importStage = 'resolve_vendor';
+    const vendorMapping = await resolveVendorMapping(
+      adminClient,
+      targetVendorId,
+      payload?.target_vendor_mapping || {}
     );
-  }
 
-  const sourceCurrency = selectedVariant.currency || String(payload.currency || 'USD').trim().toUpperCase();
-  const sourcePrice =
-    selectedVariant.sourcePrice ??
-    payload.source_price ??
-    payload.supplier_price_snapshot ??
-    payload.regular_price;
-
-  importStage = 'resolve_receiving_hub';
-  const receivingHub = await resolveReceivingHub(adminClient, receivingHubId);
-
-  importStage = 'quote_anchor_variant';
-  const pricingPreview = isUsablePricingPreview(payload?.pricing_preview, {
-    receivingHubId: receivingHub.id,
-    externalVariantId: selectedVariant.externalVariantId,
-  })
-    ? payload.pricing_preview
-    : await buildLandedPricingPreview({
-        client: adminClient,
-        receivingHubId: receivingHub.id,
-        externalVariantId: selectedVariant.externalVariantId,
-        sourcePrice,
-        sourceCurrency,
-      });
-
-  const pricingDefaults = await loadGlobalSourcingPricingDefaults(adminClient, provider);
-  const variantPricingConfig = {
-    importBufferUsd: pricingPreview.import_buffer_usd ?? pricingDefaults.values?.import_buffer_usd ?? null,
-    markupPercent: pricingPreview.markup_percent ?? pricingDefaults.values?.markup_percent ?? null,
-    markupFlatNgn: pricingPreview.markup_flat_ngn ?? pricingDefaults.values?.markup_flat_ngn ?? null,
-    usdToNgnRate: pricingPreview.exchange_rate ?? pricingDefaults.values?.usd_to_ngn_rate ?? null,
-  };
-  const importWarnings = [];
-  const imageWarnings = [];
-  const variationPlans = [];
-
-  for (const variant of importableVariants) {
-    if (variant.attributes.length === 0) {
-      continue;
+    const selectedVariant = normalizeSelectedVariant(payload);
+    if (!selectedVariant.externalVariantId) {
+      throw createImportError('A CJ variant selection is required for landed-price import', 400);
     }
 
-    try {
-      importStage = `price_variant:${variant.externalVariantId}`;
-      const variantPricingPreview =
-        variant.externalVariantId === selectedVariant.externalVariantId
-          ? pricingPreview
-          : buildDerivedVariantPricingPreview({
-              variant,
-              anchorPreview: pricingPreview,
-              receivingHubId: receivingHub.id,
-              receivingHubName: receivingHub.name,
-              pricingConfig: {
-                importBufferUsd: variantPricingConfig.importBufferUsd,
-                markupPercent: variantPricingConfig.markupPercent,
-                markupFlatNgn: variantPricingConfig.markupFlatNgn,
-                usdToNgnRate: variantPricingConfig.usdToNgnRate,
-              },
-            });
+    const selectedAttributes = normalizeSelectedAttributes(payload, selectedVariant);
+    const importVariants = ensureVariantAttributes(
+      buildImportVariants(payload, selectedVariant, selectedAttributes),
+      payload.title || ''
+    );
+    const importableVariants = importVariants.filter(
+      (variant) => variant.externalVariantId && variant.sourcePrice !== null
+    );
+    if (importableVariants.length === 0) {
+      throw createImportError('No importable CJ variants were provided', 400);
+    }
 
-      variationPlans.push({
-        variant,
-        pricingPreview: variantPricingPreview,
-      });
-    } catch (error) {
-      importWarnings.push(
-        `Skipped variant ${variant.externalVariantId}: ${error?.message || 'unable to calculate landed pricing'}`
+    const variantCandidatesWithAttributes = importableVariants.filter(
+      (variant) => variant.attributes.length > 0
+    );
+    if (importableVariants.length > 1 && variantCandidatesWithAttributes.length === 0) {
+      throw createImportError(
+        'CJ returned multiple variants but none included usable attributes for Woo variation creation',
+        400
       );
     }
+
+    const sourceCurrency = selectedVariant.currency || String(payload.currency || 'USD').trim().toUpperCase();
+    const sourcePrice =
+      selectedVariant.sourcePrice ??
+      payload.source_price ??
+      payload.supplier_price_snapshot ??
+      payload.regular_price;
+
+    importStage = 'resolve_receiving_hub';
+    const receivingHub = await resolveReceivingHub(adminClient, receivingHubId);
+
+    importStage = 'quote_anchor_variant';
+    const pricingPreview = isUsablePricingPreview(payload?.pricing_preview, {
+      receivingHubId: receivingHub.id,
+      externalVariantId: selectedVariant.externalVariantId,
+    })
+      ? payload.pricing_preview
+      : await buildLandedPricingPreview({
+          client: adminClient,
+          receivingHubId: receivingHub.id,
+          externalVariantId: selectedVariant.externalVariantId,
+          sourcePrice,
+          sourceCurrency,
+        });
+
+    const pricingDefaults = await loadGlobalSourcingPricingDefaults(adminClient, provider);
+    const variantPricingConfig = {
+      importBufferUsd: pricingPreview.import_buffer_usd ?? pricingDefaults.values?.import_buffer_usd ?? null,
+      markupPercent: pricingPreview.markup_percent ?? pricingDefaults.values?.markup_percent ?? null,
+      markupFlatNgn: pricingPreview.markup_flat_ngn ?? pricingDefaults.values?.markup_flat_ngn ?? null,
+      usdToNgnRate: pricingPreview.exchange_rate ?? pricingDefaults.values?.usd_to_ngn_rate ?? null,
+    };
+    const importWarnings = [];
+    const variationPlans = [];
+
+    for (const variant of importableVariants) {
+      if (variant.attributes.length === 0) {
+        continue;
+      }
+
+      try {
+        importStage = `price_variant:${variant.externalVariantId}`;
+        const variantPricingPreview =
+          variant.externalVariantId === selectedVariant.externalVariantId
+            ? pricingPreview
+            : buildDerivedVariantPricingPreview({
+                variant,
+                anchorPreview: pricingPreview,
+                receivingHubId: receivingHub.id,
+                receivingHubName: receivingHub.name,
+                pricingConfig: {
+                  importBufferUsd: variantPricingConfig.importBufferUsd,
+                  markupPercent: variantPricingConfig.markupPercent,
+                  markupFlatNgn: variantPricingConfig.markupFlatNgn,
+                  usdToNgnRate: variantPricingConfig.usdToNgnRate,
+                },
+              });
+
+        variationPlans.push({
+          variant,
+          pricingPreview: variantPricingPreview,
+        });
+      } catch (error) {
+        importWarnings.push(
+          `Skipped variant ${variant.externalVariantId}: ${error?.message || 'unable to calculate landed pricing'}`
+        );
+      }
+    }
+
+    if (variantCandidatesWithAttributes.length > 0 && variationPlans.length === 0) {
+      throw createImportError('Unable to calculate landed pricing for any CJ variant on this product', 500);
+    }
+
+    const productAttributes = buildProductAttributesMatrix(variationPlans.map((plan) => plan.variant));
+    const shouldCreateVariations = productAttributes.length > 0;
+    const normalizedTitle = normalizeProductTitle(payload.title || '');
+    if (!normalizedTitle) {
+      throw createImportError('A valid product title is required', 400);
+    }
+
+    const normalizedDescription = normalizeProductDescription(payload.description || '', normalizedTitle);
+    const shortDescription = String(payload.sourcing_tag_label_suggestion || 'Ships from Abroad').trim();
+    const sourceProductImages = mapProductImages(payload.images, selectedVariant.image);
+    const parentPricing = shouldCreateVariations
+      ? { regularPriceWoo: null, salePriceWoo: null }
+      : computeWooNgnPricing({
+          sourcePrice,
+          sourceCurrency,
+          inboundShippingUsd: pricingPreview.inbound_shipping_quote_usd,
+          importBufferUsd: variantPricingConfig.importBufferUsd,
+          markupPercent: variantPricingConfig.markupPercent,
+          markupFlatNgn: variantPricingConfig.markupFlatNgn,
+          usdToNgnRate: variantPricingConfig.usdToNgnRate,
+        });
+    const desiredWooStatus = String(payload.woo_status || 'draft');
+    const initialWooStatus =
+      payload.woo_product_id || !shouldCreateVariations ? desiredWooStatus : 'draft';
+    const progressTotal = shouldCreateVariations
+      ? 1 + Math.ceil(variationPlans.length / MAX_VARIATIONS_PER_BATCH)
+      : 1;
+    void importStage;
+
+    return updateJobRow(adminClient, job.id, {
+      status: 'processing',
+      progress_stage: 'prepared',
+      progress_current: 0,
+      progress_total: progressTotal,
+      cursor: {
+        prepared: true,
+        provider,
+        externalProductId,
+        fulfillmentMode,
+        receivingHub,
+        selectedVariantId: selectedVariant.externalVariantId,
+        sourceCurrency,
+        pricingPreview,
+        vendorMapping,
+        normalizedTitle,
+        normalizedDescription,
+        shortDescription,
+        sourceProductImages,
+        shouldCreateVariations,
+        productAttributes,
+        parentPricing,
+        variationPlans,
+        desiredWooStatus,
+        initialWooStatus,
+        warnings: importWarnings,
+        importVariantCount: importVariants.length,
+        importableVariantCount: importableVariants.length,
+        nextVariationIndex: 0,
+        importedVariationIds: [],
+        selectedVariationId: null,
+        progressTotal,
+      },
+      result: null,
+      error_message: null,
+      error_details: null,
+    });
   }
 
-  if (variantCandidatesWithAttributes.length > 0 && variationPlans.length === 0) {
-    throw createImportError('Unable to calculate landed pricing for any CJ variant on this product', 500);
-  }
-
-  const productAttributes = buildProductAttributesMatrix(variationPlans.map((plan) => plan.variant));
-  const shouldCreateVariations = productAttributes.length > 0;
-  const normalizedTitle = normalizeProductTitle(payload.title || '');
-  if (!normalizedTitle) {
-    throw createImportError('A valid product title is required', 400);
-  }
-
-  const normalizedDescription = normalizeProductDescription(payload.description || '', normalizedTitle);
-  const shortDescription = String(payload.sourcing_tag_label_suggestion || 'Ships from Abroad').trim();
-  const sourceProductImages = mapProductImages(payload.images, selectedVariant.image);
+  let importStage = 'materialize_product';
+  const importWarnings = Array.isArray(existingCursor.warnings)
+    ? existingCursor.warnings.map((warning) => String(warning || '').trim()).filter(Boolean)
+    : [];
+  const imageWarnings = [];
   const imageUploadCache = new Map();
+  const vendorMapping = isPlainObject(existingCursor.vendorMapping) ? existingCursor.vendorMapping : {};
+  const receivingHub = isPlainObject(existingCursor.receivingHub) ? existingCursor.receivingHub : {};
+  const pricingPreview = isPlainObject(existingCursor.pricingPreview) ? existingCursor.pricingPreview : {};
+  const normalizedTitle = String(existingCursor.normalizedTitle || '').trim();
+  const normalizedDescription = String(existingCursor.normalizedDescription || '').trim();
+  const shortDescription = String(existingCursor.shortDescription || 'Ships from Abroad').trim();
+  const sourceProductImages = Array.isArray(existingCursor.sourceProductImages)
+    ? existingCursor.sourceProductImages
+    : [];
+  const shouldCreateVariations = Boolean(existingCursor.shouldCreateVariations);
+  const productAttributes = Array.isArray(existingCursor.productAttributes)
+    ? existingCursor.productAttributes
+    : [];
+  const parentPricing = isPlainObject(existingCursor.parentPricing) ? existingCursor.parentPricing : {};
+  const variationPlans = Array.isArray(existingCursor.variationPlans) ? existingCursor.variationPlans : [];
   const ownershipMeta = buildOwnershipMeta(vendorMapping);
 
   let existingProductMeta = [];
@@ -978,18 +1096,6 @@ async function prepareJob(adminClient, job) {
     }
   }
 
-  const parentPricing = shouldCreateVariations
-    ? { regularPriceWoo: null, salePriceWoo: null }
-    : computeWooNgnPricing({
-        sourcePrice,
-        sourceCurrency,
-        inboundShippingUsd: pricingPreview.inbound_shipping_quote_usd,
-        importBufferUsd: variantPricingConfig.importBufferUsd,
-        markupPercent: variantPricingConfig.markupPercent,
-        markupFlatNgn: variantPricingConfig.markupFlatNgn,
-        usdToNgnRate: variantPricingConfig.usdToNgnRate,
-      });
-
   const productMeta = buildGlobalSourcingMeta({
     provider,
     cjPid: externalProductId,
@@ -1029,7 +1135,8 @@ async function prepareJob(adminClient, job) {
       regularPriceWoo: parentPricing.regularPriceWoo,
       salePriceWoo: parentPricing.salePriceWoo || null,
     },
-    wooStatus: String(payload.woo_status || 'draft'),
+    wooStatus: String(existingCursor.initialWooStatus || existingCursor.desiredWooStatus || 'draft'),
+    stockStatus: 'instock',
     vendorMapping,
   });
 
@@ -1050,22 +1157,6 @@ async function prepareJob(adminClient, job) {
           });
         })();
 
-  try {
-    importStage = 'assign_product_owner';
-    const authorUpdate = await updateWordPressProductAuthor(product.id, vendorMapping.woocommerce_vendor_id);
-    if (!authorUpdate) {
-      importWarnings.push(
-        `Unable to assign WordPress/WCFM product owner ${vendorMapping.woocommerce_vendor_id}: vendor id is not a usable WordPress author id`
-      );
-    }
-  } catch (error) {
-    importWarnings.push(
-      `Unable to assign WordPress/WCFM product owner ${vendorMapping.woocommerce_vendor_id}: ${
-        error?.message || 'author update failed'
-      }`
-    );
-  }
-
   let preparedVariationPlans = [];
   let allowedVariationImageUrls = [];
 
@@ -1077,7 +1168,7 @@ async function prepareJob(adminClient, job) {
 
     if (MAX_UNIQUE_VARIATION_IMAGE_UPLOADS > 0) {
       for (const plan of variationPlans) {
-        const candidateUrl = String(plan.variant.image || '').trim();
+        const candidateUrl = String(plan?.variant?.image || '').trim();
         if (!candidateUrl || candidateUrl === sourceProductImages[0]?.src) continue;
         allowedVariationImageUrlSet.add(candidateUrl);
         if (allowedVariationImageUrlSet.size >= MAX_UNIQUE_VARIATION_IMAGE_UPLOADS) break;
@@ -1086,7 +1177,7 @@ async function prepareJob(adminClient, job) {
 
     const uniqueVariationImageCount = new Set(
       variationPlans
-        .map((plan) => String(plan.variant.image || '').trim())
+        .map((plan) => String(plan?.variant?.image || '').trim())
         .filter((url) => Boolean(url) && url !== sourceProductImages[0]?.src)
     ).size;
     if (uniqueVariationImageCount > allowedVariationImageUrlSet.size) {
@@ -1097,13 +1188,13 @@ async function prepareJob(adminClient, job) {
 
     allowedVariationImageUrls = Array.from(allowedVariationImageUrlSet.values());
     preparedVariationPlans = variationPlans.map((plan) => {
-      const { variant } = plan;
+      const variant = isPlainObject(plan?.variant) ? plan.variant : {};
       const fallbackVariationId = pickExistingVariationId(
         payload.woo_variation_id,
-        selectedVariant.externalVariantId,
+        existingCursor.selectedVariantId,
         variant
       );
-      const signature = buildAttributeSignature(variant.attributes);
+      const signature = buildAttributeSignature(Array.isArray(variant.attributes) ? variant.attributes : []);
       const matchedVariation =
         lookup.byCjVid.get(variant.externalVariantId) ||
         (fallbackVariationId
@@ -1114,34 +1205,28 @@ async function prepareJob(adminClient, job) {
 
       return {
         variant,
-        pricingPreview: plan.pricingPreview,
+        pricingPreview: isPlainObject(plan?.pricingPreview) ? plan.pricingPreview : {},
         matchedVariationId: matchedVariation?.id ? String(matchedVariation.id) : null,
       };
     });
   }
 
-  const progressTotal = shouldCreateVariations
-    ? 1 + Math.ceil(preparedVariationPlans.length / MAX_VARIATIONS_PER_BATCH)
-    : 1;
   void importStage;
   const baseCursor = {
+    ...existingCursor,
+    prepared: true,
     provider,
     externalProductId,
     fulfillmentMode,
     receivingHub,
-    selectedVariantId: selectedVariant.externalVariantId,
-    sourceCurrency,
     pricingPreview,
     vendorMapping,
-    normalizedTitle,
     shortDescription,
     shouldCreateVariations,
     shouldWriteProductImages,
     uploadedProductImagesCount: uploadedProductImages.length,
     ensuredTagsCount: ensuredTags.length,
     warnings: [...importWarnings, ...imageWarnings],
-    importVariantCount: importVariants.length,
-    importableVariantCount: importableVariants.length,
     productSummary: {
       id: String(product.id),
       name: product.name,
@@ -1155,30 +1240,17 @@ async function prepareJob(adminClient, job) {
     nextVariationIndex: 0,
     importedVariationIds: [],
     selectedVariationId: null,
-    progressTotal,
   };
 
   if (!shouldCreateVariations) {
-    const result = buildCompletionResult(baseCursor);
-    const completedJob = await updateJobRow(adminClient, job.id, {
-      status: 'completed',
-      progress_stage: 'completed',
-      progress_current: 1,
-      progress_total: 1,
-      cursor: baseCursor,
-      result,
-      error_message: null,
-      error_details: null,
-      completed_at: new Date().toISOString(),
-    });
-    return completedJob;
+    return completeJob(adminClient, job, baseCursor);
   }
 
   return updateJobRow(adminClient, job.id, {
     status: 'processing',
     progress_stage: 'variations_pending',
     progress_current: 1,
-    progress_total: progressTotal,
+    progress_total: Number(existingCursor.progressTotal || 1),
     cursor: baseCursor,
     result: null,
     error_message: null,

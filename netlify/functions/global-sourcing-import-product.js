@@ -30,6 +30,14 @@ const MAX_PRODUCT_IMAGE_UPLOADS = Math.max(
   Number(process.env.GLOBAL_SOURCING_MAX_PRODUCT_IMAGES || 6) || 6,
   1
 );
+const MAX_VARIATIONS_PER_BATCH = Math.max(
+  Number(process.env.GLOBAL_SOURCING_MAX_VARIATIONS_PER_BATCH || 20) || 20,
+  1
+);
+const MAX_UNIQUE_VARIATION_IMAGE_UPLOADS = Math.max(
+  Number(process.env.GLOBAL_SOURCING_MAX_VARIATION_IMAGES || 3) || 3,
+  0
+);
 
 function normalizeSelectedVariant(payload) {
   const source = isPlainObject(payload?.selected_variant) ? payload.selected_variant : {};
@@ -434,6 +442,14 @@ function buildVariationResponseMap(rows, descriptors) {
   return map;
 }
 
+function chunkItems(items, size) {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
 function buildExistingVariationLookup(variations) {
   const byCjVid = new Map();
   const byAttributes = new Map();
@@ -796,6 +812,27 @@ export async function handler(event) {
       const lookup = buildExistingVariationLookup(existingVariations);
       const createDescriptors = [];
       const updateDescriptors = [];
+      const allowedVariationImageUrls = new Set();
+
+      if (MAX_UNIQUE_VARIATION_IMAGE_UPLOADS > 0) {
+        for (const plan of variationPlans) {
+          const candidateUrl = String(plan.variant.image || '').trim();
+          if (!candidateUrl || candidateUrl === sourceProductImages[0]?.src) continue;
+          allowedVariationImageUrls.add(candidateUrl);
+          if (allowedVariationImageUrls.size >= MAX_UNIQUE_VARIATION_IMAGE_UPLOADS) break;
+        }
+      }
+
+      const uniqueVariationImageCount = new Set(
+        variationPlans
+          .map((plan) => String(plan.variant.image || '').trim())
+          .filter((url) => Boolean(url) && url !== sourceProductImages[0]?.src)
+      ).size;
+      if (uniqueVariationImageCount > allowedVariationImageUrls.size) {
+        importWarnings.push(
+          `Skipped ${uniqueVariationImageCount - allowedVariationImageUrls.size} unique variation image(s) to keep import within runtime limits`
+        );
+      }
 
       for (const plan of variationPlans) {
         const { variant, pricingPreview: variantPricingPreview } = plan;
@@ -846,6 +883,9 @@ export async function handler(event) {
         });
 
         importStage = `upload_variation_image:${variant.externalVariantId}`;
+        const variationImageSource = allowedVariationImageUrls.has(String(variant.image || '').trim())
+          ? variant.image
+          : null;
         const variationPayload = buildVariationPayload({
           attributes: variant.attributes,
           pricing: {
@@ -853,7 +893,7 @@ export async function handler(event) {
             salePriceWoo: variantPricingPreview.sale_price_ngn || null,
           },
           variationImageId: await resolveWooVariationImage(
-            variant.image || sourceProductImages[0]?.src || null,
+            variationImageSource,
             {
               title: normalizedTitle,
               cache: imageUploadCache,
@@ -883,18 +923,32 @@ export async function handler(event) {
       }
 
       if (createDescriptors.length > 0 || updateDescriptors.length > 0) {
-        importStage = 'batch_variations';
-        const batchResult = await requestWoo(`/products/${product.id}/variations/batch`, {
-          method: 'POST',
-          body: JSON.stringify({
-            create: createDescriptors.map((entry) => entry.payload),
-            update: updateDescriptors.map((entry) => entry.payload),
-          }),
-        });
+        const variationIdMap = new Map();
+        const createChunks = chunkItems(createDescriptors, MAX_VARIATIONS_PER_BATCH);
+        const updateChunks = chunkItems(updateDescriptors, MAX_VARIATIONS_PER_BATCH);
+        const chunkCount = Math.max(createChunks.length, updateChunks.length);
 
-        const createdIdMap = buildVariationResponseMap(batchResult?.create, createDescriptors);
-        const updatedIdMap = buildVariationResponseMap(batchResult?.update, updateDescriptors);
-        const variationIdMap = new Map([...updatedIdMap.entries(), ...createdIdMap.entries()]);
+        for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
+          const createChunk = createChunks[chunkIndex] || [];
+          const updateChunk = updateChunks[chunkIndex] || [];
+          if (createChunk.length === 0 && updateChunk.length === 0) continue;
+
+          importStage = `batch_variations:${chunkIndex + 1}`;
+          const batchResult = await requestWoo(`/products/${product.id}/variations/batch`, {
+            method: 'POST',
+            body: JSON.stringify({
+              create: createChunk.map((entry) => entry.payload),
+              update: updateChunk.map((entry) => entry.payload),
+            }),
+          });
+
+          buildVariationResponseMap(batchResult?.create, createChunk).forEach((value, key) => {
+            variationIdMap.set(key, value);
+          });
+          buildVariationResponseMap(batchResult?.update, updateChunk).forEach((value, key) => {
+            variationIdMap.set(key, value);
+          });
+        }
 
         variationPlans.forEach((plan) => {
           const id = variationIdMap.get(plan.variant.externalVariantId);

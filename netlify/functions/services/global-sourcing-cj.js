@@ -650,7 +650,7 @@ export async function submitCjSourceLinkRequest({
   });
 
   const result = await requestCjJson({
-    pathCandidates: ['/v1/product/sourcing'],
+    pathCandidates: ['/v1/product/sourcing/create'],
     method: 'POST',
     accessToken,
     bodyCandidates,
@@ -678,12 +678,11 @@ export async function refreshCjSourceLinkRequest({ cjRequestId }) {
   const accessToken = (await getCjAccessToken()).accessToken;
   const result = await requestCjJson({
     pathCandidates: ['/v1/product/sourcing/query'],
-    method: 'GET',
+    method: 'POST',
     accessToken,
-    bodyCandidates: [undefined],
-    queryCandidates: [
-      { sourceIds: normalizedRequestId },
-      { sourceId: normalizedRequestId },
+    bodyCandidates: [
+      { sourceIds: [normalizedRequestId] },
+      { sourceIds: normalizedRequestId.split(',').map((value) => value.trim()).filter(Boolean) },
     ],
   });
 

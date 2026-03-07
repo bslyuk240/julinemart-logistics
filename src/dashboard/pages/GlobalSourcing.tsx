@@ -239,6 +239,21 @@ function getSourceRequestVariantSku(request: SourceLinkRequest) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function getSourceRequestCjStatus(request: SourceLinkRequest) {
+  const metadata =
+    request.metadata && typeof request.metadata === 'object' ? request.metadata : {};
+  const label = typeof metadata.cj_status_label === 'string' ? metadata.cj_status_label.trim() : '';
+  const raw = typeof metadata.cj_status_raw === 'string' ? metadata.cj_status_raw.trim() : '';
+  const sourceNumber =
+    typeof metadata.cj_source_number === 'string' ? metadata.cj_source_number.trim() : '';
+
+  return {
+    label: label || null,
+    raw: raw || null,
+    sourceNumber: sourceNumber || null,
+  };
+}
+
 function humanizeVariantFragment(value: string) {
   return value
     .replace(/([a-z])([A-Z])/g, '$1 $2')
@@ -2025,6 +2040,7 @@ export function GlobalSourcingPage() {
                   const canRetry =
                     request.status === 'failed' ||
                     (!request.cj_request_id && !request.can_continue_to_import);
+                  const cjStatus = getSourceRequestCjStatus(request);
 
                   return (
                   <div key={request.id} className="rounded-lg border border-gray-200 p-4 text-sm text-gray-700">
@@ -2060,6 +2076,13 @@ export function GlobalSourcingPage() {
                         <p className="mt-1">
                           CJ PID: {request.cj_pid || 'pending'} · CJ VID: {request.cj_vid || 'pending'}
                         </p>
+                        {cjStatus.label || cjStatus.raw || cjStatus.sourceNumber ? (
+                          <p className="mt-1">
+                            CJ Status: {cjStatus.label || 'n/a'}
+                            {cjStatus.raw ? ` (${cjStatus.raw})` : ''}
+                            {cjStatus.sourceNumber ? ` · Source No: ${cjStatus.sourceNumber}` : ''}
+                          </p>
+                        ) : null}
                         {request.resolved_product_title ? (
                           <p className="mt-1">
                             Resolved: {request.resolved_product_title}

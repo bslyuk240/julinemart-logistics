@@ -26,6 +26,11 @@ import {
   resolveReceivingHub,
 } from './services/global-sourcing-cj.js';
 
+const MAX_PRODUCT_IMAGE_UPLOADS = Math.max(
+  Number(process.env.GLOBAL_SOURCING_MAX_PRODUCT_IMAGES || 6) || 6,
+  1
+);
+
 function normalizeSelectedVariant(payload) {
   const source = isPlainObject(payload?.selected_variant) ? payload.selected_variant : {};
   return {
@@ -195,10 +200,17 @@ async function uploadWooImage(remoteUrl, { title, slot, cache }) {
 }
 
 async function resolveWooProductImages(images, { title, cache, warnings }) {
+  const limitedImages = images.slice(0, MAX_PRODUCT_IMAGE_UPLOADS);
+  if (images.length > limitedImages.length) {
+    warnings.push(
+      `Skipped ${images.length - limitedImages.length} extra gallery image(s) to keep import within runtime limits`
+    );
+  }
+
   const uploaded = [];
 
-  for (let index = 0; index < images.length; index += 1) {
-    const image = images[index];
+  for (let index = 0; index < limitedImages.length; index += 1) {
+    const image = limitedImages[index];
     try {
       const asset = await uploadWooImage(image?.src, {
         title,
@@ -407,6 +419,19 @@ async function getExistingVariationMeta(productId, variation) {
   if (!variation?.id) return [];
   const detailedVariation = await requestWoo(`/products/${productId}/variations/${variation.id}`);
   return Array.isArray(detailedVariation?.meta_data) ? detailedVariation.meta_data : [];
+}
+
+function buildVariationResponseMap(rows, descriptors) {
+  const map = new Map();
+  const responseRows = Array.isArray(rows) ? rows : [];
+
+  descriptors.forEach((descriptor, index) => {
+    const row = responseRows[index];
+    if (!row?.id) return;
+    map.set(descriptor.variant.externalVariantId, String(row.id));
+  });
+
+  return map;
 }
 
 function buildExistingVariationLookup(variations) {
@@ -769,6 +794,8 @@ export async function handler(event) {
       importStage = 'load_existing_variations';
       const existingVariations = payload.woo_product_id ? await listWooVariations(product.id) : [];
       const lookup = buildExistingVariationLookup(existingVariations);
+      const createDescriptors = [];
+      const updateDescriptors = [];
 
       for (const plan of variationPlans) {
         const { variant, pricingPreview: variantPricingPreview } = plan;
@@ -839,26 +866,44 @@ export async function handler(event) {
           }),
         });
 
-        const savedVariation = matchedVariation?.id
-          ? await (async () => {
-              importStage = `update_variation:${variant.externalVariantId}`;
-              return requestWoo(`/products/${product.id}/variations/${matchedVariation.id}`, {
-                method: 'PUT',
-                body: JSON.stringify(variationPayload),
-              });
-            })()
-          : await (async () => {
-              importStage = `create_variation:${variant.externalVariantId}`;
-              return requestWoo(`/products/${product.id}/variations`, {
-                method: 'POST',
-                body: JSON.stringify(variationPayload),
-              });
-            })();
-
-        importedVariationIds.push(String(savedVariation.id));
-        if (variant.externalVariantId === selectedVariant.externalVariantId) {
-          selectedVariationId = String(savedVariation.id);
+        if (matchedVariation?.id) {
+          updateDescriptors.push({
+            variant,
+            payload: {
+              id: Number(matchedVariation.id),
+              ...variationPayload,
+            },
+          });
+        } else {
+          createDescriptors.push({
+            variant,
+            payload: variationPayload,
+          });
         }
+      }
+
+      if (createDescriptors.length > 0 || updateDescriptors.length > 0) {
+        importStage = 'batch_variations';
+        const batchResult = await requestWoo(`/products/${product.id}/variations/batch`, {
+          method: 'POST',
+          body: JSON.stringify({
+            create: createDescriptors.map((entry) => entry.payload),
+            update: updateDescriptors.map((entry) => entry.payload),
+          }),
+        });
+
+        const createdIdMap = buildVariationResponseMap(batchResult?.create, createDescriptors);
+        const updatedIdMap = buildVariationResponseMap(batchResult?.update, updateDescriptors);
+        const variationIdMap = new Map([...updatedIdMap.entries(), ...createdIdMap.entries()]);
+
+        variationPlans.forEach((plan) => {
+          const id = variationIdMap.get(plan.variant.externalVariantId);
+          if (!id) return;
+          importedVariationIds.push(String(id));
+          if (plan.variant.externalVariantId === selectedVariant.externalVariantId) {
+            selectedVariationId = String(id);
+          }
+        });
       }
     }
 

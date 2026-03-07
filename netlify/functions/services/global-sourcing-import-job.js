@@ -240,6 +240,47 @@ function inferFallbackVariantAttributes(variants, productTitle) {
     };
   });
 
+  const tokenizedRows = parsedRows.map((row) => row.label.split(/\s+/).filter(Boolean));
+  const sharedModelAnchor = tokenizedRows[0]?.find((token, tokenIndex) => {
+    if (tokenIndex === 0) return false;
+    return tokenizedRows.every((parts) =>
+      parts.some((part, partIndex) => partIndex > 0 && part.toLowerCase() === token.toLowerCase())
+    );
+  });
+
+  if (sharedModelAnchor) {
+    const splitRows = tokenizedRows.map((parts) => {
+      const anchorIndex = parts.findIndex((part, index) =>
+        index > 0 && part.toLowerCase() === sharedModelAnchor.toLowerCase()
+      );
+
+      return {
+        colorValue: anchorIndex > 0 ? parts.slice(0, anchorIndex).join(' ').trim() : '',
+        modelValue: anchorIndex >= 0 ? parts.slice(anchorIndex).join(' ').trim() : '',
+      };
+    });
+
+    const colorCount = splitRows.filter((row) => row.colorValue).length;
+    const modelCount = splitRows.filter((row) => row.modelValue).length;
+    const uniqueColors = new Set(splitRows.map((row) => row.colorValue.toLowerCase()).filter(Boolean));
+    const uniqueModels = new Set(splitRows.map((row) => row.modelValue.toLowerCase()).filter(Boolean));
+
+    if (
+      colorCount === baseVariants.length &&
+      modelCount === baseVariants.length &&
+      uniqueColors.size > 1 &&
+      uniqueModels.size > 1
+    ) {
+      return baseVariants.map((variant, index) => ({
+        ...variant,
+        attributes: [
+          { name: 'Colour', value: splitRows[index].colorValue },
+          { name: 'Model', value: splitRows[index].modelValue },
+        ],
+      }));
+    }
+  }
+
   const colorCount = parsedRows.filter((row) => row.colorValue).length;
   const sizeCount = parsedRows.filter((row) => row.sizeValue).length;
   const uniqueColors = new Set(

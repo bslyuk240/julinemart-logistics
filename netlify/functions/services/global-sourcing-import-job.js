@@ -155,24 +155,147 @@ function buildImportVariants(payload, selectedVariant, selectedAttributes) {
   return Array.from(deduped.values());
 }
 
-function ensureVariantAttributes(variants) {
+function humanizeVariantTitle(value) {
+  return String(value || '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([A-Za-z])(\d)/g, '$1 $2')
+    .replace(/(\d)([A-Za-z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function stripTitlePrefix(label, productTitle) {
+  const normalizedLabel = humanizeVariantTitle(label);
+  const normalizedTitle = humanizeVariantTitle(productTitle);
+  if (!normalizedLabel || !normalizedTitle) return normalizedLabel;
+
+  const prefixPattern = new RegExp(`^${escapeRegExp(normalizedTitle)}\\s*`, 'i');
+  return normalizedLabel.replace(prefixPattern, '').trim() || normalizedLabel;
+}
+
+function removeCommonLeadingTokens(labels) {
+  const tokenized = labels
+    .map((label) => humanizeVariantTitle(label).split(/\s+/).filter(Boolean))
+    .filter((parts) => parts.length > 0);
+  if (tokenized.length <= 1) {
+    return labels.map((label) => humanizeVariantTitle(label));
+  }
+
+  let sharedCount = 0;
+  while (sharedCount < tokenized[0].length) {
+    const candidate = tokenized[0][sharedCount];
+    if (!candidate) {
+      break;
+    }
+    const matchesAll = tokenized.every(
+      (parts) => String(parts[sharedCount] || '').toLowerCase() === candidate.toLowerCase()
+    );
+    if (!matchesAll) break;
+    sharedCount += 1;
+  }
+
+  if (sharedCount === 0) {
+    return labels.map((label) => humanizeVariantTitle(label));
+  }
+
+  return tokenized.map((parts, index) => {
+    const trimmed = parts.slice(sharedCount).join(' ').trim();
+    return trimmed || humanizeVariantTitle(labels[index]);
+  });
+}
+
+function isSizeLikeToken(token) {
+  const normalized = String(token || '').trim();
+  return (
+    /^\d+(?:\.\d+)?$/.test(normalized) ||
+    /^(?:xxs|xs|s|m|l|xl|xxl|xxxl|xxxxl)$/i.test(normalized) ||
+    /^(?:one\s*size|free\s*size)$/i.test(normalized)
+  );
+}
+
+function inferFallbackVariantAttributes(variants, productTitle) {
+  const baseVariants = Array.isArray(variants) ? variants : [];
+  const strippedLabels = removeCommonLeadingTokens(
+    baseVariants.map((variant) =>
+      stripTitlePrefix(
+        String(variant.title || '').trim() ||
+          (variant.externalVariantId ? `Variant ${variant.externalVariantId}` : ''),
+        productTitle
+      )
+    )
+  );
+
+  const parsedRows = strippedLabels.map((label) => {
+    const parts = humanizeVariantTitle(label).split(/\s+/).filter(Boolean);
+    const lastToken = parts[parts.length - 1] || '';
+    const hasSizeSuffix = parts.length >= 2 && isSizeLikeToken(lastToken);
+
+    return {
+      label: humanizeVariantTitle(label),
+      colorValue: hasSizeSuffix ? parts.slice(0, -1).join(' ').trim() : '',
+      sizeValue: hasSizeSuffix ? lastToken.trim() : '',
+    };
+  });
+
+  const colorCount = parsedRows.filter((row) => row.colorValue).length;
+  const sizeCount = parsedRows.filter((row) => row.sizeValue).length;
+  const uniqueColors = new Set(
+    parsedRows.map((row) => row.colorValue.toLowerCase()).filter(Boolean)
+  );
+  const uniqueSizes = new Set(
+    parsedRows.map((row) => row.sizeValue.toLowerCase()).filter(Boolean)
+  );
+
+  if (colorCount === baseVariants.length && sizeCount === baseVariants.length && uniqueColors.size > 1 && uniqueSizes.size > 1) {
+    return baseVariants.map((variant, index) => ({
+      ...variant,
+      attributes: [
+        { name: 'Colour', value: parsedRows[index].colorValue },
+        { name: 'Size', value: parsedRows[index].sizeValue },
+      ],
+    }));
+  }
+
+  if (sizeCount === baseVariants.length && uniqueSizes.size > 1) {
+    return baseVariants.map((variant, index) => ({
+      ...variant,
+      attributes: [{ name: 'Size', value: parsedRows[index].sizeValue }],
+    }));
+  }
+
+  if (colorCount === baseVariants.length && uniqueColors.size > 1) {
+    return baseVariants.map((variant, index) => ({
+      ...variant,
+      attributes: [{ name: 'Colour', value: parsedRows[index].colorValue }],
+    }));
+  }
+
+  return baseVariants.map((variant, index) => ({
+    ...variant,
+    attributes: [
+      {
+        name: 'Option',
+        value:
+          parsedRows[index].label ||
+          String(variant.title || '').trim() ||
+          (variant.externalVariantId ? `Variant ${variant.externalVariantId}` : `Variant ${index + 1}`),
+      },
+    ],
+  }));
+}
+
+function ensureVariantAttributes(variants, productTitle = '') {
   const normalized = Array.isArray(variants) ? variants : [];
   if (normalized.length <= 1) return normalized;
 
   const hasStructuredAttributes = normalized.some((variant) => variant.attributes.length > 0);
   if (hasStructuredAttributes) return normalized;
 
-  return normalized.map((variant, index) => ({
-    ...variant,
-    attributes: [
-      {
-        name: 'Option',
-        value:
-          String(variant.title || '').trim() ||
-          (variant.externalVariantId ? `Variant ${variant.externalVariantId}` : `Variant ${index + 1}`),
-      },
-    ],
-  }));
+  return inferFallbackVariantAttributes(normalized, productTitle);
 }
 
 function mapProductImages(productImages, selectedVariantImage) {
@@ -273,6 +396,7 @@ function buildOwnershipMeta(vendorMapping) {
     _woocommerce_vendor_id: wooVendorId,
     _wcfm_vendor_id: wooVendorId,
     wcfm_vendor_id: wooVendorId,
+    _wcfm_product_author: wooVendorId,
     _vendor_id: vendorMapping.id,
     vendor_id: vendorMapping.id,
     _jlo_vendor_id: vendorMapping.id,
@@ -704,7 +828,8 @@ async function prepareJob(adminClient, job) {
 
   const selectedAttributes = normalizeSelectedAttributes(payload, selectedVariant);
   const importVariants = ensureVariantAttributes(
-    buildImportVariants(payload, selectedVariant, selectedAttributes)
+    buildImportVariants(payload, selectedVariant, selectedAttributes),
+    payload.title || ''
   );
   const importableVariants = importVariants.filter(
     (variant) => variant.externalVariantId && variant.sourcePrice !== null
@@ -870,6 +995,7 @@ async function prepareJob(adminClient, job) {
     cjVid: null,
     fulfillmentMode,
     receivingHubId: receivingHub.id,
+    receivingHubName: receivingHub.name,
     sourcingTag: shortDescription,
     estimatedInboundDaysMin: pricingPreview.estimated_inbound_days_min ?? payload.estimated_inbound_days_min,
     estimatedInboundDaysMax: pricingPreview.estimated_inbound_days_max ?? payload.estimated_inbound_days_max,
@@ -1093,6 +1219,7 @@ async function processVariationBatch(adminClient, job) {
       cjVid: variant.externalVariantId,
       fulfillmentMode: cursor.fulfillmentMode,
       receivingHubId: cursor.receivingHub?.id,
+      receivingHubName: cursor.receivingHub?.name,
       sourcingTag: cursor.shortDescription,
       estimatedInboundDaysMin:
         variantPricingPreview.estimated_inbound_days_min ?? payload.estimated_inbound_days_min,

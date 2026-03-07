@@ -358,14 +358,28 @@ export async function updateWordPressProductAuthor(productId, authorId) {
     return null;
   }
 
-  const candidates = [`/product/${normalizedProductId}`, `/posts/${normalizedProductId}`];
+  const payload = {
+    author: normalizedAuthorId,
+    meta: {
+      _wcfm_product_author: String(normalizedAuthorId),
+      _wcfm_vendor_id: String(normalizedAuthorId),
+      wcfm_vendor_id: String(normalizedAuthorId),
+      _woocommerce_vendor_id: String(normalizedAuthorId),
+    },
+  };
+  const candidates = [
+    `/product/${normalizedProductId}?context=edit`,
+    `/product/${normalizedProductId}`,
+    `/posts/${normalizedProductId}?context=edit`,
+    `/posts/${normalizedProductId}`,
+  ];
   let lastError = null;
 
   for (const candidate of candidates) {
     try {
       return await requestWordPress(candidate, {
         method: 'POST',
-        body: JSON.stringify({ author: normalizedAuthorId }),
+        body: JSON.stringify(payload),
       });
     } catch (error) {
       lastError = error;
@@ -609,17 +623,62 @@ export function normalizeAttributeOption(value) {
   return collapseWhitespace(value);
 }
 
+function collectNormalizedImageEntries(entry, bucket) {
+  if (Array.isArray(entry)) {
+    entry.forEach((item) => collectNormalizedImageEntries(item, bucket));
+    return;
+  }
+
+  if (isPlainObject(entry)) {
+    if (typeof entry.src === 'string') {
+      collectNormalizedImageEntries(entry.src, bucket);
+      return;
+    }
+    if (typeof entry.url === 'string') {
+      collectNormalizedImageEntries(entry.url, bucket);
+    }
+    return;
+  }
+
+  if (typeof entry !== 'string') return;
+
+  const trimmed = entry.trim();
+  if (!trimmed) return;
+
+  if (
+    (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+    (trimmed.startsWith('{') && trimmed.endsWith('}'))
+  ) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      collectNormalizedImageEntries(parsed, bucket);
+      return;
+    } catch {
+      // Fall through to absolute URL extraction.
+    }
+  }
+
+  const absoluteUrls = trimmed.match(/https?:\/\/[^\s"',\]]+/gi);
+  if (Array.isArray(absoluteUrls) && absoluteUrls.length > 0) {
+    absoluteUrls.forEach((url) => bucket.push(url.trim()));
+    return;
+  }
+
+  bucket.push(trimmed);
+}
+
 export function normalizeImages(images) {
   if (!Array.isArray(images)) return [];
+
+  const flattened = [];
+  images.forEach((entry) => {
+    collectNormalizedImageEntries(entry, flattened);
+  });
+
   return Array.from(
     new Set(
-      images
-        .map((entry) => {
-          if (typeof entry === 'string') return entry.trim();
-          if (isPlainObject(entry) && typeof entry.src === 'string') return entry.src.trim();
-          if (isPlainObject(entry) && typeof entry.url === 'string') return entry.url.trim();
-          return '';
-        })
+      flattened
+        .map((entry) => String(entry || '').trim())
         .filter(Boolean)
     )
   );
@@ -788,6 +847,7 @@ export function buildGlobalSourcingMeta({
   cjVid = null,
   fulfillmentMode = 'cj_hub',
   receivingHubId = null,
+  receivingHubName = null,
   sourcingTag = 'Ships from Abroad',
   originCountry = 'CN',
   shipsFromAbroad = 'yes',
@@ -812,6 +872,20 @@ export function buildGlobalSourcingMeta({
     _cj_vid: cjVid,
     _fulfillment_mode: fulfillmentMode,
     _receiving_hub_id: receivingHubId,
+    ...(receivingHubId
+      ? {
+          _julinemart_hub_id: String(receivingHubId),
+          _hub_id: String(receivingHubId),
+          hub_id: String(receivingHubId),
+        }
+      : {}),
+    ...(receivingHubName
+      ? {
+          _julinemart_hub_name: String(receivingHubName),
+          _hub_name: String(receivingHubName),
+          hub_name: String(receivingHubName),
+        }
+      : {}),
     _origin_country: originCountry,
     _ships_from_abroad: shipsFromAbroad,
     _global_sourcing_tag: sourcingTag,
@@ -857,6 +931,7 @@ export function buildGlobalSourcingMeta({
           _woocommerce_vendor_id: String(woocommerceVendorId),
           _wcfm_vendor_id: String(woocommerceVendorId),
           wcfm_vendor_id: String(woocommerceVendorId),
+          _wcfm_product_author: String(woocommerceVendorId),
         }
       : {}),
   };
@@ -888,6 +963,9 @@ export function extractGlobalSourcingFromMeta(metaData) {
   const receivingHubId = extractMetaValue(metaData, [
     '_receiving_hub_id',
     'receiving_hub_id',
+    '_julinemart_hub_id',
+    '_hub_id',
+    'hub_id',
   ]);
   const sourcingTag = extractMetaValue(metaData, ['_global_sourcing_tag', 'global_sourcing_tag']);
   const vendorId = extractMetaValue(metaData, ['vendor_id', '_vendor_id', '_jlo_vendor_id']);

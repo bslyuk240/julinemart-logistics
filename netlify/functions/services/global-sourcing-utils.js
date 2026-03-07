@@ -373,20 +373,57 @@ export async function updateWordPressProductAuthor(productId, authorId) {
     `/posts/${normalizedProductId}?context=edit`,
     `/posts/${normalizedProductId}`,
   ];
+  const methods = ['POST', 'PUT', 'PATCH'];
   let lastError = null;
 
+  const isAuthorApplied = (body) => {
+    if (!body || typeof body !== 'object') return false;
+    if (Number(body.author) === normalizedAuthorId) return true;
+    const meta = body.meta;
+    if (meta && typeof meta === 'object') {
+      return (
+        Number(meta._wcfm_product_author) === normalizedAuthorId ||
+        Number(meta._wcfm_vendor_id) === normalizedAuthorId ||
+        Number(meta.wcfm_vendor_id) === normalizedAuthorId ||
+        Number(meta._woocommerce_vendor_id) === normalizedAuthorId
+      );
+    }
+    return false;
+  };
+
+  const buildVerificationPath = (candidate) => {
+    const [pathPart] = String(candidate || '').split('?');
+    return `${pathPart}?context=edit`;
+  };
+
   for (const candidate of candidates) {
-    try {
-      return await requestWordPress(candidate, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
-    } catch (error) {
-      lastError = error;
-      if (error?.statusCode === 404) {
-        continue;
+    for (const method of methods) {
+      try {
+        const responseBody = await requestWordPress(candidate, {
+          method,
+          body: JSON.stringify(payload),
+        });
+        if (isAuthorApplied(responseBody)) {
+          return responseBody;
+        }
+
+        try {
+          const verificationBody = await requestWordPress(buildVerificationPath(candidate), {
+            method: 'GET',
+          });
+          if (isAuthorApplied(verificationBody)) {
+            return verificationBody;
+          }
+        } catch (verificationError) {
+          lastError = verificationError;
+        }
+      } catch (error) {
+        lastError = error;
+        if (error?.statusCode === 404 || error?.statusCode === 405) {
+          continue;
+        }
+        throw error;
       }
-      throw error;
     }
   }
 

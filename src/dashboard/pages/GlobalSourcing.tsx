@@ -7,6 +7,7 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  Trash2,
   Truck,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -412,6 +413,7 @@ export function GlobalSourcingPage() {
   const [activeImportJob, setActiveImportJob] = useState<ImportJobData | null>(null);
   const [importedProducts, setImportedProducts] = useState<ImportedProduct[]>([]);
   const [loadingImported, setLoadingImported] = useState(false);
+  const [deletingImportedProductId, setDeletingImportedProductId] = useState<string | null>(null);
   const [importedProductsCount, setImportedProductsCount] = useState<number | null>(null);
   const [shipments, setShipments] = useState<InboundShipment[]>([]);
   const [loadingShipments, setLoadingShipments] = useState(false);
@@ -578,6 +580,38 @@ export function GlobalSourcingPage() {
       setLoadingImported(false);
     }
   }, [notification, session?.access_token]);
+
+  const deleteImportedProduct = async (wooProductId: string, productName: string) => {
+    if (!session?.access_token) return;
+
+    const confirmed = window.confirm(
+      `Delete imported product "${productName}" (Woo #${wooProductId}) permanently? This will remove it from WooCommerce.`
+    );
+    if (!confirmed) return;
+
+    setDeletingImportedProductId(wooProductId);
+    try {
+      await callAdmin(
+        `global-sourcing-products?woo_product_id=${encodeURIComponent(wooProductId)}`,
+        session.access_token,
+        { method: 'DELETE' }
+      );
+      notification.success('Deleted', `Imported product Woo #${wooProductId} was deleted`);
+      setImportedProducts((current) =>
+        current.filter((product) => product.woo_product_id !== wooProductId)
+      );
+      setImportedProductsCount((current) =>
+        current === null ? current : Math.max(0, current - 1)
+      );
+    } catch (error: unknown) {
+      notification.error(
+        'Delete failed',
+        getErrorMessage(error, 'Unable to delete imported product')
+      );
+    } finally {
+      setDeletingImportedProductId(null);
+    }
+  };
 
   const loadShipments = useCallback(async () => {
     if (!session?.access_token) return;
@@ -1426,11 +1460,28 @@ export function GlobalSourcingPage() {
             <div className="space-y-3">
               {importedProducts.map((product) => (
                 <div key={product.woo_product_id} className="rounded-lg border border-gray-200 p-4 text-sm text-gray-700">
-                  <p className="font-semibold text-gray-900">{product.name}</p>
-                  <p className="mt-1">Woo #{product.woo_product_id} · CJ PID {product.external_product_id || 'n/a'}</p>
-                  <p className="mt-1">Vendor: {product.vendor?.store_name || 'Not set'} · Hub: {product.receiving_hub?.name || 'Not set'}</p>
-                  <p className="mt-1">Mode: {product.fulfillment_mode || 'Not set'} · Status: {product.status}</p>
-                  <p className="mt-1">Updated: {formatDate(product.updated_at)}</p>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-gray-900">{product.name}</p>
+                      <p className="mt-1">Woo #{product.woo_product_id} · CJ PID {product.external_product_id || 'n/a'}</p>
+                      <p className="mt-1">Vendor: {product.vendor?.store_name || 'Not set'} · Hub: {product.receiving_hub?.name || 'Not set'}</p>
+                      <p className="mt-1">Mode: {product.fulfillment_mode || 'Not set'} · Status: {product.status}</p>
+                      <p className="mt-1">Updated: {formatDate(product.updated_at)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void deleteImportedProduct(product.woo_product_id, product.name)}
+                      disabled={deletingImportedProductId === product.woo_product_id}
+                      className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {deletingImportedProductId === product.woo_product_id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                      Delete
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

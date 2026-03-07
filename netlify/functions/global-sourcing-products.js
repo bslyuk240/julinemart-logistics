@@ -58,7 +58,7 @@ export async function handler(event) {
     return { statusCode: 200, headers, body: '' };
   }
 
-  if (event.httpMethod !== 'GET') {
+  if (!['GET', 'DELETE'].includes(event.httpMethod)) {
     return jsonResponse(405, { success: false, error: 'Method not allowed' });
   }
 
@@ -66,6 +66,39 @@ export async function handler(event) {
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
+    if (event.httpMethod === 'DELETE') {
+      const wooProductId = String(event.queryStringParameters?.woo_product_id || '').trim();
+      if (!wooProductId) {
+        return jsonResponse(400, {
+          success: false,
+          error: 'woo_product_id is required',
+        });
+      }
+
+      const product = await requestWoo(`/products/${encodeURIComponent(wooProductId)}`);
+      const normalizedProduct = normalizeProduct(product, new Map(), new Map());
+
+      if (!normalizedProduct) {
+        return jsonResponse(400, {
+          success: false,
+          error: 'Product is not managed by Global Sourcing',
+          message: 'Only imported Global Sourcing products can be deleted from this screen',
+        });
+      }
+
+      await requestWoo(`/products/${encodeURIComponent(wooProductId)}?force=true`, {
+        method: 'DELETE',
+      });
+
+      return jsonResponse(200, {
+        success: true,
+        data: {
+          woo_product_id: wooProductId,
+        },
+        message: 'Imported product deleted',
+      });
+    }
+
     const page = Math.max(Number(event.queryStringParameters?.page || 1), 1);
     const perPage = Math.min(Math.max(Number(event.queryStringParameters?.per_page || 50), 1), 100);
     const products = await requestWoo(`/products?per_page=${perPage}&page=${page}&orderby=date&order=desc`);

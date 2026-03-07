@@ -1025,7 +1025,18 @@ export function GlobalSourcingPage() {
   };
 
   const refreshSourceRequest = async (requestId: string) => {
+    const request = sourceRequests.find((entry) => entry.id === requestId);
     if (!session?.access_token) return;
+    if (!request) return;
+    if (!request.cj_request_id) {
+      notification.warning(
+        'Retry required',
+        request.can_continue_to_import
+          ? 'This request is already ready to import and does not need a CJ refresh.'
+          : 'CJ did not return a request id for this submission. Use Retry after filling Source Title Override and Source Image URL Override if needed.'
+      );
+      return;
+    }
     setSourceRequestActionId(requestId);
     try {
       const response = await callAdmin<{ data: SourceLinkRequest; message?: string }>(
@@ -2009,7 +2020,13 @@ export function GlobalSourcingPage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {sourceRequests.map((request) => (
+                {sourceRequests.map((request) => {
+                  const canRefresh = Boolean(request.cj_request_id) && !request.can_continue_to_import;
+                  const canRetry =
+                    request.status === 'failed' ||
+                    (!request.cj_request_id && !request.can_continue_to_import);
+
+                  return (
                   <div key={request.id} className="rounded-lg border border-gray-200 p-4 text-sm text-gray-700">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0 flex-1">
@@ -2061,7 +2078,7 @@ export function GlobalSourcingPage() {
                         <button
                           type="button"
                           onClick={() => void refreshSourceRequest(request.id)}
-                          disabled={sourceRequestActionId === request.id}
+                          disabled={sourceRequestActionId === request.id || !canRefresh}
                           className="btn-secondary inline-flex items-center gap-2 disabled:opacity-60"
                         >
                           {sourceRequestActionId === request.id ? (
@@ -2072,7 +2089,7 @@ export function GlobalSourcingPage() {
                           Refresh Status
                         </button>
 
-                        {request.status === 'failed' ? (
+                        {canRetry ? (
                           <button
                             type="button"
                             onClick={() => void retrySourceRequest(request.id)}
@@ -2096,7 +2113,8 @@ export function GlobalSourcingPage() {
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

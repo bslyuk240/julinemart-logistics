@@ -216,6 +216,34 @@ function buildFailedStatusMessage(requestRecord, fallback = null) {
   );
 }
 
+function resolveSubmissionState(requestRecord, rawResponse) {
+  if (requestRecord?.cjPid) {
+    return {
+      status: mapCjSourcingRequestStatus(requestRecord, 'ready_to_import'),
+      errorMessage: null,
+    };
+  }
+
+  if (requestRecord?.cjRequestId) {
+    return {
+      status: mapCjSourcingRequestStatus(requestRecord, 'submitted'),
+      errorMessage: null,
+    };
+  }
+
+  return {
+    status: 'failed',
+    errorMessage:
+      pickString(
+        rawResponse?.message,
+        rawResponse?.msg,
+        rawResponse?.error,
+        rawResponse?.result?.message
+      ) ||
+      'CJ did not return a sourcing request id for this submission. Retry with Source Title Override and Source Image URL Override if needed.',
+  };
+}
+
 async function submitRequest(client, payload) {
   const normalized = normalizeSupportedSourceUrl(payload?.source_url);
   const note = pickString(payload?.note);
@@ -271,7 +299,8 @@ async function submitRequest(client, payload) {
     sourceSnapshot,
   });
   const requestRecord = submission.request;
-  const status = mapCjSourcingRequestStatus(requestRecord, 'submitted');
+  const submissionState = resolveSubmissionState(requestRecord, submission.raw);
+  const status = submissionState.status;
 
   const { data, error } = await client
     .from(TABLE)
@@ -300,7 +329,10 @@ async function submitRequest(client, payload) {
         cj_request_payload: submission.requestPayload,
       },
       raw_response_payload: submission.raw || {},
-      error_message: status === 'failed' ? buildFailedStatusMessage(requestRecord) : null,
+      error_message:
+        status === 'failed'
+          ? buildFailedStatusMessage(requestRecord, submissionState.errorMessage)
+          : null,
       metadata: buildRequestMetadataPatch(
         {},
         requestRecord,
@@ -342,10 +374,13 @@ async function refreshRequest(client, requestId) {
 
   if (!existing.data.cj_request_id) {
     return {
-      statusCode: 400,
+      statusCode: 409,
       body: {
         success: false,
-        error: 'This sourcing request does not have a CJ request id yet',
+        error:
+          existing.data.cj_pid
+            ? 'This sourcing request is already ready to import and does not need refresh'
+            : 'This sourcing request cannot be refreshed because CJ did not return a request id. Retry it with Source Title Override and Source Image URL Override if needed.',
       },
     };
   }
@@ -409,12 +444,15 @@ async function retryRequest(client, requestId) {
     };
   }
 
-  if (String(existing.status || '') !== 'failed') {
+  if (
+    String(existing.status || '') !== 'failed' &&
+    (existing.cj_request_id || existing.cj_pid)
+  ) {
     return {
       statusCode: 409,
       body: {
         success: false,
-        error: 'Only failed sourcing requests can be retried',
+        error: 'Only failed or non-refreshable sourcing requests can be retried',
       },
     };
   }
@@ -437,7 +475,8 @@ async function retryRequest(client, requestId) {
     sourceSnapshot,
   });
   const requestRecord = submission.request;
-  const nextStatus = mapCjSourcingRequestStatus(requestRecord, 'submitted');
+  const submissionState = resolveSubmissionState(requestRecord, submission.raw);
+  const nextStatus = submissionState.status;
   const existingMetadata = asMetadata(existing.metadata);
   const previousRequestIds = Array.isArray(existingMetadata.previous_cj_request_ids)
     ? existingMetadata.previous_cj_request_ids.filter(Boolean)
@@ -462,7 +501,9 @@ async function retryRequest(client, requestId) {
       },
       raw_response_payload: submission.raw || {},
       error_message:
-        nextStatus === 'failed' ? buildFailedStatusMessage(requestRecord) : null,
+        nextStatus === 'failed'
+          ? buildFailedStatusMessage(requestRecord, submissionState.errorMessage)
+          : null,
       metadata: buildRequestMetadataPatch(
         existing.metadata,
         requestRecord,

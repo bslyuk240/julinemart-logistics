@@ -575,7 +575,13 @@ export async function handler(event) {
       console.log(`  📦 ${groupKey}:`, group.items.length, 'items');
     });
 
-    // Fetch hubs and zones
+	    if (Object.keys(itemsByGroup).length === 0) {
+	      throw new Error(
+	        `No shippable item groups were created for Woo order ${wcOrder.id}. Check hub assignment/default hub and line item metadata.`
+	      );
+	    }
+
+	    // Fetch hubs and zones
     const { data: hubs } = await supabase
       .from('hubs')
       .select('id, name, city, state, address, phone');
@@ -595,10 +601,15 @@ export async function handler(event) {
       zone = zones[0];
     }
 
-    console.log('Delivery State:', customerInfo.state);
-    console.log('Assigned Zone:', zone?.name || 'Unknown');
+	    console.log('Delivery State:', customerInfo.state);
+	    console.log('Assigned Zone:', zone?.name || 'Unknown');
+	    if (!zone) {
+	      throw new Error(
+	        `No delivery zone could be resolved for state "${customerInfo.state || 'unknown'}" on Woo order ${wcOrder.id}.`
+	      );
+	    }
 
-    // ============================================
+	    // ============================================
     // 🚀 GET LIVE FEZ QUOTES
     // ============================================
     const shippingBreakdown = [];
@@ -711,7 +722,12 @@ export async function handler(event) {
     // ============================================
     // 📝 CREATE MAIN ORDER WITH VOUCHER METADATA
     // ============================================
-    const orderData = {
+	    if (shippingBreakdown.length === 0) {
+	      throw new Error(
+	        `No shipment breakdown could be created for Woo order ${wcOrder.id}. Check hub records, zone matching, and shipping configuration.`
+	      );
+	    }
+	    const orderData = {
       woocommerce_order_id: wcOrder.id.toString(),
       customer_name: customerInfo.name,
       customer_email: customerInfo.email,

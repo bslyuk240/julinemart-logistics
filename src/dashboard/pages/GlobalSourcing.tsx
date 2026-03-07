@@ -764,7 +764,12 @@ export function GlobalSourcingPage() {
         supplier_price_snapshot: selectedVariant?.source_price ?? productDetails.source_price ?? null,
       };
       const response = await callAdmin<{
-        data: { woo_product_id: string; imported_variation_count?: number; skipped_variant_count?: number };
+        data: {
+          woo_product_id: string;
+          imported_variation_count?: number;
+          skipped_variant_count?: number;
+          warnings?: string[];
+        };
       }>('global-sourcing-import-product', session.access_token, {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -775,6 +780,12 @@ export function GlobalSourcingPage() {
           ? `Woo product ${response.data.woo_product_id} updated with ${response.data.imported_variation_count} variant(s)`
           : `Woo product ${response.data.woo_product_id} updated`
       );
+      if (Array.isArray(response.data.warnings) && response.data.warnings.length > 0) {
+        notification.warning(
+          'Import warnings',
+          response.data.warnings.slice(0, 2).join(' ')
+        );
+      }
       setActiveTab('imported-products');
       await loadImportedProducts();
     } catch (error: unknown) {

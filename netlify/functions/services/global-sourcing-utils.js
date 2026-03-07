@@ -80,6 +80,45 @@ export function getWooConfig() {
   return { baseUrl, authHeader };
 }
 
+function buildWordPressRootUrl(wooBaseUrl) {
+  const sanitized = sanitizeBaseUrl(wooBaseUrl);
+  const wpJsonIndex = sanitized.toLowerCase().indexOf('/wp-json/');
+  if (wpJsonIndex >= 0) {
+    return `${sanitized.slice(0, wpJsonIndex)}/wp-json/wp/v2`;
+  }
+  return `${sanitized}/wp-json/wp/v2`;
+}
+
+function getWordPressAuthConfig() {
+  const { baseUrl, authHeader: wooAuthHeader } = getWooConfig();
+  const mediaUsername =
+    process.env.WP_MEDIA_USERNAME ||
+    process.env.WORDPRESS_MEDIA_USERNAME ||
+    process.env.WORDPRESS_USERNAME ||
+    '';
+  const mediaPassword =
+    process.env.WP_MEDIA_APP_PASSWORD ||
+    process.env.WORDPRESS_MEDIA_APP_PASSWORD ||
+    process.env.WORDPRESS_APP_PASSWORD ||
+    '';
+
+  if (mediaUsername && mediaPassword) {
+    return {
+      rootUrl: buildWordPressRootUrl(baseUrl),
+      mediaUrl: buildWordPressMediaUrl(baseUrl),
+      authHeader: `Basic ${Buffer.from(`${mediaUsername}:${mediaPassword}`).toString('base64')}`,
+      usingDedicatedWordPressAuth: true,
+    };
+  }
+
+  return {
+    rootUrl: buildWordPressRootUrl(baseUrl),
+    mediaUrl: buildWordPressMediaUrl(baseUrl),
+    authHeader: wooAuthHeader,
+    usingDedicatedWordPressAuth: false,
+  };
+}
+
 function buildWordPressMediaUrl(wooBaseUrl) {
   const sanitized = sanitizeBaseUrl(wooBaseUrl);
   const wpJsonIndex = sanitized.toLowerCase().indexOf('/wp-json/');
@@ -215,9 +254,9 @@ export async function uploadRemoteImageToWordPress(remoteUrl, options = {}) {
     throw new Error('Remote image download returned an empty file');
   }
 
-  const { baseUrl, authHeader } = getWooConfig();
+  const { mediaUrl, authHeader, usingDedicatedWordPressAuth } = getWordPressAuthConfig();
   const filename = buildMediaFilename(sourceUrl, options.filenameBase, contentType);
-  const uploadResponse = await fetch(buildWordPressMediaUrl(baseUrl), {
+  const uploadResponse = await fetch(mediaUrl, {
     method: 'POST',
     headers: {
       Authorization: authHeader,
@@ -229,11 +268,18 @@ export async function uploadRemoteImageToWordPress(remoteUrl, options = {}) {
 
   const body = await readResponseBody(uploadResponse);
   if (!uploadResponse.ok) {
-    const message =
+    let message =
       body?.message ||
       body?.error ||
       body?.raw ||
       `WordPress media upload failed (${uploadResponse.status})`;
+    if (
+      !usingDedicatedWordPressAuth &&
+      (uploadResponse.status === 401 || uploadResponse.status === 403)
+    ) {
+      message +=
+        '. WordPress media auth likely needs a dedicated application password. Set WP_MEDIA_USERNAME and WORDPRESS_APP_PASSWORD.';
+    }
     const error = new Error(message);
     error.statusCode = uploadResponse.status;
     error.responseBody = body;
@@ -246,6 +292,92 @@ export async function uploadRemoteImageToWordPress(remoteUrl, options = {}) {
     filename,
     raw: body,
   };
+}
+
+export async function requestWordPress(path, init = {}) {
+  const { rootUrl, authHeader, usingDedicatedWordPressAuth } = getWordPressAuthConfig();
+  const url = path.startsWith('http') ? path : `${rootUrl}${path.startsWith('/') ? path : `/${path}`}`;
+
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      Authorization: authHeader,
+      'Content-Type': 'application/json',
+      ...(init.headers || {}),
+    },
+  });
+
+  const body = await readResponseBody(response);
+  if (!response.ok) {
+    let message =
+      body?.message ||
+      body?.error ||
+      body?.raw ||
+      `WordPress request failed (${response.status})`;
+    if (
+      !usingDedicatedWordPressAuth &&
+      (response.status === 401 || response.status === 403)
+    ) {
+      message +=
+        '. WordPress auth likely needs a dedicated application password. Set WP_MEDIA_USERNAME and WORDPRESS_APP_PASSWORD.';
+    }
+    const error = new Error(message);
+    error.statusCode = response.status;
+    error.responseBody = body;
+    throw error;
+  }
+
+  return body;
+}
+
+export async function ensureWooProductTag(tagName) {
+  const normalizedName = String(tagName || '').trim();
+  if (!normalizedName) return null;
+
+  const existing = await requestWoo(
+    `/products/tags?search=${encodeURIComponent(normalizedName)}&per_page=100`
+  );
+  const exactMatch = (Array.isArray(existing) ? existing : []).find(
+    (tag) => String(tag?.name || '').trim().toLowerCase() === normalizedName.toLowerCase()
+  );
+  if (exactMatch?.id) {
+    return { id: Number(exactMatch.id), name: exactMatch.name || normalizedName };
+  }
+
+  const created = await requestWoo('/products/tags', {
+    method: 'POST',
+    body: JSON.stringify({ name: normalizedName }),
+  });
+  return created?.id ? { id: Number(created.id), name: created.name || normalizedName } : null;
+}
+
+export async function updateWordPressProductAuthor(productId, authorId) {
+  const normalizedProductId = String(productId || '').trim();
+  const normalizedAuthorId = Number(authorId);
+  if (!normalizedProductId || !Number.isFinite(normalizedAuthorId) || normalizedAuthorId <= 0) {
+    return null;
+  }
+
+  const candidates = [`/product/${normalizedProductId}`, `/posts/${normalizedProductId}`];
+  let lastError = null;
+
+  for (const candidate of candidates) {
+    try {
+      return await requestWordPress(candidate, {
+        method: 'POST',
+        body: JSON.stringify({ author: normalizedAuthorId }),
+      });
+    } catch (error) {
+      lastError = error;
+      if (error?.statusCode === 404) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (lastError) throw lastError;
+  return null;
 }
 
 export async function requireAdmin(event, roles = ['admin']) {

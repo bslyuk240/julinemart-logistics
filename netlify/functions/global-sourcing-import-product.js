@@ -2,6 +2,7 @@ import {
   applyMetaUpdates,
   buildGlobalSourcingMeta,
   computeWooNgnPricing,
+  ensureWooProductTag,
   extractMetaValue,
   headers,
   isPlainObject,
@@ -16,6 +17,7 @@ import {
   requestWoo,
   requireAdmin,
   resolveVendorMapping,
+  updateWordPressProductAuthor,
   uploadRemoteImageToWordPress,
 } from './services/global-sourcing-utils.js';
 import {
@@ -234,6 +236,7 @@ function buildProductPayload({
   description,
   shortDescription,
   images,
+  tags,
   metaData,
   attributes,
   pricing,
@@ -249,6 +252,7 @@ function buildProductPayload({
     regular_price: attributes.length === 0 ? pricing.regularPriceWoo : undefined,
     sale_price: attributes.length === 0 ? pricing.salePriceWoo || undefined : undefined,
     images: images.length > 0 ? images : undefined,
+    tags: tags.length > 0 ? tags : undefined,
     meta_data: metaData,
     attributes:
       attributes.length > 0
@@ -456,6 +460,13 @@ export async function handler(event) {
     const variantCandidatesWithAttributes = importableVariants.filter(
       (variant) => variant.attributes.length > 0
     );
+    if (importableVariants.length > 1 && variantCandidatesWithAttributes.length === 0) {
+      return jsonResponse(400, {
+        success: false,
+        error:
+          'CJ returned multiple variants but none included usable attributes for Woo variation creation',
+      });
+    }
     const sourceCurrency = selectedVariant.currency || String(payload.currency || 'USD').trim().toUpperCase();
     const sourcePrice =
       selectedVariant.sourcePrice ??
@@ -556,6 +567,34 @@ export async function handler(event) {
     });
     const shouldWriteProductImages = !payload.woo_product_id || imageWarnings.length === 0;
 
+    if (!payload.woo_product_id && sourceProductImages.length > 0 && uploadedProductImages.length === 0) {
+      throw new Error(
+        [...importWarnings, ...imageWarnings][0] ||
+          'No source images could be uploaded to WordPress media for this new Woo product'
+      );
+    }
+
+    const normalizedTagNames = Array.from(
+      new Set(
+        [shortDescription, 'Ships from Abroad']
+          .map((tag) => String(tag || '').trim())
+          .filter(Boolean)
+      )
+    );
+    const ensuredTags = [];
+    for (const tagName of normalizedTagNames) {
+      try {
+        const tag = await ensureWooProductTag(tagName);
+        if (tag?.id) {
+          ensuredTags.push({ id: Number(tag.id) });
+        }
+      } catch (error) {
+        importWarnings.push(
+          `Skipped Woo tag "${tagName}": ${error?.message || 'unable to create tag'}`
+        );
+      }
+    }
+
     const parentPricing = shouldCreateVariations
       ? { regularPriceWoo: null, salePriceWoo: null }
       : computeWooNgnPricing({
@@ -598,6 +637,7 @@ export async function handler(event) {
       description: normalizedDescription,
       shortDescription,
       images: shouldWriteProductImages ? uploadedProductImages : [],
+      tags: ensuredTags,
       metaData: applyMetaUpdates(existingProductMeta, {
         ...productMeta,
         ...ownershipMeta,
@@ -621,6 +661,24 @@ export async function handler(event) {
             method: 'POST',
             body: JSON.stringify(productPayload),
           });
+
+    try {
+      const authorUpdate = await updateWordPressProductAuthor(
+        product.id,
+        vendorMapping.woocommerce_vendor_id
+      );
+      if (!authorUpdate) {
+        importWarnings.push(
+          `Unable to assign WordPress/WCFM product owner ${vendorMapping.woocommerce_vendor_id}: vendor id is not a usable WordPress author id`
+        );
+      }
+    } catch (error) {
+      importWarnings.push(
+        `Unable to assign WordPress/WCFM product owner ${vendorMapping.woocommerce_vendor_id}: ${
+          error?.message || 'author update failed'
+        }`
+      );
+    }
 
     const importedVariationIds = [];
     let selectedVariationId = null;
@@ -711,11 +769,11 @@ export async function handler(event) {
       }
     }
 
-    const allWarnings = [...importWarnings, ...imageWarnings];
     const effectiveImportedVariantCount = shouldCreateVariations
       ? importedVariationIds.length
       : Math.min(importableVariants.length, 1);
     const skippedVariantCount = Math.max(importVariants.length - effectiveImportedVariantCount, 0);
+    const allWarnings = [...importWarnings, ...imageWarnings];
 
     return jsonResponse(payload.woo_product_id ? 200 : 201, {
       success: true,
@@ -752,13 +810,16 @@ export async function handler(event) {
         },
         notes: [
           'WooCommerce remains the source of truth for the imported product record.',
-          'Ownership is written using the existing vendor bridge meta plus WCFM-compatible vendor ID meta.',
+          'Ownership is written using vendor bridge meta and a best-effort WordPress post-author assignment.',
           shouldCreateVariations
             ? `Imported ${importedVariationIds.length} CJ variant(s) into Woo variations using the current landed-pricing rules.`
             : 'The imported item was stored as a Woo simple product.',
           shouldWriteProductImages
             ? `Uploaded ${uploadedProductImages.length} product image(s) into WordPress media before Woo import.`
             : 'One or more product images failed to upload on update, so the existing Woo gallery was preserved.',
+          ensuredTags.length > 0
+            ? `Applied ${ensuredTags.length} Woo product tag(s), including the sourcing tag.`
+            : 'No Woo product tags could be applied during import.',
           ...(allWarnings.length > 0
             ? [`${allWarnings.length} warning(s) were recorded during import.`]
             : []),

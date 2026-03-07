@@ -106,6 +106,24 @@ interface PricingPreview {
   carrier_name?: string | null;
 }
 
+interface ImportResultData {
+  woo_product_id: string;
+  imported_variation_count?: number;
+  skipped_variant_count?: number;
+  warnings?: string[];
+}
+
+interface ImportJobData {
+  job_id: string;
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  progress_stage: string | null;
+  progress_current: number;
+  progress_total: number;
+  result: ImportResultData | null;
+  error_message: string | null;
+  error_details?: { stage?: unknown } | null;
+}
+
 function getSearchResultFlags(product: SearchProduct) {
   const flags: Array<{ label: string; tone: 'red' | 'amber' | 'green' }> = [];
 
@@ -253,6 +271,31 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+function formatImportJobProgress(job: ImportJobData | null) {
+  if (!job) return null;
+
+  const stage = String(job.progress_stage || 'queued')
+    .replace(/[_:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const total = Number(job.progress_total || 0);
+  const current = Number(job.progress_current || 0);
+
+  if (total > 0) {
+    return `${stage} (${Math.min(current, total)}/${total})`;
+  }
+
+  return stage;
+}
+
+function formatImportJobError(job: ImportJobData) {
+  const stage =
+    typeof job.error_details?.stage === 'string' && job.error_details.stage.trim()
+      ? ` [stage: ${job.error_details.stage.trim()}]`
+      : '';
+  return `${job.error_message || 'Unable to import product'}${stage}`;
+}
+
 function endpointCandidates(endpoint: string) {
   const urls = [`/api/${endpoint}`, `${functionsBase}/${endpoint}`];
   if (typeof window !== 'undefined' && window.location.hostname === 'localhost' && window.location.port !== '8888') {
@@ -365,6 +408,7 @@ export function GlobalSourcingPage() {
   const [markupPercent, setMarkupPercent] = useState('');
   const [markupFlatNgn, setMarkupFlatNgn] = useState('');
   const [importing, setImporting] = useState(false);
+  const [activeImportJob, setActiveImportJob] = useState<ImportJobData | null>(null);
   const [importedProducts, setImportedProducts] = useState<ImportedProduct[]>([]);
   const [loadingImported, setLoadingImported] = useState(false);
   const [importedProductsCount, setImportedProductsCount] = useState<number | null>(null);
@@ -741,6 +785,39 @@ export function GlobalSourcingPage() {
     }
   };
 
+  const runImportJob = async (accessToken: string, jobId: string) => {
+    let attempts = 0;
+
+    for (;;) {
+      attempts += 1;
+      const response = await callAdmin<{ data: ImportJobData }>(
+        'global-sourcing-import-jobs',
+        accessToken,
+        {
+          method: 'POST',
+          body: JSON.stringify({ job_id: jobId }),
+        }
+      );
+
+      const job = response.data;
+      setActiveImportJob(job);
+
+      if (job.status === 'completed') {
+        return job;
+      }
+
+      if (job.status === 'failed') {
+        throw new Error(formatImportJobError(job));
+      }
+
+      if (attempts >= 120) {
+        throw new Error('Import job exceeded 120 processing steps without completing');
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+    }
+  };
+
   const importProduct = async () => {
     if (!session?.access_token || !productDetails) return;
     if ((!selectedVendorId && !manualWooVendorId.trim()) || !selectedHubId) {
@@ -755,7 +832,9 @@ export function GlobalSourcingPage() {
       return;
     }
     setImporting(true);
+    setActiveImportJob(null);
     try {
+      const accessToken = session.access_token;
       const payload = {
         provider: 'cj',
         external_product_id: productDetails.external_product_id,
@@ -799,34 +878,36 @@ export function GlobalSourcingPage() {
         },
         supplier_price_snapshot: selectedVariant?.source_price ?? productDetails.source_price ?? null,
       };
-      const response = await callAdmin<{
-        data: {
-          woo_product_id: string;
-          imported_variation_count?: number;
-          skipped_variant_count?: number;
-          warnings?: string[];
-        };
-      }>('global-sourcing-import-product', session.access_token, {
+      const queuedJob = await callAdmin<{ data: ImportJobData }>('global-sourcing-import-product', accessToken, {
         method: 'POST',
         body: JSON.stringify(payload),
       });
+      setActiveImportJob(queuedJob.data);
+      const completedJob = await runImportJob(accessToken, queuedJob.data.job_id);
+      const result = completedJob.result;
+      if (!result) {
+        throw new Error('Import job completed without a result payload');
+      }
+
       notification.success(
         'Imported',
-        response.data.imported_variation_count
-          ? `Woo product ${response.data.woo_product_id} updated with ${response.data.imported_variation_count} variant(s)`
-          : `Woo product ${response.data.woo_product_id} updated`
+        result.imported_variation_count
+          ? `Woo product ${result.woo_product_id} updated with ${result.imported_variation_count} variant(s)`
+          : `Woo product ${result.woo_product_id} updated`
       );
-      if (Array.isArray(response.data.warnings) && response.data.warnings.length > 0) {
+      if (Array.isArray(result.warnings) && result.warnings.length > 0) {
         notification.warning(
           'Import warnings',
-          response.data.warnings.slice(0, 2).join(' ')
+          result.warnings.slice(0, 2).join(' ')
         );
       }
+      setActiveImportJob(null);
       setActiveTab('imported-products');
       await loadImportedProducts();
     } catch (error: unknown) {
       notification.error('Import failed', getErrorMessage(error, 'Unable to import product'));
     } finally {
+      setActiveImportJob(null);
       setImporting(false);
     }
   };
@@ -1292,6 +1373,11 @@ export function GlobalSourcingPage() {
                   {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                   Import Product + Variants
                 </button>
+                {importing && activeImportJob ? (
+                  <p className="text-xs text-gray-500">
+                    Import stage: {formatImportJobProgress(activeImportJob)}
+                  </p>
+                ) : null}
               </>
             )}
           </div>

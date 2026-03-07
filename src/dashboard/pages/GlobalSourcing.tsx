@@ -739,6 +739,13 @@ export function GlobalSourcingPage() {
               attributes: selectedVariant.attributes,
             }
           : null,
+        variants: productDetails.variants.map((variant) => ({
+          external_variant_id: variant.external_variant_id,
+          image: variant.image || null,
+          source_price: variant.source_price,
+          currency: variant.currency,
+          attributes: variant.attributes,
+        })),
         regular_price: price,
         currency: selectedVariant?.currency || productDetails.currency || 'USD',
         sourcing_tag_label_suggestion: sourcingTag,
@@ -756,11 +763,18 @@ export function GlobalSourcingPage() {
         },
         supplier_price_snapshot: selectedVariant?.source_price ?? productDetails.source_price ?? null,
       };
-      const response = await callAdmin<{ data: { woo_product_id: string } }>('global-sourcing-import-product', session.access_token, {
+      const response = await callAdmin<{
+        data: { woo_product_id: string; imported_variation_count?: number; skipped_variant_count?: number };
+      }>('global-sourcing-import-product', session.access_token, {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      notification.success('Imported', `Woo product ${response.data.woo_product_id} updated`);
+      notification.success(
+        'Imported',
+        response.data.imported_variation_count
+          ? `Woo product ${response.data.woo_product_id} updated with ${response.data.imported_variation_count} variant(s)`
+          : `Woo product ${response.data.woo_product_id} updated`
+      );
       setActiveTab('imported-products');
       await loadImportedProducts();
     } catch (error: unknown) {
@@ -1200,8 +1214,13 @@ export function GlobalSourcingPage() {
                   disabled={pricingLoading || !selectedVariant?.external_variant_id}
                 >
                   {pricingLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                  Quote Landed Price
+                  Quote Selected Variant
                 </button>
+
+                <p className="text-xs text-gray-500">
+                  The quoted variant is used as the pricing anchor. Import will create the parent product and all
+                  importable CJ variants with the same landed-pricing rules.
+                </p>
 
                 {pricingPreview ? (
                   <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
@@ -1224,7 +1243,7 @@ export function GlobalSourcingPage() {
 
                 <button type="button" onClick={() => void importProduct()} className="btn-primary inline-flex w-full items-center justify-center gap-2" disabled={importing}>
                   {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                  Import into Woo
+                  Import Product + Variants
                 </button>
               </>
             )}

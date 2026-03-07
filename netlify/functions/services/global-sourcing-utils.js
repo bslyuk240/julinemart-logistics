@@ -80,6 +80,78 @@ export function getWooConfig() {
   return { baseUrl, authHeader };
 }
 
+function buildWordPressMediaUrl(wooBaseUrl) {
+  const sanitized = sanitizeBaseUrl(wooBaseUrl);
+  const wpJsonIndex = sanitized.toLowerCase().indexOf('/wp-json/');
+  if (wpJsonIndex >= 0) {
+    return `${sanitized.slice(0, wpJsonIndex)}/wp-json/wp/v2/media`;
+  }
+  return `${sanitized}/wp-json/wp/v2/media`;
+}
+
+async function readResponseBody(response) {
+  const raw = await response.text();
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return { raw };
+  }
+}
+
+function sanitizeFilenamePart(value) {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || 'image';
+}
+
+function extensionFromContentType(contentType) {
+  const normalized = String(contentType || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+
+  switch (normalized) {
+    case 'image/jpeg':
+    case 'image/jpg':
+      return 'jpg';
+    case 'image/png':
+      return 'png';
+    case 'image/webp':
+      return 'webp';
+    case 'image/gif':
+      return 'gif';
+    case 'image/svg+xml':
+      return 'svg';
+    case 'image/avif':
+      return 'avif';
+    case 'image/bmp':
+      return 'bmp';
+    case 'image/tiff':
+      return 'tif';
+    default:
+      return '';
+  }
+}
+
+function extractExtensionFromUrl(url) {
+  try {
+    const pathname = new URL(url).pathname;
+    const match = pathname.match(/\.([a-z0-9]{2,5})$/i);
+    return match ? match[1].toLowerCase() : '';
+  } catch {
+    return '';
+  }
+}
+
+function buildMediaFilename(remoteUrl, filenameBase, contentType) {
+  const extension =
+    extensionFromContentType(contentType) || extractExtensionFromUrl(remoteUrl) || 'jpg';
+  return `${sanitizeFilenamePart(filenameBase)}.${extension}`;
+}
+
 export async function requestWoo(path, init = {}) {
   const { baseUrl, authHeader } = getWooConfig();
   const url = path.startsWith('http') ? path : `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
@@ -93,13 +165,7 @@ export async function requestWoo(path, init = {}) {
     },
   });
 
-  const raw = await response.text();
-  let body = {};
-  try {
-    body = raw ? JSON.parse(raw) : {};
-  } catch {
-    body = { raw };
-  }
+  const body = await readResponseBody(response);
 
   if (!response.ok) {
     const message =
@@ -114,6 +180,72 @@ export async function requestWoo(path, init = {}) {
   }
 
   return body;
+}
+
+export async function uploadRemoteImageToWordPress(remoteUrl, options = {}) {
+  const sourceUrl = String(remoteUrl || '').trim();
+  if (!/^https?:\/\//i.test(sourceUrl)) {
+    throw new Error('Image source must be an absolute http(s) URL');
+  }
+
+  const remoteResponse = await fetch(sourceUrl, {
+    method: 'GET',
+    redirect: 'follow',
+    headers: {
+      'User-Agent': 'JulineMart-Global-Sourcing/1.0',
+      Accept: 'image/*,*/*;q=0.8',
+    },
+  });
+
+  if (!remoteResponse.ok) {
+    throw new Error(`Remote image download failed (${remoteResponse.status})`);
+  }
+
+  const contentType = String(remoteResponse.headers.get('content-type') || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+
+  if (/^(text\/html|text\/plain|application\/json)\b/i.test(contentType)) {
+    throw new Error(`Remote image returned unsupported content type ${contentType}`);
+  }
+
+  const bytes = Buffer.from(await remoteResponse.arrayBuffer());
+  if (!bytes.length) {
+    throw new Error('Remote image download returned an empty file');
+  }
+
+  const { baseUrl, authHeader } = getWooConfig();
+  const filename = buildMediaFilename(sourceUrl, options.filenameBase, contentType);
+  const uploadResponse = await fetch(buildWordPressMediaUrl(baseUrl), {
+    method: 'POST',
+    headers: {
+      Authorization: authHeader,
+      'Content-Type': contentType || 'application/octet-stream',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    },
+    body: bytes,
+  });
+
+  const body = await readResponseBody(uploadResponse);
+  if (!uploadResponse.ok) {
+    const message =
+      body?.message ||
+      body?.error ||
+      body?.raw ||
+      `WordPress media upload failed (${uploadResponse.status})`;
+    const error = new Error(message);
+    error.statusCode = uploadResponse.status;
+    error.responseBody = body;
+    throw error;
+  }
+
+  return {
+    id: body?.id ? String(body.id) : null,
+    source_url: body?.source_url || body?.guid?.rendered || null,
+    filename,
+    raw: body,
+  };
 }
 
 export async function requireAdmin(event, roles = ['admin']) {
@@ -241,7 +373,7 @@ function decodeHtmlEntities(value) {
 
 function dedupeDelimitedSegments(value) {
   const segments = String(value || '')
-    .split(/\s*[\-|,/]+\s*/g)
+    .split(/\s*[-|,/]+\s*/g)
     .map((segment) => collapseWhitespace(segment))
     .filter(Boolean);
 

@@ -162,6 +162,14 @@ function normalizeVariant(record, product) {
   return {
     external_variant_id: externalVariantId || null,
     title: buildVariantTitle(record, product, attributes),
+    sku: toTrimmedString(
+      record?.variantSku ??
+        record?.sku ??
+        record?.variantCode ??
+        record?.productSku ??
+        record?.variantSkuCode ??
+        ''
+    ) || null,
     image: normalizeImages(imageCandidates)[0] || null,
     source_price:
       record?.sourcePrice ??

@@ -14,7 +14,12 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 
-type TabKey = 'cj-products' | 'imported-products' | 'inbound-shipments' | 'settings';
+type TabKey =
+  | 'cj-products'
+  | 'source-by-link'
+  | 'imported-products'
+  | 'inbound-shipments'
+  | 'settings';
 
 interface HubOption {
   id: string;
@@ -44,6 +49,7 @@ interface SearchProduct {
 interface ProductVariant {
   external_variant_id: string | null;
   title: string;
+  sku?: string | null;
   image?: string | null;
   source_price: number | null;
   currency: string;
@@ -128,6 +134,35 @@ interface ImportJobData {
   error_details?: { stage?: unknown } | null;
 }
 
+type SourceRequestStatus = 'draft' | 'submitted' | 'processing' | 'ready_to_import' | 'failed';
+
+interface SourceLinkRequest {
+  id: string;
+  created_at: string | null;
+  updated_at: string | null;
+  provider: string;
+  request_type: string;
+  source_url: string;
+  source_domain: string | null;
+  status: Exclude<SourceRequestStatus, 'draft'>;
+  note: string | null;
+  requested_quantity: number | null;
+  vendor_id: string | null;
+  vendor?: { id: string; store_name: string; woocommerce_vendor_id?: string | null } | null;
+  receiving_hub_id: string | null;
+  receiving_hub?: { id: string; name: string; code?: string | null } | null;
+  cj_request_id: string | null;
+  cj_pid: string | null;
+  cj_vid: string | null;
+  resolved_product_title: string | null;
+  resolved_variant_title: string | null;
+  error_message: string | null;
+  metadata?: Record<string, unknown> | null;
+  raw_request_payload?: Record<string, unknown> | null;
+  raw_response_payload?: Record<string, unknown> | null;
+  can_continue_to_import?: boolean;
+}
+
 function getSearchResultFlags(product: SearchProduct) {
   const flags: Array<{ label: string; tone: 'red' | 'amber' | 'green' }> = [];
 
@@ -185,6 +220,23 @@ function toneClasses(tone: 'red' | 'amber' | 'green') {
   if (tone === 'red') return 'border-red-200 bg-red-50 text-red-700';
   if (tone === 'amber') return 'border-amber-200 bg-amber-50 text-amber-800';
   return 'border-green-200 bg-green-50 text-green-700';
+}
+
+function getSourceRequestTone(status: SourceLinkRequest['status']): 'red' | 'amber' | 'green' {
+  if (status === 'failed') return 'red';
+  if (status === 'ready_to_import') return 'green';
+  return 'amber';
+}
+
+function formatSourceRequestStatus(status: SourceLinkRequest['status']) {
+  return status.replace(/_/g, ' ');
+}
+
+function getSourceRequestVariantSku(request: SourceLinkRequest) {
+  const metadata =
+    request.metadata && typeof request.metadata === 'object' ? request.metadata : {};
+  const value = metadata.cj_variant_sku;
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 function humanizeVariantFragment(value: string) {
@@ -261,6 +313,7 @@ const cjProductBaseUrl = 'https://cjdropshipping.com/product';
 
 const tabs: Array<{ key: TabKey; label: string }> = [
   { key: 'cj-products', label: 'CJ Products' },
+  { key: 'source-by-link', label: 'Source by Link' },
   { key: 'imported-products', label: 'Imported Products' },
   { key: 'inbound-shipments', label: 'Inbound Shipments' },
   { key: 'settings', label: 'Settings' },
@@ -419,6 +472,14 @@ export function GlobalSourcingPage() {
   const [results, setResults] = useState<SearchProduct[]>([]);
   const [searchAttempted, setSearchAttempted] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [sourceLinkUrl, setSourceLinkUrl] = useState('');
+  const [sourceLinkNote, setSourceLinkNote] = useState('');
+  const [sourceLinkQuantity, setSourceLinkQuantity] = useState('');
+  const [submittingSourceLink, setSubmittingSourceLink] = useState(false);
+  const [sourceRequests, setSourceRequests] = useState<SourceLinkRequest[]>([]);
+  const [loadingSourceRequests, setLoadingSourceRequests] = useState(false);
+  const [sourceRequestActionId, setSourceRequestActionId] = useState<string | null>(null);
+  const [sourceRequestCount, setSourceRequestCount] = useState<number | null>(null);
   const [productDetails, setProductDetails] = useState<ProductDetails | null>(null);
   const [inspectError, setInspectError] = useState<string | null>(null);
   const [inspectingProductId, setInspectingProductId] = useState<string | null>(null);
@@ -594,6 +655,74 @@ export function GlobalSourcingPage() {
     persistSelection(sourcingHubStorageKey, selectedHubId);
   }, [selectedHubId]);
 
+  const loadSourceRequests = useCallback(async () => {
+    if (!session?.access_token) return;
+    setLoadingSourceRequests(true);
+    try {
+      const response = await callAdmin<{ data: SourceLinkRequest[] }>(
+        'global-sourcing-source-link',
+        session.access_token,
+        { method: 'GET' }
+      );
+      const requests = response.data || [];
+      setSourceRequests(requests);
+      setSourceRequestCount(requests.length);
+    } catch (error: unknown) {
+      notification.error(
+        'Load failed',
+        getErrorMessage(error, 'Unable to load Source by Link requests')
+      );
+    } finally {
+      setLoadingSourceRequests(false);
+    }
+  }, [notification, session?.access_token]);
+
+  const hydrateProductForImport = useCallback(
+    async ({
+      externalProductId,
+      fallbackTitle,
+      fallbackDescription = '',
+      fallbackImages = [],
+      fallbackSourcePrice = null,
+      fallbackCurrency = 'USD',
+    }: {
+      externalProductId: string;
+      fallbackTitle?: string;
+      fallbackDescription?: string;
+      fallbackImages?: string[];
+      fallbackSourcePrice?: number | null;
+      fallbackCurrency?: string;
+    }) => {
+      if (!session?.access_token) {
+        throw new Error('Admin session is missing');
+      }
+
+      const response = await callAdmin<{ data: { product: ProductDetails } }>(
+        'cj-product-details',
+        session.access_token,
+        {
+          method: 'POST',
+          body: JSON.stringify({ external_product_id: externalProductId }),
+        }
+      );
+
+      const candidateImages = Array.isArray(response.data.product.images)
+        ? response.data.product.images.filter(Boolean)
+        : [];
+
+      return {
+        ...response.data.product,
+        external_product_id: response.data.product.external_product_id || externalProductId,
+        title: response.data.product.title?.trim() || fallbackTitle || 'CJ product',
+        description: response.data.product.description?.trim() || fallbackDescription,
+        images: candidateImages.length > 0 ? candidateImages : fallbackImages,
+        source_price: response.data.product.source_price ?? fallbackSourcePrice,
+        currency: response.data.product.currency || fallbackCurrency || 'USD',
+      } as ProductDetails;
+    },
+    [session?.access_token]
+  );
+
   const loadImportedProducts = useCallback(async () => {
     if (!session?.access_token) return;
     setLoadingImported(true);
@@ -690,8 +819,9 @@ export function GlobalSourcingPage() {
   useEffect(() => {
     if (!session?.access_token) return;
     void loadReferenceData();
+    void loadSourceRequests();
     void loadPricingSettings();
-  }, [loadPricingSettings, loadReferenceData, session?.access_token]);
+  }, [loadPricingSettings, loadReferenceData, loadSourceRequests, session?.access_token]);
 
   useEffect(() => {
     if (!productDetails) return;
@@ -717,18 +847,21 @@ export function GlobalSourcingPage() {
 
   useEffect(() => {
     if (!session?.access_token) return;
+    if (activeTab === 'source-by-link' && sourceRequests.length === 0) void loadSourceRequests();
     if (activeTab === 'imported-products' && importedProducts.length === 0) void loadImportedProducts();
     if (activeTab === 'inbound-shipments' && shipments.length === 0) void loadShipments();
     if (activeTab === 'settings' && !settingsStatus) void loadSettingsStatus();
     if (activeTab === 'settings' && !pricingSettings && !loadingPricingSettings) void loadPricingSettings();
   }, [
     activeTab,
+    loadSourceRequests,
     importedProducts.length,
     loadImportedProducts,
     loadPricingSettings,
     loadSettingsStatus,
     loadShipments,
     loadingPricingSettings,
+    sourceRequests.length,
     session?.access_token,
     pricingSettings,
     settingsStatus,
@@ -813,26 +946,14 @@ export function GlobalSourcingPage() {
     setInspectError(null);
     setPricingPreview(null);
     try {
-      const response = await callAdmin<{ data: { product: ProductDetails } }>('cj-product-details', session.access_token, {
-        method: 'POST',
-        body: JSON.stringify({ external_product_id: product.external_product_id }),
-      });
       const fallbackImages = Array.isArray(product.images) ? product.images.filter(Boolean) : [];
-      const hydratedProduct: ProductDetails = {
-        ...response.data.product,
-        external_product_id:
-          response.data.product.external_product_id || product.external_product_id,
-        title: response.data.product.title?.trim() || product.title,
-        description: response.data.product.description?.trim() || '',
-        images: (() => {
-          const candidateImages = Array.isArray(response.data.product.images)
-            ? response.data.product.images.filter(Boolean)
-            : [];
-          return candidateImages.length > 0 ? candidateImages : fallbackImages;
-        })(),
-        source_price: response.data.product.source_price ?? product.source_price,
-        currency: response.data.product.currency || product.currency || 'USD',
-      };
+      const hydratedProduct = await hydrateProductForImport({
+        externalProductId: product.external_product_id,
+        fallbackTitle: product.title,
+        fallbackImages,
+        fallbackSourcePrice: product.source_price,
+        fallbackCurrency: product.currency || 'USD',
+      });
       setProductDetails(hydratedProduct);
       setSelectedVariantId(hydratedProduct.variants[0]?.external_variant_id || null);
       setTitle(hydratedProduct.title);
@@ -844,6 +965,201 @@ export function GlobalSourcingPage() {
       notification.error('Inspect failed', message);
     } finally {
       setInspectingProductId(null);
+    }
+  };
+
+  const submitSourceLink = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!session?.access_token) return;
+    if (!sourceLinkUrl.trim()) {
+      notification.error('Source URL required', 'Paste a supported 1688, Alibaba, or AliExpress product URL');
+      return;
+    }
+
+    setSubmittingSourceLink(true);
+    try {
+      const response = await callAdmin<{
+        data: SourceLinkRequest;
+        reused?: boolean;
+        requires_retry?: boolean;
+        message?: string;
+      }>('global-sourcing-source-link', session.access_token, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'submit',
+          source_url: sourceLinkUrl.trim(),
+          note: sourceLinkNote.trim() || null,
+          requested_quantity: sourceLinkQuantity.trim() || null,
+          receiving_hub_id: selectedHubId || null,
+          vendor_id: selectedVendorId || null,
+        }),
+      });
+
+      const message = response.message || 'Source link submitted';
+      if (response.requires_retry) {
+        notification.warning('Retry required', message);
+      } else if (response.reused) {
+        notification.success('Reused existing request', message);
+      } else {
+        notification.success('Submitted', message);
+        setSourceLinkUrl('');
+        setSourceLinkNote('');
+        setSourceLinkQuantity('');
+      }
+
+      await loadSourceRequests();
+    } catch (error: unknown) {
+      notification.error(
+        'Submit failed',
+        getErrorMessage(error, 'Unable to submit the source link to CJ')
+      );
+    } finally {
+      setSubmittingSourceLink(false);
+    }
+  };
+
+  const refreshSourceRequest = async (requestId: string) => {
+    if (!session?.access_token) return;
+    setSourceRequestActionId(requestId);
+    try {
+      const response = await callAdmin<{ data: SourceLinkRequest; message?: string }>(
+        'global-sourcing-source-link',
+        session.access_token,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'refresh',
+            id: requestId,
+          }),
+        }
+      );
+      notification.success('Refreshed', response.message || 'Sourcing request refreshed');
+      await loadSourceRequests();
+    } catch (error: unknown) {
+      notification.error(
+        'Refresh failed',
+        getErrorMessage(error, 'Unable to refresh the sourcing request')
+      );
+    } finally {
+      setSourceRequestActionId(null);
+    }
+  };
+
+  const retrySourceRequest = async (requestId: string) => {
+    if (!session?.access_token) return;
+    setSourceRequestActionId(requestId);
+    try {
+      const response = await callAdmin<{ data: SourceLinkRequest; message?: string }>(
+        'global-sourcing-source-link',
+        session.access_token,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'retry',
+            id: requestId,
+          }),
+        }
+      );
+      notification.success('Retried', response.message || 'Failed sourcing request resubmitted');
+      await loadSourceRequests();
+    } catch (error: unknown) {
+      notification.error(
+        'Retry failed',
+        getErrorMessage(error, 'Unable to retry the sourcing request')
+      );
+    } finally {
+      setSourceRequestActionId(null);
+    }
+  };
+
+  const continueSourceRequestToImport = async (request: SourceLinkRequest) => {
+    if (!request.cj_pid) {
+      notification.error(
+        'Not ready',
+        'This sourcing request does not have a resolved CJ product id yet'
+      );
+      return;
+    }
+
+    setSourceRequestActionId(request.id);
+    setInspectError(null);
+    setPricingPreview(null);
+
+    try {
+      const requestSnapshot =
+        request.raw_request_payload &&
+        typeof request.raw_request_payload === 'object' &&
+        request.raw_request_payload.source_snapshot &&
+        typeof request.raw_request_payload.source_snapshot === 'object'
+          ? request.raw_request_payload.source_snapshot
+          : null;
+      const hydratedProduct = await hydrateProductForImport({
+        externalProductId: request.cj_pid,
+        fallbackTitle:
+          request.resolved_product_title ||
+          (requestSnapshot &&
+          'title' in requestSnapshot &&
+          requestSnapshot.title !== null &&
+          requestSnapshot.title !== undefined
+            ? String(requestSnapshot.title)
+            : undefined) ||
+          undefined,
+        fallbackImages: [],
+        fallbackCurrency: 'USD',
+      });
+
+      const requestVariantSku = getSourceRequestVariantSku(request)?.toLowerCase() || null;
+      const preferredVariant =
+        hydratedProduct.variants.find(
+          (variant) =>
+            request.cj_vid &&
+            variant.external_variant_id &&
+            variant.external_variant_id === request.cj_vid
+        ) ||
+        hydratedProduct.variants.find(
+          (variant) =>
+            requestVariantSku &&
+            typeof variant.sku === 'string' &&
+            variant.sku.trim().toLowerCase() === requestVariantSku
+        ) ||
+        hydratedProduct.variants[0] ||
+        null;
+
+      setProductDetails(hydratedProduct);
+      setSelectedVariantId(preferredVariant?.external_variant_id || null);
+      setTitle(request.resolved_product_title || hydratedProduct.title);
+      setDescription(hydratedProduct.description);
+      setPrice('');
+      if (request.receiving_hub_id) {
+        setSelectedHubId(request.receiving_hub_id);
+      }
+      if (request.vendor_id) {
+        setSelectedVendorId(request.vendor_id);
+      }
+      setActiveTab('cj-products');
+
+      if (
+        hydratedProduct.variants.length > 1 &&
+        !request.cj_vid &&
+        !requestVariantSku
+      ) {
+        notification.warning(
+          'Variant review needed',
+          'CJ product details loaded. Review the variant selection before quoting landed price.'
+        );
+      } else {
+        notification.success(
+          'Ready to import',
+          'Resolved CJ product loaded into the existing landed pricing and import flow'
+        );
+      }
+    } catch (error: unknown) {
+      notification.error(
+        'Continue failed',
+        getErrorMessage(error, 'Unable to load the resolved CJ product for import')
+      );
+    } finally {
+      setSourceRequestActionId(null);
     }
   };
 
@@ -1122,6 +1438,7 @@ export function GlobalSourcingPage() {
         <div className="rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-700">
           <p>Hubs: {hubCount ?? '—'}</p>
           <p>Vendors: {vendorCount ?? '—'}</p>
+          <p>Source requests: {sourceRequestCount ?? '—'}</p>
           <p>Imported products: {importedProductsCount ?? '—'}</p>
         </div>
       </div>
@@ -1522,6 +1839,233 @@ export function GlobalSourcingPage() {
                   </p>
                 ) : null}
               </>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {!loadingReferenceData && activeTab === 'source-by-link' ? (
+        <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+          <div className="card space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Source by Link</h2>
+              <p className="text-sm text-gray-600">
+                Submit supported supplier links to CJ, then continue into the existing landed-price
+                and Woo import flow once resolved.
+              </p>
+            </div>
+
+            <form onSubmit={submitSourceLink} className="space-y-4">
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-gray-700">Supplier URL</span>
+                <input
+                  value={sourceLinkUrl}
+                  onChange={(event) => setSourceLinkUrl(event.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                  placeholder="https://..."
+                />
+                <span className="mt-2 block text-xs text-gray-500">
+                  Supported for MVP: 1688, Alibaba, and AliExpress.
+                </span>
+              </label>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-gray-700">Expected Quantity</span>
+                  <input
+                    value={sourceLinkQuantity}
+                    onChange={(event) => setSourceLinkQuantity(event.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                    inputMode="numeric"
+                    placeholder="Optional"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-gray-700">Receiving Hub</span>
+                  <select
+                    value={selectedHubId}
+                    onChange={(event) => setSelectedHubId(event.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                    disabled={hubs.length === 0}
+                  >
+                    {hubs.length === 0 ? (
+                      <option value="">No active hubs found</option>
+                    ) : (
+                      hubs.map((hub) => (
+                        <option key={`source-link-hub-${hub.id}`} value={hub.id}>
+                          {hub.name} - {hub.code}
+                          {hub.is_default ? ' - Default' : ''}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                </label>
+              </div>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-gray-700">Target Vendor</span>
+                <select
+                  value={selectedVendorId}
+                  onChange={(event) => setSelectedVendorId(event.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                  disabled={vendors.length === 0}
+                >
+                  {vendors.length === 0 ? (
+                    <option value="">No active vendors found</option>
+                  ) : (
+                    vendors.map((vendor) => (
+                      <option key={`source-link-vendor-${vendor.id}`} value={vendor.id}>
+                        {vendor.store_name} - Woo vendor {vendor.woocommerce_vendor_id}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-gray-700">Notes / Instructions</span>
+                <textarea
+                  value={sourceLinkNote}
+                  onChange={(event) => setSourceLinkNote(event.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                  rows={4}
+                  placeholder="Optional notes for CJ sourcing"
+                />
+              </label>
+
+              <button
+                type="submit"
+                className="btn-primary inline-flex w-full items-center justify-center gap-2"
+                disabled={submittingSourceLink}
+              >
+                {submittingSourceLink ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                Submit Source Link
+              </button>
+            </form>
+          </div>
+
+          <div className="card space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Sourcing Requests</h2>
+                <p className="text-sm text-gray-600">
+                  Refresh CJ status until a request becomes ready to import.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadSourceRequests()}
+                className="btn-secondary inline-flex items-center gap-2"
+              >
+                {loadingSourceRequests ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                Refresh
+              </button>
+            </div>
+
+            {sourceRequests.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-gray-300 px-6 py-10 text-center text-sm text-gray-600">
+                No source-link requests yet.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {sourceRequests.map((request) => (
+                  <div key={request.id} className="rounded-lg border border-gray-200 p-4 text-sm text-gray-700">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`rounded-full border px-2.5 py-1 text-xs font-medium ${toneClasses(getSourceRequestTone(request.status))}`}
+                          >
+                            {formatSourceRequestStatus(request.status)}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {request.source_domain || 'unknown'} · {formatDate(request.updated_at)}
+                          </span>
+                        </div>
+                        <a
+                          href={request.source_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-2 line-clamp-2 inline-flex items-center gap-2 break-all font-medium text-primary-700 hover:text-primary-800"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                          {request.source_url}
+                        </a>
+                        <p className="mt-2">
+                          Vendor: {request.vendor?.store_name || 'Not set'} · Hub:{' '}
+                          {request.receiving_hub?.name || 'Not set'}
+                        </p>
+                        <p className="mt-1">
+                          Qty: {request.requested_quantity || 'n/a'} · CJ Request:{' '}
+                          {request.cj_request_id || 'pending'}
+                        </p>
+                        <p className="mt-1">
+                          CJ PID: {request.cj_pid || 'pending'} · CJ VID: {request.cj_vid || 'pending'}
+                        </p>
+                        {request.resolved_product_title ? (
+                          <p className="mt-1">
+                            Resolved: {request.resolved_product_title}
+                            {request.resolved_variant_title ? ` / ${request.resolved_variant_title}` : ''}
+                          </p>
+                        ) : null}
+                        {request.note ? <p className="mt-1 text-gray-600">Note: {request.note}</p> : null}
+                        {request.error_message ? (
+                          <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-700">
+                            {request.error_message}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div className="flex flex-col items-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void refreshSourceRequest(request.id)}
+                          disabled={sourceRequestActionId === request.id}
+                          className="btn-secondary inline-flex items-center gap-2 disabled:opacity-60"
+                        >
+                          {sourceRequestActionId === request.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-4 w-4" />
+                          )}
+                          Refresh Status
+                        </button>
+
+                        {request.status === 'failed' ? (
+                          <button
+                            type="button"
+                            onClick={() => void retrySourceRequest(request.id)}
+                            disabled={sourceRequestActionId === request.id}
+                            className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 transition hover:bg-amber-100 disabled:opacity-60"
+                          >
+                            Retry
+                          </button>
+                        ) : null}
+
+                        {request.can_continue_to_import ? (
+                          <button
+                            type="button"
+                            onClick={() => void continueSourceRequestToImport(request)}
+                            disabled={sourceRequestActionId === request.id}
+                            className="btn-primary inline-flex items-center gap-2 disabled:opacity-60"
+                          >
+                            Continue to Import
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </div>

@@ -25,6 +25,11 @@ const DEFAULT_ORIGIN_COUNTRY_CODE =
     .trim()
     .toUpperCase() || 'CN';
 
+const SOURCE_REQUEST_STATUS_SUBMITTED = 'submitted';
+const SOURCE_REQUEST_STATUS_PROCESSING = 'processing';
+const SOURCE_REQUEST_STATUS_READY = 'ready_to_import';
+const SOURCE_REQUEST_STATUS_FAILED = 'failed';
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -47,6 +52,15 @@ function pickString(...values) {
     if (normalized) return normalized;
   }
   return null;
+}
+
+function pickArray(...values) {
+  for (const value of values) {
+    if (Array.isArray(value) && value.length > 0) {
+      return value;
+    }
+  }
+  return [];
 }
 
 function pickHubMetadataValue(metadata, keys) {
@@ -498,6 +512,179 @@ function parseCreatedOrder(payload) {
   }
 
   return null;
+}
+
+function extractCjSourcingRows(payload) {
+  return pickArray(
+    payload?.data?.list,
+    payload?.data?.records,
+    payload?.data?.items,
+    payload?.data?.dataList,
+    payload?.data?.content,
+    payload?.data,
+    payload?.result?.list,
+    payload?.result?.records,
+    payload?.result?.items,
+    payload?.result,
+    payload?.list,
+    payload?.records,
+    payload?.items,
+    payload
+  ).filter((entry) => isPlainObject(entry));
+}
+
+function normalizeCjSourcingRecord(record) {
+  if (!isPlainObject(record)) return null;
+
+  return {
+    cjRequestId: pickString(record.sourceId, record.source_id, record.id),
+    sourceNumber: pickString(record.sourceNumber, record.source_number),
+    sourceStatus: pickString(record.sourceStatus, record.status, record.state),
+    sourceStatusLabel: pickString(
+      record.sourceStatusStr,
+      record.sourceStatusText,
+      record.statusText,
+      record.statusLabel
+    ),
+    cjPid: pickString(record.cjProductId, record.cj_pid),
+    cjVid: pickString(record.cjVid, record.cjVariantId, record.cj_variant_id),
+    cjVariantSku: pickString(record.cjVariantSku, record.cj_variant_sku, record.variantSku, record.sku),
+    resolvedProductTitle: pickString(
+      record.cjProductName,
+      record.productName,
+      record.productTitle,
+      record.title
+    ),
+    resolvedVariantTitle: pickString(
+      record.cjVariantName,
+      record.variantName,
+      record.variantTitle
+    ),
+    queryProductId: pickString(record.productId, record.product_id),
+    queryVariantId: pickString(record.variantId, record.variant_id),
+    shopId: pickString(record.shopId, record.shop_id),
+    shopName: pickString(record.shopName, record.shop_name),
+    raw: record,
+  };
+}
+
+export function mapCjSourcingRequestStatus(record, fallback = SOURCE_REQUEST_STATUS_PROCESSING) {
+  if (!record) {
+    return fallback;
+  }
+
+  const normalizedStatus = String(record.sourceStatus || '').trim().toLowerCase();
+  const normalizedLabel = String(record.sourceStatusLabel || '').trim().toLowerCase();
+  const combined = `${normalizedStatus} ${normalizedLabel}`.trim();
+
+  if (record.cjPid) {
+    return SOURCE_REQUEST_STATUS_READY;
+  }
+
+  if (
+    /(fail|failed|reject|rejected|close|closed|cancel|cancelled|invalid|error)/i.test(combined)
+  ) {
+    return SOURCE_REQUEST_STATUS_FAILED;
+  }
+
+  if (
+    /(ready|quoted|completed|success|matched|resolved|processed)/i.test(combined) &&
+    record.cjPid
+  ) {
+    return SOURCE_REQUEST_STATUS_READY;
+  }
+
+  if (/(processing|pending|waiting|queue|queued|review|submitted|sourcing)/i.test(combined)) {
+    return normalizedStatus === 'submitted'
+      ? SOURCE_REQUEST_STATUS_SUBMITTED
+      : SOURCE_REQUEST_STATUS_PROCESSING;
+  }
+
+  return fallback;
+}
+
+export async function submitCjSourceLinkRequest({
+  sourceUrl,
+  note = null,
+  requestedQuantity = null,
+  sourceSnapshot,
+}) {
+  const accessToken = (await getCjAccessToken()).accessToken;
+  const quantity = Math.max(Number(requestedQuantity || 1) || 1, 1);
+  const remark = pickString(note);
+
+  const requestPayload = {
+    productUrl: sourceUrl,
+    productName: pickString(sourceSnapshot?.title),
+    productImage: pickString(sourceSnapshot?.image),
+    amount: quantity,
+    ...(remark ? { remark } : {}),
+  };
+
+  if (!requestPayload.productName || !requestPayload.productImage) {
+    throw new Error('CJ sourcing requires a product title and image extracted from the source URL');
+  }
+
+  const result = await requestCjJson({
+    pathCandidates: ['/v1/product/sourcing'],
+    method: 'POST',
+    accessToken,
+    bodyCandidates: [
+      requestPayload,
+      {
+        ...requestPayload,
+        sourceUrl,
+      },
+    ],
+  });
+
+  const record =
+    normalizeCjSourcingRecord(extractCjSourcingRows(result.data)[0]) ||
+    normalizeCjSourcingRecord(result.data?.data) ||
+    normalizeCjSourcingRecord(result.data);
+
+  return {
+    endpoint: result.endpoint,
+    requestPayload,
+    request: record,
+    raw: result.data,
+  };
+}
+
+export async function refreshCjSourceLinkRequest({ cjRequestId }) {
+  const normalizedRequestId = pickString(cjRequestId);
+  if (!normalizedRequestId) {
+    throw new Error('cjRequestId is required to refresh a CJ sourcing request');
+  }
+
+  const accessToken = (await getCjAccessToken()).accessToken;
+  const result = await requestCjJson({
+    pathCandidates: ['/v1/product/sourcing/query'],
+    method: 'GET',
+    accessToken,
+    bodyCandidates: [undefined],
+    queryCandidates: [
+      { sourceIds: normalizedRequestId },
+      { sourceId: normalizedRequestId },
+    ],
+  });
+
+  const rows = extractCjSourcingRows(result.data).map((entry) => normalizeCjSourcingRecord(entry));
+  const record =
+    rows.find((entry) => entry?.cjRequestId === normalizedRequestId) ||
+    rows[0] ||
+    normalizeCjSourcingRecord(result.data?.data) ||
+    normalizeCjSourcingRecord(result.data);
+
+  if (!record) {
+    throw new Error('CJ did not return a sourcing record for this request');
+  }
+
+  return {
+    endpoint: result.endpoint,
+    request: record,
+    raw: result.data,
+  };
 }
 
 function buildCreateOrderPayload({ subOrder, orderRecord, receivingHub, sourcedItems }) {

@@ -4,6 +4,7 @@
 
 - Admin route: `/admin/global-sourcing`
 - CJ auth/search/product detail functions running on Netlify
+- Source by Link request intake and status tracking for supported external supplier URLs
 - Landed-price quote endpoint for CJ variant imports
 - Woo import/writeback for sourced products and variations
 - Automatic CJ supplier order placement for sourced `cj_hub` sub-orders
@@ -17,11 +18,12 @@
 - Route registration lives in `src/routes.tsx`
 - Sidebar entry lives in `src/dashboard/components/DashboardLayout.tsx`
 - The page lives in `src/dashboard/pages/GlobalSourcing.tsx`
-- The page has four sections:
-  - CJ Products
-  - Imported Products
-  - Inbound Shipments
-  - Settings
+- The page has five sections:
+- CJ Products
+- Source by Link
+- Imported Products
+- Inbound Shipments
+- Settings
 
 ## Netlify functions
 
@@ -32,6 +34,11 @@
   - Searches CJ products through a backend proxy
 - `netlify/functions/cj-product-details.js`
   - Loads one CJ product and its variants for import
+- `netlify/functions/global-sourcing-source-link.js`
+  - Lists source-link requests
+  - Submits new source-link requests to CJ
+  - Refreshes CJ sourcing status for one request
+  - Retries failed requests deliberately
 - `netlify/functions/global-sourcing-price-preview.js`
   - Resolves receiving hub
   - Requests a live CJ freight quote to the selected hub
@@ -51,6 +58,8 @@
 
 - `netlify/functions/services/global-sourcing-utils.js`
   - Admin auth with Supabase session bearer token
+  - Source-link URL validation and normalization
+  - Remote source-page metadata extraction for CJ sourcing submission
   - Woo REST helpers
   - Sourcing meta helpers
   - Safe `sub_orders.metadata` merge helpers
@@ -66,8 +75,74 @@
   - Resolves receiving hub details from Supabase
   - Calls CJ freight quote endpoint for hub pricing
   - Builds landed-price preview objects
+  - Submits and refreshes CJ source-link requests
   - Creates CJ supplier orders for sourced sub-orders
   - Reconciles partial supplier-order state after webhook retries or partial failures
+
+## Source by Link flow
+
+- Source by Link is an intake path only
+- It does not create a second fulfillment engine
+- Supported source domains in this MVP:
+  - `1688`
+  - `Alibaba`
+  - `AliExpress`
+- Admin flow:
+  - paste a supported supplier URL
+  - optionally add note and expected quantity
+  - submit to CJ sourcing
+  - refresh CJ status until the request becomes `ready_to_import`
+  - continue into the same landed-price and Woo import flow already used by CJ catalog products
+
+## Source-link request lifecycle
+
+- Local table: `public.global_sourcing_requests`
+- Local statuses:
+  - `submitted`
+  - `processing`
+  - `ready_to_import`
+  - `failed`
+- Duplicate handling:
+  - an existing `submitted`, `processing`, or `ready_to_import` request for the same normalized URL is reused instead of resubmitted
+  - a failed request is not silently duplicated; the admin must use an explicit retry action
+- A request becomes `ready_to_import` once CJ returns a usable `cj_pid`
+- `cj_vid` is used when CJ provides a direct variant id
+- if CJ only returns product-level identity or a variant SKU, the admin continues into the existing CJ details flow and can confirm the resolved variant before quoting/import
+
+## How source-link requests become importable
+
+- Source-link requests do not import directly into Woo
+- When a request is ready:
+  - the admin clicks `Continue to Import`
+  - JLO hydrates the resolved CJ product through the existing `cj-product-details` function
+  - the existing landed-price quote action is reused
+  - the existing Woo import/writeback path is reused
+- This preserves:
+  - Woo as source of truth for products and prices
+  - existing sourcing meta keys
+  - existing webhook recognition
+  - existing automatic CJ supplier-order creation for sourced `cj_hub` items
+
+## Manual vs automatic in Source by Link
+
+- Manual:
+  - submit source URL
+  - refresh CJ sourcing status
+  - continue into import
+  - run landed-price quote
+  - import into Woo
+- Automatic after import and order placement:
+  - sourced item recognition in `woocommerce-webhook.js`
+  - sub-order creation with sourcing metadata
+  - automatic CJ supplier-order creation for eligible `cj_hub` sourced shipments
+  - inbound shipment tracking to JulineMart hub
+
+## CJ sourcing caveats
+
+- CJ source-link submission needs a source product title and image
+- JLO currently extracts those from the supplier page metadata before calling CJ
+- If the supplier page cannot be fetched or does not expose enough metadata, submission fails clearly in the admin UI
+- CJ query responses may return product-level identity before variant-level identity; in that case the admin continues through the existing CJ details/import screen and confirms the resolved variant there
 
 ## Landed pricing behavior
 
@@ -250,6 +325,7 @@ Optional auth override:
 - Woo product writeback path for sourced items
 - Shared CJ token cache for serverless/live auth reuse
 - Inbound shipment table and admin view
+- Source-link request intake, persistence, retry, and status refresh
 - Automatic CJ supplier-order creation for sourced sub-orders
 - Retry-safe admin action to create or reconcile supplier orders
 - Idempotent received-at-hub action with tracking and push support
@@ -258,6 +334,7 @@ Optional auth override:
 
 - Full admin retry tooling for every CJ failure mode beyond one shipment action
 - CJ inbound-status polling from CJ after order creation
+- Automatic background polling for source-link request status
 - Dedicated customer PWA badge rendering for product sourcing
 - A proven WordPress post-author writeback path for WCFM-specific ownership if the Woo site requires it
 - A dedicated Woo checkout hook that guarantees product sourcing meta is mirrored into order line item meta before webhook delivery

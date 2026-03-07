@@ -742,6 +742,246 @@ export function normalizeImages(images) {
   );
 }
 
+const SOURCE_LINK_TRACKING_PARAM_PREFIXES = ['utm_'];
+const SOURCE_LINK_TRACKING_PARAMS = new Set([
+  'aff_fcid',
+  'aff_fsk',
+  'aff_platform',
+  'aff_trace_key',
+  'algo_exp_id',
+  'algo_pvid',
+  'cv',
+  'dp',
+  'gatewayadapt',
+  'scm',
+  'scm_id',
+  'scm-url',
+  'scm_url',
+  'scm_url_from',
+  'sharetoken',
+  'sk',
+  'spm',
+  'src',
+  'terminal_id',
+]);
+
+const SOURCE_LINK_DOMAIN_MATCHERS = [
+  { label: '1688', hosts: ['1688.com'] },
+  { label: 'alibaba', hosts: ['alibaba.com'] },
+  { label: 'aliexpress', hosts: ['aliexpress.com'] },
+];
+
+function extractSourceDomainFromHostname(hostname) {
+  const normalized = String(hostname || '').trim().toLowerCase();
+  if (!normalized) return null;
+
+  const match = SOURCE_LINK_DOMAIN_MATCHERS.find((entry) =>
+    entry.hosts.some((host) => normalized === host || normalized.endsWith(`.${host}`))
+  );
+
+  return match?.label || null;
+}
+
+function sanitizeSourceUrlSearchParams(url) {
+  const keys = Array.from(url.searchParams.keys());
+  keys.forEach((key) => {
+    const normalized = String(key || '').trim().toLowerCase();
+    if (
+      SOURCE_LINK_TRACKING_PARAMS.has(normalized) ||
+      SOURCE_LINK_TRACKING_PARAM_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+    ) {
+      url.searchParams.delete(key);
+    }
+  });
+}
+
+export function normalizeSupportedSourceUrl(rawUrl) {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed) {
+    throw new Error('source_url is required');
+  }
+
+  let url;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error('Source URL must be a valid absolute http(s) URL');
+  }
+
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('Source URL must use http or https');
+  }
+
+  const sourceDomain = extractSourceDomainFromHostname(url.hostname);
+  if (!sourceDomain) {
+    throw new Error('Only 1688, Alibaba, and AliExpress source URLs are supported for this MVP');
+  }
+
+  url.hash = '';
+  sanitizeSourceUrlSearchParams(url);
+
+  return {
+    sourceUrl: url.toString(),
+    sourceDomain,
+    hostname: url.hostname.toLowerCase(),
+  };
+}
+
+function extractMetaContent(html, attributeName, attributeValue) {
+  const escaped = String(attributeValue || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const patterns = [
+    new RegExp(
+      `<meta[^>]*${attributeName}=["']${escaped}["'][^>]*content=["']([^"']+)["'][^>]*>`,
+      'i'
+    ),
+    new RegExp(
+      `<meta[^>]*content=["']([^"']+)["'][^>]*${attributeName}=["']${escaped}["'][^>]*>`,
+      'i'
+    ),
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) {
+      return decodeHtmlEntities(match[1]).trim();
+    }
+  }
+
+  return '';
+}
+
+function extractTitleFromHtml(html) {
+  const candidates = [
+    extractMetaContent(html, 'property', 'og:title'),
+    extractMetaContent(html, 'name', 'twitter:title'),
+  ].filter(Boolean);
+
+  if (candidates[0]) return candidates[0];
+
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  return titleMatch?.[1] ? decodeHtmlEntities(titleMatch[1]).trim() : '';
+}
+
+function toAbsoluteUrl(url, baseUrl) {
+  const trimmed = String(url || '').trim();
+  if (!trimmed) return '';
+  try {
+    return new URL(trimmed, baseUrl).toString();
+  } catch {
+    return '';
+  }
+}
+
+function extractJsonLdBlocks(html) {
+  const matches = html.match(
+    /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi
+  );
+  if (!Array.isArray(matches)) return [];
+
+  return matches
+    .map((block) => {
+      const content = block.replace(
+        /<script[^>]*type=["']application\/ld\+json["'][^>]*>|<\/script>/gi,
+        ''
+      );
+      try {
+        return JSON.parse(content);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+function flattenJsonLdNodes(value) {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => flattenJsonLdNodes(entry));
+  }
+
+  if (isPlainObject(value)) {
+    const graph = Array.isArray(value['@graph']) ? value['@graph'] : [];
+    return [value, ...graph.flatMap((entry) => flattenJsonLdNodes(entry))];
+  }
+
+  return [];
+}
+
+function extractProductSnapshotFromJsonLd(html, baseUrl) {
+  const nodes = extractJsonLdBlocks(html).flatMap((entry) => flattenJsonLdNodes(entry));
+  const productNode = nodes.find((entry) => {
+    const type = entry?.['@type'];
+    if (Array.isArray(type)) {
+      return type.some((candidate) => String(candidate).toLowerCase() === 'product');
+    }
+    return String(type || '').toLowerCase() === 'product';
+  });
+
+  if (!productNode) return null;
+
+  const images = normalizeImages([
+    productNode.image,
+    ...(Array.isArray(productNode.images) ? productNode.images : []),
+  ]).map((image) => toAbsoluteUrl(image, baseUrl));
+
+  const offers = Array.isArray(productNode.offers)
+    ? productNode.offers[0]
+    : isPlainObject(productNode.offers)
+    ? productNode.offers
+    : null;
+
+  return {
+    title: decodeHtmlEntities(String(productNode.name || '')).trim(),
+    image: images[0] || '',
+    price: asFiniteNumber(offers?.price),
+  };
+}
+
+export async function fetchSourceLinkProductSnapshot(sourceUrl) {
+  const response = await fetch(sourceUrl, {
+    method: 'GET',
+    redirect: 'follow',
+    headers: {
+      'User-Agent': 'JulineMart-Global-Sourcing/1.0',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Unable to fetch source URL (${response.status})`);
+  }
+
+  const html = await response.text();
+  const finalUrl = response.url || sourceUrl;
+  const jsonLdSnapshot = extractProductSnapshotFromJsonLd(html, finalUrl) || {};
+  const title =
+    jsonLdSnapshot.title ||
+    extractTitleFromHtml(html) ||
+    '';
+  const image =
+    jsonLdSnapshot.image ||
+    toAbsoluteUrl(extractMetaContent(html, 'property', 'og:image'), finalUrl) ||
+    toAbsoluteUrl(extractMetaContent(html, 'name', 'twitter:image'), finalUrl) ||
+    toAbsoluteUrl(extractMetaContent(html, 'itemprop', 'image'), finalUrl) ||
+    '';
+  const price =
+    jsonLdSnapshot.price ??
+    asFiniteNumber(extractMetaContent(html, 'property', 'product:price:amount')) ??
+    asFiniteNumber(extractMetaContent(html, 'name', 'price'));
+
+  if (!title || !image) {
+    throw new Error(
+      'Unable to extract the product title and image required for CJ sourcing from this source URL'
+    );
+  }
+
+  return {
+    title: title.slice(0, 200),
+    image,
+    price,
+    finalUrl,
+  };
+}
+
 export function getGlobalSourcingPricingConfig() {
   return {
     usdToNgnRate:

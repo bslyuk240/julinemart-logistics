@@ -390,6 +390,78 @@ async function refreshCjTracking(client, shipmentId) {
   return updatedShipment;
 }
 
+async function deleteInboundTestOrder(client, shipmentId) {
+  const { data: shipment, error: shipmentError } = await client
+    .from('cj_inbound_shipments')
+    .select(
+      `
+      id,
+      woo_order_id,
+      cj_order_id,
+      sub_order_id,
+      inbound_status,
+      sub_orders ( id, main_order_id )
+    `
+    )
+    .eq('id', shipmentId)
+    .single();
+
+  if (shipmentError || !shipment) {
+    throw new Error('Inbound shipment not found');
+  }
+
+  if (shipment.cj_order_id) {
+    throw new Error('Only test inbound shipments without a CJ supplier order can be deleted');
+  }
+
+  const linkedSubOrder = shipment.sub_orders;
+  const mainOrderId = linkedSubOrder?.main_order_id || null;
+
+  if (mainOrderId) {
+    const { count, error: countError } = await client
+      .from('sub_orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('main_order_id', mainOrderId);
+
+    if (countError) throw countError;
+    if ((count || 0) > 1) {
+      throw new Error(
+        'This inbound shipment belongs to an order with multiple shipments and cannot be deleted from this test-only action'
+      );
+    }
+  }
+
+  const { error: deleteShipmentError } = await client
+    .from('cj_inbound_shipments')
+    .delete()
+    .eq('id', shipmentId);
+
+  if (deleteShipmentError) throw deleteShipmentError;
+
+  if (mainOrderId) {
+    const { error: deleteOrderError } = await client
+      .from('orders')
+      .delete()
+      .eq('id', mainOrderId);
+
+    if (deleteOrderError) throw deleteOrderError;
+  } else if (linkedSubOrder?.id) {
+    const { error: deleteSubOrderError } = await client
+      .from('sub_orders')
+      .delete()
+      .eq('id', linkedSubOrder.id);
+
+    if (deleteSubOrderError) throw deleteSubOrderError;
+  }
+
+  return {
+    shipment_id: shipmentId,
+    woo_order_id: shipment.woo_order_id || null,
+    deleted_main_order_id: mainOrderId,
+    deleted_sub_order_id: linkedSubOrder?.id || null,
+  };
+}
+
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
@@ -430,6 +502,11 @@ export async function handler(event) {
       if (payload.action === 'refresh_cj_tracking') {
         const shipment = await refreshCjTracking(auth.adminClient, payload.shipment_id);
         return jsonResponse(200, { success: true, data: shipment });
+      }
+
+      if (payload.action === 'delete_test_inbound') {
+        const result = await deleteInboundTestOrder(auth.adminClient, payload.shipment_id);
+        return jsonResponse(200, { success: true, data: result });
       }
 
       return jsonResponse(400, {

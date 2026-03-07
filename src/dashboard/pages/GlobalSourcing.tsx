@@ -76,6 +76,7 @@ interface InboundShipment {
   id: string;
   created_at: string;
   provider: string;
+  woo_order_id: string | null;
   cj_order_id: string | null;
   inbound_status: string;
   inbound_tracking_number: string | null;
@@ -1045,6 +1046,43 @@ export function GlobalSourcingPage() {
     }
   };
 
+  const deleteInboundTestOrder = async (
+    shipmentId: string,
+    orderReference: string | null,
+    hasSupplierOrder: boolean
+  ) => {
+    if (!session?.access_token) return;
+    if (hasSupplierOrder) {
+      notification.error(
+        'Delete blocked',
+        'This inbound shipment already has a supplier order and cannot be deleted from the test cleanup action'
+      );
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete test inbound order ${orderReference || shipmentId}? This will remove the inbound shipment and its linked app order records.`
+    );
+    if (!confirmed) return;
+
+    setShipmentActionId(shipmentId);
+    try {
+      await callAdmin('global-sourcing-inbound-shipments', session.access_token, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'delete_test_inbound', shipment_id: shipmentId }),
+      });
+      notification.success('Deleted', 'Test inbound order was removed');
+      await loadShipments();
+    } catch (error: unknown) {
+      notification.error(
+        'Delete failed',
+        getErrorMessage(error, 'Unable to delete test inbound order')
+      );
+    } finally {
+      setShipmentActionId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -1540,6 +1578,27 @@ export function GlobalSourcingPage() {
                     >
                       {shipmentActionId === shipment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                       Refresh CJ Tracking
+                    </button>
+                  ) : null}
+                  {!shipment.cj_order_id ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void deleteInboundTestOrder(
+                          shipment.id,
+                          shipment.sub_orders?.tracking_number || shipment.woo_order_id || null,
+                          Boolean(shipment.cj_order_id)
+                        )
+                      }
+                      disabled={shipmentActionId === shipment.id}
+                      className="ml-3 mt-3 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {shipmentActionId === shipment.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4" />
+                      )}
+                      Delete Test Order
                     </button>
                   ) : null}
                   <button

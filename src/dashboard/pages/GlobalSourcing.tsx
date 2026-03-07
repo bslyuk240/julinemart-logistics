@@ -473,6 +473,8 @@ export function GlobalSourcingPage() {
   const [searchAttempted, setSearchAttempted] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [sourceLinkUrl, setSourceLinkUrl] = useState('');
+  const [sourceLinkTitle, setSourceLinkTitle] = useState('');
+  const [sourceLinkImageUrl, setSourceLinkImageUrl] = useState('');
   const [sourceLinkNote, setSourceLinkNote] = useState('');
   const [sourceLinkQuantity, setSourceLinkQuantity] = useState('');
   const [submittingSourceLink, setSubmittingSourceLink] = useState(false);
@@ -985,12 +987,14 @@ export function GlobalSourcingPage() {
         message?: string;
       }>('global-sourcing-source-link', session.access_token, {
         method: 'POST',
-        body: JSON.stringify({
-          action: 'submit',
-          source_url: sourceLinkUrl.trim(),
-          note: sourceLinkNote.trim() || null,
-          requested_quantity: sourceLinkQuantity.trim() || null,
-          receiving_hub_id: selectedHubId || null,
+          body: JSON.stringify({
+            action: 'submit',
+            source_url: sourceLinkUrl.trim(),
+            source_title: sourceLinkTitle.trim() || null,
+            source_image_url: sourceLinkImageUrl.trim() || null,
+            note: sourceLinkNote.trim() || null,
+            requested_quantity: sourceLinkQuantity.trim() || null,
+            receiving_hub_id: selectedHubId || null,
           vendor_id: selectedVendorId || null,
         }),
       });
@@ -1003,6 +1007,8 @@ export function GlobalSourcingPage() {
       } else {
         notification.success('Submitted', message);
         setSourceLinkUrl('');
+        setSourceLinkTitle('');
+        setSourceLinkImageUrl('');
         setSourceLinkNote('');
         setSourceLinkQuantity('');
       }
@@ -1868,6 +1874,32 @@ export function GlobalSourcingPage() {
                   Supported for MVP: 1688, Alibaba, and AliExpress.
                 </span>
               </label>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-gray-700">
+                    Source Title Override
+                  </span>
+                  <input
+                    value={sourceLinkTitle}
+                    onChange={(event) => setSourceLinkTitle(event.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                    placeholder="Optional fallback title"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-gray-700">
+                    Source Image URL Override
+                  </span>
+                  <input
+                    value={sourceLinkImageUrl}
+                    onChange={(event) => setSourceLinkImageUrl(event.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                    placeholder="https://..."
+                  />
+                </label>
+              </div>
 
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="block">

@@ -36,6 +36,37 @@ function pickString(...values) {
   return null;
 }
 
+function normalizeOptionalAbsoluteUrl(value, fieldName) {
+  const normalized = pickString(value);
+  if (!normalized) return null;
+
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new Error(`${fieldName} must be a valid absolute http(s) URL`);
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error(`${fieldName} must use http or https`);
+  }
+
+  return parsed.toString();
+}
+
+function mergeSourceSnapshot(snapshot, overrides = {}) {
+  const base = asMetadata(snapshot);
+  const title = pickString(overrides.title, base.title);
+  const image = pickString(overrides.image, base.image);
+
+  return {
+    ...base,
+    ...(title ? { title } : { title: null }),
+    ...(image ? { image } : { image: null }),
+    metadata_complete: Boolean(title && image),
+  };
+}
+
 function asMetadata(value) {
   return isPlainObject(value) ? value : {};
 }
@@ -191,6 +222,11 @@ async function submitRequest(client, payload) {
   const requestedQuantity = asPositiveInteger(payload?.requested_quantity);
   const vendorId = pickString(payload?.vendor_id);
   const receivingHubId = pickString(payload?.receiving_hub_id);
+  const manualSourceTitle = pickString(payload?.source_title, payload?.manual_source_title);
+  const manualSourceImageUrl = normalizeOptionalAbsoluteUrl(
+    payload?.source_image_url || payload?.manual_source_image_url,
+    'source_image_url'
+  );
 
   await Promise.all([
     ensureActiveReference(client, 'vendors', vendorId, 'Selected vendor'),
@@ -223,7 +259,11 @@ async function submitRequest(client, payload) {
     };
   }
 
-  const sourceSnapshot = await fetchSourceLinkProductSnapshot(normalized.sourceUrl);
+  const extractedSourceSnapshot = await fetchSourceLinkProductSnapshot(normalized.sourceUrl);
+  const sourceSnapshot = mergeSourceSnapshot(extractedSourceSnapshot, {
+    title: manualSourceTitle,
+    image: manualSourceImageUrl,
+  });
   const submission = await submitCjSourceLinkRequest({
     sourceUrl: normalized.sourceUrl,
     note,
@@ -252,6 +292,11 @@ async function submitRequest(client, payload) {
       resolved_variant_title: requestRecord?.resolvedVariantTitle || null,
       raw_request_payload: {
         source_snapshot: sourceSnapshot,
+        source_snapshot_extracted: extractedSourceSnapshot,
+        source_overrides: {
+          title: manualSourceTitle,
+          image: manualSourceImageUrl,
+        },
         cj_request_payload: submission.requestPayload,
       },
       raw_response_payload: submission.raw || {},
@@ -261,6 +306,7 @@ async function submitRequest(client, payload) {
         requestRecord,
         {
           source_snapshot: sourceSnapshot,
+          source_snapshot_extracted: extractedSourceSnapshot,
           submission_endpoint: submission.endpoint,
         }
       ),
@@ -375,10 +421,14 @@ async function retryRequest(client, requestId) {
 
   const normalized = normalizeSupportedSourceUrl(existing.source_url);
   const storedSnapshot = asMetadata(existing.raw_request_payload?.source_snapshot);
+  const storedOverrides = asMetadata(existing.raw_request_payload?.source_overrides);
   const sourceSnapshot =
     storedSnapshot.title && storedSnapshot.image
       ? storedSnapshot
-      : await fetchSourceLinkProductSnapshot(normalized.sourceUrl);
+      : mergeSourceSnapshot(await fetchSourceLinkProductSnapshot(normalized.sourceUrl), {
+          title: pickString(storedOverrides.title),
+          image: pickString(storedOverrides.image),
+        });
 
   const submission = await submitCjSourceLinkRequest({
     sourceUrl: normalized.sourceUrl,

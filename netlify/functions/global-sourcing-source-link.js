@@ -71,6 +71,25 @@ function asMetadata(value) {
   return isPlainObject(value) ? value : {};
 }
 
+function extractStoredCjRequestId(row) {
+  const metadata = asMetadata(row?.metadata);
+  const rawResponsePayload = asMetadata(row?.raw_response_payload);
+  const responseData = asMetadata(rawResponsePayload.data);
+
+  return pickString(
+    row?.cj_request_id,
+    responseData.cjSourcingId,
+    responseData.cj_sourcing_id,
+    responseData.sourceId,
+    responseData.source_id,
+    responseData.id,
+    responseData.sourceNumber,
+    responseData.source_number,
+    metadata.cj_sourcing_id,
+    metadata.cj_source_number
+  );
+}
+
 async function ensureActiveReference(client, table, id, label) {
   if (!id) return null;
 
@@ -108,6 +127,7 @@ function normalizeRequestRow(row, hubMap, vendorMap) {
   const rawResponsePayload = asMetadata(row?.raw_response_payload);
   const receivingHubId = pickString(row?.receiving_hub_id);
   const vendorId = pickString(row?.vendor_id);
+  const cjRequestId = extractStoredCjRequestId(row);
 
   return {
     id: row.id,
@@ -125,7 +145,7 @@ function normalizeRequestRow(row, hubMap, vendorMap) {
     receiving_hub_id: receivingHubId,
     receiving_hub:
       receivingHubId && hubMap.has(receivingHubId) ? hubMap.get(receivingHubId) : null,
-    cj_request_id: row.cj_request_id || null,
+    cj_request_id: cjRequestId,
     cj_pid: row.cj_pid || null,
     cj_vid: row.cj_vid || null,
     resolved_product_title: row.resolved_product_title || null,
@@ -301,6 +321,17 @@ async function submitRequest(client, payload) {
   const requestRecord = submission.request;
   const submissionState = resolveSubmissionState(requestRecord, submission.raw);
   const status = submissionState.status;
+  const responseData = asMetadata(submission.raw?.data);
+  const storedCjRequestId = pickString(
+    requestRecord?.cjRequestId,
+    responseData.cjSourcingId,
+    responseData.cj_sourcing_id,
+    responseData.sourceId,
+    responseData.source_id,
+    responseData.id,
+    responseData.sourceNumber,
+    responseData.source_number
+  );
 
   const { data, error } = await client
     .from(TABLE)
@@ -314,7 +345,7 @@ async function submitRequest(client, payload) {
       requested_quantity: requestedQuantity,
       vendor_id: vendorId || null,
       receiving_hub_id: receivingHubId || null,
-      cj_request_id: requestRecord?.cjRequestId || null,
+      cj_request_id: storedCjRequestId,
       cj_pid: requestRecord?.cjPid || null,
       cj_vid: requestRecord?.cjVid || null,
       resolved_product_title: requestRecord?.resolvedProductTitle || sourceSnapshot.title,
@@ -340,6 +371,7 @@ async function submitRequest(client, payload) {
           source_snapshot: sourceSnapshot,
           source_snapshot_extracted: extractedSourceSnapshot,
           submission_endpoint: submission.endpoint,
+          cj_sourcing_id: storedCjRequestId,
         }
       ),
     })
@@ -372,7 +404,8 @@ async function refreshRequest(client, requestId) {
     };
   }
 
-  if (!existing.data.cj_request_id) {
+  const cjRequestId = extractStoredCjRequestId(existing.data);
+  if (!cjRequestId) {
     return {
       statusCode: 409,
       body: {
@@ -386,7 +419,7 @@ async function refreshRequest(client, requestId) {
   }
 
   const refreshResult = await refreshCjSourceLinkRequest({
-    cjRequestId: existing.data.cj_request_id,
+    cjRequestId,
   });
   const requestRecord = refreshResult.request;
   const nextStatus = mapCjSourcingRequestStatus(
@@ -398,6 +431,7 @@ async function refreshRequest(client, requestId) {
     .from(TABLE)
     .update({
       status: nextStatus,
+      cj_request_id: requestRecord?.cjRequestId || cjRequestId || null,
       cj_pid: requestRecord?.cjPid || existing.data.cj_pid || null,
       cj_vid: requestRecord?.cjVid || existing.data.cj_vid || null,
       resolved_product_title:
@@ -478,19 +512,31 @@ async function retryRequest(client, requestId) {
   const submissionState = resolveSubmissionState(requestRecord, submission.raw);
   const nextStatus = submissionState.status;
   const existingMetadata = asMetadata(existing.metadata);
+  const responseData = asMetadata(submission.raw?.data);
+  const storedCjRequestId = pickString(
+    requestRecord?.cjRequestId,
+    responseData.cjSourcingId,
+    responseData.cj_sourcing_id,
+    responseData.sourceId,
+    responseData.source_id,
+    responseData.id,
+    responseData.sourceNumber,
+    responseData.source_number
+  );
   const previousRequestIds = Array.isArray(existingMetadata.previous_cj_request_ids)
     ? existingMetadata.previous_cj_request_ids.filter(Boolean)
     : [];
 
-  if (existing.cj_request_id) {
-    previousRequestIds.push(existing.cj_request_id);
+  const previousCjRequestId = extractStoredCjRequestId(existing);
+  if (previousCjRequestId) {
+    previousRequestIds.push(previousCjRequestId);
   }
 
   const { error: updateError } = await client
     .from(TABLE)
     .update({
       status: nextStatus,
-      cj_request_id: requestRecord?.cjRequestId || existing.cj_request_id || null,
+      cj_request_id: storedCjRequestId,
       cj_pid: requestRecord?.cjPid || null,
       cj_vid: requestRecord?.cjVid || null,
       resolved_product_title: requestRecord?.resolvedProductTitle || sourceSnapshot.title,
@@ -510,6 +556,7 @@ async function retryRequest(client, requestId) {
         {
           source_snapshot: sourceSnapshot,
           submission_endpoint: submission.endpoint,
+          cj_sourcing_id: storedCjRequestId,
           previous_cj_request_ids: Array.from(new Set(previousRequestIds)),
           retried_at: new Date().toISOString(),
         }

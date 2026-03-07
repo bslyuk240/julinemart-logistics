@@ -537,7 +537,15 @@ function normalizeCjSourcingRecord(record) {
   if (!isPlainObject(record)) return null;
 
   return {
-    cjRequestId: pickString(record.sourceId, record.source_id, record.id),
+    cjRequestId: pickString(
+      record.cjSourcingId,
+      record.cj_sourcing_id,
+      record.sourceId,
+      record.source_id,
+      record.id,
+      record.sourceNumber,
+      record.source_number
+    ),
     sourceNumber: pickString(record.sourceNumber, record.source_number),
     sourceStatus: pickString(record.sourceStatus, record.status, record.state),
     sourceStatusLabel: pickString(

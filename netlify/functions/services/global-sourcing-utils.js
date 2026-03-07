@@ -936,6 +936,56 @@ function extractProductSnapshotFromJsonLd(html, baseUrl) {
   };
 }
 
+function decodeEscapedUrl(value) {
+  return String(value || '')
+    .replace(/\\u002F/gi, '/')
+    .replace(/\\\//g, '/')
+    .replace(/&amp;/gi, '&');
+}
+
+function extractImageCandidatesFromHtml(html, baseUrl) {
+  const candidates = [];
+  const pushCandidate = (value) => {
+    const normalized = toAbsoluteUrl(decodeEscapedUrl(value), baseUrl);
+    if (normalized) {
+      candidates.push(normalized);
+    }
+  };
+
+  const imgTagPattern =
+    /<img[^>]+(?:src|data-src|data-lazy-src|data-ks-lazyload|data-original)=["']([^"']+)["'][^>]*>/gi;
+  let match;
+  while ((match = imgTagPattern.exec(html))) {
+    pushCandidate(match[1]);
+  }
+
+  const cssUrlPattern = /url\((['"]?)(https?:\/\/[^'")]+)\1\)/gi;
+  while ((match = cssUrlPattern.exec(html))) {
+    pushCandidate(match[2]);
+  }
+
+  const jsonImagePattern =
+    /"(?:image|images|mainImage|productImage|imgUrl|imageUrl|originalImage|bigImage|picUrl|picURI|imageURI)"\s*:\s*(?:"([^"]+)"|\[([^\]]+)\])/gi;
+  while ((match = jsonImagePattern.exec(html))) {
+    if (match[1]) {
+      pushCandidate(match[1]);
+      continue;
+    }
+
+    const listBody = String(match[2] || '');
+    const listMatches = listBody.match(/"([^"]+)"/g) || [];
+    listMatches.forEach((entry) => pushCandidate(entry.replace(/^"|"$/g, '')));
+  }
+
+  const looseImageUrlPattern =
+    /https?:\/\/[^"'\\\s<>]+?\.(?:jpg|jpeg|png|webp|gif|avif|bmp)(?:\?[^"'\\\s<>]*)?/gi;
+  while ((match = looseImageUrlPattern.exec(decodeEscapedUrl(html)))) {
+    pushCandidate(match[0]);
+  }
+
+  return normalizeImages(candidates);
+}
+
 export async function fetchSourceLinkProductSnapshot(sourceUrl) {
   try {
     const response = await fetch(sourceUrl, {
@@ -954,12 +1004,14 @@ export async function fetchSourceLinkProductSnapshot(sourceUrl) {
     const html = await response.text();
     const finalUrl = response.url || sourceUrl;
     const jsonLdSnapshot = extractProductSnapshotFromJsonLd(html, finalUrl) || {};
+    const imageCandidates = extractImageCandidatesFromHtml(html, finalUrl);
     const title = jsonLdSnapshot.title || extractTitleFromHtml(html) || null;
     const image =
       jsonLdSnapshot.image ||
       toAbsoluteUrl(extractMetaContent(html, 'property', 'og:image'), finalUrl) ||
       toAbsoluteUrl(extractMetaContent(html, 'name', 'twitter:image'), finalUrl) ||
       toAbsoluteUrl(extractMetaContent(html, 'itemprop', 'image'), finalUrl) ||
+      imageCandidates[0] ||
       null;
     const price =
       jsonLdSnapshot.price ??

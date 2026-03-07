@@ -619,41 +619,25 @@ export async function submitCjSourceLinkRequest({
   };
   const productName = pickString(sourceSnapshot?.title);
   const productImage = pickString(sourceSnapshot?.image);
-  const bodyCandidates = [];
-
-  if (productName && productImage) {
-    bodyCandidates.push({
-      ...basePayload,
-      productName,
-      productImage,
-    });
+  if (!productImage) {
+    throw new Error(
+      sourceSnapshot?.fetch_error
+        ? `Unable to extract a source product image required by CJ: ${sourceSnapshot.fetch_error}`
+        : 'Unable to extract a source product image required by CJ from this supplier page'
+    );
   }
 
-  if (productName) {
-    bodyCandidates.push({
-      ...basePayload,
-      productName,
-    });
-  }
-
-  if (productImage) {
-    bodyCandidates.push({
-      ...basePayload,
-      productImage,
-    });
-  }
-
-  bodyCandidates.push(basePayload);
-  bodyCandidates.push({
+  const requestPayload = {
     ...basePayload,
-    sourceUrl,
-  });
+    productImage,
+    ...(productName ? { productName } : {}),
+  };
 
   const result = await requestCjJson({
     pathCandidates: ['/v1/product/sourcing/create'],
     method: 'POST',
     accessToken,
-    bodyCandidates,
+    bodyCandidates: [requestPayload],
   });
 
   const record =
@@ -663,7 +647,7 @@ export async function submitCjSourceLinkRequest({
 
   return {
     endpoint: result.endpoint,
-    requestPayload: bodyCandidates[0] || basePayload,
+    requestPayload,
     request: record,
     raw: result.data,
   };

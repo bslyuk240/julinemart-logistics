@@ -78,6 +78,7 @@ interface InboundShipment {
   cj_order_id: string | null;
   inbound_status: string;
   inbound_tracking_number: string | null;
+  supplier_status?: string | null;
   estimated_arrival_at: string | null;
   received_at_hub_at: string | null;
   carrier_name?: string | null;
@@ -990,6 +991,26 @@ export function GlobalSourcingPage() {
     }
   };
 
+  const refreshCjTracking = async (shipmentId: string) => {
+    if (!session?.access_token) return;
+    setShipmentActionId(shipmentId);
+    try {
+      await callAdmin('global-sourcing-inbound-shipments', session.access_token, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'refresh_cj_tracking', shipment_id: shipmentId }),
+      });
+      notification.success('Tracking refreshed', 'Fetched the latest CJ tracking status');
+      await loadShipments();
+    } catch (error: unknown) {
+      notification.error(
+        'Tracking refresh failed',
+        getErrorMessage(error, 'Unable to refresh CJ tracking')
+      );
+    } finally {
+      setShipmentActionId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -1444,6 +1465,7 @@ export function GlobalSourcingPage() {
                   <p className="mt-1">Created: {formatDate(shipment.created_at)}</p>
                   <p className="mt-1">Hub: {shipment.hubs?.name || 'Not linked'} · Sub-order: {shipment.sub_orders?.tracking_number || 'Not linked'}</p>
                   <p className="mt-1">Status: {shipment.inbound_status} · Tracking: {shipment.inbound_tracking_number || 'Not set'}</p>
+                  <p className="mt-1">CJ tracking status: {shipment.supplier_status || 'Not set'}</p>
                   <p className="mt-1">Supplier order: {shipment.cj_order_id || 'Not created'}</p>
                   <p className="mt-1">Carrier: {shipment.carrier_name || 'Not set'}</p>
                   <p className="mt-1">ETA: {formatDate(shipment.estimated_arrival_at)} · Received: {formatDate(shipment.received_at_hub_at)}</p>
@@ -1456,6 +1478,17 @@ export function GlobalSourcingPage() {
                     >
                       {shipmentActionId === shipment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
                       Create Supplier Order
+                    </button>
+                  ) : null}
+                  {shipment.inbound_tracking_number ? (
+                    <button
+                      type="button"
+                      onClick={() => void refreshCjTracking(shipment.id)}
+                      disabled={shipmentActionId === shipment.id}
+                      className="btn-secondary mt-3 inline-flex items-center gap-2 disabled:opacity-60"
+                    >
+                      {shipmentActionId === shipment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                      Refresh CJ Tracking
                     </button>
                   ) : null}
                   <button

@@ -6,12 +6,14 @@ import {
   requireAdmin,
 } from './services/global-sourcing-utils.js';
 import { createCjOrderForSubOrder } from './services/global-sourcing-cj.js';
+import { getCjAccessToken, requestCjJson } from './services/cjAuth.js';
 import {
   buildOrderDeepLink,
   extractCustomerIdFromOrder,
   extractOrderReference,
   sendPushToCustomer,
 } from './services/pushNotifications.js';
+import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
 
 async function listShipments(client) {
   const { data, error } = await client
@@ -104,6 +106,8 @@ async function markReceivedAtHub(client, shipmentId) {
 
   const subOrder = shipment.sub_orders;
   if (subOrder?.id) {
+    const nextSubOrderStatus =
+      subOrder.status && subOrder.status !== 'pending' ? subOrder.status : 'assigned';
     const nextMetadata = mergeGlobalSourcingMetadata(subOrder.metadata, {
       fulfillment_mode: 'cj_hub',
       global_sourcing: {
@@ -117,7 +121,11 @@ async function markReceivedAtHub(client, shipmentId) {
 
     const { error: subOrderError } = await client
       .from('sub_orders')
-      .update({ metadata: nextMetadata })
+      .update({
+        metadata: nextMetadata,
+        status: nextSubOrderStatus,
+        last_tracking_update: now,
+      })
       .eq('id', subOrder.id);
 
     if (subOrderError) throw subOrderError;
@@ -136,7 +144,7 @@ async function markReceivedAtHub(client, shipmentId) {
     if (!existingTracking?.id) {
       const { error: trackingError } = await client.from('tracking_events').insert({
         sub_order_id: subOrder.id,
-        status: subOrder.status || 'pending',
+        status: nextSubOrderStatus,
         description: 'Global sourcing shipment received at JulineMart hub',
         location_name: updatedShipment.hubs?.name || 'JulineMart Hub',
         event_time: now,
@@ -154,6 +162,7 @@ async function markReceivedAtHub(client, shipmentId) {
     }
 
     if (subOrder.main_order_id) {
+      await refreshOverallOrderStatus(client, subOrder.main_order_id);
       const { data: orderRecord } = await client
         .from('orders')
         .select('*')
@@ -223,6 +232,164 @@ async function createSupplierOrder(client, shipmentId) {
   });
 }
 
+function mapCjTrackingToInboundStatus(trackingStatus, currentStatus) {
+  if (currentStatus === 'received_at_hub') {
+    return currentStatus;
+  }
+
+  const normalized = String(trackingStatus || '')
+    .trim()
+    .toLowerCase();
+
+  if (!normalized) {
+    return currentStatus || 'supplier_order_created';
+  }
+
+  if (normalized.includes('deliver')) {
+    return 'supplier_delivered';
+  }
+  if (normalized.includes('transit')) {
+    return 'supplier_in_transit';
+  }
+  if (normalized.includes('ship')) {
+    return 'supplier_shipped';
+  }
+
+  return currentStatus || 'supplier_order_created';
+}
+
+function parseCjTrackingRecord(payload) {
+  const records = Array.isArray(payload?.data) ? payload.data : [];
+  return records[0] || null;
+}
+
+async function refreshCjTracking(client, shipmentId) {
+  const now = new Date().toISOString();
+  const { data: shipment, error: shipmentError } = await client
+    .from('cj_inbound_shipments')
+    .select(
+      `
+      *,
+      hubs ( id, name, code ),
+      sub_orders ( id, status, main_order_id, metadata, last_tracking_update )
+    `
+    )
+    .eq('id', shipmentId)
+    .single();
+
+  if (shipmentError || !shipment) {
+    throw new Error('Inbound shipment not found');
+  }
+
+  const currentMetadata =
+    shipment.sub_orders?.metadata && typeof shipment.sub_orders.metadata === 'object'
+      ? shipment.sub_orders.metadata
+      : {};
+  const currentSourcing =
+    currentMetadata.global_sourcing && typeof currentMetadata.global_sourcing === 'object'
+      ? currentMetadata.global_sourcing
+      : {};
+
+  const trackingNumber =
+    shipment.inbound_tracking_number ||
+    currentSourcing.inbound_tracking_number ||
+    null;
+
+  if (!trackingNumber) {
+    throw new Error('No CJ tracking number is available for this inbound shipment');
+  }
+
+  const { accessToken } = await getCjAccessToken();
+  const result = await requestCjJson({
+    pathCandidates: ['/v1/logistic/trackInfo', '/logistic/trackInfo'],
+    method: 'GET',
+    accessToken,
+    queryCandidates: [{ trackNumber: trackingNumber }],
+  });
+
+  const tracking = parseCjTrackingRecord(result.data);
+  if (!tracking) {
+    throw new Error('CJ tracking lookup succeeded but returned no tracking data');
+  }
+
+  const nextInboundStatus = mapCjTrackingToInboundStatus(
+    tracking.trackingStatus,
+    shipment.inbound_status
+  );
+
+  const shipmentMetadata =
+    shipment.metadata && typeof shipment.metadata === 'object' ? shipment.metadata : {};
+
+  const updatePayload = {
+    inbound_tracking_number: tracking.trackingNumber || shipment.inbound_tracking_number || null,
+    supplier_status: tracking.trackingStatus || shipment.supplier_status || null,
+    carrier_name:
+      tracking.lastMileCarrier ||
+      tracking.logisticName ||
+      shipment.carrier_name ||
+      null,
+    estimated_arrival_at: tracking.deliveryTime || shipment.estimated_arrival_at || null,
+    inbound_status: nextInboundStatus,
+    updated_at: now,
+    metadata: {
+      ...shipmentMetadata,
+      last_tracking_refresh_at: now,
+      tracking_response: tracking,
+      logistic_name: tracking.logisticName || null,
+      tracking_from: tracking.trackingFrom || null,
+      tracking_to: tracking.trackingTo || null,
+      last_mile_tracking_number: tracking.lastTrackNumber || null,
+      delivery_day: tracking.deliveryDay || null,
+    },
+  };
+
+  const { data: updatedShipment, error: updateError } = await client
+    .from('cj_inbound_shipments')
+    .update(updatePayload)
+    .eq('id', shipmentId)
+    .select(
+      `
+      *,
+      hubs ( id, name, code ),
+      vendors ( id, store_name, woocommerce_vendor_id )
+      `
+    )
+    .single();
+
+  if (updateError) throw updateError;
+
+  if (shipment.sub_orders?.id) {
+    const nextMetadata = mergeGlobalSourcingMetadata(currentMetadata, {
+      fulfillment_mode: 'cj_hub',
+      global_sourcing: {
+        ...currentSourcing,
+        provider: updatedShipment.provider || 'cj',
+        cj_order_id: updatedShipment.cj_order_id || null,
+        receiving_hub_id: updatedShipment.hub_id || null,
+        inbound_status: nextInboundStatus,
+        inbound_tracking_number:
+          updatePayload.inbound_tracking_number || currentSourcing.inbound_tracking_number || null,
+        supplier_status: updatePayload.supplier_status || null,
+        carrier_name: updatePayload.carrier_name || null,
+        estimated_arrival_at: updatePayload.estimated_arrival_at || null,
+        last_mile_tracking_number: tracking.lastTrackNumber || null,
+      },
+    });
+
+    const { error: subOrderUpdateError } = await client
+      .from('sub_orders')
+      .update({
+        metadata: nextMetadata,
+        last_tracking_update: now,
+      })
+      .eq('id', shipment.sub_orders.id);
+
+    if (subOrderUpdateError) throw subOrderUpdateError;
+  }
+
+  return updatedShipment;
+}
+
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
@@ -258,6 +425,11 @@ export async function handler(event) {
       if (payload.action === 'create_supplier_order') {
         const result = await createSupplierOrder(auth.adminClient, payload.shipment_id);
         return jsonResponse(200, { success: true, data: result });
+      }
+
+      if (payload.action === 'refresh_cj_tracking') {
+        const shipment = await refreshCjTracking(auth.adminClient, payload.shipment_id);
+        return jsonResponse(200, { success: true, data: shipment });
       }
 
       return jsonResponse(400, {

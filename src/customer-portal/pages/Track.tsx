@@ -122,7 +122,10 @@ export function OrderTrackingPage() {
     const colors: Record<string, string> = {
       pending: 'bg-yellow-100 text-yellow-800 border-yellow-300',
       processing: 'bg-blue-100 text-blue-800 border-blue-300',
+      assigned: 'bg-blue-100 text-blue-800 border-blue-300',
+      picked_up: 'bg-indigo-100 text-indigo-800 border-indigo-300',
       in_transit: 'bg-purple-100 text-purple-800 border-purple-300',
+      out_for_delivery: 'bg-orange-100 text-orange-800 border-orange-300',
       delivered: 'bg-green-100 text-green-800 border-green-300',
       cancelled: 'bg-red-100 text-red-800 border-red-300',
     };
@@ -133,7 +136,10 @@ export function OrderTrackingPage() {
     const icons: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
       pending: Clock,
       processing: Package,
+      assigned: Package,
+      picked_up: Package,
       in_transit: Truck,
+      out_for_delivery: Truck,
       delivered: CheckCircle,
       cancelled: AlertCircle,
     };

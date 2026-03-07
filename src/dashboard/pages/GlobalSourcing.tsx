@@ -165,12 +165,34 @@ function toneClasses(tone: 'red' | 'amber' | 'green') {
   return 'border-green-200 bg-green-50 text-green-700';
 }
 
-function getVariantOptionLabel(variant: ProductVariant, index: number) {
+function humanizeVariantFragment(value: string) {
+  return value
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/([A-Za-z])(\d)/g, '$1 $2')
+    .replace(/(\d)([A-Za-z])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getVariantOptionLabel(variant: ProductVariant, index: number, productTitle?: string) {
   const attributeLabel = Object.entries(variant.attributes || {})
     .map(([name, value]) => `${name}: ${value}`)
     .join(' / ');
+  const rawTitle = variant.title?.trim() || '';
+  const normalizedProductTitle = productTitle?.trim().toLowerCase() || '';
+  let condensedTitle = rawTitle;
+
+  if (
+    rawTitle &&
+    normalizedProductTitle &&
+    rawTitle.toLowerCase().startsWith(normalizedProductTitle)
+  ) {
+    condensedTitle = rawTitle.slice(productTitle?.trim().length || 0).trim();
+  }
+
   const baseLabel =
-    variant.title?.trim() ||
+    humanizeVariantFragment(condensedTitle) ||
+    humanizeVariantFragment(rawTitle) ||
     attributeLabel ||
     (variant.external_variant_id ? `Variant ${variant.external_variant_id}` : `Variant ${index + 1}`);
 
@@ -1091,7 +1113,7 @@ export function GlobalSourcingPage() {
                       key={`${variant.external_variant_id || 'default'}-${index}`}
                       value={variant.external_variant_id || ''}
                     >
-                      {getVariantOptionLabel(variant, index)}
+                      {getVariantOptionLabel(variant, index, productDetails.title)}
                     </option>
                   ))}
                 </select>

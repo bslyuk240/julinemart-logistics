@@ -43,6 +43,24 @@ function getMeta(meta_data, key) {
   return entry?.value ?? null;
 }
 
+function parseWebhookBody(rawBody) {
+  const bodyText = typeof rawBody === 'string' ? rawBody.trim() : '';
+  if (!bodyText) {
+    return { kind: 'empty', data: {} };
+  }
+
+  try {
+    return { kind: 'json', data: JSON.parse(bodyText) };
+  } catch (_) {
+    const params = new URLSearchParams(bodyText);
+    const data = Object.fromEntries(params.entries());
+    if (Object.keys(data).length > 0) {
+      return { kind: 'form', data };
+    }
+    throw new SyntaxError(`Unsupported webhook payload format: ${bodyText.slice(0, 80)}`);
+  }
+}
+
 function getFirstMetaValue(metaData, keys) {
   if (!Array.isArray(metaData)) return null;
   for (const key of keys) {
@@ -292,7 +310,21 @@ export async function handler(event) {
       return { statusCode: 401, headers, body: JSON.stringify({ error: 'Invalid signature' }) };
     }
 
-    wcOrder = JSON.parse(event.body || '{}');
+    const parsedPayload = parseWebhookBody(event.body || '');
+    if (parsedPayload.kind === 'form' && parsedPayload.data.webhook_id && !parsedPayload.data.id) {
+      console.log('Received WooCommerce webhook connectivity/test payload:', parsedPayload.data);
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          message: 'WooCommerce webhook connectivity payload received',
+          webhook_id: parsedPayload.data.webhook_id,
+        }),
+      };
+    }
+
+    wcOrder = parsedPayload.data;
 
     console.log('=== WEBHOOK RECEIVED ===');
     console.log('Order ID:', wcOrder.id);

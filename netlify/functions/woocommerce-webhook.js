@@ -43,6 +43,84 @@ function getMeta(meta_data, key) {
   return entry?.value ?? null;
 }
 
+function getFirstMetaValue(metaData, keys) {
+  if (!Array.isArray(metaData)) return null;
+  for (const key of keys) {
+    const value = getMeta(metaData, key);
+    if (value !== null && value !== undefined && String(value).trim() !== '') {
+      return value;
+    }
+  }
+  return null;
+}
+
+function isUuid(value) {
+  return (
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value.trim()
+    )
+  );
+}
+
+const vendorResolutionCache = new Map();
+
+async function resolveLineItemVendorContext(supabaseClient, metaData, productSourcing) {
+  const directVendorId = getFirstMetaValue(metaData, ['_jlo_vendor_id', 'vendor_id', '_vendor_id']);
+  const sourcingVendorId = productSourcing?.vendorId || null;
+  const localVendorId = [directVendorId, sourcingVendorId].find((value) => isUuid(value)) || null;
+
+  if (localVendorId) {
+    return {
+      vendorId: String(localVendorId).trim(),
+      vendorGroupingKey: String(localVendorId).trim(),
+      wooVendorId: null,
+    };
+  }
+
+  const wooVendorIdCandidate =
+    [directVendorId, sourcingVendorId].find((value) => value && !isUuid(String(value))) ||
+    getFirstMetaValue(metaData, ['_woocommerce_vendor_id', '_wcfm_vendor_id', 'wcfm_vendor_id']) ||
+    productSourcing?.woocommerceVendorId ||
+    null;
+
+  const normalizedWooVendorId = wooVendorIdCandidate ? String(wooVendorIdCandidate).trim() : '';
+  if (!normalizedWooVendorId) {
+    return {
+      vendorId: null,
+      vendorGroupingKey: 'unassigned-vendor',
+      wooVendorId: null,
+    };
+  }
+
+  if (vendorResolutionCache.has(normalizedWooVendorId)) {
+    return vendorResolutionCache.get(normalizedWooVendorId);
+  }
+
+  const { data: vendor, error } = await supabaseClient
+    .from('vendors')
+    .select('id, woocommerce_vendor_id')
+    .eq('woocommerce_vendor_id', normalizedWooVendorId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('Unable to resolve vendor mapping for Woo vendor id:', normalizedWooVendorId, error);
+  }
+
+  const resolved = {
+    vendorId: vendor?.id || null,
+    vendorGroupingKey: vendor?.id || `woo-vendor:${normalizedWooVendorId}`,
+    wooVendorId: normalizedWooVendorId,
+  };
+
+  if (!vendor?.id) {
+    console.warn('No local vendor UUID mapping found for Woo vendor id:', normalizedWooVendorId);
+  }
+
+  vendorResolutionCache.set(normalizedWooVendorId, resolved);
+  return resolved;
+}
+
 async function getDefaultHubId(supabaseClient) {
   try {
     const { data: hubs, error } = await supabaseClient
@@ -386,7 +464,6 @@ export async function handler(event) {
 	    for (const item of wcOrder.line_items || []) {
 	      const hubId = item.meta_data?.find(m => m.key === '_hub_id' || m.key === 'hub_id')?.value;
 	      const hubName = item.meta_data?.find(m => m.key === '_hub_name')?.value;
-	      const lineItemVendorId = item.meta_data?.find(m => m.key === 'vendor_id' || m.key === '_vendor_id')?.value;
 	      const weightValue = parseFloat(item.weight || 0);
 	      const sanitizedWeight = weightValue > 0 ? weightValue : 0.5;
 	      const lineItemSourcing = extractGlobalSourcingFromMeta(item.meta_data);
@@ -396,7 +473,12 @@ export async function handler(event) {
 	          productId: item.product_id?.toString(),
 	          variationId: item.variation_id ? item.variation_id.toString() : null,
 	        }));
-	      const vendorId = lineItemVendorId || productSourcing?.vendorId || null;
+	      const vendorContext = await resolveLineItemVendorContext(
+	        supabase,
+	        item.meta_data,
+	        productSourcing
+	      );
+	      const vendorId = vendorContext.vendorId;
 
       // Capture variation metadata so downstream UIs can see chosen options
       const variationId = item.variation_id ? item.variation_id.toString() : null;
@@ -419,10 +501,12 @@ export async function handler(event) {
         quantity: Number(item.quantity || 1),
         price: parseFloat(item.price || 0),
         total: parseFloat(item.total || 0),
-        weight: sanitizedWeight,
-        hubId: hubId || defaultHubId,
-        hubName: hubName,
+	        weight: sanitizedWeight,
+	        hubId: hubId || defaultHubId,
+	        hubName: hubName,
 	        vendorId,
+	        vendorGroupingKey: vendorContext.vendorGroupingKey,
+	        wooVendorId: vendorContext.wooVendorId,
 	        variationId,
 	        variationAttributes,
 	        globalSourcing: productSourcing
@@ -445,12 +529,13 @@ export async function handler(event) {
         continue;
       }
 
-      const resolvedVendorId = orderItem.vendorId || 'unassigned-vendor';
-      const groupKey = `${resolvedHubId}::${resolvedVendorId}`;
+      const resolvedVendorGroupKey = orderItem.vendorGroupingKey || orderItem.vendorId || 'unassigned-vendor';
+      const groupKey = `${resolvedHubId}::${resolvedVendorGroupKey}`;
       if (!itemsByGroup[groupKey]) {
         itemsByGroup[groupKey] = {
           hubId: resolvedHubId,
           vendorId: orderItem.vendorId || null,
+          vendorGroupingKey: resolvedVendorGroupKey,
           items: [],
         };
       }

@@ -630,7 +630,10 @@ export async function submitCjSourceLinkRequest({
   const requestPayload = {
     ...basePayload,
     productImage,
+    thirdProductImage: productImage,
+    thirdProductUrl: sourceUrl,
     ...(productName ? { productName } : {}),
+    ...(productName ? { thirdProductName: productName } : {}),
   };
 
   const result = await requestCjJson({

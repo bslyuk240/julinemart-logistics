@@ -306,6 +306,46 @@ function buildVariationPayload({ attributes, pricing, variationImageId, metaData
   };
 }
 
+function buildDerivedVariantPricingPreview({
+  variant,
+  anchorPreview,
+  receivingHubId,
+  receivingHubName,
+  pricingConfig,
+}) {
+  const pricing = computeWooNgnPricing({
+    sourcePrice: variant.sourcePrice,
+    sourceCurrency: variant.currency,
+    inboundShippingUsd: anchorPreview.inbound_shipping_quote_usd,
+    importBufferUsd: pricingConfig.importBufferUsd,
+    markupPercent: pricingConfig.markupPercent,
+    markupFlatNgn: pricingConfig.markupFlatNgn,
+    usdToNgnRate: pricingConfig.usdToNgnRate,
+  });
+
+  return {
+    provider: anchorPreview.provider || 'cj',
+    pricing_mode: 'landed',
+    generated_at: new Date().toISOString(),
+    receiving_hub_id: receivingHubId,
+    receiving_hub_name: receivingHubName,
+    selected_variant_id: variant.externalVariantId,
+    supplier_price_usd: Number(pricing.supplierPriceUsd.toFixed(2)),
+    inbound_shipping_quote_usd: Number(pricing.inboundShippingUsd.toFixed(2)),
+    import_buffer_usd: Number(pricing.importBufferUsd.toFixed(2)),
+    landed_cost_usd: Number(pricing.landedCostUsd.toFixed(2)),
+    exchange_rate: pricing.exchangeRate,
+    markup_percent: pricing.markupPercent,
+    markup_flat_ngn: pricing.markupFlatNgn,
+    final_price_ngn: pricing.regularPriceWoo,
+    sale_price_ngn: pricing.salePriceWoo,
+    estimated_inbound_days_min: anchorPreview.estimated_inbound_days_min ?? null,
+    estimated_inbound_days_max: anchorPreview.estimated_inbound_days_max ?? null,
+    carrier_name: anchorPreview.carrier_name || null,
+    freight_endpoint: anchorPreview.freight_endpoint || null,
+  };
+}
+
 function buildProductAttributesMatrix(variants) {
   const attributes = new Map();
 
@@ -533,16 +573,17 @@ export async function handler(event) {
         const variantPricingPreview =
           variant.externalVariantId === selectedVariant.externalVariantId
             ? pricingPreview
-            : await buildLandedPricingPreview({
-                client: auth.adminClient,
+            : buildDerivedVariantPricingPreview({
+                variant,
+                anchorPreview: pricingPreview,
                 receivingHubId: receivingHub.id,
-                externalVariantId: variant.externalVariantId,
-                sourcePrice: variant.sourcePrice,
-                sourceCurrency: variant.currency,
-                importBufferUsd: variantPricingConfig.importBufferUsd,
-                markupPercent: variantPricingConfig.markupPercent,
-                markupFlatNgn: variantPricingConfig.markupFlatNgn,
-                usdToNgnRate: variantPricingConfig.usdToNgnRate,
+                receivingHubName: receivingHub.name,
+                pricingConfig: {
+                  importBufferUsd: variantPricingConfig.importBufferUsd,
+                  markupPercent: variantPricingConfig.markupPercent,
+                  markupFlatNgn: variantPricingConfig.markupFlatNgn,
+                  usdToNgnRate: variantPricingConfig.usdToNgnRate,
+                },
               });
 
         variationPlans.push({

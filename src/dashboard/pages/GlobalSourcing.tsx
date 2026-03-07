@@ -1564,7 +1564,7 @@ export function GlobalSourcingPage() {
                           ))}
                         </div>
                       </div>
-                      <div className="flex flex-col items-end gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
                         {buildCjProductUrl(product.title, product.external_product_id) ? (
                           <a
                             href={buildCjProductUrl(product.title, product.external_product_id) || '#'}

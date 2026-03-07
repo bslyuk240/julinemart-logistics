@@ -36,6 +36,7 @@ function normalizeSelectedVariant(payload) {
         source.cj_vid ||
         ''
     ).trim() || null,
+    title: String(source.title || source.variant_title || payload?.variant_title || '').trim() || null,
     image:
       typeof source.image === 'string'
         ? source.image.trim()
@@ -82,6 +83,7 @@ function normalizeImportVariant(entry) {
     externalVariantId: String(
       source.external_variant_id || source.cj_vid || source.externalVariantId || source.vid || ''
     ).trim() || null,
+    title: String(source.title || source.variant_title || source.name || '').trim() || null,
     image:
       typeof source.image === 'string'
         ? source.image.trim()
@@ -106,6 +108,7 @@ function buildImportVariants(payload, selectedVariant, selectedAttributes) {
       ? [
           {
             externalVariantId: selectedVariant.externalVariantId,
+            title: selectedVariant.title,
             image: selectedVariant.image,
             sourcePrice: selectedVariant.sourcePrice,
             currency: selectedVariant.currency,
@@ -130,6 +133,26 @@ function buildImportVariants(payload, selectedVariant, selectedAttributes) {
   });
 
   return Array.from(deduped.values());
+}
+
+function ensureVariantAttributes(variants) {
+  const normalized = Array.isArray(variants) ? variants : [];
+  if (normalized.length <= 1) return normalized;
+
+  const hasStructuredAttributes = normalized.some((variant) => variant.attributes.length > 0);
+  if (hasStructuredAttributes) return normalized;
+
+  return normalized.map((variant, index) => ({
+    ...variant,
+    attributes: [
+      {
+        name: 'Option',
+        value:
+          String(variant.title || '').trim() ||
+          (variant.externalVariantId ? `Variant ${variant.externalVariantId}` : `Variant ${index + 1}`),
+      },
+    ],
+  }));
 }
 
 function mapProductImages(productImages, selectedVariantImage) {
@@ -446,7 +469,9 @@ export async function handler(event) {
     }
 
     const selectedAttributes = normalizeSelectedAttributes(payload, selectedVariant);
-    const importVariants = buildImportVariants(payload, selectedVariant, selectedAttributes);
+    const importVariants = ensureVariantAttributes(
+      buildImportVariants(payload, selectedVariant, selectedAttributes)
+    );
     const importableVariants = importVariants.filter(
       (variant) => variant.externalVariantId && variant.sourcePrice !== null
     );

@@ -733,6 +733,7 @@ export function GlobalSourcingPage() {
         selected_variant: selectedVariant
           ? {
               external_variant_id: selectedVariant.external_variant_id,
+              title: selectedVariant.title,
               image: selectedVariant.image || null,
               source_price: selectedVariant.source_price,
               currency: selectedVariant.currency,
@@ -741,6 +742,7 @@ export function GlobalSourcingPage() {
           : null,
         variants: productDetails.variants.map((variant) => ({
           external_variant_id: variant.external_variant_id,
+          title: variant.title,
           image: variant.image || null,
           source_price: variant.source_price,
           currency: variant.currency,

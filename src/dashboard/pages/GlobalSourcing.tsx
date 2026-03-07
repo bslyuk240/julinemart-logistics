@@ -3,6 +3,7 @@ import {
   AlertCircle,
   CheckCircle,
   Download,
+  ExternalLink,
   Image as ImageIcon,
   Loader2,
   RefreshCw,
@@ -256,6 +257,7 @@ const sourcingVendorStorageKey = 'global-sourcing:selected-vendor-id';
 const sourcingHubStorageKey = 'global-sourcing:selected-hub-id';
 const sourcingWooVendorStorageKey = 'global-sourcing:selected-woo-vendor-id';
 const sourcingWooVendorNameStorageKey = 'global-sourcing:selected-woo-vendor-name';
+const cjProductBaseUrl = 'https://cjdropshipping.com/product';
 
 const tabs: Array<{ key: TabKey; label: string }> = [
   { key: 'cj-products', label: 'CJ Products' },
@@ -272,6 +274,30 @@ function formatDate(value?: string | null) {
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+function slugifyCjProductTitle(value?: string | null) {
+  if (!value) return '';
+
+  return value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/['"]/g, '')
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function buildCjProductUrl(title?: string | null, externalProductId?: string | null) {
+  const productId = String(externalProductId || '').trim();
+  const slug = slugifyCjProductTitle(title);
+
+  if (!productId || !slug) {
+    return null;
+  }
+
+  return `${cjProductBaseUrl}/${slug}-p-${productId}.html`;
 }
 
 function formatImportJobProgress(job: ImportJobData | null) {
@@ -1189,19 +1215,32 @@ export function GlobalSourcingPage() {
                           ))}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => void inspectProduct(product)}
-                        disabled={inspectingProductId === product.external_product_id}
-                        className="btn-secondary inline-flex items-center gap-2 disabled:opacity-60"
-                      >
-                        {inspectingProductId === product.external_product_id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                      <div className="flex flex-col items-end gap-2">
+                        {buildCjProductUrl(product.title, product.external_product_id) ? (
+                          <a
+                            href={buildCjProductUrl(product.title, product.external_product_id) || '#'}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn-secondary inline-flex items-center gap-2"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                            Open on CJ
+                          </a>
                         ) : null}
-                        {productDetails?.external_product_id === product.external_product_id
-                          ? 'Inspected'
-                          : 'Inspect'}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => void inspectProduct(product)}
+                          disabled={inspectingProductId === product.external_product_id}
+                          className="btn-secondary inline-flex items-center gap-2 disabled:opacity-60"
+                        >
+                          {inspectingProductId === product.external_product_id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : null}
+                          {productDetails?.external_product_id === product.external_product_id
+                            ? 'Inspected'
+                            : 'Inspect'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))
@@ -1253,6 +1292,17 @@ export function GlobalSourcingPage() {
                       {productDetails.title || 'CJ product ready for import'}
                     </p>
                     <p>PID {productDetails.external_product_id}</p>
+                    {buildCjProductUrl(productDetails.title, productDetails.external_product_id) ? (
+                      <a
+                        href={buildCjProductUrl(productDetails.title, productDetails.external_product_id) || '#'}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 text-sm font-medium text-primary-700 hover:text-primary-800"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Open on CJ
+                      </a>
+                    ) : null}
                     <p>Variants: {productDetails.variants.length}</p>
                     <p>
                       Base source price:{' '}
@@ -1506,19 +1556,32 @@ export function GlobalSourcingPage() {
                       <p className="mt-1">Mode: {product.fulfillment_mode || 'Not set'} · Status: {product.status}</p>
                       <p className="mt-1">Updated: {formatDate(product.updated_at)}</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => void deleteImportedProduct(product.woo_product_id, product.name)}
-                      disabled={deletingImportedProductId === product.woo_product_id}
-                      className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {deletingImportedProductId === product.woo_product_id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                      Delete
-                    </button>
+                    <div className="flex flex-col items-end gap-2">
+                      {buildCjProductUrl(product.name, product.external_product_id) ? (
+                        <a
+                          href={buildCjProductUrl(product.name, product.external_product_id) || '#'}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="btn-secondary inline-flex items-center gap-2"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                          Open on CJ
+                        </a>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => void deleteImportedProduct(product.woo_product_id, product.name)}
+                        disabled={deletingImportedProductId === product.woo_product_id}
+                        className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {deletingImportedProductId === product.woo_product_id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

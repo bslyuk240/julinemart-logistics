@@ -55,6 +55,63 @@ function pickString(...values) {
   return null;
 }
 
+async function fetchImportJobSourcingContext(client, { productId, variationId }) {
+  if (!productId) return null;
+
+  const { data, error } = await client
+    .from('global_sourcing_import_jobs')
+    .select('payload, cursor, result, completed_at, created_at')
+    .eq('status', 'completed')
+    .contains('result', { woo_product_id: String(productId) })
+    .order('completed_at', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+  if (error || !Array.isArray(data) || data.length === 0) {
+    return null;
+  }
+
+  for (const row of data) {
+    const payload = parseObject(row?.payload);
+    const cursor = parseObject(row?.cursor);
+    const result = parseObject(row?.result);
+    const importedVariationIds = Array.isArray(result?.woo_variation_ids)
+      ? result.woo_variation_ids.map((value) => String(value || '').trim()).filter(Boolean)
+      : [];
+    const selectedWooVariationId = pickString(result?.woo_variation_id);
+    const selectedCjVid = pickString(
+      cursor?.selectedVariantId,
+      payload?.external_variant_id,
+      payload?.cj_vid
+    );
+    const cjPid = pickString(
+      payload?.external_product_id,
+      payload?.cj_pid,
+      result?.external_product_id
+    );
+
+    if (variationId) {
+      if (selectedWooVariationId && selectedWooVariationId === String(variationId).trim()) {
+        return {
+          cjPid: cjPid || null,
+          cjVid: selectedCjVid || null,
+        };
+      }
+
+      if (importedVariationIds.includes(String(variationId).trim())) {
+        return null;
+      }
+    } else if (selectedCjVid || cjPid) {
+      return {
+        cjPid: cjPid || null,
+        cjVid: selectedCjVid || null,
+      };
+    }
+  }
+
+  return null;
+}
+
 function pickArray(...values) {
   for (const value of values) {
     if (Array.isArray(value) && value.length > 0) {
@@ -456,6 +513,17 @@ async function resolveSubOrderItems(subOrder, inboundShipment = null) {
         if (context) {
           cjPid = cjPid || pickString(context.cjPid);
           cjVid = cjVid || pickString(context.cjVid);
+          if (cjPid || cjVid) {
+            didHydrate = true;
+          }
+        }
+      }
+
+      if ((!cjPid || !cjVid) && productId) {
+        const importContext = await fetchImportJobSourcingContext(client, { productId, variationId });
+        if (importContext) {
+          cjPid = cjPid || pickString(importContext.cjPid);
+          cjVid = cjVid || pickString(importContext.cjVid);
           if (cjPid || cjVid) {
             didHydrate = true;
           }

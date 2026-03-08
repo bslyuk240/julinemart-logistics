@@ -8,9 +8,12 @@
 - Landed-price quote endpoint for CJ variant imports
 - Woo import/writeback for sourced products and variations
 - Automatic CJ supplier order placement for sourced `cj_hub` sub-orders
+- Manual CJ supplier-order grouping from the inbound shipments admin view
 - Inbound shipment admin actions for supplier-order retry and received-at-hub updates
 - Supabase migrations for:
   - `cj_inbound_shipments`
+  - `manual_supplier_orders`
+  - `manual_supplier_order_items`
   - `provider_auth_tokens`
 
 ## Route and page
@@ -51,6 +54,7 @@
   - Lists Woo products that already carry sourcing meta
 - `netlify/functions/global-sourcing-inbound-shipments.js`
   - Lists inbound shipment rows
+  - Creates one manual CJ supplier order record for multiple inbound rows
   - Retries CJ supplier-order creation for one sourced shipment
   - Marks an inbound shipment as received at hub
 
@@ -136,6 +140,35 @@
   - sub-order creation with sourcing metadata
   - automatic CJ supplier-order creation for eligible `cj_hub` sourced shipments
   - inbound shipment tracking to JulineMart hub
+
+## Manual supplier-order workflow
+
+Ops can now use the inbound shipments tab for batched manual CJ ordering without removing the existing automatic path.
+
+Workflow:
+
+1. Woo checkout still creates normal app `orders` and `sub_orders`
+2. Sourced `cj_hub` rows still create `cj_inbound_shipments`
+3. Ops opens `/admin/global-sourcing` -> `Inbound Shipments`
+4. Ops selects multiple compatible pending rows
+5. The page reuses the existing `Open on CJ` link pattern to open the exact CJ product page
+6. Ops places one combined quantity order on CJ manually
+7. Ops saves:
+   - `CJ Order ID`
+   - `Date Ordered`
+   - `Notes`
+8. JLO records one `manual_supplier_orders` row plus linked `manual_supplier_order_items`
+9. Each linked inbound row remains individually receivable at hub and continues through the normal JLO dispatch flow
+
+Compatibility rules for manual grouping:
+
+- provider must be `cj`
+- rows must still be awaiting supplier ordering
+- rows cannot already have a supplier order reference
+- rows cannot already be attached to another manual supplier order
+- rows must share the same CJ product and CJ variant
+
+This keeps the manual workflow operationally safe because ops is expected to place one quantity order against one exact CJ product/variant page.
 
 ## CJ sourcing caveats
 
@@ -230,6 +263,8 @@ final_sell_price_ngn =
 ## Inbound shipment and metadata layer
 
 - `public.cj_inbound_shipments` stores supplier-to-hub movement
+- `public.manual_supplier_orders` stores one manually-entered supplier order header
+- `public.manual_supplier_order_items` links that manual order to one or more inbound rows / sub-orders / orders
 - `sub_orders.metadata` remains the extension point for sourcing state
 - Sourced sub-orders carry:
 
@@ -241,6 +276,10 @@ final_sell_price_ngn =
     "cj_order_id": "optional_cj_order_id",
     "receiving_hub_id": "<hub_uuid>",
     "inbound_status": "awaiting_supplier_fulfillment",
+    "supplier_order_mode": "automatic",
+    "supplier_order_status": "awaiting_supplier_order",
+    "manual_supplier_order_id": null,
+    "supplier_ordered_at": null,
     "inbound_tracking_number": null,
     "items": [
       {
@@ -256,6 +295,24 @@ final_sell_price_ngn =
 ```
 
 - Existing metadata such as `selected_lane`, `eligible_lanes`, voucher data, influencer data, and shipping P&L is preserved
+
+## Supplier-order modes and statuses
+
+Supplier ordering now has two additive modes:
+
+- `automatic`
+  - existing webhook/Netlify path creates the CJ order automatically when eligible
+- `manual`
+  - admin groups compatible inbound rows and records one CJ order after placing it directly on CJ
+
+Supplier-order statuses now tracked on inbound rows and mirrored into sourcing metadata:
+
+- `awaiting_supplier_order`
+- `supplier_order_placed`
+- `supplier_shipped`
+- `received_at_hub`
+
+The older `inbound_status` values are still preserved where existing code depends on them. The new supplier-order status layer is additive and is used for admin filtering and manual-order visibility.
 
 ## Automatic CJ order placement
 
@@ -278,15 +335,28 @@ The CJ order:
 - records an operational tracking event
 - triggers one conservative customer push notification if possible
 
+Automatic creation now skips any row already committed to manual supplier ordering:
+
+- if `supplier_order_mode = manual`, auto-create is skipped
+- if `manual_supplier_order_id` is already set, auto-create is skipped
+- if a `cj_order_id` already exists, the existing idempotent reconciliation still applies
+
+This prevents webhook retries from creating duplicate CJ orders after ops has chosen the manual path.
+
 ## Idempotency and retry rules
 
 - A sourced sub-order will not create another CJ order if `cj_order_id` already exists in `sub_orders.metadata.global_sourcing` or `cj_inbound_shipments`
+- A sourced sub-order will not auto-create a CJ order if it has already been locked to manual supplier ordering
 - The webhook path reconciles partial state if one side was updated but the other was not
 - Admin retry action refuses to create a second CJ order when an existing `cj_order_id` is already present
 - Received-at-hub action is idempotent:
   - shipment status can be retried safely
   - tracking event creation is deduplicated
   - push notification is only attempted on the first received-at-hub milestone
+- Manual supplier orders remain compatible with received-at-hub:
+  - linked inbound rows still update `sub_orders.metadata.global_sourcing.inbound_status`
+  - linked inbound rows still create the received-at-hub tracking event once
+  - linked inbound rows still participate in normal downstream dispatch
 - Failures are logged to `webhook_errors` and stored in sourcing metadata for admin follow-up
 
 ## Environment variables
@@ -327,6 +397,7 @@ Optional auth override:
 - Inbound shipment table and admin view
 - Source-link request intake, persistence, retry, and status refresh
 - Automatic CJ supplier-order creation for sourced sub-orders
+- Manual CJ supplier-order grouping for compatible inbound rows
 - Retry-safe admin action to create or reconcile supplier orders
 - Idempotent received-at-hub action with tracking and push support
 
@@ -334,6 +405,7 @@ Optional auth override:
 
 - Full admin retry tooling for every CJ failure mode beyond one shipment action
 - CJ inbound-status polling from CJ after order creation
+- Manual editing of an existing manual supplier-order group after it has been saved
 - Automatic background polling for source-link request status
 - Dedicated customer PWA badge rendering for product sourcing
 - A proven WordPress post-author writeback path for WCFM-specific ownership if the Woo site requires it

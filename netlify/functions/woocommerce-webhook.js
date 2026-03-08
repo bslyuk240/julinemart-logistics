@@ -900,6 +900,8 @@ export async function handler(event) {
 		                cj_order_id: null,
 		                receiving_hub_id: sourceSeed.receivingHubId || breakdown.hubId,
 		                inbound_status: 'awaiting_supplier_fulfillment',
+		                supplier_order_mode: 'automatic',
+		                supplier_order_status: 'awaiting_supplier_order',
 		                inbound_tracking_number: null,
 		                items: sourcedItems.map(item => ({
 		                  product_id: item.productId,
@@ -965,14 +967,16 @@ export async function handler(event) {
 	              hub_id: sourcing.receiving_hub_id || subOrder.hub_id || null,
 	              provider: sourcing.provider || 'cj',
 	              cj_order_id: sourcing.cj_order_id || null,
-	              cj_pid: primaryItem.cj_pid || null,
-	              cj_vid: primaryItem.cj_vid || null,
-	              inbound_tracking_number: sourcing.inbound_tracking_number || null,
-	              inbound_status: sourcing.inbound_status || 'awaiting_supplier_fulfillment',
-	              metadata: {
-	                source: 'woocommerce_webhook_placeholder',
-	                item_count: items.length,
-	                items,
+		              cj_pid: primaryItem.cj_pid || null,
+		              cj_vid: primaryItem.cj_vid || null,
+		              inbound_tracking_number: sourcing.inbound_tracking_number || null,
+		              inbound_status: sourcing.inbound_status || 'awaiting_supplier_fulfillment',
+		              supplier_order_mode: sourcing.supplier_order_mode || 'automatic',
+		              supplier_order_status: sourcing.supplier_order_status || 'awaiting_supplier_order',
+		              metadata: {
+		                source: 'woocommerce_webhook_placeholder',
+		                item_count: items.length,
+		                items,
 	              },
 	            };
 	          })

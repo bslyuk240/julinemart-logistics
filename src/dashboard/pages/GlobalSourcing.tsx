@@ -82,18 +82,49 @@ interface ImportedProduct {
 interface InboundShipment {
   id: string;
   created_at: string;
+  updated_at?: string;
   provider: string;
   woo_order_id: string | null;
   cj_order_id: string | null;
+  cj_pid?: string | null;
+  cj_vid?: string | null;
   inbound_status: string;
   inbound_tracking_number: string | null;
   supplier_status?: string | null;
+  supplier_order_mode?: string | null;
+  supplier_order_status?: string | null;
+  manual_supplier_order_id?: string | null;
+  supplier_ordered_at?: string | null;
   estimated_arrival_at: string | null;
   received_at_hub_at: string | null;
   carrier_name?: string | null;
-  hubs?: { name: string } | null;
-  sub_orders?: { tracking_number: string | null; metadata?: Record<string, unknown> | null } | null;
+  metadata?: Record<string, unknown> | null;
+  hubs?: { name: string; code?: string | null } | null;
+  sub_orders?: {
+    id?: string;
+    main_order_id?: string | null;
+    tracking_number: string | null;
+    status?: string | null;
+    metadata?: Record<string, unknown> | null;
+  } | null;
+  manual_supplier_orders?: {
+    id: string;
+    provider: string;
+    supplier_order_mode: string;
+    cj_order_id: string | null;
+    ordered_at: string | null;
+    status: string;
+    notes: string | null;
+    metadata?: Record<string, unknown> | null;
+  } | null;
 }
+
+type ShipmentFilter =
+  | 'all'
+  | 'awaiting_supplier_order'
+  | 'manual_ordered'
+  | 'auto_ordered'
+  | 'received_at_hub';
 
 interface PricingPreview {
   provider: string;
@@ -368,6 +399,216 @@ function buildCjProductUrl(title?: string | null, externalProductId?: string | n
   return `${cjProductBaseUrl}/${slug}-p-${productId}.html`;
 }
 
+function parseObjectValue(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function pickStringValue(...values: unknown[]) {
+  for (const value of values) {
+    if (value === undefined || value === null) continue;
+    const normalized = String(value).trim();
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function formatReadableStatus(value?: string | null) {
+  const normalized = pickStringValue(value);
+  if (!normalized) return 'Not set';
+  return normalized.replace(/[_:]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function badgeToneClasses(tone: 'gray' | 'blue' | 'amber' | 'green') {
+  if (tone === 'blue') return 'border-blue-200 bg-blue-50 text-blue-700';
+  if (tone === 'amber') return 'border-amber-200 bg-amber-50 text-amber-700';
+  if (tone === 'green') return 'border-green-200 bg-green-50 text-green-700';
+  return 'border-gray-200 bg-gray-50 text-gray-700';
+}
+
+function getShipmentSourcing(shipment: InboundShipment) {
+  const subOrderMetadata = parseObjectValue(shipment.sub_orders?.metadata);
+  return parseObjectValue(subOrderMetadata.global_sourcing);
+}
+
+function getShipmentItems(shipment: InboundShipment) {
+  const sourcing = getShipmentSourcing(shipment);
+  if (Array.isArray(sourcing.items)) {
+    return sourcing.items.filter(
+      (item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')
+    );
+  }
+
+  const metadata = parseObjectValue(shipment.metadata);
+  if (Array.isArray(metadata.items)) {
+    return metadata.items.filter(
+      (item): item is Record<string, unknown> => Boolean(item && typeof item === 'object')
+    );
+  }
+
+  return [];
+}
+
+function getShipmentPrimaryItem(shipment: InboundShipment) {
+  const items = getShipmentItems(shipment);
+  const shipmentCjVid = pickStringValue(shipment.cj_vid);
+  const shipmentCjPid = pickStringValue(shipment.cj_pid);
+
+  return (
+    items.find((item) => pickStringValue(item.cj_vid, item.cjVid) === shipmentCjVid && shipmentCjVid) ||
+    items.find((item) => pickStringValue(item.cj_pid, item.cjPid) === shipmentCjPid && shipmentCjPid) ||
+    items[0] ||
+    {}
+  );
+}
+
+function getShipmentQuantity(shipment: InboundShipment) {
+  const item = getShipmentPrimaryItem(shipment);
+  const quantity = Number(item.quantity);
+  return Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+}
+
+function getShipmentSupplierOrderMode(shipment: InboundShipment) {
+  return (
+    pickStringValue(
+      shipment.supplier_order_mode,
+      getShipmentSourcing(shipment).supplier_order_mode
+    ) || 'automatic'
+  );
+}
+
+function getShipmentSupplierOrderStatus(shipment: InboundShipment) {
+  const explicit = pickStringValue(
+    shipment.supplier_order_status,
+    getShipmentSourcing(shipment).supplier_order_status
+  );
+  if (explicit) return explicit;
+  if (shipment.received_at_hub_at || shipment.inbound_status === 'received_at_hub') {
+    return 'received_at_hub';
+  }
+  if (
+    shipment.inbound_status === 'supplier_shipped' ||
+    shipment.inbound_status === 'supplier_in_transit' ||
+    shipment.inbound_status === 'supplier_delivered'
+  ) {
+    return 'supplier_shipped';
+  }
+  if (shipment.cj_order_id) return 'supplier_order_placed';
+  return 'awaiting_supplier_order';
+}
+
+function getShipmentSnapshot(shipment: InboundShipment) {
+  const item = getShipmentPrimaryItem(shipment);
+  const metadata = parseObjectValue(shipment.metadata);
+  return {
+    productId: pickStringValue(item.product_id, item.productId),
+    variationId: pickStringValue(item.variation_id, item.variationId),
+    cjPid: pickStringValue(shipment.cj_pid, item.cj_pid, item.cjPid),
+    cjVid: pickStringValue(shipment.cj_vid, item.cj_vid, item.cjVid),
+    title: pickStringValue(item.name, metadata.title, metadata.product_title),
+    quantity: getShipmentQuantity(shipment),
+  };
+}
+
+function getShipmentCompatibilityKey(shipment: InboundShipment) {
+  const snapshot = getShipmentSnapshot(shipment);
+  const provider = pickStringValue(shipment.provider, getShipmentSourcing(shipment).provider) || 'cj';
+  return snapshot.cjPid && snapshot.cjVid ? [provider, snapshot.cjPid, snapshot.cjVid].join(':') : null;
+}
+
+function getShipmentOpenCjUrl(shipment: InboundShipment) {
+  const snapshot = getShipmentSnapshot(shipment);
+  return buildCjProductUrl(snapshot.title, snapshot.cjPid);
+}
+
+function getManualShipmentEligibility(shipment: InboundShipment) {
+  const provider = pickStringValue(shipment.provider, getShipmentSourcing(shipment).provider) || 'cj';
+  const mode = getShipmentSupplierOrderMode(shipment);
+  const status = getShipmentSupplierOrderStatus(shipment);
+  const compatibilityKey = getShipmentCompatibilityKey(shipment);
+
+  if (provider !== 'cj') {
+    return { eligible: false, reason: 'Only CJ provider rows can be grouped manually' };
+  }
+  if (!compatibilityKey) {
+    return { eligible: false, reason: 'Missing CJ product or variant details on this shipment' };
+  }
+  if (shipment.manual_supplier_order_id || mode === 'manual') {
+    return { eligible: false, reason: 'Already linked to a manual supplier order' };
+  }
+  if (shipment.cj_order_id) {
+    return { eligible: false, reason: 'Already has a supplier order reference' };
+  }
+  if (status !== 'awaiting_supplier_order') {
+    return { eligible: false, reason: `Not awaiting supplier ordering (${formatReadableStatus(status)})` };
+  }
+  if (shipment.inbound_status === 'received_at_hub' || shipment.received_at_hub_at) {
+    return { eligible: false, reason: 'Shipment is already marked received at hub' };
+  }
+
+  return { eligible: true, compatibilityKey };
+}
+
+function buildManualSelectionSummary(selectedShipments: InboundShipment[]) {
+  if (selectedShipments.length === 0) {
+    return { valid: false as const, error: 'Select one or more compatible inbound rows' };
+  }
+
+  let compatibilityKey: string | null = null;
+  let totalQuantity = 0;
+  let snapshot: ReturnType<typeof getShipmentSnapshot> | null = null;
+
+  for (const shipment of selectedShipments) {
+    const eligibility = getManualShipmentEligibility(shipment);
+    if (!eligibility.eligible) {
+      return { valid: false as const, error: eligibility.reason || 'Selection is not eligible' };
+    }
+    if (compatibilityKey && eligibility.compatibilityKey !== compatibilityKey) {
+      return {
+        valid: false as const,
+        error: 'Selected rows must share the same CJ product and variant before saving one manual order',
+      };
+    }
+    compatibilityKey = eligibility.compatibilityKey || null;
+    const nextSnapshot = getShipmentSnapshot(shipment);
+    totalQuantity += nextSnapshot.quantity;
+    if (!snapshot) snapshot = nextSnapshot;
+  }
+
+  return {
+    valid: true as const,
+    selectedCount: selectedShipments.length,
+    totalQuantity,
+    compatibilityKey,
+    snapshot,
+    cjUrl: snapshot ? buildCjProductUrl(snapshot.title, snapshot.cjPid) : null,
+  };
+}
+
+function matchesShipmentFilter(shipment: InboundShipment, filter: ShipmentFilter) {
+  if (filter === 'all') return true;
+
+  const mode = getShipmentSupplierOrderMode(shipment);
+  const status = getShipmentSupplierOrderStatus(shipment);
+
+  if (filter === 'awaiting_supplier_order') {
+    return status === 'awaiting_supplier_order';
+  }
+  if (filter === 'manual_ordered') {
+    return mode === 'manual' && status !== 'received_at_hub';
+  }
+  if (filter === 'auto_ordered') {
+    return mode === 'automatic' && status !== 'awaiting_supplier_order' && status !== 'received_at_hub';
+  }
+  if (filter === 'received_at_hub') {
+    return status === 'received_at_hub' || shipment.inbound_status === 'received_at_hub';
+  }
+
+  return true;
+}
+
 function formatImportJobProgress(job: ImportJobData | null) {
   if (!job) return null;
 
@@ -523,6 +764,16 @@ export function GlobalSourcingPage() {
   const [shipments, setShipments] = useState<InboundShipment[]>([]);
   const [loadingShipments, setLoadingShipments] = useState(false);
   const [shipmentActionId, setShipmentActionId] = useState<string | null>(null);
+  const [shipmentFilter, setShipmentFilter] = useState<ShipmentFilter>('all');
+  const [selectedManualShipmentIds, setSelectedManualShipmentIds] = useState<string[]>([]);
+  const [manualSupplierOrderId, setManualSupplierOrderId] = useState('');
+  const [manualOrderedAt, setManualOrderedAt] = useState(() => {
+    const now = new Date();
+    const timezoneOffsetMs = now.getTimezoneOffset() * 60 * 1000;
+    return new Date(now.getTime() - timezoneOffsetMs).toISOString().slice(0, 16);
+  });
+  const [manualSupplierNotes, setManualSupplierNotes] = useState('');
+  const [savingManualSupplierOrder, setSavingManualSupplierOrder] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState<SettingsStatus | null>(null);
   const [loadingSettings, setLoadingSettings] = useState(false);
   const [testingSettings, setTestingSettings] = useState(false);
@@ -536,6 +787,18 @@ export function GlobalSourcingPage() {
   );
   const previewImage = selectedVariant?.image || productDetails?.images?.[0] || null;
   const inspectedFlags = useMemo(() => getInspectedProductFlags(productDetails), [productDetails]);
+  const selectedManualShipments = useMemo(
+    () => shipments.filter((shipment) => selectedManualShipmentIds.includes(shipment.id)),
+    [selectedManualShipmentIds, shipments]
+  );
+  const manualSelectionSummary = useMemo(
+    () => buildManualSelectionSummary(selectedManualShipments),
+    [selectedManualShipments]
+  );
+  const filteredShipments = useMemo(
+    () => shipments.filter((shipment) => matchesShipmentFilter(shipment, shipmentFilter)),
+    [shipmentFilter, shipments]
+  );
 
   const parsedImportBufferUsd = useMemo(() => {
     const trimmed = importBufferUsd.trim();
@@ -884,6 +1147,12 @@ export function GlobalSourcingPage() {
     settingsStatus,
     shipments.length,
   ]);
+
+  useEffect(() => {
+    setSelectedManualShipmentIds((current) =>
+      current.filter((shipmentId) => shipments.some((shipment) => shipment.id === shipmentId))
+    );
+  }, [shipments]);
 
   const testSettings = async () => {
     if (!session?.access_token) return;
@@ -1360,6 +1629,80 @@ export function GlobalSourcingPage() {
       notification.error('Quote failed', getErrorMessage(error, 'Unable to quote landed pricing'));
     } finally {
       setPricingLoading(false);
+    }
+  };
+
+  const resetManualSupplierOrderForm = () => {
+    const now = new Date();
+    const timezoneOffsetMs = now.getTimezoneOffset() * 60 * 1000;
+    setSelectedManualShipmentIds([]);
+    setManualSupplierOrderId('');
+    setManualOrderedAt(new Date(now.getTime() - timezoneOffsetMs).toISOString().slice(0, 16));
+    setManualSupplierNotes('');
+  };
+
+  const toggleManualShipmentSelection = (shipment: InboundShipment) => {
+    const eligibility = getManualShipmentEligibility(shipment);
+    if (!eligibility.eligible) {
+      notification.error('Selection blocked', eligibility.reason || 'Shipment cannot be grouped manually');
+      return;
+    }
+
+    setSelectedManualShipmentIds((current) => {
+      if (current.includes(shipment.id)) {
+        return current.filter((shipmentId) => shipmentId !== shipment.id);
+      }
+
+      const nextIds = [...current, shipment.id];
+      const nextSelection = shipments.filter((entry) => nextIds.includes(entry.id));
+      const nextSummary = buildManualSelectionSummary(nextSelection);
+
+      if (!nextSummary.valid) {
+        notification.error('Selection blocked', nextSummary.error);
+        return current;
+      }
+
+      return nextIds;
+    });
+  };
+
+  const saveManualSupplierOrder = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!session?.access_token) return;
+    if (!manualSelectionSummary.valid) {
+      notification.error('Selection required', manualSelectionSummary.error);
+      return;
+    }
+    if (!manualSupplierOrderId.trim()) {
+      notification.error('CJ order required', 'Enter the manual CJ order ID before saving');
+      return;
+    }
+
+    setSavingManualSupplierOrder(true);
+    try {
+      await callAdmin('global-sourcing-inbound-shipments', session.access_token, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'create_manual_supplier_order',
+          shipment_ids: selectedManualShipmentIds,
+          cj_order_id: manualSupplierOrderId.trim(),
+          ordered_at: manualOrderedAt ? new Date(manualOrderedAt).toISOString() : null,
+          notes: manualSupplierNotes.trim() || null,
+        }),
+      });
+      notification.success(
+        'Manual CJ order saved',
+        `Linked ${manualSelectionSummary.selectedCount} inbound row(s) to CJ order ${manualSupplierOrderId.trim()}`
+      );
+      resetManualSupplierOrderForm();
+      await loadShipments();
+    } catch (error: unknown) {
+      notification.error(
+        'Manual order failed',
+        getErrorMessage(error, 'Unable to save the manual supplier order')
+      );
+    } finally {
+      setSavingManualSupplierOrder(false);
     }
   };
 
@@ -2217,89 +2560,309 @@ export function GlobalSourcingPage() {
 
       {!loadingReferenceData && activeTab === 'inbound-shipments' ? (
         <div className="card space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Inbound Shipments</h2>
               <p className="text-sm text-gray-600">Supplier to hub movement is separate from last-mile delivery.</p>
             </div>
-            <button type="button" onClick={() => void loadShipments()} className="btn-secondary inline-flex items-center gap-2">
-              {loadingShipments ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Refresh
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { key: 'all', label: 'All' },
+                { key: 'awaiting_supplier_order', label: 'Awaiting Supplier Order' },
+                { key: 'manual_ordered', label: 'Manual Ordered' },
+                { key: 'auto_ordered', label: 'Auto Ordered' },
+                { key: 'received_at_hub', label: 'Received at Hub' },
+              ].map((filterOption) => (
+                <button
+                  key={filterOption.key}
+                  type="button"
+                  onClick={() => setShipmentFilter(filterOption.key as ShipmentFilter)}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                    shipmentFilter === filterOption.key
+                      ? 'border-primary-200 bg-primary-50 text-primary-700'
+                      : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {filterOption.label}
+                </button>
+              ))}
+              <button type="button" onClick={() => void loadShipments()} className="btn-secondary inline-flex items-center gap-2">
+                {loadingShipments ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                Refresh
+              </button>
+            </div>
           </div>
 
-          {shipments.length === 0 ? (
+          <form onSubmit={saveManualSupplierOrder} className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">Manual Supplier Order</h3>
+                <p className="text-sm text-gray-600">
+                  Select compatible pending CJ inbound rows, place one batched order on CJ, then save the shared order reference here.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700">
+                  Selected: {selectedManualShipmentIds.length}
+                </span>
+                <span className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-medium text-gray-700">
+                  Qty: {manualSelectionSummary.valid ? manualSelectionSummary.totalQuantity : 0}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-lg border border-white bg-white p-3 text-sm text-gray-700 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Product</p>
+                <p className="mt-1 font-medium text-gray-900">
+                  {manualSelectionSummary.valid
+                    ? manualSelectionSummary.snapshot?.title || 'CJ product'
+                    : 'Select compatible rows'}
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  {manualSelectionSummary.valid
+                    ? `CJ PID ${manualSelectionSummary.snapshot?.cjPid || 'n/a'} / CJ VID ${manualSelectionSummary.snapshot?.cjVid || 'n/a'}`
+                    : 'Rows must share one CJ product and variant'}
+                </p>
+              </div>
+              <div className="rounded-lg border border-white bg-white p-3 text-sm text-gray-700 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Customer Orders</p>
+                <p className="mt-1 font-medium text-gray-900">
+                  {manualSelectionSummary.valid ? manualSelectionSummary.selectedCount : 0} row(s)
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Total supplier quantity: {manualSelectionSummary.valid ? manualSelectionSummary.totalQuantity : 0}
+                </p>
+              </div>
+              <div className="rounded-lg border border-white bg-white p-3 text-sm text-gray-700 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Provider</p>
+                <p className="mt-1 font-medium text-gray-900">CJ</p>
+                <p className="mt-1 text-xs text-gray-500">Automatic and manual supplier ordering remain available side by side.</p>
+              </div>
+              <div className="rounded-lg border border-white bg-white p-3 text-sm text-gray-700 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Open CJ</p>
+                {manualSelectionSummary.valid && manualSelectionSummary.cjUrl ? (
+                  <a
+                    href={manualSelectionSummary.cjUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-1 inline-flex items-center gap-2 text-sm font-medium text-primary-700 hover:text-primary-800"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Open on CJ
+                  </a>
+                ) : (
+                  <p className="mt-1 text-xs text-gray-500">A CJ product link appears after you select compatible rows.</p>
+                )}
+              </div>
+            </div>
+
+            {!manualSelectionSummary.valid && selectedManualShipmentIds.length > 0 ? (
+              <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {manualSelectionSummary.error}
+              </div>
+            ) : null}
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-gray-700">CJ Order ID</span>
+                <input
+                  value={manualSupplierOrderId}
+                  onChange={(event) => setManualSupplierOrderId(event.target.value)}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3"
+                  placeholder="Enter the manual CJ order reference"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-gray-700">Date Ordered</span>
+                <input
+                  type="datetime-local"
+                  value={manualOrderedAt}
+                  onChange={(event) => setManualOrderedAt(event.target.value)}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3"
+                />
+              </label>
+            </div>
+
+            <label className="mt-3 block">
+              <span className="mb-2 block text-sm font-medium text-gray-700">Notes</span>
+              <textarea
+                value={manualSupplierNotes}
+                onChange={(event) => setManualSupplierNotes(event.target.value)}
+                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3"
+                rows={3}
+                placeholder="Optional ops note for this batched CJ order"
+              />
+            </label>
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="submit"
+                disabled={!manualSelectionSummary.valid || savingManualSupplierOrder}
+                className="btn-primary inline-flex items-center gap-2 disabled:opacity-60"
+              >
+                {savingManualSupplierOrder ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                Save Manual Supplier Order
+              </button>
+              <button type="button" onClick={resetManualSupplierOrderForm} className="btn-secondary inline-flex items-center gap-2">
+                Cancel Selection
+              </button>
+            </div>
+          </form>
+
+          {filteredShipments.length === 0 ? (
             <div className="rounded-lg border border-dashed border-gray-300 px-6 py-10 text-center text-sm text-gray-600">
-              No inbound shipments found.
+              No inbound shipments found for this filter.
             </div>
           ) : (
             <div className="space-y-3">
-              {shipments.map((shipment) => (
-                <div key={shipment.id} className="rounded-lg border border-gray-200 p-4 text-sm text-gray-700">
-                  <p className="font-semibold text-gray-900">
-                    {shipment.provider.toUpperCase()} · {shipment.cj_order_id || 'Awaiting CJ order ID'}
-                  </p>
-                  <p className="mt-1">Created: {formatDate(shipment.created_at)}</p>
-                  <p className="mt-1">Hub: {shipment.hubs?.name || 'Not linked'} · Sub-order: {shipment.sub_orders?.tracking_number || 'Not linked'}</p>
-                  <p className="mt-1">Status: {shipment.inbound_status} · Tracking: {shipment.inbound_tracking_number || 'Not set'}</p>
-                  <p className="mt-1">CJ tracking status: {shipment.supplier_status || 'Not set'}</p>
-                  <p className="mt-1">Supplier order: {shipment.cj_order_id || 'Not created'}</p>
-                  <p className="mt-1">Carrier: {shipment.carrier_name || 'Not set'}</p>
-                  <p className="mt-1">ETA: {formatDate(shipment.estimated_arrival_at)} · Received: {formatDate(shipment.received_at_hub_at)}</p>
-                  {!shipment.cj_order_id ? (
-                    <button
-                      type="button"
-                      onClick={() => void createSupplierOrder(shipment.id)}
-                      disabled={shipmentActionId === shipment.id}
-                      className="btn-secondary mt-3 inline-flex items-center gap-2 disabled:opacity-60"
-                    >
-                      {shipmentActionId === shipment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-                      Create Supplier Order
-                    </button>
-                  ) : null}
-                  {shipment.cj_order_id ? (
-                    <button
-                      type="button"
-                      onClick={() => void refreshCjTracking(shipment.id)}
-                      disabled={shipmentActionId === shipment.id}
-                      className="btn-secondary mt-3 inline-flex items-center gap-2 disabled:opacity-60"
-                    >
-                      {shipmentActionId === shipment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                      Refresh CJ Tracking
-                    </button>
-                  ) : null}
-                  {!shipment.cj_order_id ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void deleteInboundTestOrder(
-                          shipment.id,
-                          shipment.sub_orders?.tracking_number || shipment.woo_order_id || null,
-                          Boolean(shipment.cj_order_id)
-                        )
-                      }
-                      disabled={shipmentActionId === shipment.id}
-                      className="ml-3 mt-3 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {shipmentActionId === shipment.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
-                      Delete Test Order
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void markReceived(shipment.id)}
-                    disabled={shipment.inbound_status === 'received_at_hub' || shipmentActionId === shipment.id}
-                    className="btn-primary mt-3 inline-flex items-center gap-2 disabled:opacity-60"
-                  >
-                    {shipmentActionId === shipment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
-                    Mark Received at Hub
-                  </button>
-                </div>
-              ))}
+              {filteredShipments.map((shipment) => {
+                const orderMode = getShipmentSupplierOrderMode(shipment);
+                const orderStatus = getShipmentSupplierOrderStatus(shipment);
+                const snapshot = getShipmentSnapshot(shipment);
+                const openCjUrl = getShipmentOpenCjUrl(shipment);
+                const eligibility = getManualShipmentEligibility(shipment);
+                const manualOrder = shipment.manual_supplier_orders;
+                const isSelected = selectedManualShipmentIds.includes(shipment.id);
+                const canUseAutomaticCreate =
+                  !shipment.cj_order_id &&
+                  orderMode !== 'manual' &&
+                  orderStatus === 'awaiting_supplier_order';
+
+                return (
+                  <div key={shipment.id} className="rounded-lg border border-gray-200 p-4 text-sm text-gray-700">
+                    <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-gray-900">
+                            {shipment.provider.toUpperCase()} / {shipment.cj_order_id || 'Awaiting CJ order ID'}
+                          </p>
+                          <span
+                            className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
+                              orderMode === 'manual' ? badgeToneClasses('blue') : badgeToneClasses('gray')
+                            }`}
+                          >
+                            {orderMode === 'manual' ? 'Manual' : 'Automatic'}
+                          </span>
+                          <span
+                            className={`rounded-full border px-2.5 py-1 text-xs font-medium ${
+                              orderStatus === 'received_at_hub'
+                                ? badgeToneClasses('green')
+                                : orderStatus === 'awaiting_supplier_order'
+                                  ? badgeToneClasses('amber')
+                                  : badgeToneClasses('blue')
+                            }`}
+                          >
+                            {formatReadableStatus(orderStatus)}
+                          </span>
+                        </div>
+                        <p>Created: {formatDate(shipment.created_at)}</p>
+                        <p>Hub: {shipment.hubs?.name || 'Not linked'} / Sub-order: {shipment.sub_orders?.tracking_number || 'Not linked'}</p>
+                        <p>
+                          Product: {snapshot.title || 'CJ product'} / Qty: {snapshot.quantity} / CJ PID {snapshot.cjPid || 'n/a'} / CJ VID {snapshot.cjVid || 'n/a'}
+                        </p>
+                        <p>
+                          Inbound status: {formatReadableStatus(shipment.inbound_status)} / Tracking: {shipment.inbound_tracking_number || 'Not set'}
+                        </p>
+                        <p>CJ tracking status: {shipment.supplier_status || 'Not set'}</p>
+                        <p>Carrier: {shipment.carrier_name || 'Not set'}</p>
+                        <p>Ordered: {formatDate(shipment.supplier_ordered_at || manualOrder?.ordered_at || null)}</p>
+                        <p>ETA: {formatDate(shipment.estimated_arrival_at)} / Received: {formatDate(shipment.received_at_hub_at)}</p>
+                        {manualOrder ? (
+                          <p>
+                            Manual supplier order: {manualOrder.cj_order_id || manualOrder.id} / Status: {formatReadableStatus(manualOrder.status)}
+                            {manualOrder.notes ? ` / Notes: ${manualOrder.notes}` : ''}
+                          </p>
+                        ) : null}
+                        {!eligibility.eligible && orderStatus === 'awaiting_supplier_order' ? (
+                          <p className="text-xs text-gray-500">Manual grouping unavailable: {eligibility.reason}</p>
+                        ) : null}
+                      </div>
+
+                      <div className="flex flex-col items-start gap-2 xl:items-end">
+                        {openCjUrl ? (
+                          <a
+                            href={openCjUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn-secondary inline-flex items-center gap-2"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                            Open on CJ
+                          </a>
+                        ) : null}
+
+                        <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleManualShipmentSelection(shipment)}
+                            disabled={!eligibility.eligible || savingManualSupplierOrder}
+                            className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                          />
+                          Add to Manual CJ Order
+                        </label>
+
+                        {canUseAutomaticCreate ? (
+                          <button
+                            type="button"
+                            onClick={() => void createSupplierOrder(shipment.id)}
+                            disabled={shipmentActionId === shipment.id}
+                            className="btn-secondary inline-flex items-center gap-2 disabled:opacity-60"
+                          >
+                            {shipmentActionId === shipment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                            Create Supplier Order
+                          </button>
+                        ) : null}
+
+                        {shipment.cj_order_id ? (
+                          <button
+                            type="button"
+                            onClick={() => void refreshCjTracking(shipment.id)}
+                            disabled={shipmentActionId === shipment.id}
+                            className="btn-secondary inline-flex items-center gap-2 disabled:opacity-60"
+                          >
+                            {shipmentActionId === shipment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                            Refresh CJ Tracking
+                          </button>
+                        ) : null}
+
+                        {!shipment.cj_order_id && !shipment.manual_supplier_order_id ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void deleteInboundTestOrder(
+                                shipment.id,
+                                shipment.sub_orders?.tracking_number || shipment.woo_order_id || null,
+                                Boolean(shipment.cj_order_id || shipment.manual_supplier_order_id)
+                              )
+                            }
+                            disabled={shipmentActionId === shipment.id}
+                            className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {shipmentActionId === shipment.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                            Delete Test Order
+                          </button>
+                        ) : null}
+
+                        <button
+                          type="button"
+                          onClick={() => void markReceived(shipment.id)}
+                          disabled={shipment.inbound_status === 'received_at_hub' || shipmentActionId === shipment.id}
+                          className="btn-primary inline-flex items-center gap-2 disabled:opacity-60"
+                        >
+                          {shipmentActionId === shipment.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
+                          Mark Received at Hub
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -2463,5 +3026,6 @@ export function GlobalSourcingPage() {
     </div>
   );
 }
+
 
 

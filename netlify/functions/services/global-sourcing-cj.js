@@ -16,6 +16,10 @@ import {
 const PROVIDER = 'cj';
 const INBOUND_STATUS_AWAITING = 'awaiting_supplier_fulfillment';
 const INBOUND_STATUS_CREATED = 'supplier_order_created';
+const SUPPLIER_ORDER_MODE_AUTOMATIC = 'automatic';
+const SUPPLIER_ORDER_MODE_MANUAL = 'manual';
+const SUPPLIER_ORDER_STATUS_AWAITING = 'awaiting_supplier_order';
+const SUPPLIER_ORDER_STATUS_PLACED = 'supplier_order_placed';
 const CJ_TRANSIENT_RATE_LIMIT_CODE = 1600200;
 const DEFAULT_ORIGIN_COUNTRY_CODE =
   String(
@@ -53,6 +57,22 @@ function pickString(...values) {
     if (normalized) return normalized;
   }
   return null;
+}
+
+function getSupplierOrderMode(sourcing, inboundShipment) {
+  return (
+    pickString(sourcing?.supplier_order_mode, inboundShipment?.supplier_order_mode) ||
+    SUPPLIER_ORDER_MODE_AUTOMATIC
+  );
+}
+
+function getSupplierOrderStatus(sourcing, inboundShipment) {
+  return (
+    pickString(sourcing?.supplier_order_status, inboundShipment?.supplier_order_status) ||
+    (pickString(sourcing?.cj_order_id, inboundShipment?.cj_order_id)
+      ? SUPPLIER_ORDER_STATUS_PLACED
+      : SUPPLIER_ORDER_STATUS_AWAITING)
+  );
 }
 
 async function fetchImportJobSourcingContext(client, { productId, variationId, cjPid }) {
@@ -659,6 +679,10 @@ async function ensureInboundShipment(client, subOrder, wooOrderId) {
       cj_vid: pickString(primaryItem.cj_vid, primaryItem.cjVid),
       inbound_tracking_number: sourcing.inbound_tracking_number || null,
       inbound_status: sourcing.inbound_status || INBOUND_STATUS_AWAITING,
+      supplier_order_mode: getSupplierOrderMode(sourcing),
+      supplier_order_status: getSupplierOrderStatus(sourcing),
+      manual_supplier_order_id: pickString(sourcing.manual_supplier_order_id),
+      supplier_ordered_at: sourcing.supplier_ordered_at || null,
       metadata: {
         source: 'global_sourcing_phase_2',
         items,
@@ -1024,6 +1048,11 @@ async function reconcileExistingSupplierOrderState({
       cj_order_id: cjOrderId,
       inbound_status: INBOUND_STATUS_CREATED,
       inbound_tracking_number: trackingNumber || sourcing.inbound_tracking_number || null,
+      supplier_order_mode: SUPPLIER_ORDER_MODE_AUTOMATIC,
+      supplier_order_status: SUPPLIER_ORDER_STATUS_PLACED,
+      manual_supplier_order_id: null,
+      supplier_ordered_at:
+        sourcing.supplier_ordered_at || sourcing.supplier_order_created_at || new Date().toISOString(),
       supplier_order_created_at:
         sourcing.supplier_order_created_at || new Date().toISOString(),
       last_order_create_source: triggerSource,
@@ -1048,6 +1077,11 @@ async function reconcileExistingSupplierOrderState({
       trackingNumber || inboundShipment?.inbound_tracking_number || null,
     inbound_status: INBOUND_STATUS_CREATED,
     supplier_status: supplierStatus || inboundShipment?.supplier_status || 'created',
+    supplier_order_mode: SUPPLIER_ORDER_MODE_AUTOMATIC,
+    supplier_order_status: SUPPLIER_ORDER_STATUS_PLACED,
+    manual_supplier_order_id: null,
+    supplier_ordered_at:
+      sourcing.supplier_ordered_at || sourcing.supplier_order_created_at || new Date().toISOString(),
     metadata: shipmentMetadata,
   };
 
@@ -1075,6 +1109,48 @@ async function reconcileExistingSupplierOrderState({
     if (shipmentError) throw shipmentError;
   }
 
+  return nextMetadata;
+}
+
+async function reconcileManualSupplierOrderState({
+  client,
+  subOrder,
+  inboundShipment,
+  sourcing,
+  triggerSource = 'webhook',
+}) {
+  const nextMetadata = mergeGlobalSourcingMetadata(subOrder?.metadata, {
+    fulfillment_mode: 'cj_hub',
+    global_sourcing: {
+      ...sourcing,
+      provider: PROVIDER,
+      cj_order_id: pickString(sourcing.cj_order_id, inboundShipment?.cj_order_id),
+      receiving_hub_id: pickString(
+        sourcing.receiving_hub_id,
+        inboundShipment?.hub_id,
+        subOrder?.hub_id
+      ),
+      inbound_status: pickString(sourcing.inbound_status, inboundShipment?.inbound_status) || INBOUND_STATUS_CREATED,
+      inbound_tracking_number:
+        pickString(sourcing.inbound_tracking_number, inboundShipment?.inbound_tracking_number) || null,
+      supplier_order_mode: SUPPLIER_ORDER_MODE_MANUAL,
+      supplier_order_status:
+        pickString(sourcing.supplier_order_status, inboundShipment?.supplier_order_status) ||
+        SUPPLIER_ORDER_STATUS_PLACED,
+      manual_supplier_order_id:
+        pickString(sourcing.manual_supplier_order_id, inboundShipment?.manual_supplier_order_id) || null,
+      supplier_ordered_at:
+        sourcing.supplier_ordered_at || inboundShipment?.supplier_ordered_at || null,
+      last_order_create_source: triggerSource,
+    },
+  });
+
+  const { error: subOrderError } = await client
+    .from('sub_orders')
+    .update({ metadata: nextMetadata })
+    .eq('id', subOrder.id);
+
+  if (subOrderError) throw subOrderError;
   return nextMetadata;
 }
 
@@ -1134,6 +1210,28 @@ export async function createCjOrderForSubOrder({
 
   const ensuredInboundShipment =
     inboundShipment || (await ensureInboundShipment(client, subOrder, wooOrderId));
+  const supplierOrderMode = getSupplierOrderMode(sourcing, ensuredInboundShipment);
+  const manualSupplierOrderId = pickString(
+    sourcing.manual_supplier_order_id,
+    ensuredInboundShipment?.manual_supplier_order_id
+  );
+  if (supplierOrderMode === SUPPLIER_ORDER_MODE_MANUAL || manualSupplierOrderId) {
+    await reconcileManualSupplierOrderState({
+      client,
+      subOrder,
+      inboundShipment: ensuredInboundShipment,
+      sourcing,
+      triggerSource,
+    });
+    return {
+      success: true,
+      skipped: true,
+      reason: 'manual_supplier_order',
+      manualSupplierOrderId,
+      cjOrderId: pickString(sourcing.cj_order_id, ensuredInboundShipment?.cj_order_id),
+    };
+  }
+
   const existingCjOrderId = pickString(sourcing.cj_order_id, ensuredInboundShipment?.cj_order_id);
   if (existingCjOrderId) {
     await reconcileExistingSupplierOrderState({
@@ -1190,7 +1288,7 @@ export async function createCjOrderForSubOrder({
   await reconcileExistingSupplierOrderState({
     client,
     subOrder,
-    inboundShipment,
+    inboundShipment: ensuredInboundShipment,
     sourcing,
     receivingHubId: receivingHub.id,
     cjOrderId: createdOrder.cjOrderId,
@@ -1202,9 +1300,9 @@ export async function createCjOrderForSubOrder({
   const { data: updatedShipment, error: shipmentError } = await client
     .from('cj_inbound_shipments')
     .update({
-      carrier_name: inboundShipment.carrier_name || null,
+      carrier_name: ensuredInboundShipment?.carrier_name || null,
       metadata: {
-        ...(parseObject(inboundShipment.metadata) || {}),
+        ...(parseObject(ensuredInboundShipment?.metadata) || {}),
         last_order_create_source: triggerSource,
         order_payload: {
           orderNumber: payload.orderNumber,
@@ -1213,7 +1311,7 @@ export async function createCjOrderForSubOrder({
         order_response: createdOrder.raw,
       },
     })
-    .eq('id', inboundShipment.id)
+    .eq('id', ensuredInboundShipment.id)
     .select('*')
     .single();
 

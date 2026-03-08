@@ -1851,6 +1851,14 @@ export function GlobalSourcingPage() {
                     <p className="mt-1">Landed cost: USD {pricingPreview.landed_cost_usd}</p>
                     <p className="mt-1">Exchange rate: {pricingPreview.exchange_rate}</p>
                     <p className="mt-1">Final NGN price: ₦{pricingPreview.final_price_ngn}</p>
+                    <p className="mt-1 font-medium text-green-700">
+                      Estimated profit: ₦
+                      {(
+                        (Number(pricingPreview.final_price_ngn) || 0) -
+                        (Number(pricingPreview.landed_cost_usd) || 0) *
+                          (Number(pricingPreview.exchange_rate) || 0)
+                      ).toFixed(2)}
+                    </p>
                     <p className="mt-1">
                       ETA:{' '}
                       {pricingPreview.estimated_inbound_days_min && pricingPreview.estimated_inbound_days_max

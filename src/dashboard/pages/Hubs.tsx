@@ -7,10 +7,14 @@ interface Hub {
   id: string;
   name: string;
   code: string;
+  address?: string;
   city: string;
   state: string;
+  postcode?: string;
   phone: string;
+  email?: string;
   manager_name: string;
+  manager_phone?: string;
   is_active: boolean;
 }
 

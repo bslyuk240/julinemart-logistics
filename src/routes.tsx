@@ -19,6 +19,7 @@ import { CourierSettingsPage } from './dashboard/pages/CourierSettings';
 import { CreateOrderPage } from './dashboard/pages/CreateOrder';
 import { DashboardHome } from './dashboard/pages/DashboardHome';
 import { EmailSettingsPage } from './dashboard/pages/EmailSettings';
+import { GlobalSourcingPage } from './dashboard/pages/GlobalSourcing';
 import { HubsPage } from './dashboard/pages/Hubs';
 import { HubDispatchPage } from './dashboard/pages/HubDispatch';
 import InfluencerDetailPage from './dashboard/pages/InfluencerDetailPage.tsx';
@@ -68,6 +69,7 @@ const adminOnlyRoutes = [
   { path: 'settlements', element: <SettlementsPage /> },
   { path: 'activity-logs', element: <ActivityLogsPage /> },
   { path: 'vouchers', element: <VouchersPage /> },
+  { path: 'global-sourcing', element: <GlobalSourcingPage /> },
   { path: 'notifications', element: <NotificationsPage /> },
   { path: 'notifications/new', element: <NotificationsNewPage /> },
   { path: 'notifications/:id', element: <NotificationDetailsPage /> },

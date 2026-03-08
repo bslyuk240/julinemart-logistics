@@ -20,7 +20,8 @@ import {
   MessageSquare,
   Megaphone,
   Ticket,
-  BellRing
+  BellRing,
+  Search
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
 import { BrandLogo } from '../../shared/BrandLogo';
@@ -54,6 +55,7 @@ const navigation = [
   { name: 'Users', href: '/admin/users', icon: Users, roles: ['admin'] },
   { name: 'Shipping Discounts', href: '/admin/discounts', icon: Percent, roles: ['admin'] },
   { name: 'Vouchers', href: '/admin/vouchers', icon: Ticket, roles: ['admin'] },
+  { name: 'Global Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['admin'] },
   { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },
   { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
   { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },
@@ -65,6 +67,10 @@ const ADMIN_MANIFEST_LINK_ID = 'admin-manifest-link';
 const ADMIN_MANIFEST_HREF = '/admin-manifest.webmanifest';
 const ADMIN_APPLE_TOUCH_ICON_LINK_ID = 'admin-apple-touch-icon-link';
 const ADMIN_APPLE_TOUCH_ICON_HREF = '/apple-touch-icon.png';
+
+const isLocalAdminDev = () =>
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
 const ensureHeadLink = (id: string, rel: string, href: string) => {
   const existingLink = document.getElementById(id) as HTMLLinkElement | null;
@@ -148,6 +154,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
   useEffect(() => {
     if (user?.role !== 'admin') {
+      removeHeadLink(ADMIN_MANIFEST_LINK_ID);
+      removeHeadLink(ADMIN_APPLE_TOUCH_ICON_LINK_ID);
+      return;
+    }
+
+    if (isLocalAdminDev()) {
       removeHeadLink(ADMIN_MANIFEST_LINK_ID);
       removeHeadLink(ADMIN_APPLE_TOUCH_ICON_LINK_ID);
       return;

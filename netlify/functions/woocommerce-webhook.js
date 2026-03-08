@@ -14,6 +14,14 @@ import {
   recordVoucherRedemption,
   getVoucherSummary
 } from './helpers/voucherHelpers.js';
+import {
+  extractGlobalSourcingFromMeta,
+  fetchWooProductSourcingContext,
+  mergeGlobalSourcingMetadata,
+} from './services/global-sourcing-utils.js';
+import {
+  autoCreateCjOrdersForSubOrders,
+} from './services/global-sourcing-cj.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -35,24 +43,124 @@ function getMeta(meta_data, key) {
   return entry?.value ?? null;
 }
 
+function parseWebhookBody(rawBody) {
+  const bodyText = typeof rawBody === 'string' ? rawBody.trim() : '';
+  if (!bodyText) {
+    return { kind: 'empty', data: {} };
+  }
+
+  try {
+    return { kind: 'json', data: JSON.parse(bodyText) };
+  } catch (_) {
+    const params = new URLSearchParams(bodyText);
+    const data = Object.fromEntries(params.entries());
+    if (Object.keys(data).length > 0) {
+      return { kind: 'form', data };
+    }
+    throw new SyntaxError(`Unsupported webhook payload format: ${bodyText.slice(0, 80)}`);
+  }
+}
+
+function getFirstMetaValue(metaData, keys) {
+  if (!Array.isArray(metaData)) return null;
+  for (const key of keys) {
+    const value = getMeta(metaData, key);
+    if (value !== null && value !== undefined && String(value).trim() !== '') {
+      return value;
+    }
+  }
+  return null;
+}
+
+function isUuid(value) {
+  return (
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value.trim()
+    )
+  );
+}
+
+const vendorResolutionCache = new Map();
+
+async function resolveLineItemVendorContext(supabaseClient, metaData, productSourcing) {
+  const directVendorId = getFirstMetaValue(metaData, ['_jlo_vendor_id', 'vendor_id', '_vendor_id']);
+  const sourcingVendorId = productSourcing?.vendorId || null;
+  const localVendorId = [directVendorId, sourcingVendorId].find((value) => isUuid(value)) || null;
+
+  if (localVendorId) {
+    return {
+      vendorId: String(localVendorId).trim(),
+      vendorGroupingKey: String(localVendorId).trim(),
+      wooVendorId: null,
+    };
+  }
+
+  const wooVendorIdCandidate =
+    [directVendorId, sourcingVendorId].find((value) => value && !isUuid(String(value))) ||
+    getFirstMetaValue(metaData, ['_woocommerce_vendor_id', '_wcfm_vendor_id', 'wcfm_vendor_id']) ||
+    productSourcing?.woocommerceVendorId ||
+    null;
+
+  const normalizedWooVendorId = wooVendorIdCandidate ? String(wooVendorIdCandidate).trim() : '';
+  if (!normalizedWooVendorId) {
+    return {
+      vendorId: null,
+      vendorGroupingKey: 'unassigned-vendor',
+      wooVendorId: null,
+    };
+  }
+
+  if (vendorResolutionCache.has(normalizedWooVendorId)) {
+    return vendorResolutionCache.get(normalizedWooVendorId);
+  }
+
+  const { data: vendor, error } = await supabaseClient
+    .from('vendors')
+    .select('id, woocommerce_vendor_id')
+    .eq('woocommerce_vendor_id', normalizedWooVendorId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('Unable to resolve vendor mapping for Woo vendor id:', normalizedWooVendorId, error);
+  }
+
+  const resolved = {
+    vendorId: vendor?.id || null,
+    vendorGroupingKey: vendor?.id || `woo-vendor:${normalizedWooVendorId}`,
+    wooVendorId: normalizedWooVendorId,
+  };
+
+  if (!vendor?.id) {
+    console.warn('No local vendor UUID mapping found for Woo vendor id:', normalizedWooVendorId);
+  }
+
+  vendorResolutionCache.set(normalizedWooVendorId, resolved);
+  return resolved;
+}
+
 async function getDefaultHubId(supabaseClient) {
   try {
-    const { data: hub, error: defaultHubError } = await supabaseClient
+    const { data: hubs, error } = await supabaseClient
       .from('hubs')
-      .select('id')
-      .eq('is_default', true)
-      .single();
-    if (defaultHubError) throw defaultHubError;
-    if (hub?.id) return hub.id;
-
-    const { data: firstHub, error: firstHubError } = await supabaseClient
-      .from('hubs')
-      .select('id')
+      .select('id, is_default, metadata')
       .eq('is_active', true)
-      .limit(1)
-      .single();
-    if (firstHubError) throw firstHubError;
-    return firstHub?.id || null;
+      .order('name', { ascending: true });
+    if (error) throw error;
+
+    const defaultHub =
+      (hubs || []).find((hub) => {
+        if (hub?.is_default === true) return true;
+        const metadata = hub?.metadata && typeof hub.metadata === 'object' ? hub.metadata : {};
+        return (
+          metadata.default_inbound === true ||
+          metadata.is_default_inbound === true ||
+          metadata.defaultInbound === true ||
+          metadata.isDefaultInbound === true
+        );
+      }) || hubs?.[0];
+
+    return defaultHub?.id || null;
   } catch (error) {
     console.error('Error fetching default hub:', error);
     return null;
@@ -202,7 +310,21 @@ export async function handler(event) {
       return { statusCode: 401, headers, body: JSON.stringify({ error: 'Invalid signature' }) };
     }
 
-    wcOrder = JSON.parse(event.body || '{}');
+    const parsedPayload = parseWebhookBody(event.body || '');
+    if (parsedPayload.kind === 'form' && parsedPayload.data.webhook_id && !parsedPayload.data.id) {
+      console.log('Received WooCommerce webhook connectivity/test payload:', parsedPayload.data);
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          message: 'WooCommerce webhook connectivity payload received',
+          webhook_id: parsedPayload.data.webhook_id,
+        }),
+      };
+    }
+
+    wcOrder = parsedPayload.data;
 
     console.log('=== WEBHOOK RECEIVED ===');
     console.log('Order ID:', wcOrder.id);
@@ -258,24 +380,44 @@ export async function handler(event) {
     console.log('Default hub:', defaultHubId);
 
     // Check for duplicate
-    const { data: existingOrder } = await supabase
+    const { data: existingOrder, error: existingOrderError } = await supabase
       .from('orders')
       .select('id, woocommerce_order_id')
       .eq('woocommerce_order_id', wcOrder.id.toString())
-      .single();
+      .maybeSingle();
+
+    if (existingOrderError) {
+      throw existingOrderError;
+    }
 
     if (existingOrder) {
-      console.log('Order already processed:', wcOrder.id);
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          success: true,
-          message: 'Order already processed',
-          orderId: existingOrder.id,
-          duplicate: true,
-        }),
-      };
+      const { count: existingSubOrdersCount, error: existingSubOrdersError } = await supabase
+        .from('sub_orders')
+        .select('id', { count: 'exact', head: true })
+        .eq('main_order_id', existingOrder.id);
+
+      if (existingSubOrdersError) {
+        throw existingSubOrdersError;
+      }
+
+      if ((existingSubOrdersCount || 0) > 0) {
+        console.log('Order already processed:', wcOrder.id);
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: true,
+            message: 'Order already processed',
+            orderId: existingOrder.id,
+            duplicate: true,
+          }),
+        };
+      }
+
+      console.warn(
+        'Existing order has no sub-orders; continuing recovery for order:',
+        existingOrder.id
+      );
     }
 
     // ============================================
@@ -351,12 +493,24 @@ export async function handler(event) {
     const orderItems = [];
     const itemsByGroup = {};
 
-    for (const item of wcOrder.line_items || []) {
-      const hubId = item.meta_data?.find(m => m.key === '_hub_id' || m.key === 'hub_id')?.value;
-      const hubName = item.meta_data?.find(m => m.key === '_hub_name')?.value;
-      const vendorId = item.meta_data?.find(m => m.key === 'vendor_id')?.value;
-      const weightValue = parseFloat(item.weight || 0);
-      const sanitizedWeight = weightValue > 0 ? weightValue : 0.5;
+	    for (const item of wcOrder.line_items || []) {
+	      const hubId = item.meta_data?.find(m => m.key === '_hub_id' || m.key === 'hub_id')?.value;
+	      const hubName = item.meta_data?.find(m => m.key === '_hub_name')?.value;
+	      const weightValue = parseFloat(item.weight || 0);
+	      const sanitizedWeight = weightValue > 0 ? weightValue : 0.5;
+	      const lineItemSourcing = extractGlobalSourcingFromMeta(item.meta_data);
+	      const productSourcing =
+	        lineItemSourcing ||
+	        (await fetchWooProductSourcingContext({
+	          productId: item.product_id?.toString(),
+	          variationId: item.variation_id ? item.variation_id.toString() : null,
+	        }));
+	      const vendorContext = await resolveLineItemVendorContext(
+	        supabase,
+	        item.meta_data,
+	        productSourcing
+	      );
+	      const vendorId = vendorContext.vendorId;
 
       // Capture variation metadata so downstream UIs can see chosen options
       const variationId = item.variation_id ? item.variation_id.toString() : null;
@@ -372,20 +526,32 @@ export async function handler(event) {
         }
       });
 
-      const orderItem = {
-        productId: item.product_id?.toString(),
-        sku: item.sku || `PRODUCT-${item.product_id}`,
+	      const orderItem = {
+	        productId: item.product_id?.toString(),
+	        sku: item.sku || `PRODUCT-${item.product_id}`,
         name: item.name,
         quantity: Number(item.quantity || 1),
         price: parseFloat(item.price || 0),
         total: parseFloat(item.total || 0),
-        weight: sanitizedWeight,
-        hubId: hubId || defaultHubId,
-        hubName: hubName,
-        vendorId: vendorId || 'default-vendor',
-        variationId,
-        variationAttributes
-      };
+	        weight: sanitizedWeight,
+	        hubId: hubId || defaultHubId,
+	        hubName: hubName,
+	        vendorId,
+	        vendorGroupingKey: vendorContext.vendorGroupingKey,
+	        wooVendorId: vendorContext.wooVendorId,
+	        variationId,
+	        variationAttributes,
+	        globalSourcing: productSourcing
+	          ? {
+	              provider: productSourcing.provider || 'cj',
+	              fulfillmentMode: productSourcing.fulfillmentMode || 'cj_hub',
+	              cjPid: productSourcing.cjPid || null,
+	              cjVid: productSourcing.cjVid || null,
+	              receivingHubId: productSourcing.receivingHubId || hubId || defaultHubId,
+	              sourcingTag: productSourcing.sourcingTag || 'Ships from Abroad',
+	            }
+	          : null,
+	      };
 
       orderItems.push(orderItem);
 
@@ -395,12 +561,13 @@ export async function handler(event) {
         continue;
       }
 
-      const resolvedVendorId = orderItem.vendorId || 'default-vendor';
-      const groupKey = `${resolvedHubId}::${resolvedVendorId}`;
+      const resolvedVendorGroupKey = orderItem.vendorGroupingKey || orderItem.vendorId || 'unassigned-vendor';
+      const groupKey = `${resolvedHubId}::${resolvedVendorGroupKey}`;
       if (!itemsByGroup[groupKey]) {
         itemsByGroup[groupKey] = {
           hubId: resolvedHubId,
-          vendorId: resolvedVendorId,
+          vendorId: orderItem.vendorId || null,
+          vendorGroupingKey: resolvedVendorGroupKey,
           items: [],
         };
       }
@@ -440,7 +607,13 @@ export async function handler(event) {
       console.log(`  📦 ${groupKey}:`, group.items.length, 'items');
     });
 
-    // Fetch hubs and zones
+	    if (Object.keys(itemsByGroup).length === 0) {
+	      throw new Error(
+	        `No shippable item groups were created for Woo order ${wcOrder.id}. Check hub assignment/default hub and line item metadata.`
+	      );
+	    }
+
+	    // Fetch hubs and zones
     const { data: hubs } = await supabase
       .from('hubs')
       .select('id, name, city, state, address, phone');
@@ -460,10 +633,15 @@ export async function handler(event) {
       zone = zones[0];
     }
 
-    console.log('Delivery State:', customerInfo.state);
-    console.log('Assigned Zone:', zone?.name || 'Unknown');
+	    console.log('Delivery State:', customerInfo.state);
+	    console.log('Assigned Zone:', zone?.name || 'Unknown');
+	    if (!zone) {
+	      throw new Error(
+	        `No delivery zone could be resolved for state "${customerInfo.state || 'unknown'}" on Woo order ${wcOrder.id}.`
+	      );
+	    }
 
-    // ============================================
+	    // ============================================
     // 🚀 GET LIVE FEZ QUOTES
     // ============================================
     const shippingBreakdown = [];
@@ -576,7 +754,12 @@ export async function handler(event) {
     // ============================================
     // 📝 CREATE MAIN ORDER WITH VOUCHER METADATA
     // ============================================
-    const orderData = {
+	    if (shippingBreakdown.length === 0) {
+	      throw new Error(
+	        `No shipment breakdown could be created for Woo order ${wcOrder.id}. Check hub records, zone matching, and shipping configuration.`
+	      );
+	    }
+	    const orderData = {
       woocommerce_order_id: wcOrder.id.toString(),
       customer_name: customerInfo.name,
       customer_email: customerInfo.email,
@@ -615,15 +798,23 @@ export async function handler(event) {
       }
     };
 
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .insert([orderData])
-      .select()
-      .single();
+    let order = existingOrder;
 
-    if (orderError) {
-      console.error('Order creation error:', orderError);
-      throw orderError;
+    if (!order) {
+      const { data: createdOrder, error: orderError } = await supabase
+        .from('orders')
+        .insert([orderData])
+        .select()
+        .single();
+
+      if (orderError) {
+        console.error('Order creation error:', orderError);
+        throw orderError;
+      }
+
+      order = createdOrder;
+    } else {
+      console.log('\n↺ Reusing incomplete order:', order.id);
     }
 
     console.log('\n✅ Order created:', order.id);
@@ -632,8 +823,12 @@ export async function handler(event) {
     // 📦 CREATE SUB-ORDERS WITH VOUCHER TRACKING
     // ============================================
     if (shippingBreakdown.length > 0) {
-      const subOrdersData = shippingBreakdown.map(breakdown => {
-        const itemsSubtotal = breakdown.items.reduce((sum, item) => sum + item.total, 0);
+	      const subOrdersData = shippingBreakdown.map(breakdown => {
+	        const itemsSubtotal = breakdown.items.reduce((sum, item) => sum + item.total, 0);
+	        const sourcedItems = breakdown.items.filter(
+	          item => item.globalSourcing?.fulfillmentMode === 'cj_hub'
+	        );
+	        const sourceSeed = sourcedItems[0]?.globalSourcing || null;
         
         // Calculate vendor commission at FULL PRICE (pre-voucher)
         const vendorCommissionRate = 0.10; // 10% - adjust based on your vendor settings
@@ -680,47 +875,70 @@ export async function handler(event) {
           return s; // e.g. JLO-A1B2C3D4 (12 chars)
         };
 
-        return {
-          main_order_id: order.id,
-          hub_id: breakdown.hubId,
-          vendor_id: breakdown.vendorId || null,
+	        const baseMetadata = {
+	          selected_lane: 'fez',
+	          eligible_lanes: ['fez', 'local_rider'],
+	          destination_zone_id: destinationZoneId || null,
+	          destination_zone_name: destinationZoneName || null,
+	          ...(voucherInfo && {
+	            voucher: voucherInfo
+	          }),
+	          ...(influencerData && {
+	            influencer_code: influencerData.couponCode,
+	            influencer_id: influencerData.influencer.id
+	          }),
+	          used_fez_api: breakdown.usedFezAPI,
+	          shipping_profit_loss: breakdown.shippingProfitLoss,
+	          quoted_at: new Date().toISOString()
+	        };
+
+	        const metadata = sourceSeed
+	          ? mergeGlobalSourcingMetadata(baseMetadata, {
+	              fulfillment_mode: sourceSeed.fulfillmentMode || 'cj_hub',
+		              global_sourcing: {
+		                provider: sourceSeed.provider || 'cj',
+		                cj_order_id: null,
+		                receiving_hub_id: sourceSeed.receivingHubId || breakdown.hubId,
+		                inbound_status: 'awaiting_supplier_fulfillment',
+		                supplier_order_mode: 'automatic',
+		                supplier_order_status: 'awaiting_supplier_order',
+		                inbound_tracking_number: null,
+		                items: sourcedItems.map(item => ({
+		                  product_id: item.productId,
+		                  variation_id: item.variationId,
+		                  cj_pid: item.globalSourcing?.cjPid || null,
+		                  cj_vid: item.globalSourcing?.cjVid || null,
+		                  quantity: item.quantity || 1,
+		                  name: item.name || null,
+		                })),
+		              },
+		            })
+	          : baseMetadata;
+
+	        return {
+	          main_order_id: order.id,
+	          hub_id: breakdown.hubId,
+	          vendor_id: breakdown.vendorId || null,
           courier_id: breakdown.courierId || null,
           status: 'pending',
           tracking_number: jloPlaceholder(),
-          items: breakdown.items,
-          subtotal: itemsSubtotal, // Original full price
-          real_shipping_cost: breakdown.realShippingCost,
-          allocated_shipping_fee: breakdown.allocatedShippingFee,
-          estimated_shipping_cost: breakdown.realShippingCost,
-          
-          // Add voucher metadata to sub-order
-          metadata: {
-            selected_lane: 'fez',
-            eligible_lanes: ['fez', 'local_rider'],
-            destination_zone_id: destinationZoneId || null,
-            destination_zone_name: destinationZoneName || null,
-            ...(voucherInfo && {
-              voucher: voucherInfo
-            }),
-            ...(influencerData && {
-              influencer_code: influencerData.couponCode,
-              influencer_id: influencerData.influencer.id
-            }),
-            used_fez_api: breakdown.usedFezAPI,
-            shipping_profit_loss: breakdown.shippingProfitLoss,
-            quoted_at: new Date().toISOString()
-          }
-        };
-      });
+	          items: breakdown.items,
+	          subtotal: itemsSubtotal, // Original full price
+	          real_shipping_cost: breakdown.realShippingCost,
+	          allocated_shipping_fee: breakdown.allocatedShippingFee,
+	          metadata
+	        };
+	      });
 
       const { data: subOrders, error: subOrdersError } = await supabase
         .from('sub_orders')
         .insert(subOrdersData)
         .select();
 
-      if (subOrdersError) {
-        console.error('Sub-orders error:', subOrdersError);
-      } else {
+	      if (subOrdersError) {
+	        console.error('Sub-orders error:', subOrdersError);
+	        throw subOrdersError;
+	      } else {
         console.log('✅ Created', subOrders.length, 'sub-orders');
 
         // Create tracking events
@@ -732,9 +950,61 @@ export async function handler(event) {
           event_time: new Date().toISOString(),
         }));
 
-        await supabase.from('tracking_events').insert(trackingEvents);
+	        await supabase.from('tracking_events').insert(trackingEvents);
 
-        // ============================================
+	        const inboundShipments = subOrders
+	          .map(subOrder => {
+	            const sourcing = subOrder.metadata?.global_sourcing;
+	            if (subOrder.metadata?.fulfillment_mode !== 'cj_hub' || !sourcing) return null;
+
+	            const items = Array.isArray(sourcing.items) ? sourcing.items : [];
+	            const primaryItem = items[0] || {};
+
+	            return {
+	              woo_order_id: wcOrder.id.toString(),
+	              sub_order_id: subOrder.id,
+	              vendor_id: subOrder.vendor_id || null,
+	              hub_id: sourcing.receiving_hub_id || subOrder.hub_id || null,
+	              provider: sourcing.provider || 'cj',
+	              cj_order_id: sourcing.cj_order_id || null,
+		              cj_pid: primaryItem.cj_pid || null,
+		              cj_vid: primaryItem.cj_vid || null,
+		              inbound_tracking_number: sourcing.inbound_tracking_number || null,
+		              inbound_status: sourcing.inbound_status || 'awaiting_supplier_fulfillment',
+		              supplier_order_mode: sourcing.supplier_order_mode || 'automatic',
+		              supplier_order_status: sourcing.supplier_order_status || 'awaiting_supplier_order',
+		              metadata: {
+		                source: 'woocommerce_webhook_placeholder',
+		                item_count: items.length,
+		                items,
+	              },
+	            };
+	          })
+	          .filter(Boolean);
+
+	        if (inboundShipments.length > 0) {
+	          try {
+	            await supabase.from('cj_inbound_shipments').insert(inboundShipments);
+	            console.log('📥 Prepared', inboundShipments.length, 'CJ inbound shipment record(s)');
+	          } catch (inboundError) {
+	            console.warn('Unable to create CJ inbound shipment placeholders:', inboundError);
+	          }
+	        }
+
+	        try {
+	          const cjResults = await autoCreateCjOrdersForSubOrders({
+	            client: supabase,
+	            subOrders,
+	            wooOrderId: wcOrder.id.toString(),
+	          });
+	          if (cjResults.length > 0) {
+	            console.log('🧾 CJ supplier order results:', cjResults);
+	          }
+	        } catch (cjOrderError) {
+	          console.warn('Unable to auto-create CJ supplier orders:', cjOrderError);
+	        }
+
+	        // ============================================
         // 🎟️ RECORD VOUCHER REDEMPTIONS
         // ============================================
         if (voucherData) {

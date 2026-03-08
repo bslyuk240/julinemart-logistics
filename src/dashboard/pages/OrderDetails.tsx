@@ -928,6 +928,15 @@ export function OrderDetailsPage() {
             const canMarkOutForDelivery =
               isLocalRider && !['out_for_delivery', 'delivered'].includes(subOrder.status);
             const canMarkDelivered = isLocalRider && subOrder.status !== 'delivered';
+            const items = subOrder.items ?? [];
+            const itemsSubtotal = items.reduce(
+              (sum, item) =>
+                sum + Number(item.price || 0) * Number(item.quantity || 0),
+              0
+            );
+            const allocatedShippingFee = Number(subOrder.allocated_shipping_fee || 0);
+            const estimatedCourierCost = Number(subOrder.real_shipping_cost || 0);
+            const shippingMargin = allocatedShippingFee - estimatedCourierCost;
 
             return (
               <div key={subOrder.id} className="card">
@@ -939,8 +948,8 @@ export function OrderDetailsPage() {
                       {subOrder.couriers?.name || 'Courier'}
                     </h3>
                     <p className="text-sm text-gray-600 mt-1">
-                      {subOrder.hubs?.city || 'Unknown City'} | Shipping: ₦
-                      {formatCurrency(subOrder.real_shipping_cost)}
+                      {subOrder.hubs?.city || 'Unknown City'} | Customer shipping share: ₦
+                      {formatCurrency(allocatedShippingFee)}
                     </p>
                   </div>
                   <span
@@ -953,7 +962,7 @@ export function OrderDetailsPage() {
                 </div>
 
                 {/* ITEMS TO PACK SECTION */}
-                {subOrder.items && subOrder.items.length > 0 && (
+                {items.length > 0 && (
                   <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
                     <div className="flex items-center gap-2 mb-3">
                       <Box className="w-5 h-5 text-green-600" />
@@ -962,7 +971,7 @@ export function OrderDetailsPage() {
                       </h4>
                     </div>
                     <div className="space-y-2">
-                      {subOrder.items.map((item, idx) => (
+                      {items.map((item, idx) => (
                         <div
                           key={idx}
                           className="flex items-start justify-between bg-white p-3 rounded-md border border-green-100"
@@ -1012,7 +1021,7 @@ export function OrderDetailsPage() {
                           Total Items:
                         </span>
                         <span className="font-bold text-green-900">
-                          {subOrder.items.reduce(
+                          {items.reduce(
                             (sum, item) => sum + (item.quantity || 0),
                             0
                           )}{' '}
@@ -1024,7 +1033,7 @@ export function OrderDetailsPage() {
                           Total Weight:
                         </span>
                         <span className="font-bold text-green-900">
-                          {subOrder.items
+                          {items
                             .reduce(
                               (sum, item) =>
                                 sum +
@@ -1042,23 +1051,31 @@ export function OrderDetailsPage() {
                         </span>
                         <span className="font-bold text-lg text-green-900">
                           ₦
-                          {subOrder.items
-                            .reduce(
-                              (sum, item) =>
-                                sum +
-                                Number(item.price || 0) *
-                                  Number(item.quantity || 0),
-                              0
-                            )
-                            .toLocaleString()}
+                          {itemsSubtotal.toLocaleString()}
                         </span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="font-semibold text-green-900">
-                          Shipping Fee:
+                          Customer Shipping Share:
                         </span>
                         <span className="font-bold text-lg text-green-900">
-                          ₦{formatCurrency(subOrder.real_shipping_cost)}
+                          ₦{formatCurrency(allocatedShippingFee)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="font-semibold text-green-900">
+                          Estimated Courier Cost:
+                        </span>
+                        <span className="font-bold text-green-900">
+                          ₦{formatCurrency(estimatedCourierCost)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="font-semibold text-green-900">
+                          Shipping Margin:
+                        </span>
+                        <span className="font-bold text-green-900">
+                          ₦{formatCurrency(shippingMargin)}
                         </span>
                       </div>
                       <div className="flex justify-between pt-2 border-t border-green-300">
@@ -1067,15 +1084,7 @@ export function OrderDetailsPage() {
                         </span>
                         <span className="font-bold text-xl text-green-600">
                           ₦
-                          {(
-                            subOrder.items.reduce(
-                              (sum, item) =>
-                                sum +
-                                Number(item.price || 0) *
-                                  Number(item.quantity || 0),
-                              0
-                            ) + (subOrder.real_shipping_cost || 0)
-                          ).toLocaleString()}
+                          {(itemsSubtotal + allocatedShippingFee).toLocaleString()}
                         </span>
                       </div>
                     </div>

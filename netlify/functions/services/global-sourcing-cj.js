@@ -408,9 +408,20 @@ async function resolveSubOrderItems(subOrder) {
   const sourcingItems = Array.isArray(sourcing.items) ? sourcing.items : [];
   const items = Array.isArray(subOrder?.items) ? subOrder.items : [];
   let didHydrate = false;
+  const sourceEntries =
+    sourcingItems.length > 0
+      ? sourcingItems
+      : items.map((item) => ({
+          product_id: pickString(item?.productId, item?.product_id),
+          variation_id: pickString(item?.variationId, item?.variation_id),
+          cj_pid: pickString(item?.globalSourcing?.cjPid, item?.globalSourcing?.cj_pid),
+          cj_vid: pickString(item?.globalSourcing?.cjVid, item?.globalSourcing?.cj_vid),
+          quantity: Number(item?.quantity || 1),
+          name: pickString(item?.name),
+        }));
 
   const resolvedItems = await Promise.all(
-    sourcingItems.map(async (entry) => {
+    sourceEntries.map(async (entry) => {
       const match =
         items.find(
           (item) =>
@@ -430,6 +441,15 @@ async function resolveSubOrderItems(subOrder) {
       );
       let cjPid = pickString(entry?.cj_pid, entry?.cjPid);
       let cjVid = pickString(entry?.cj_vid, entry?.cjVid);
+
+      if (!cjPid || !cjVid) {
+        cjPid =
+          cjPid ||
+          pickString(match?.globalSourcing?.cjPid, match?.globalSourcing?.cj_pid);
+        cjVid =
+          cjVid ||
+          pickString(match?.globalSourcing?.cjVid, match?.globalSourcing?.cj_vid);
+      }
 
       if ((!cjPid || !cjVid) && productId) {
         const context = await fetchWooProductSourcingContext({ productId, variationId });

@@ -2257,7 +2257,7 @@ export function GlobalSourcingPage() {
                       Create Supplier Order
                     </button>
                   ) : null}
-                  {shipment.inbound_tracking_number ? (
+                  {shipment.cj_order_id ? (
                     <button
                       type="button"
                       onClick={() => void refreshCjTracking(shipment.id)}

@@ -459,7 +459,7 @@ export function isUsablePricingPreview(preview, { receivingHubId, externalVarian
   );
 }
 
-async function resolveSubOrderItems(subOrder, inboundShipment = null) {
+async function resolveSubOrderItems(client, subOrder, inboundShipment = null) {
   const metadata = parseObject(subOrder?.metadata);
   const sourcing = parseObject(metadata.global_sourcing);
   const sourcingItems = Array.isArray(sourcing.items) ? sourcing.items : [];
@@ -1042,6 +1042,7 @@ export async function createCjOrderForSubOrder({
   }
 
   const { items: sourcedItems, hydratedMetadata } = await resolveSubOrderItems(
+    client,
     subOrder,
     inboundShipment
   );

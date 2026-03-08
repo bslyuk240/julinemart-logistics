@@ -1140,7 +1140,7 @@ async function prepareJob(adminClient, job) {
   const productMeta = buildGlobalSourcingMeta({
     provider,
     cjPid: externalProductId,
-    cjVid: null,
+    cjVid: shouldCreateVariations ? null : String(existingCursor.selectedVariantId || '').trim() || null,
     fulfillmentMode,
     receivingHubId: receivingHub.id,
     receivingHubName: receivingHub.name,

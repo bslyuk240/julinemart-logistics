@@ -1,6 +1,7 @@
 import {
   asFiniteNumber,
   computeWooNgnPricing,
+  fetchWooProductSourcingContext,
   isPlainObject,
   mergeGlobalSourcingMetadata,
 } from './global-sourcing-utils.js';
@@ -401,14 +402,15 @@ export function isUsablePricingPreview(preview, { receivingHubId, externalVarian
   );
 }
 
-function normalizeSubOrderItems(subOrder) {
+async function resolveSubOrderItems(subOrder) {
   const metadata = parseObject(subOrder?.metadata);
   const sourcing = parseObject(metadata.global_sourcing);
   const sourcingItems = Array.isArray(sourcing.items) ? sourcing.items : [];
   const items = Array.isArray(subOrder?.items) ? subOrder.items : [];
+  let didHydrate = false;
 
-  return sourcingItems
-    .map((entry) => {
+  const resolvedItems = await Promise.all(
+    sourcingItems.map(async (entry) => {
       const match =
         items.find(
           (item) =>
@@ -419,16 +421,58 @@ function normalizeSubOrderItems(subOrder) {
                 pickString(entry?.product_id, entry?.productId))
         ) || null;
 
+      const productId = pickString(entry?.product_id, entry?.productId, match?.productId, match?.product_id);
+      const variationId = pickString(
+        entry?.variation_id,
+        entry?.variationId,
+        match?.variationId,
+        match?.variation_id
+      );
+      let cjPid = pickString(entry?.cj_pid, entry?.cjPid);
+      let cjVid = pickString(entry?.cj_vid, entry?.cjVid);
+
+      if ((!cjPid || !cjVid) && productId) {
+        const context = await fetchWooProductSourcingContext({ productId, variationId });
+        if (context) {
+          cjPid = cjPid || pickString(context.cjPid);
+          cjVid = cjVid || pickString(context.cjVid);
+          if (cjPid || cjVid) {
+            didHydrate = true;
+          }
+        }
+      }
+
       return {
         productId: pickString(entry?.product_id, entry?.productId),
         variationId: pickString(entry?.variation_id, entry?.variationId),
-        cjPid: pickString(entry?.cj_pid, entry?.cjPid),
-        cjVid: pickString(entry?.cj_vid, entry?.cjVid),
+        cjPid,
+        cjVid,
         quantity: Number(entry?.quantity || match?.quantity || 1),
         name: pickString(entry?.name, match?.name),
       };
     })
-    .filter((entry) => entry.cjVid && entry.quantity > 0);
+  );
+
+  const hydratedMetadata = didHydrate
+    ? mergeGlobalSourcingMetadata(metadata, {
+        global_sourcing: {
+          ...sourcing,
+          items: resolvedItems.map((entry) => ({
+            product_id: entry.productId,
+            variation_id: entry.variationId,
+            cj_pid: entry.cjPid || null,
+            cj_vid: entry.cjVid || null,
+            quantity: entry.quantity || 1,
+            name: entry.name || null,
+          })),
+        },
+      })
+    : null;
+
+  return {
+    items: resolvedItems.filter((entry) => entry.cjVid && entry.quantity > 0),
+    hydratedMetadata,
+  };
 }
 
 async function getMainOrder(client, mainOrderId) {
@@ -890,7 +934,15 @@ export async function createCjOrderForSubOrder({
     return { skipped: true, reason: 'unsupported_provider' };
   }
 
-  const sourcedItems = normalizeSubOrderItems(subOrder);
+  const { items: sourcedItems, hydratedMetadata } = await resolveSubOrderItems(subOrder);
+  if (hydratedMetadata) {
+    const { error: hydrationError } = await client
+      .from('sub_orders')
+      .update({ metadata: hydratedMetadata })
+      .eq('id', subOrder.id);
+    if (hydrationError) throw hydrationError;
+    subOrder = { ...subOrder, metadata: hydratedMetadata };
+  }
   if (sourcedItems.length === 0) {
     throw new Error('No CJ variant ids were found for this sourced sub-order');
   }

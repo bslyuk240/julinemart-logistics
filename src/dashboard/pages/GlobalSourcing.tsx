@@ -714,6 +714,14 @@ async function callAdmin<T>(endpoint: string, accessToken: string, init: Request
   throw lastError || new Error('Request failed');
 }
 
+async function loadImportJobStatus(accessToken: string, jobId: string) {
+  return callAdmin<{ data: ImportJobData }>(
+    `global-sourcing-import-jobs?job_id=${encodeURIComponent(jobId)}`,
+    accessToken,
+    { method: 'GET' }
+  );
+}
+
 export function GlobalSourcingPage() {
   const { session } = useAuth();
   const notification = useNotification();
@@ -1504,16 +1512,26 @@ export function GlobalSourcingPage() {
 
     for (;;) {
       attempts += 1;
-      const response = await callAdmin<{ data: ImportJobData }>(
-        'global-sourcing-import-jobs',
-        accessToken,
-        {
-          method: 'POST',
-          body: JSON.stringify({ job_id: jobId }),
-        }
-      );
+      let job: ImportJobData;
 
-      const job = response.data;
+      try {
+        const response = await callAdmin<{ data: ImportJobData }>(
+          'global-sourcing-import-jobs',
+          accessToken,
+          {
+            method: 'POST',
+            body: JSON.stringify({ job_id: jobId }),
+          }
+        );
+        job = response.data;
+      } catch (error) {
+        const fallbackResponse = await loadImportJobStatus(accessToken, jobId).catch(() => null);
+        if (!fallbackResponse?.data) {
+          throw error;
+        }
+        job = fallbackResponse.data;
+      }
+
       setActiveImportJob(job);
 
       if (job.status === 'completed') {
@@ -1528,7 +1546,7 @@ export function GlobalSourcingPage() {
         throw new Error('Import job exceeded 120 processing steps without completing');
       }
 
-      await new Promise((resolve) => window.setTimeout(resolve, 150));
+      await new Promise((resolve) => window.setTimeout(resolve, 400));
     }
   };
 

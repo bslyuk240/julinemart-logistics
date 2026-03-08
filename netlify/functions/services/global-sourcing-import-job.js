@@ -1300,61 +1300,6 @@ async function prepareJob(adminClient, job) {
             body: JSON.stringify(productPayload),
           });
         })();
-
-  let preparedVariationPlans = [];
-  let allowedVariationImageUrls = [];
-
-  if (shouldCreateVariations) {
-    importStage = 'load_existing_variations';
-    const existingVariations = payload.woo_product_id ? await listWooVariations(product.id) : [];
-    const lookup = buildExistingVariationLookup(existingVariations);
-    const allowedVariationImageUrlSet = new Set();
-
-    if (MAX_UNIQUE_VARIATION_IMAGE_UPLOADS > 0) {
-      for (const plan of variationPlans) {
-        const candidateUrl = String(plan?.variant?.image || '').trim();
-        if (!candidateUrl || candidateUrl === sourceProductImages[0]?.src) continue;
-        allowedVariationImageUrlSet.add(candidateUrl);
-        if (allowedVariationImageUrlSet.size >= MAX_UNIQUE_VARIATION_IMAGE_UPLOADS) break;
-      }
-    }
-
-    const uniqueVariationImageCount = new Set(
-      variationPlans
-        .map((plan) => String(plan?.variant?.image || '').trim())
-        .filter((url) => Boolean(url) && url !== sourceProductImages[0]?.src)
-    ).size;
-    if (uniqueVariationImageCount > allowedVariationImageUrlSet.size) {
-      importWarnings.push(
-        `Skipped ${uniqueVariationImageCount - allowedVariationImageUrlSet.size} unique variation image(s) to keep import within runtime limits`
-      );
-    }
-
-    allowedVariationImageUrls = Array.from(allowedVariationImageUrlSet.values());
-    preparedVariationPlans = variationPlans.map((plan) => {
-      const variant = isPlainObject(plan?.variant) ? plan.variant : {};
-      const fallbackVariationId = pickExistingVariationId(
-        payload.woo_variation_id,
-        existingCursor.selectedVariantId,
-        variant
-      );
-      const signature = buildAttributeSignature(Array.isArray(variant.attributes) ? variant.attributes : []);
-      const matchedVariation =
-        lookup.byCjVid.get(variant.externalVariantId) ||
-        (fallbackVariationId
-          ? existingVariations.find((existingVariation) => String(existingVariation.id) === fallbackVariationId)
-          : null) ||
-        lookup.byAttributes.get(signature) ||
-        null;
-
-      return {
-        variant,
-        pricingPreview: isPlainObject(plan?.pricingPreview) ? plan.pricingPreview : {},
-        matchedVariationId: matchedVariation?.id ? String(matchedVariation.id) : null,
-      };
-    });
-  }
-
   void importStage;
   const baseCursor = {
     ...existingCursor,
@@ -1379,11 +1324,10 @@ async function prepareJob(adminClient, job) {
       permalink: product.permalink || null,
     },
     sourceProductPrimaryImage: sourceProductImages[0]?.src || null,
-    allowedVariationImageUrls,
-    variationPlans: preparedVariationPlans,
     nextVariationIndex: 0,
     importedVariationIds: [],
     selectedVariationId: null,
+    variationPlansPrepared: !shouldCreateVariations,
   };
 
   if (!shouldCreateVariations) {
@@ -1392,10 +1336,94 @@ async function prepareJob(adminClient, job) {
 
   return updateJobRow(adminClient, job.id, {
     status: 'processing',
-    progress_stage: 'variations_pending',
+    progress_stage: 'product_materialized',
     progress_current: 1,
     progress_total: Number(existingCursor.progressTotal || 1),
     cursor: baseCursor,
+    result: null,
+    error_message: null,
+    error_details: null,
+  });
+}
+
+async function prepareVariationProcessing(adminClient, job) {
+  const payload = isPlainObject(job.payload) ? job.payload : {};
+  const cursor = isPlainObject(job.cursor) ? job.cursor : {};
+  const variationPlans = Array.isArray(cursor.variationPlans) ? cursor.variationPlans : [];
+  const sourceProductPrimaryImage = String(cursor.sourceProductPrimaryImage || '').trim();
+  const productId = String(cursor.productSummary?.id || '').trim();
+
+  if (!productId) {
+    throw createImportError('Woo product was created but job cursor is missing product summary', 500);
+  }
+
+  const existingVariations = payload.woo_product_id ? await listWooVariations(productId) : [];
+  const lookup = buildExistingVariationLookup(existingVariations);
+  const allowedVariationImageUrlSet = new Set();
+
+  if (MAX_UNIQUE_VARIATION_IMAGE_UPLOADS > 0) {
+    for (const plan of variationPlans) {
+      const candidateUrl = String(plan?.variant?.image || '').trim();
+      if (!candidateUrl || candidateUrl === sourceProductPrimaryImage) continue;
+      allowedVariationImageUrlSet.add(candidateUrl);
+      if (allowedVariationImageUrlSet.size >= MAX_UNIQUE_VARIATION_IMAGE_UPLOADS) break;
+    }
+  }
+
+  const uniqueVariationImageCount = new Set(
+    variationPlans
+      .map((plan) => String(plan?.variant?.image || '').trim())
+      .filter((url) => Boolean(url) && url !== sourceProductPrimaryImage)
+  ).size;
+  const warnings = Array.isArray(cursor.warnings)
+    ? cursor.warnings.map((warning) => String(warning || '').trim()).filter(Boolean)
+    : [];
+  if (uniqueVariationImageCount > allowedVariationImageUrlSet.size) {
+    warnings.push(
+      `Skipped ${uniqueVariationImageCount - allowedVariationImageUrlSet.size} unique variation image(s) to keep import within runtime limits`
+    );
+  }
+
+  const preparedVariationPlans = variationPlans.map((plan) => {
+    const variant = isPlainObject(plan?.variant) ? plan.variant : {};
+    const fallbackVariationId = pickExistingVariationId(
+      payload.woo_variation_id,
+      cursor.selectedVariantId,
+      variant
+    );
+    const signature = buildAttributeSignature(Array.isArray(variant.attributes) ? variant.attributes : []);
+    const matchedVariation =
+      lookup.byCjVid.get(variant.externalVariantId) ||
+      (fallbackVariationId
+        ? existingVariations.find((existingVariation) => String(existingVariation.id) === fallbackVariationId)
+        : null) ||
+      lookup.byAttributes.get(signature) ||
+      null;
+
+    return {
+      variant,
+      pricingPreview: isPlainObject(plan?.pricingPreview) ? plan.pricingPreview : {},
+      matchedVariationId: matchedVariation?.id ? String(matchedVariation.id) : null,
+    };
+  });
+
+  return updateJobRow(adminClient, job.id, {
+    status: 'processing',
+    progress_stage: 'variations_pending',
+    progress_current: 1,
+    progress_total: Number(job.progress_total || cursor.progressTotal || 1),
+    cursor: {
+      ...cursor,
+      warnings,
+      allowedVariationImageUrls: Array.from(allowedVariationImageUrlSet.values()),
+      variationPlans: preparedVariationPlans,
+      variationPlansPrepared: true,
+      nextVariationIndex: 0,
+      importedVariationIds: Array.isArray(cursor.importedVariationIds)
+        ? cursor.importedVariationIds
+        : [],
+      selectedVariationId: cursor.selectedVariationId || null,
+    },
     result: null,
     error_message: null,
     error_details: null,
@@ -1608,6 +1636,11 @@ export async function processGlobalSourcingImportJob({ adminClient, jobId }) {
     const cursor = isPlainObject(job.cursor) ? job.cursor : {};
     if (!isPlainObject(cursor.productSummary)) {
       job = await prepareJob(adminClient, job);
+      return shapeJobRow(job);
+    }
+
+    if (cursor.shouldCreateVariations && !cursor.variationPlansPrepared) {
+      job = await prepareVariationProcessing(adminClient, job);
       return shapeJobRow(job);
     }
 

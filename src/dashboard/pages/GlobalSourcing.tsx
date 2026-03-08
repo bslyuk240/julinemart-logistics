@@ -2756,6 +2756,7 @@ export function GlobalSourcingPage() {
                             {formatReadableStatus(orderStatus)}
                           </span>
                         </div>
+                        <p>Woo order: {shipment.woo_order_id ? `#${shipment.woo_order_id}` : 'Not linked'}</p>
                         <p>Created: {formatDate(shipment.created_at)}</p>
                         <p>Hub: {shipment.hubs?.name || 'Not linked'} / Sub-order: {shipment.sub_orders?.tracking_number || 'Not linked'}</p>
                         <p>

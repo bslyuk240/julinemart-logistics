@@ -55,8 +55,10 @@ function pickString(...values) {
   return null;
 }
 
-async function fetchImportJobSourcingContext(client, { productId, variationId }) {
-  if (!productId) return null;
+async function fetchImportJobSourcingContext(client, { productId, variationId, cjPid }) {
+  const normalizedProductId = pickString(productId);
+  const normalizedCjPid = pickString(cjPid);
+  if (!normalizedProductId && !normalizedCjPid) return null;
 
   const { data, error } = await client
     .from('global_sourcing_import_jobs')
@@ -80,7 +82,18 @@ async function fetchImportJobSourcingContext(client, { productId, variationId })
       payload?.woo_product_id
     );
 
-    if (rowWooProductId !== String(productId).trim()) {
+    const rowExternalProductId = pickString(
+      payload?.external_product_id,
+      payload?.cj_pid,
+      result?.external_product_id
+    );
+
+    const matchesWooProduct =
+      normalizedProductId && rowWooProductId === normalizedProductId;
+    const matchesCjProduct =
+      normalizedCjPid && rowExternalProductId === normalizedCjPid;
+
+    if (!matchesWooProduct && !matchesCjProduct) {
       continue;
     }
 
@@ -93,11 +106,7 @@ async function fetchImportJobSourcingContext(client, { productId, variationId })
       payload?.external_variant_id,
       payload?.cj_vid
     );
-    const cjPid = pickString(
-      payload?.external_product_id,
-      payload?.cj_pid,
-      result?.external_product_id
-    );
+    const resolvedCjPid = rowExternalProductId;
     const carrierName = pickString(
       cursor?.pricingPreview?.carrier_name,
       payload?.pricing_preview?.carrier_name,
@@ -107,7 +116,7 @@ async function fetchImportJobSourcingContext(client, { productId, variationId })
     if (variationId) {
       if (selectedWooVariationId && selectedWooVariationId === String(variationId).trim()) {
         return {
-          cjPid: cjPid || null,
+          cjPid: resolvedCjPid || null,
           cjVid: selectedCjVid || null,
           carrierName: carrierName || null,
         };
@@ -116,9 +125,9 @@ async function fetchImportJobSourcingContext(client, { productId, variationId })
       if (importedVariationIds.includes(String(variationId).trim())) {
         return null;
       }
-    } else if (selectedCjVid || cjPid) {
+    } else if (selectedCjVid || resolvedCjPid) {
       return {
-        cjPid: cjPid || null,
+        cjPid: resolvedCjPid || null,
         cjVid: selectedCjVid || null,
         carrierName: carrierName || null,
       };
@@ -536,8 +545,12 @@ async function resolveSubOrderItems(client, subOrder, inboundShipment = null) {
         }
       }
 
-      if ((!cjPid || !cjVid) && productId) {
-        const importContext = await fetchImportJobSourcingContext(client, { productId, variationId });
+      if ((!cjPid || !cjVid || !carrierName) && (productId || cjPid)) {
+        const importContext = await fetchImportJobSourcingContext(client, {
+          productId,
+          variationId,
+          cjPid,
+        });
         if (importContext) {
           cjPid = cjPid || pickString(importContext.cjPid);
           cjVid = cjVid || pickString(importContext.cjVid);

@@ -62,10 +62,9 @@ async function fetchImportJobSourcingContext(client, { productId, variationId })
     .from('global_sourcing_import_jobs')
     .select('payload, cursor, result, completed_at, created_at')
     .eq('status', 'completed')
-    .contains('result', { woo_product_id: String(productId) })
     .order('completed_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
-    .limit(5);
+    .limit(50);
 
   if (error || !Array.isArray(data) || data.length === 0) {
     return null;
@@ -75,6 +74,16 @@ async function fetchImportJobSourcingContext(client, { productId, variationId })
     const payload = parseObject(row?.payload);
     const cursor = parseObject(row?.cursor);
     const result = parseObject(row?.result);
+    const rowWooProductId = pickString(
+      result?.woo_product_id,
+      cursor?.productSummary?.id,
+      payload?.woo_product_id
+    );
+
+    if (rowWooProductId !== String(productId).trim()) {
+      continue;
+    }
+
     const importedVariationIds = Array.isArray(result?.woo_variation_ids)
       ? result.woo_variation_ids.map((value) => String(value || '').trim()).filter(Boolean)
       : [];
@@ -1055,7 +1064,11 @@ export async function createCjOrderForSubOrder({
     subOrder = { ...subOrder, metadata: hydratedMetadata };
   }
   if (sourcedItems.length === 0) {
-    throw new Error('No CJ variant ids were found for this sourced sub-order');
+    const metadataItems = Array.isArray(sourcing.items) ? sourcing.items : [];
+    const subOrderItems = Array.isArray(subOrder?.items) ? subOrder.items : [];
+    throw new Error(
+      `No CJ variant ids were found for this sourced sub-order (sub_order_id=${subOrder.id}, metadata_items=${metadataItems.length}, sub_order_items=${subOrderItems.length}, shipment_cj_vid=${pickString(inboundShipment?.cj_vid) || 'none'})`
+    );
   }
 
   const ensuredInboundShipment =

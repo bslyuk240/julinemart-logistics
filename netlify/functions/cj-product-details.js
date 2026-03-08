@@ -1,5 +1,6 @@
 import { getCjAccessToken, requestCjJson } from './services/cjAuth.js';
 import {
+  extractDescriptionImageUrls,
   headers,
   jsonResponse,
   normalizeImages,
@@ -218,6 +219,12 @@ function normalizeProduct(payload, externalProductId) {
     product?.name,
     product?.title,
   ]);
+  const sourceDescription =
+    product?.description ??
+    product?.productDescription ??
+    product?.descriptionEn ??
+    product?.remark ??
+    '';
 
   const normalized = {
     provider: 'cj',
@@ -225,14 +232,8 @@ function normalizeProduct(payload, externalProductId) {
       product?.pid ?? product?.productId ?? product?.id ?? externalProductId ?? ''
     ),
     title: productName,
-    description: normalizeProductDescription(
-      product?.description ??
-        product?.productDescription ??
-        product?.descriptionEn ??
-        product?.remark ??
-        '',
-      productName
-    ),
+    description: normalizeProductDescription(sourceDescription, productName),
+    description_images: extractDescriptionImageUrls(sourceDescription),
     images,
     category: product?.categoryName ?? product?.category ?? null,
     source_price:

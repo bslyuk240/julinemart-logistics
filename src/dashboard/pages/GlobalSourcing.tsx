@@ -61,6 +61,7 @@ interface ProductDetails {
   external_product_id: string;
   title: string;
   description: string;
+  description_images?: string[];
   images: string[];
   variants: ProductVariant[];
   source_price: number | null;
@@ -993,12 +994,16 @@ export function GlobalSourcingPage() {
       const candidateImages = Array.isArray(response.data.product.images)
         ? response.data.product.images.filter(Boolean)
         : [];
+      const descriptionImages = Array.isArray(response.data.product.description_images)
+        ? response.data.product.description_images.filter(Boolean)
+        : [];
 
       return {
         ...response.data.product,
         external_product_id: response.data.product.external_product_id || externalProductId,
         title: response.data.product.title?.trim() || fallbackTitle || 'CJ product',
         description: response.data.product.description?.trim() || fallbackDescription,
+        description_images: descriptionImages,
         images: candidateImages.length > 0 ? candidateImages : fallbackImages,
         source_price: response.data.product.source_price ?? fallbackSourcePrice,
         currency: response.data.product.currency || fallbackCurrency || 'USD',
@@ -1550,6 +1555,7 @@ export function GlobalSourcingPage() {
         external_variant_id: selectedVariant?.external_variant_id || null,
         title: title.trim() || productDetails.title,
         description: description.trim(),
+        description_images: productDetails.description_images || [],
         images: productDetails.images,
         selected_attributes: selectedVariant?.attributes || {},
         selected_variant: selectedVariant

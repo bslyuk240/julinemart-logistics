@@ -35,6 +35,10 @@ const MAX_UNIQUE_VARIATION_IMAGE_UPLOADS = Math.max(
   Number(process.env.GLOBAL_SOURCING_MAX_VARIATION_IMAGES || 3) || 3,
   0
 );
+const MAX_DESCRIPTION_IMAGE_UPLOADS = Math.max(
+  Number(process.env.GLOBAL_SOURCING_MAX_DESCRIPTION_IMAGES || 8) || 8,
+  0
+);
 
 function createImportError(message, statusCode = 500, details = null) {
   const error = new Error(message);
@@ -359,6 +363,15 @@ function slugifyTitle(value) {
     .slice(0, 60);
 }
 
+function escapeHtml(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 async function uploadWooImage(remoteUrl, { title, slot, cache }) {
   const sourceUrl = String(remoteUrl || '').trim();
   if (!sourceUrl) return null;
@@ -412,6 +425,76 @@ async function resolveWooProductImages(images, { title, cache, warnings }) {
   }
 
   return uploaded;
+}
+
+async function resolveWooDescriptionImages(imageUrls, { title, cache, warnings }) {
+  const limitedImages = imageUrls.slice(0, MAX_DESCRIPTION_IMAGE_UPLOADS);
+  if (imageUrls.length > limitedImages.length) {
+    warnings.push(
+      `Skipped ${imageUrls.length - limitedImages.length} extra description image(s) to keep import within runtime limits`
+    );
+  }
+
+  const resolved = [];
+
+  for (let index = 0; index < limitedImages.length; index += 1) {
+    const imageUrl = String(limitedImages[index] || '').trim();
+    if (!imageUrl) continue;
+
+    try {
+      const asset = await uploadWooImage(imageUrl, {
+        title,
+        slot: `description-${index + 1}`,
+        cache,
+      });
+      resolved.push(asset?.source_url || imageUrl);
+    } catch (error) {
+      warnings.push(
+        `Embedded description image ${index + 1} kept as remote URL (${imageUrl}): ${
+          error?.message || 'upload failed'
+        }`
+      );
+      resolved.push(imageUrl);
+    }
+  }
+
+  return resolved;
+}
+
+function buildWooDescriptionHtml(descriptionText, descriptionImages, title) {
+  const blocks = [];
+  const lines = String(descriptionText || '')
+    .split('\n')
+    .map((line) => String(line || '').trim())
+    .filter(Boolean);
+  const listItems = [];
+
+  const flushList = () => {
+    if (!listItems.length) return;
+    blocks.push(`<ul>${listItems.join('')}</ul>`);
+    listItems.length = 0;
+  };
+
+  for (const line of lines) {
+    if (line.startsWith('- ')) {
+      listItems.push(`<li>${escapeHtml(line.slice(2))}</li>`);
+      continue;
+    }
+
+    flushList();
+    blocks.push(`<p>${escapeHtml(line)}</p>`);
+  }
+
+  flushList();
+
+  const altText = escapeHtml(title || 'Product detail image');
+  for (const imageUrl of descriptionImages) {
+    const normalizedUrl = String(imageUrl || '').trim();
+    if (!normalizedUrl) continue;
+    blocks.push(`<p><img src="${escapeHtml(normalizedUrl)}" alt="${altText}" /></p>`);
+  }
+
+  return blocks.join('\n').trim();
 }
 
 async function resolveWooVariationImage(imageUrl, { title, cache, warnings }) {
@@ -1010,6 +1093,7 @@ async function prepareJob(adminClient, job) {
     }
 
     const normalizedDescription = normalizeProductDescription(payload.description || '', normalizedTitle);
+    const sourceDescriptionImages = normalizeImages(payload.description_images || []);
     const shortDescription = String(payload.sourcing_tag_label_suggestion || 'Ships from Abroad').trim();
     const sourceProductImages = mapProductImages(payload.images, selectedVariant.image);
     const parentPricing = shouldCreateVariations
@@ -1048,6 +1132,7 @@ async function prepareJob(adminClient, job) {
         vendorMapping,
         normalizedTitle,
         normalizedDescription,
+        sourceDescriptionImages,
         shortDescription,
         sourceProductImages,
         shouldCreateVariations,
@@ -1081,6 +1166,9 @@ async function prepareJob(adminClient, job) {
   const pricingPreview = isPlainObject(existingCursor.pricingPreview) ? existingCursor.pricingPreview : {};
   const normalizedTitle = String(existingCursor.normalizedTitle || '').trim();
   const normalizedDescription = String(existingCursor.normalizedDescription || '').trim();
+  const sourceDescriptionImages = Array.isArray(existingCursor.sourceDescriptionImages)
+    ? existingCursor.sourceDescriptionImages
+    : [];
   const shortDescription = String(existingCursor.shortDescription || 'Ships from Abroad').trim();
   const sourceProductImages = Array.isArray(existingCursor.sourceProductImages)
     ? existingCursor.sourceProductImages
@@ -1106,7 +1194,17 @@ async function prepareJob(adminClient, job) {
     cache: imageUploadCache,
     warnings: imageWarnings,
   });
+  const uploadedDescriptionImages = await resolveWooDescriptionImages(sourceDescriptionImages, {
+    title: normalizedTitle,
+    cache: imageUploadCache,
+    warnings: importWarnings,
+  });
   const shouldWriteProductImages = !payload.woo_product_id || imageWarnings.length === 0;
+  const richDescription = buildWooDescriptionHtml(
+    normalizedDescription,
+    uploadedDescriptionImages,
+    normalizedTitle
+  );
 
   if (!payload.woo_product_id && sourceProductImages.length > 0 && uploadedProductImages.length === 0) {
     throw createImportError(
@@ -1163,7 +1261,7 @@ async function prepareJob(adminClient, job) {
 
   const productPayload = buildProductPayload({
     title: normalizedTitle,
-    description: normalizedDescription,
+    description: richDescription || normalizedDescription,
     shortDescription,
     images: shouldWriteProductImages ? uploadedProductImages : [],
     tags: ensuredTags,

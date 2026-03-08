@@ -668,6 +668,31 @@ export function normalizeProductDescription(value, title = '') {
   return next.join('\n').slice(0, 5000).trim();
 }
 
+export function extractDescriptionImageUrls(value) {
+  const source = String(value || '');
+  if (!source.trim()) return [];
+
+  const matches = source.matchAll(
+    /<img\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s"'<>]+))/gi
+  );
+  const urls = [];
+  const seen = new Set();
+
+  for (const match of matches) {
+    const candidate = decodeHtmlEntities(match[1] || match[2] || match[3] || '').trim();
+    if (!candidate) continue;
+
+    const normalized = candidate.startsWith('//') ? `https:${candidate}` : candidate;
+    if (!/^https?:\/\//i.test(normalized)) continue;
+    if (seen.has(normalized)) continue;
+
+    seen.add(normalized);
+    urls.push(normalized);
+  }
+
+  return urls;
+}
+
 export function normalizeAttributeName(value) {
   const cleaned = collapseWhitespace(value).replace(/^pa_/i, '').replace(/^attribute_/i, '');
   return cleaned

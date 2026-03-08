@@ -14,6 +14,7 @@ export function HubForm({ onClose, onSave, hub }: HubFormProps) {
     address: hub?.address || '',
     city: hub?.city || '',
     state: hub?.state || '',
+    postcode: hub?.postcode || '',
     phone: hub?.phone || '',
     manager_name: hub?.manager_name || '',
     manager_phone: hub?.manager_phone || '',
@@ -118,6 +119,20 @@ export function HubForm({ onClose, onSave, hub }: HubFormProps) {
                 onChange={handleChange}
                 required
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Postcode
+              </label>
+              <input
+                type="text"
+                name="postcode"
+                value={formData.postcode}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                placeholder="Required for CJ hub delivery"
               />
             </div>
 

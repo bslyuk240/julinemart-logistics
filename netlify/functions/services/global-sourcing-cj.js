@@ -188,7 +188,11 @@ function normalizeReceivingHub(hub) {
     ''
   ).toUpperCase();
   const countryName = resolveCountryName(countryCode, metadata);
-  const postcode = pickHubMetadataValue(metadata, ['postcode', 'postal_code', 'zip', 'zip_code']);
+  const postcode = pickString(
+    pickHubMetadataValue(metadata, ['postcode', 'postal_code', 'zip', 'zip_code']),
+    process.env.GLOBAL_SOURCING_DEFAULT_POSTCODE,
+    process.env.CJ_DEFAULT_POSTCODE
+  );
   const contactName = pickString(
     hub?.manager_name,
     pickHubMetadataValue(metadata, ['contact_name', 'contactName']),
@@ -218,6 +222,12 @@ function normalizeReceivingHub(hub) {
 
   if (!contactPhone) {
     throw new Error('Receiving hub is missing a contact phone required for CJ order placement');
+  }
+
+  if (!postcode) {
+    throw new Error(
+      'Receiving hub is missing a postcode required for CJ order placement. Add metadata.postcode on the hub or set GLOBAL_SOURCING_DEFAULT_POSTCODE'
+    );
   }
 
   return {

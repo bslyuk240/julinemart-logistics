@@ -402,7 +402,7 @@ export function isUsablePricingPreview(preview, { receivingHubId, externalVarian
   );
 }
 
-async function resolveSubOrderItems(subOrder) {
+async function resolveSubOrderItems(subOrder, inboundShipment = null) {
   const metadata = parseObject(subOrder?.metadata);
   const sourcing = parseObject(metadata.global_sourcing);
   const sourcingItems = Array.isArray(sourcing.items) ? sourcing.items : [];
@@ -489,8 +489,26 @@ async function resolveSubOrderItems(subOrder) {
       })
     : null;
 
+  const fallbackShipmentItem =
+    resolvedItems.filter((entry) => entry.cjVid && entry.quantity > 0).length === 0 &&
+    pickString(inboundShipment?.cj_vid)
+      ? [
+          {
+            productId: pickString(inboundShipment?.cj_pid),
+            variationId: null,
+            cjPid: pickString(inboundShipment?.cj_pid),
+            cjVid: pickString(inboundShipment?.cj_vid),
+            quantity: 1,
+            name: pickString(inboundShipment?.metadata?.title, inboundShipment?.provider),
+          },
+        ]
+      : [];
+
   return {
-    items: resolvedItems.filter((entry) => entry.cjVid && entry.quantity > 0),
+    items:
+      resolvedItems.filter((entry) => entry.cjVid && entry.quantity > 0).length > 0
+        ? resolvedItems.filter((entry) => entry.cjVid && entry.quantity > 0)
+        : fallbackShipmentItem,
     hydratedMetadata,
   };
 }
@@ -942,6 +960,7 @@ export async function createCjOrderForSubOrder({
   subOrder,
   wooOrderId,
   triggerSource = 'webhook',
+  inboundShipment = null,
 }) {
   const metadata = parseObject(subOrder?.metadata);
   const sourcing = parseObject(metadata.global_sourcing);
@@ -954,7 +973,10 @@ export async function createCjOrderForSubOrder({
     return { skipped: true, reason: 'unsupported_provider' };
   }
 
-  const { items: sourcedItems, hydratedMetadata } = await resolveSubOrderItems(subOrder);
+  const { items: sourcedItems, hydratedMetadata } = await resolveSubOrderItems(
+    subOrder,
+    inboundShipment
+  );
   if (hydratedMetadata) {
     const { error: hydrationError } = await client
       .from('sub_orders')
@@ -967,21 +989,26 @@ export async function createCjOrderForSubOrder({
     throw new Error('No CJ variant ids were found for this sourced sub-order');
   }
 
-  const inboundShipment = await ensureInboundShipment(client, subOrder, wooOrderId);
-  const existingCjOrderId = pickString(sourcing.cj_order_id, inboundShipment?.cj_order_id);
+  const ensuredInboundShipment =
+    inboundShipment || (await ensureInboundShipment(client, subOrder, wooOrderId));
+  const existingCjOrderId = pickString(sourcing.cj_order_id, ensuredInboundShipment?.cj_order_id);
   if (existingCjOrderId) {
     await reconcileExistingSupplierOrderState({
       client,
       subOrder,
-      inboundShipment,
+      inboundShipment: ensuredInboundShipment,
       sourcing,
-      receivingHubId: pickString(sourcing.receiving_hub_id, inboundShipment?.hub_id, subOrder.hub_id),
+      receivingHubId: pickString(
+        sourcing.receiving_hub_id,
+        ensuredInboundShipment?.hub_id,
+        subOrder.hub_id
+      ),
       cjOrderId: existingCjOrderId,
       trackingNumber: pickString(
         sourcing.inbound_tracking_number,
-        inboundShipment?.inbound_tracking_number
+        ensuredInboundShipment?.inbound_tracking_number
       ),
-      supplierStatus: inboundShipment?.supplier_status || null,
+      supplierStatus: ensuredInboundShipment?.supplier_status || null,
       triggerSource,
     });
     return {

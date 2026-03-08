@@ -229,6 +229,7 @@ async function createSupplierOrder(client, shipmentId) {
     subOrder: shipment.sub_orders,
     wooOrderId: shipment.woo_order_id,
     triggerSource: 'admin_retry',
+    inboundShipment: shipment,
   });
 }
 

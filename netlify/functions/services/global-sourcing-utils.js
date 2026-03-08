@@ -191,6 +191,65 @@ function buildMediaFilename(remoteUrl, filenameBase, contentType) {
   return `${sanitizeFilenamePart(filenameBase)}.${extension}`;
 }
 
+function bytesMatchSignature(bytes, signature, offset = 0) {
+  if (!bytes || bytes.length < offset + signature.length) return false;
+
+  for (let index = 0; index < signature.length; index += 1) {
+    if (bytes[offset + index] !== signature[index]) return false;
+  }
+
+  return true;
+}
+
+function readPayloadTextSample(bytes, length = 512) {
+  if (!bytes?.length) return '';
+  return bytes.subarray(0, Math.min(bytes.length, length)).toString('utf8').trim().toLowerCase();
+}
+
+function detectImageContentType(bytes, contentType = '') {
+  const normalizedContentType = String(contentType || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+  const sample = readPayloadTextSample(bytes);
+
+  if (
+    sample.startsWith('<!doctype html') ||
+    sample.startsWith('<html') ||
+    sample.includes('<html') ||
+    sample.includes('inactivity timeout')
+  ) {
+    return null;
+  }
+
+  if (sample.includes('<svg')) return 'image/svg+xml';
+  if (bytesMatchSignature(bytes, [0xff, 0xd8, 0xff])) return 'image/jpeg';
+  if (bytesMatchSignature(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return 'image/png';
+  if (bytesMatchSignature(bytes, [0x47, 0x49, 0x46, 0x38])) return 'image/gif';
+  if (
+    bytesMatchSignature(bytes, [0x52, 0x49, 0x46, 0x46]) &&
+    bytesMatchSignature(bytes, [0x57, 0x45, 0x42, 0x50], 8)
+  ) {
+    return 'image/webp';
+  }
+  if (bytesMatchSignature(bytes, [0x42, 0x4d])) return 'image/bmp';
+  if (
+    bytesMatchSignature(bytes, [0x49, 0x49, 0x2a, 0x00]) ||
+    bytesMatchSignature(bytes, [0x4d, 0x4d, 0x00, 0x2a])
+  ) {
+    return 'image/tiff';
+  }
+  if (
+    bytes.length > 12 &&
+    bytesMatchSignature(bytes, [0x66, 0x74, 0x79, 0x70], 4) &&
+    ['avif', 'avis'].includes(bytes.subarray(8, 12).toString('ascii').toLowerCase())
+  ) {
+    return 'image/avif';
+  }
+
+  return normalizedContentType.startsWith('image/') ? normalizedContentType : null;
+}
+
 export async function requestWoo(path, init = {}) {
   const { baseUrl, authHeader } = getWooConfig();
   const url = path.startsWith('http') ? path : `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
@@ -253,14 +312,18 @@ export async function uploadRemoteImageToWordPress(remoteUrl, options = {}) {
   if (!bytes.length) {
     throw new Error('Remote image download returned an empty file');
   }
+  const detectedContentType = detectImageContentType(bytes, contentType);
+  if (!detectedContentType) {
+    throw new Error('Remote image payload was not a valid image');
+  }
 
   const { mediaUrl, authHeader, usingDedicatedWordPressAuth } = getWordPressAuthConfig();
-  const filename = buildMediaFilename(sourceUrl, options.filenameBase, contentType);
+  const filename = buildMediaFilename(sourceUrl, options.filenameBase, detectedContentType);
   const uploadResponse = await fetch(mediaUrl, {
     method: 'POST',
     headers: {
       Authorization: authHeader,
-      'Content-Type': contentType || 'application/octet-stream',
+      'Content-Type': detectedContentType,
       'Content-Disposition': `attachment; filename="${filename}"`,
     },
     body: bytes,

@@ -356,6 +356,7 @@ const sourcingHubStorageKey = 'global-sourcing:selected-hub-id';
 const sourcingWooVendorStorageKey = 'global-sourcing:selected-woo-vendor-id';
 const sourcingWooVendorNameStorageKey = 'global-sourcing:selected-woo-vendor-name';
 const cjProductBaseUrl = 'https://cjdropshipping.com/product';
+const cjSearchPageSize = 100;
 
 const tabs: Array<{ key: TabKey; label: string }> = [
   { key: 'cj-products', label: 'CJ Products' },
@@ -728,6 +729,9 @@ export function GlobalSourcingPage() {
   const [results, setResults] = useState<SearchProduct[]>([]);
   const [searchAttempted, setSearchAttempted] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchPage, setSearchPage] = useState(1);
+  const [hasMoreResults, setHasMoreResults] = useState(false);
+  const [loadingMoreResults, setLoadingMoreResults] = useState(false);
   const [sourceLinkUrl, setSourceLinkUrl] = useState('');
   const [sourceLinkTitle, setSourceLinkTitle] = useState('');
   const [sourceLinkImageUrl, setSourceLinkImageUrl] = useState('');
@@ -1198,32 +1202,58 @@ export function GlobalSourcingPage() {
     }
   };
 
-  const searchProducts = async (event: FormEvent) => {
-    event.preventDefault();
+  const runProductSearch = async (page: number, append = false) => {
     if (!session?.access_token) return;
     if (!searchQuery.trim()) {
       notification.error('Search required', 'Enter a CJ product query');
       return;
     }
-    setSearching(true);
-    setSearchAttempted(true);
-    setSearchError(null);
-    setInspectError(null);
-    setProductDetails(null);
+
+    if (append) {
+      setLoadingMoreResults(true);
+    } else {
+      setSearching(true);
+      setSearchAttempted(true);
+      setSearchError(null);
+      setInspectError(null);
+      setProductDetails(null);
+      setSearchPage(1);
+      setHasMoreResults(false);
+    }
+
     try {
       const response = await callAdmin<{ data: { results: SearchProduct[] } }>('cj-search-products', session.access_token, {
         method: 'POST',
-        body: JSON.stringify({ query: searchQuery.trim(), page: 1, pageSize: 20 }),
+        body: JSON.stringify({ query: searchQuery.trim(), page, pageSize: cjSearchPageSize }),
       });
-      setResults(response.data?.results || []);
+      const nextResults = response.data?.results || [];
+      setResults((current) => (append ? [...current, ...nextResults] : nextResults));
+      setSearchPage(page);
+      setHasMoreResults(nextResults.length === cjSearchPageSize);
     } catch (error: unknown) {
       const message = getErrorMessage(error, 'Unable to search CJ products');
-      setResults([]);
+      if (!append) {
+        setResults([]);
+      }
       setSearchError(message);
       notification.error('CJ search failed', message);
     } finally {
-      setSearching(false);
+      if (append) {
+        setLoadingMoreResults(false);
+      } else {
+        setSearching(false);
+      }
     }
+  };
+
+  const searchProducts = async (event: FormEvent) => {
+    event.preventDefault();
+    await runProductSearch(1, false);
+  };
+
+  const loadMoreProducts = async () => {
+    if (loadingMoreResults || searching || !hasMoreResults) return;
+    await runProductSearch(searchPage + 1, true);
   };
 
   const inspectProduct = async (product: SearchProduct) => {
@@ -1869,6 +1899,12 @@ export function GlobalSourcingPage() {
                   CJ search failed: {searchError}
                 </div>
               ) : null}
+              {results.length > 0 ? (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+                  Loaded {results.length} CJ product result{results.length === 1 ? '' : 's'}
+                  {hasMoreResults ? ` / page ${searchPage} / 100 per batch` : ''}
+                </div>
+              ) : null}
               {results.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-gray-300 px-6 py-10 text-center text-sm text-gray-600">
                   {searchError
@@ -1937,6 +1973,17 @@ export function GlobalSourcingPage() {
                   </div>
                 ))
               )}
+              {results.length > 0 && hasMoreResults ? (
+                <button
+                  type="button"
+                  onClick={() => void loadMoreProducts()}
+                  disabled={loadingMoreResults || searching}
+                  className="btn-secondary inline-flex items-center gap-2 disabled:opacity-60"
+                >
+                  {loadingMoreResults ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                  Load More
+                </button>
+              ) : null}
             </div>
           </div>
 

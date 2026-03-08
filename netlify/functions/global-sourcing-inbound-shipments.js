@@ -522,6 +522,7 @@ export async function handler(event) {
       success: false,
       error: 'Global sourcing inbound shipment request failed',
       message: error?.message || 'Unable to complete inbound shipment action',
+      details: error?.details || error?.responseBody || null,
     });
   }
 }

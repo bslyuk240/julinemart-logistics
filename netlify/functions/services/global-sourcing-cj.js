@@ -98,12 +98,18 @@ async function fetchImportJobSourcingContext(client, { productId, variationId })
       payload?.cj_pid,
       result?.external_product_id
     );
+    const carrierName = pickString(
+      cursor?.pricingPreview?.carrier_name,
+      payload?.pricing_preview?.carrier_name,
+      payload?.carrier_name
+    );
 
     if (variationId) {
       if (selectedWooVariationId && selectedWooVariationId === String(variationId).trim()) {
         return {
           cjPid: cjPid || null,
           cjVid: selectedCjVid || null,
+          carrierName: carrierName || null,
         };
       }
 
@@ -114,6 +120,7 @@ async function fetchImportJobSourcingContext(client, { productId, variationId })
       return {
         cjPid: cjPid || null,
         cjVid: selectedCjVid || null,
+        carrierName: carrierName || null,
       };
     }
   }
@@ -507,6 +514,7 @@ async function resolveSubOrderItems(client, subOrder, inboundShipment = null) {
       );
       let cjPid = pickString(entry?.cj_pid, entry?.cjPid);
       let cjVid = pickString(entry?.cj_vid, entry?.cjVid);
+      let carrierName = pickString(entry?.carrier_name, entry?.carrierName);
 
       if (!cjPid || !cjVid) {
         cjPid =
@@ -533,6 +541,7 @@ async function resolveSubOrderItems(client, subOrder, inboundShipment = null) {
         if (importContext) {
           cjPid = cjPid || pickString(importContext.cjPid);
           cjVid = cjVid || pickString(importContext.cjVid);
+          carrierName = carrierName || pickString(importContext.carrierName);
           if (cjPid || cjVid) {
             didHydrate = true;
           }
@@ -544,6 +553,7 @@ async function resolveSubOrderItems(client, subOrder, inboundShipment = null) {
         variationId: pickString(entry?.variation_id, entry?.variationId),
         cjPid,
         cjVid,
+        carrierName,
         quantity: Number(entry?.quantity || match?.quantity || 1),
         name: pickString(entry?.name, match?.name),
       };
@@ -559,6 +569,7 @@ async function resolveSubOrderItems(client, subOrder, inboundShipment = null) {
             variation_id: entry.variationId,
             cj_pid: entry.cjPid || null,
             cj_vid: entry.cjVid || null,
+            carrier_name: entry.carrierName || null,
             quantity: entry.quantity || 1,
             name: entry.name || null,
           })),
@@ -575,6 +586,7 @@ async function resolveSubOrderItems(client, subOrder, inboundShipment = null) {
             variationId: null,
             cjPid: pickString(inboundShipment?.cj_pid),
             cjVid: pickString(inboundShipment?.cj_vid),
+            carrierName: pickString(inboundShipment?.carrier_name),
             quantity: 1,
             name: pickString(inboundShipment?.metadata?.title, inboundShipment?.provider),
           },
@@ -861,9 +873,14 @@ export async function refreshCjSourceLinkRequest({ cjRequestId }) {
 function buildCreateOrderPayload({ subOrder, orderRecord, receivingHub, sourcedItems }) {
   const orderReference =
     pickString(orderRecord?.woocommerce_order_id, orderRecord?.id) || pickString(subOrder?.id);
+  const logisticName = pickString(
+    sourcedItems[0]?.carrierName,
+    parseObject(subOrder?.metadata)?.global_sourcing?.carrier_name
+  );
 
   const payload = {
     orderNumber: `JLO-${orderReference}-${String(subOrder.id).slice(0, 8)}`,
+    fromCountryCode: DEFAULT_ORIGIN_COUNTRY_CODE,
     countryCode: receivingHub.countryCode,
     country: receivingHub.countryName,
     state: receivingHub.state,
@@ -876,10 +893,16 @@ function buildCreateOrderPayload({ subOrder, orderRecord, receivingHub, sourcedI
     phone: receivingHub.contactPhone,
     shippingCountryCode: receivingHub.countryCode,
     shippingCountry: receivingHub.countryName,
+    shippingProvince: receivingHub.state,
     shippingState: receivingHub.state,
     shippingCity: receivingHub.city,
     shippingAddress: receivingHub.address,
+    shippingAddress1: receivingHub.address,
+    shippingAddress2: '',
+    shippingCounty: '',
     shippingZip: receivingHub.postcode || '',
+    shippingZipCode: receivingHub.postcode || '',
+    shippingCustomerName: receivingHub.contactName,
     shippingName: receivingHub.contactName,
     shippingPhone: receivingHub.contactPhone,
     products: sourcedItems.map((item) => ({
@@ -892,6 +915,10 @@ function buildCreateOrderPayload({ subOrder, orderRecord, receivingHub, sourcedI
   if (receivingHub.email) {
     payload.email = receivingHub.email;
     payload.shippingEmail = receivingHub.email;
+  }
+
+  if (logisticName) {
+    payload.logisticName = logisticName;
   }
 
   return payload;

@@ -864,6 +864,16 @@ function buildCreateOrderPayload({ subOrder, orderRecord, receivingHub, sourcedI
 
   const payload = {
     orderNumber: `JLO-${orderReference}-${String(subOrder.id).slice(0, 8)}`,
+    countryCode: receivingHub.countryCode,
+    country: receivingHub.countryName,
+    state: receivingHub.state,
+    province: receivingHub.state,
+    city: receivingHub.city,
+    address: receivingHub.address,
+    zip: receivingHub.postcode || '',
+    zipCode: receivingHub.postcode || '',
+    name: receivingHub.contactName,
+    phone: receivingHub.contactPhone,
     shippingCountryCode: receivingHub.countryCode,
     shippingCountry: receivingHub.countryName,
     shippingState: receivingHub.state,
@@ -880,6 +890,7 @@ function buildCreateOrderPayload({ subOrder, orderRecord, receivingHub, sourcedI
   };
 
   if (receivingHub.email) {
+    payload.email = receivingHub.email;
     payload.shippingEmail = receivingHub.email;
   }
 

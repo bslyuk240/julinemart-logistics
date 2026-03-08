@@ -447,14 +447,19 @@ async function resolveWooDescriptionImages(imageUrls, { title, cache, warnings }
         slot: `description-${index + 1}`,
         cache,
       });
-      resolved.push(asset?.source_url || imageUrl);
+      if (asset?.source_url) {
+        resolved.push(asset.source_url);
+      } else {
+        warnings.push(
+          `Skipped embedded description image ${index + 1} (${imageUrl}): uploaded media did not return a usable source URL`
+        );
+      }
     } catch (error) {
       warnings.push(
-        `Embedded description image ${index + 1} kept as remote URL (${imageUrl}): ${
+        `Skipped embedded description image ${index + 1} (${imageUrl}): ${
           error?.message || 'upload failed'
         }`
       );
-      resolved.push(imageUrl);
     }
   }
 

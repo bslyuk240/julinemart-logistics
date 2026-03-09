@@ -92,8 +92,8 @@ export async function handler(event) {
   const query =
     String(payload?.query || payload?.search || event.queryStringParameters?.query || '').trim();
   const page = Math.max(1, Number(payload?.page || event.queryStringParameters?.page || 1) || 1);
-  const requestedPageSize = Number(payload?.page_size || payload?.pageSize || 100);
-  const pageSize = Math.min(Math.max(requestedPageSize || 100, 1), 100);
+  const requestedPageSize = Number(payload?.page_size || payload?.pageSize || 50);
+  const pageSize = Math.min(Math.max(requestedPageSize || 50, 1), 50);
 
   if (!query) {
     return jsonResponse(400, { success: false, error: 'query is required' });

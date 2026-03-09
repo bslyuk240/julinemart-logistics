@@ -357,7 +357,7 @@ const sourcingHubStorageKey = 'global-sourcing:selected-hub-id';
 const sourcingWooVendorStorageKey = 'global-sourcing:selected-woo-vendor-id';
 const sourcingWooVendorNameStorageKey = 'global-sourcing:selected-woo-vendor-name';
 const cjProductBaseUrl = 'https://cjdropshipping.com/product';
-const cjSearchPageSize = 100;
+const cjSearchPageSize = 50;
 
 const tabs: Array<{ key: TabKey; label: string }> = [
   { key: 'cj-products', label: 'CJ Products' },

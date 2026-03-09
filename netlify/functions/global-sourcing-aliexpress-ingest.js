@@ -690,28 +690,41 @@ export async function handler(event) {
       });
     }
 
+    const suppliedHtml = String(payload.product_html || '').trim();
     const canonicalUrl = buildCanonicalAliExpressUrl(normalizedUrl.sourceUrl);
-    const response = await fetch(canonicalUrl, {
-      method: 'GET',
-      redirect: 'follow',
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-        Accept:
-          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        Referer: 'https://www.aliexpress.com/',
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache',
-      },
-    });
+    const usingSuppliedHtml = suppliedHtml.length > 0;
 
-    if (!response.ok) {
-      throw new Error(`Unable to fetch AliExpress product URL (${response.status})`);
-    }
+    const { html, finalUrl } = usingSuppliedHtml
+      ? {
+          html: suppliedHtml,
+          finalUrl: canonicalUrl,
+        }
+      : await (async () => {
+          const response = await fetch(canonicalUrl, {
+            method: 'GET',
+            redirect: 'follow',
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+              Accept:
+                'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9',
+              Referer: 'https://www.aliexpress.com/',
+              'Cache-Control': 'no-cache',
+              Pragma: 'no-cache',
+            },
+          });
 
-    const html = await response.text();
-    const finalUrl = response.url || normalizedUrl.sourceUrl;
+          if (!response.ok) {
+            throw new Error(`Unable to fetch AliExpress product URL (${response.status})`);
+          }
+
+          return {
+            html: await response.text(),
+            finalUrl: response.url || canonicalUrl,
+          };
+        })();
+
     const root = extractAliExpressRoot(parseJsonCandidates(html));
     const product = normalizeAliExpressProduct({
       productUrl: normalizedUrl.sourceUrl,
@@ -724,6 +737,7 @@ export async function handler(event) {
       success: true,
       data: {
         product,
+        source_mode: usingSuppliedHtml ? 'pasted_html' : 'remote_fetch',
       },
     });
   } catch (error) {

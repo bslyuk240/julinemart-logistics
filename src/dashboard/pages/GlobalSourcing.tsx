@@ -715,6 +715,9 @@ export function GlobalSourcingPage() {
   const [hasMoreResults, setHasMoreResults] = useState(false);
   const [loadingMoreResults, setLoadingMoreResults] = useState(false);
   const [sourceLinkUrl, setSourceLinkUrl] = useState('');
+  const [sourceLinkHtml, setSourceLinkHtml] = useState('');
+  const [showSourceHtmlFallback, setShowSourceHtmlFallback] = useState(false);
+  const [sourceLinkErrorHint, setSourceLinkErrorHint] = useState<string | null>(null);
   const [submittingSourceLink, setSubmittingSourceLink] = useState(false);
   const [sourceRequests, setSourceRequests] = useState<SourceLinkRequest[]>([]);
   const [, setLoadingSourceRequests] = useState(false);
@@ -1307,14 +1310,16 @@ export function GlobalSourcingPage() {
     }
 
     setSubmittingSourceLink(true);
+    setSourceLinkErrorHint(null);
     try {
-      const response = await callAdmin<{ data: { product: ProductDetails } }>(
+      const response = await callAdmin<{ data: { product: ProductDetails; source_mode?: string } }>(
         'global-sourcing-aliexpress-ingest',
         session.access_token,
         {
           method: 'POST',
           body: JSON.stringify({
             product_url: sourceLinkUrl.trim(),
+            ...(sourceLinkHtml.trim() ? { product_html: sourceLinkHtml } : {}),
           }),
         }
       );
@@ -1338,15 +1343,21 @@ export function GlobalSourcingPage() {
       setDescription(hydratedProduct.description);
       setPricingPreview(null);
       setPrice('');
+      setSourceLinkErrorHint(null);
       setActiveTab('cj-products');
       notification.success(
         'Supplier product loaded',
-        'Review the variant, quote landed price, then continue into the existing import flow'
+        response.data.source_mode === 'pasted_html'
+          ? 'Parsed from pasted page HTML. Review the variant, quote landed price, then continue into the existing import flow'
+          : 'Review the variant, quote landed price, then continue into the existing import flow'
       );
     } catch (error: unknown) {
+      const message = getErrorMessage(error, 'Unable to ingest the supplier product');
+      setShowSourceHtmlFallback(true);
+      setSourceLinkErrorHint(message);
       notification.error(
         'Ingestion failed',
-        getErrorMessage(error, 'Unable to ingest the supplier product')
+        message
       );
     } finally {
       setSubmittingSourceLink(false);
@@ -2197,6 +2208,46 @@ export function GlobalSourcingPage() {
                 </span>
               </label>
 
+              {sourceLinkErrorHint ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  <p className="font-medium">AliExpress fetch fallback needed</p>
+                  <p className="mt-1">{sourceLinkErrorHint}</p>
+                </div>
+              ) : null}
+
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">Paste AliExpress page HTML</p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Use this when AliExpress blocks the server fetch. Open the product page in your browser, view page source, copy all HTML, then paste it here.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-secondary inline-flex items-center gap-2"
+                    onClick={() => setShowSourceHtmlFallback((current) => !current)}
+                  >
+                    {showSourceHtmlFallback ? 'Hide HTML Paste' : 'Use HTML Paste'}
+                  </button>
+                </div>
+
+                {showSourceHtmlFallback ? (
+                  <label className="mt-4 block">
+                    <span className="mb-2 block text-sm font-medium text-gray-700">AliExpress Page HTML</span>
+                    <textarea
+                      value={sourceLinkHtml}
+                      onChange={(event) => setSourceLinkHtml(event.target.value)}
+                      className="min-h-[220px] w-full rounded-lg border border-gray-300 px-4 py-3 font-mono text-xs"
+                      placeholder="<html>...</html>"
+                    />
+                    <span className="mt-2 block text-xs text-gray-500">
+                      JLO will skip the remote fetch and parse this pasted HTML directly.
+                    </span>
+                  </label>
+                ) : null}
+              </div>
+
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="block">
                   <span className="mb-2 block text-sm font-medium text-gray-700">Receiving Hub</span>
@@ -2271,10 +2322,13 @@ export function GlobalSourcingPage() {
                 2. JLO fetches the page once and normalizes title, description, images, and variants.
               </div>
               <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-                3. You review the selected variant and quote landed price using the existing pricing engine.
+                3. If AliExpress blocks the server fetch, paste the browser page HTML and retry.
               </div>
               <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
-                4. Import continues through the same Woo job pipeline already used for CJ products.
+                4. You review the selected variant and quote landed price using the existing pricing engine.
+              </div>
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+                5. Import continues through the same Woo job pipeline already used for CJ products.
               </div>
             </div>
           </div>

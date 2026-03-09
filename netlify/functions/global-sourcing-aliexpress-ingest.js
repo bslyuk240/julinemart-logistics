@@ -18,16 +18,41 @@ function parseHtmlDescription(value) {
   return normalized || '';
 }
 
-function extractBalancedJsonObject(source, marker) {
+function extractBalancedJsonValue(source, marker) {
   const markerIndex = source.indexOf(marker);
   if (markerIndex < 0) return null;
 
-  const startIndex = source.indexOf('{', markerIndex + marker.length);
+  let startIndex = markerIndex + marker.length;
+  while (startIndex < source.length && /\s/.test(source[startIndex])) {
+    startIndex += 1;
+  }
   if (startIndex < 0) return null;
+  if (!['{', '[', '"'].includes(source[startIndex])) return null;
 
   let depth = 0;
   let inString = false;
   let escaped = false;
+  const opener = source[startIndex];
+
+  if (opener === '"') {
+    for (let index = startIndex + 1; index < source.length; index += 1) {
+      const character = source[index];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (character === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (character === '"') {
+        return source.slice(startIndex, index + 1);
+      }
+    }
+    return null;
+  }
+
+  const closer = opener === '{' ? '}' : ']';
 
   for (let index = startIndex; index < source.length; index += 1) {
     const character = source[index];
@@ -52,12 +77,12 @@ function extractBalancedJsonObject(source, marker) {
       continue;
     }
 
-    if (character === '{') {
+    if (character === opener) {
       depth += 1;
       continue;
     }
 
-    if (character === '}') {
+    if (character === closer) {
       depth -= 1;
       if (depth === 0) {
         return source.slice(startIndex, index + 1);
@@ -74,15 +99,23 @@ function parseJsonCandidates(html) {
     'window.runParams=',
     'window.__INITIAL_STATE__ =',
     'window.__INITIAL_STATE__=',
+    'window.__INITIAL_DATA__ =',
+    'window.__INITIAL_DATA__=',
+    'window.__INIT_DATA__ =',
+    'window.__INIT_DATA__=',
     'window._dida_config_._init_data_ =',
     'window._dida_config_._init_data_=',
     'window.__PRELOADED_STATE__ =',
     'window.__PRELOADED_STATE__=',
+    'window.rawData =',
+    'window.rawData=',
+    'window.detailData =',
+    'window.detailData=',
   ];
   const parsed = [];
 
   for (const marker of markers) {
-    const raw = extractBalancedJsonObject(html, marker);
+    const raw = extractBalancedJsonValue(html, marker);
     if (!raw) continue;
 
     try {
@@ -90,6 +123,20 @@ function parseJsonCandidates(html) {
       if (value) parsed.push(value);
     } catch {
       // Ignore malformed candidate blocks.
+    }
+  }
+
+  const taggedJsonBlocks = html.match(
+    /<script[^>]+type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi
+  ) || [];
+  for (const block of taggedJsonBlocks) {
+    const content = block.replace(/<script[^>]*>|<\/script>/gi, '').trim();
+    if (!content.startsWith('{') && !content.startsWith('[')) continue;
+    try {
+      const value = JSON.parse(content);
+      if (value) parsed.push(value);
+    } catch {
+      // Ignore malformed blocks.
     }
   }
 
@@ -137,6 +184,15 @@ function pickString(...values) {
     if (normalized) return normalized;
   }
   return null;
+}
+
+function parseJsonStringLiteral(value) {
+  if (!value) return '';
+  try {
+    return JSON.parse(`"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
+  } catch {
+    return String(value);
+  }
 }
 
 function parseAmount(value) {
@@ -188,6 +244,57 @@ function extractProductIdFromUrl(url) {
   const normalized = String(url || '');
   const match = normalized.match(/\/item\/(\d+)\.html/i);
   return match?.[1] ? match[1] : null;
+}
+
+function extractFirstMatch(html, patterns) {
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) {
+      return parseJsonStringLiteral(match[1]).trim();
+    }
+  }
+  return '';
+}
+
+function isMeaningfulTitle(value) {
+  const normalized = String(value || '').trim();
+  if (!normalized) return false;
+  return !/^ali\s*express\s*product$/i.test(normalized);
+}
+
+function extractFallbackTitleFromHtml(html) {
+  return extractFirstMatch(html, [
+    /"subject"\s*:\s*"([^"]+)"/i,
+    /"productTitle"\s*:\s*"([^"]+)"/i,
+    /"title"\s*:\s*"([^"]+)"/i,
+  ]);
+}
+
+function extractFallbackDescriptionFromHtml(html) {
+  const raw = extractFirstMatch(html, [
+    /"description"\s*:\s*"([^"]+)"/i,
+    /"productDesc"\s*:\s*"([^"]+)"/i,
+    /"detailDesc"\s*:\s*"([^"]+)"/i,
+  ]);
+  return String(raw || '').replace(/\\n/g, '\n').trim();
+}
+
+function extractFallbackPriceFromHtml(html) {
+  const candidates = [
+    extractFirstMatch(html, [
+      /"formatedPrice"\s*:\s*"([^"]+)"/i,
+      /"price"\s*:\s*"([^"]+)"/i,
+      /"salePrice"\s*:\s*"([^"]+)"/i,
+      /"minActivityAmount"\s*:\s*"([^"]+)"/i,
+    ]),
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = parseAmount(candidate);
+    if (parsed !== null) return parsed;
+  }
+
+  return null;
 }
 
 function buildAttributeValueLookup(propertyRows) {
@@ -324,6 +431,7 @@ function extractAliExpressImages(root, html, finalUrl) {
   return normalizeImages([
     ...(Array.isArray(imageModule.imagePathList) ? imageModule.imagePathList : []),
     ...(Array.isArray(imageModule.skuImageList) ? imageModule.skuImageList : []),
+    ...(html.match(/https?:\/\/[^"'\\\s<>]+alicdn[^"'\\\s<>]+?\.(?:jpg|jpeg|png|webp|avif)(?:\?[^"'\\\s<>]*)?/gi) || []),
     ...extractImageCandidatesFromHtml(html, finalUrl),
     extractProductSnapshotFromJsonLd(html, finalUrl)?.image,
   ]);
@@ -427,6 +535,7 @@ function normalizeAliExpressProduct({ productUrl, html, finalUrl, root }) {
       productInfo?.productInfoComponent?.subject,
       productInfo?.subject,
       snapshot.title,
+      extractFallbackTitleFromHtml(html),
       extractTitleFromHtml(html)
     ) || 'AliExpress product';
   const rawDescription =
@@ -435,6 +544,7 @@ function normalizeAliExpressProduct({ productUrl, html, finalUrl, root }) {
         productInfo?.descriptionModule?.description,
         productInfo?.productDescComponent?.description,
         productInfo?.description,
+        extractFallbackDescriptionFromHtml(html),
         ''
       )
     ) || '';
@@ -442,7 +552,7 @@ function normalizeAliExpressProduct({ productUrl, html, finalUrl, root }) {
   const descriptionImages = extractDescriptionImageUrls(rawDescription);
   const images = extractAliExpressImages(root, html, finalUrl);
   const primaryImage = images[0] || snapshot.image || null;
-  const fallbackPrice = parseAmount(snapshot.price);
+  const fallbackPrice = parseAmount(snapshot.price) ?? extractFallbackPriceFromHtml(html);
   const fallbackCurrency =
     pickString(
       productInfo?.productInfoComponent?.currencyCode,
@@ -461,6 +571,16 @@ function normalizeAliExpressProduct({ productUrl, html, finalUrl, root }) {
     ...variant,
     inbound_shipping_usd: variant.inbound_shipping_usd ?? inboundShippingUsd,
   }));
+
+  const hasUsableVariant = variants.some((variant) => variant.source_price !== null);
+  const hasUsableImages = images.length > 0;
+  const hasUsableTitle = isMeaningfulTitle(title);
+
+  if (!hasUsableTitle || !hasUsableVariant || !hasUsableImages) {
+    throw new Error(
+      'AliExpress returned an incomplete product page. The page did not expose enough title, image, or price data to import safely.'
+    );
+  }
 
   return {
     provider: 'aliexpress',

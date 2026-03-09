@@ -186,6 +186,38 @@ function pickString(...values) {
   return null;
 }
 
+function decodeHtmlEntities(value) {
+  return String(value || '')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+}
+
+function extractMetaContent(html, attributeName, attributeValue) {
+  const escaped = String(attributeValue || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const patterns = [
+    new RegExp(
+      `<meta[^>]*${attributeName}=["']${escaped}["'][^>]*content=["']([^"']+)["'][^>]*>`,
+      'i'
+    ),
+    new RegExp(
+      `<meta[^>]*content=["']([^"']+)["'][^>]*${attributeName}=["']${escaped}["'][^>]*>`,
+      'i'
+    ),
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) {
+      return decodeHtmlEntities(match[1]).trim();
+    }
+  }
+
+  return '';
+}
+
 function parseJsonStringLiteral(value) {
   if (!value) return '';
   try {
@@ -246,6 +278,11 @@ function extractProductIdFromUrl(url) {
   return match?.[1] ? match[1] : null;
 }
 
+function buildCanonicalAliExpressUrl(url) {
+  const productId = extractProductIdFromUrl(url);
+  return productId ? `https://www.aliexpress.com/item/${productId}.html` : url;
+}
+
 function extractFirstMatch(html, patterns) {
   for (const pattern of patterns) {
     const match = html.match(pattern);
@@ -281,6 +318,8 @@ function extractFallbackDescriptionFromHtml(html) {
 
 function extractFallbackPriceFromHtml(html) {
   const candidates = [
+    extractMetaContent(html, 'property', 'product:price:amount'),
+    extractMetaContent(html, 'itemprop', 'price'),
     extractFirstMatch(html, [
       /"formatedPrice"\s*:\s*"([^"]+)"/i,
       /"price"\s*:\s*"([^"]+)"/i,
@@ -431,6 +470,9 @@ function extractAliExpressImages(root, html, finalUrl) {
   return normalizeImages([
     ...(Array.isArray(imageModule.imagePathList) ? imageModule.imagePathList : []),
     ...(Array.isArray(imageModule.skuImageList) ? imageModule.skuImageList : []),
+    extractMetaContent(html, 'property', 'og:image'),
+    extractMetaContent(html, 'name', 'twitter:image'),
+    extractMetaContent(html, 'itemprop', 'image'),
     ...(html.match(/https?:\/\/[^"'\\\s<>]+alicdn[^"'\\\s<>]+?\.(?:jpg|jpeg|png|webp|avif)(?:\?[^"'\\\s<>]*)?/gi) || []),
     ...extractImageCandidatesFromHtml(html, finalUrl),
     extractProductSnapshotFromJsonLd(html, finalUrl)?.image,
@@ -625,12 +667,19 @@ export async function handler(event) {
       });
     }
 
-    const response = await fetch(normalizedUrl.sourceUrl, {
+    const canonicalUrl = buildCanonicalAliExpressUrl(normalizedUrl.sourceUrl);
+    const response = await fetch(canonicalUrl, {
       method: 'GET',
       redirect: 'follow',
       headers: {
-        'User-Agent': 'JulineMart-Global-Sourcing/1.0',
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        Referer: 'https://www.aliexpress.com/',
+        'Cache-Control': 'no-cache',
+        Pragma: 'no-cache',
       },
     });
 

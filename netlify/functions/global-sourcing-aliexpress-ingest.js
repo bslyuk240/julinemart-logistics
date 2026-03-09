@@ -336,6 +336,24 @@ function extractFallbackPriceFromHtml(html) {
   return null;
 }
 
+function detectAliExpressBlockSignals(html) {
+  const normalized = String(html || '').toLowerCase();
+  const signals = [
+    'captcha',
+    'security check',
+    'verify you are human',
+    'verify you\'re human',
+    'are you a robot',
+    'robot or human',
+    'access denied',
+    'punish',
+    'blocked',
+    'incident id',
+  ];
+
+  return signals.filter((signal) => normalized.includes(signal));
+}
+
 function buildAttributeValueLookup(propertyRows) {
   const lookup = new Map();
 
@@ -619,8 +637,13 @@ function normalizeAliExpressProduct({ productUrl, html, finalUrl, root }) {
   const hasUsableTitle = isMeaningfulTitle(title);
 
   if (!hasUsableTitle || !hasUsableVariant || !hasUsableImages) {
+    const blockSignals = detectAliExpressBlockSignals(html);
+    const hint =
+      blockSignals.length > 0
+        ? `AliExpress likely returned a verification or anti-bot page to the server fetch (${blockSignals.join(', ')}).`
+        : `Parsed title=${hasUsableTitle ? 'yes' : 'no'}, images=${images.length}, priced_variants=${variants.filter((variant) => variant.source_price !== null).length}.`;
     throw new Error(
-      'AliExpress returned an incomplete product page. The page did not expose enough title, image, or price data to import safely.'
+      `AliExpress returned an incomplete product page. The page did not expose enough title, image, or price data to import safely. ${hint}`
     );
   }
 
@@ -708,6 +731,9 @@ export async function handler(event) {
       success: false,
       error: 'AliExpress ingestion failed',
       message: error?.message || 'Unable to ingest AliExpress product',
+      details: {
+        provider: 'aliexpress',
+      },
     });
   }
 }

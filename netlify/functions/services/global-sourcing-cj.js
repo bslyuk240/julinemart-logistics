@@ -449,18 +449,43 @@ export async function buildLandedPricingPreview({
   externalVariantId,
   sourcePrice,
   sourceCurrency = 'USD',
+  provider = PROVIDER,
   quantity = 1,
+  inboundShippingUsd = null,
+  carrierName = null,
+  estimatedInboundDaysMin = null,
+  estimatedInboundDaysMax = null,
   importBufferUsd,
   markupPercent,
   markupFlatNgn,
   usdToNgnRate,
 }) {
-  const quote = await quoteCjInboundFreight({
-    client,
-    receivingHubId,
-    externalVariantId,
-    quantity,
-  });
+  const normalizedProvider = pickString(provider)?.toLowerCase() || PROVIDER;
+  const shouldUseCjFreightQuote =
+    normalizedProvider === PROVIDER &&
+    !(inboundShippingUsd !== null && inboundShippingUsd !== undefined);
+
+  const quote = shouldUseCjFreightQuote
+    ? await quoteCjInboundFreight({
+        client,
+        receivingHubId,
+        externalVariantId,
+        quantity,
+      })
+    : {
+        endpoint: null,
+        receivingHub: await resolveReceivingHub(client, receivingHubId),
+        shippingUsd: Math.max(Number(inboundShippingUsd || 0) || 0, 0),
+        carrierName: pickString(carrierName),
+        estimatedInboundDaysMin:
+          estimatedInboundDaysMin === null || estimatedInboundDaysMin === undefined
+            ? null
+            : Number(estimatedInboundDaysMin),
+        estimatedInboundDaysMax:
+          estimatedInboundDaysMax === null || estimatedInboundDaysMax === undefined
+            ? null
+            : Number(estimatedInboundDaysMax),
+      };
 
   const pricing = computeWooNgnPricing({
     sourcePrice,
@@ -473,7 +498,7 @@ export async function buildLandedPricingPreview({
   });
 
   return {
-    provider: PROVIDER,
+    provider: normalizedProvider,
     pricing_mode: 'landed',
     generated_at: new Date().toISOString(),
     receiving_hub_id: quote.receivingHub.id,

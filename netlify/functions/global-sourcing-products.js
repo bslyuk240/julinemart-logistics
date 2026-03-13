@@ -1,5 +1,6 @@
 import {
   extractMetaValue,
+  GLOBAL_SOURCING_ALLOWED_ROLES,
   headers,
   jsonResponse,
   requestWoo,
@@ -38,8 +39,18 @@ function normalizeProduct(product, hubMap, vendorMap) {
     permalink: product.permalink || null,
     image: product.images?.[0]?.src || null,
     provider,
-    external_product_id: extractMetaValue(product?.meta_data, ['_cj_pid', 'cj_pid']),
-    external_variant_id: extractMetaValue(product?.meta_data, ['_cj_vid', 'cj_vid']),
+    external_product_id: extractMetaValue(product?.meta_data, [
+      '_supplier_product_id',
+      'supplier_product_id',
+      '_cj_pid',
+      'cj_pid',
+    ]),
+    external_variant_id: extractMetaValue(product?.meta_data, [
+      '_supplier_variant_id',
+      'supplier_variant_id',
+      '_cj_vid',
+      'cj_vid',
+    ]),
     fulfillment_mode: extractMetaValue(product?.meta_data, ['_fulfillment_mode', 'fulfillment_mode']),
     receiving_hub_id: hubId,
     receiving_hub: hubId && hubMap.has(hubId) ? hubMap.get(hubId) : null,
@@ -62,7 +73,7 @@ export async function handler(event) {
     return jsonResponse(405, { success: false, error: 'Method not allowed' });
   }
 
-  const auth = await requireAdmin(event, ['admin']);
+  const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
   if (auth.errorResponse) return auth.errorResponse;
 
   try {

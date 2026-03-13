@@ -23,6 +23,8 @@ export const headers = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
 };
 
+export const GLOBAL_SOURCING_ALLOWED_ROLES = ['admin', 'agent'];
+
 export function jsonResponse(statusCode, body) {
   return {
     statusCode,
@@ -938,7 +940,7 @@ function extractMetaContent(html, attributeName, attributeValue) {
   return '';
 }
 
-function extractTitleFromHtml(html) {
+export function extractTitleFromHtml(html) {
   const candidates = [
     extractMetaContent(html, 'property', 'og:title'),
     extractMetaContent(html, 'name', 'twitter:title'),
@@ -994,7 +996,7 @@ function flattenJsonLdNodes(value) {
   return [];
 }
 
-function extractProductSnapshotFromJsonLd(html, baseUrl) {
+export function extractProductSnapshotFromJsonLd(html, baseUrl) {
   const nodes = extractJsonLdBlocks(html).flatMap((entry) => flattenJsonLdNodes(entry));
   const productNode = nodes.find((entry) => {
     const type = entry?.['@type'];
@@ -1031,7 +1033,7 @@ function decodeEscapedUrl(value) {
     .replace(/&amp;/gi, '&');
 }
 
-function extractImageCandidatesFromHtml(html, baseUrl) {
+export function extractImageCandidatesFromHtml(html, baseUrl) {
   const candidates = [];
   const pushCandidate = (value) => {
     const normalized = toAbsoluteUrl(decodeEscapedUrl(value), baseUrl);
@@ -1287,6 +1289,10 @@ export function buildGlobalSourcingMeta({
   provider = 'cj',
   cjPid = null,
   cjVid = null,
+  supplierSource = null,
+  supplierProductId = null,
+  supplierVariantId = null,
+  supplierUrl = null,
   fulfillmentMode = 'cj_hub',
   receivingHubId = null,
   receivingHubName = null,
@@ -1308,10 +1314,34 @@ export function buildGlobalSourcingMeta({
   vendorId,
   woocommerceVendorId,
 }) {
+  const normalizedProvider = String(provider || 'cj').trim().toLowerCase() || 'cj';
+  const normalizedSupplierSource =
+    String(supplierSource || (normalizedProvider !== 'cj' ? normalizedProvider : '')).trim() || null;
+  const normalizedSupplierProductId =
+    supplierProductId !== null && supplierProductId !== undefined && String(supplierProductId).trim()
+      ? String(supplierProductId).trim()
+      : normalizedProvider !== 'cj' && cjPid
+      ? String(cjPid).trim()
+      : null;
+  const normalizedSupplierVariantId =
+    supplierVariantId !== null && supplierVariantId !== undefined && String(supplierVariantId).trim()
+      ? String(supplierVariantId).trim()
+      : normalizedProvider !== 'cj' && cjVid
+      ? String(cjVid).trim()
+      : null;
+  const normalizedSupplierUrl =
+    supplierUrl !== null && supplierUrl !== undefined && String(supplierUrl).trim()
+      ? String(supplierUrl).trim()
+      : null;
+
   return {
-    _global_sourcing_provider: provider,
+    _global_sourcing_provider: normalizedProvider,
     _cj_pid: cjPid,
     _cj_vid: cjVid,
+    ...(normalizedSupplierSource ? { _supplier_source: normalizedSupplierSource } : {}),
+    ...(normalizedSupplierProductId ? { _supplier_product_id: normalizedSupplierProductId } : {}),
+    ...(normalizedSupplierVariantId ? { _supplier_variant_id: normalizedSupplierVariantId } : {}),
+    ...(normalizedSupplierUrl ? { _supplier_url: normalizedSupplierUrl } : {}),
     _fulfillment_mode: fulfillmentMode,
     _receiving_hub_id: receivingHubId,
     ...(receivingHubId
@@ -1402,6 +1432,16 @@ export function extractGlobalSourcingFromMeta(metaData) {
   const fulfillmentMode = extractMetaValue(metaData, ['_fulfillment_mode', 'fulfillment_mode']);
   const cjPid = extractMetaValue(metaData, ['_cj_pid', 'cj_pid']);
   const cjVid = extractMetaValue(metaData, ['_cj_vid', 'cj_vid']);
+  const supplierSource = extractMetaValue(metaData, ['_supplier_source', 'supplier_source']);
+  const supplierProductId = extractMetaValue(metaData, [
+    '_supplier_product_id',
+    'supplier_product_id',
+  ]);
+  const supplierVariantId = extractMetaValue(metaData, [
+    '_supplier_variant_id',
+    'supplier_variant_id',
+  ]);
+  const supplierUrl = extractMetaValue(metaData, ['_supplier_url', 'supplier_url']);
   const receivingHubId = extractMetaValue(metaData, [
     '_receiving_hub_id',
     'receiving_hub_id',
@@ -1419,16 +1459,28 @@ export function extractGlobalSourcingFromMeta(metaData) {
   const shipsFromAbroad = extractMetaValue(metaData, ['_ships_from_abroad', 'ships_from_abroad']);
 
   const isCjHub = fulfillmentMode === 'cj_hub';
-  const isSupportedProvider = !provider || String(provider).toLowerCase() === 'cj';
-  const hasCoreSourcingFields = Boolean(receivingHubId && (cjPid || cjVid || shipsFromAbroad === 'yes'));
+  const normalizedProvider = String(provider || 'cj').trim().toLowerCase() || 'cj';
+  const isSupportedProvider = ['cj', 'aliexpress'].includes(normalizedProvider);
+  const hasCoreSourcingFields = Boolean(
+    receivingHubId &&
+      (cjPid ||
+        cjVid ||
+        supplierProductId ||
+        supplierVariantId ||
+        shipsFromAbroad === 'yes')
+  );
 
   if (!isCjHub || !isSupportedProvider || !hasCoreSourcingFields) return null;
 
   return {
-    provider: provider || 'cj',
+    provider: normalizedProvider,
     fulfillmentMode,
     cjPid: cjPid || null,
     cjVid: cjVid || null,
+    supplierSource: supplierSource || (normalizedProvider !== 'cj' ? normalizedProvider : null),
+    supplierProductId: supplierProductId || null,
+    supplierVariantId: supplierVariantId || null,
+    supplierUrl: supplierUrl || null,
     receivingHubId: receivingHubId || null,
     sourcingTag: sourcingTag || 'Ships from Abroad',
     vendorId: vendorId || null,

@@ -1,4 +1,5 @@
 import {
+  GLOBAL_SOURCING_ALLOWED_ROLES,
   headers,
   isPlainObject,
   jsonResponse,
@@ -1009,7 +1010,7 @@ export async function handler(event) {
     return { statusCode: 200, headers, body: '' };
   }
 
-  const auth = await requireAdmin(event, ['admin']);
+  const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
   if (auth.errorResponse) return auth.errorResponse;
 
   try {

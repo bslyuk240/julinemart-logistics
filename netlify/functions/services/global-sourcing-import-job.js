@@ -68,6 +68,10 @@ function normalizeSelectedVariant(payload) {
         : null,
     sourcePrice: source.source_price ?? payload?.supplier_price_snapshot ?? payload?.regular_price ?? null,
     currency: String(source.currency || payload?.currency || 'USD').trim().toUpperCase(),
+    inboundShippingUsd:
+      source.inbound_shipping_usd ??
+      payload?.inbound_shipping_usd ??
+      null,
     attributes: source.attributes,
   };
 }
@@ -120,6 +124,7 @@ function normalizeImportVariant(entry) {
       source.regular_price ??
       null,
     currency: String(source.currency || 'USD').trim().toUpperCase(),
+    inboundShippingUsd: source.inbound_shipping_usd ?? null,
     attributes: normalizeSelectedAttributes({ selected_attributes: source.attributes || {} }, null),
   };
 }
@@ -135,6 +140,7 @@ function buildImportVariants(payload, selectedVariant, selectedAttributes) {
             image: selectedVariant.image,
             sourcePrice: selectedVariant.sourcePrice,
             currency: selectedVariant.currency,
+            inboundShippingUsd: selectedVariant.inboundShippingUsd,
             attributes: selectedAttributes,
           },
         ]
@@ -703,13 +709,18 @@ function buildVariationResponseMap(rows, descriptors) {
 }
 
 function buildExistingVariationLookup(variations) {
-  const byCjVid = new Map();
+  const byExternalVariantId = new Map();
   const byAttributes = new Map();
 
   variations.forEach((variation) => {
-    const cjVid = extractMetaValue(variation?.meta_data, ['_cj_vid', 'cj_vid']);
-    if (cjVid) {
-      byCjVid.set(String(cjVid), variation);
+    const externalVariantId = extractMetaValue(variation?.meta_data, [
+      '_supplier_variant_id',
+      'supplier_variant_id',
+      '_cj_vid',
+      'cj_vid',
+    ]);
+    if (externalVariantId) {
+      byExternalVariantId.set(String(externalVariantId), variation);
       return;
     }
 
@@ -726,7 +737,7 @@ function buildExistingVariationLookup(variations) {
     }
   });
 
-  return { byCjVid, byAttributes };
+  return { byExternalVariantId, byAttributes };
 }
 
 function pickExistingVariationId(payloadVariationId, selectedVariantId, variant) {
@@ -740,6 +751,11 @@ function pickExistingVariationId(payloadVariationId, selectedVariantId, variant)
 function parseImportPayload(payload) {
   const provider = String(payload?.provider || 'cj').trim().toLowerCase();
   const externalProductId = String(payload?.external_product_id || payload?.cj_pid || '').trim();
+  const supplierSource = String(payload?.supplier_source || provider || '').trim().toLowerCase() || null;
+  const supplierProductId = String(
+    payload?.supplier_product_id || payload?.external_product_id || payload?.cj_pid || ''
+  ).trim() || null;
+  const supplierUrl = String(payload?.supplier_url || '').trim() || null;
   const receivingHubId = String(payload?.receiving_hub_id || '').trim() || null;
   const fulfillmentMode = String(payload?.fulfillment_mode || 'cj_hub').trim() || 'cj_hub';
   const targetVendorId = String(
@@ -755,6 +771,9 @@ function parseImportPayload(payload) {
   return {
     provider,
     externalProductId,
+    supplierSource,
+    supplierProductId,
+    supplierUrl,
     receivingHubId,
     fulfillmentMode,
     targetVendorId,
@@ -765,8 +784,8 @@ function parseImportPayload(payload) {
 function validateImportPayload(payload) {
   const parsed = parseImportPayload(payload);
 
-  if (parsed.provider !== 'cj') {
-    throw createImportError('Only provider=cj is supported in this MVP', 400);
+  if (!['cj', 'aliexpress'].includes(parsed.provider)) {
+    throw createImportError('Only provider=cj and provider=aliexpress are supported', 400);
   }
 
   if (!parsed.externalProductId || (!parsed.targetVendorId && !parsed.targetWooVendorId)) {
@@ -892,7 +911,7 @@ function buildCompletionResult(cursor) {
       'WooCommerce remains the source of truth for the imported product record.',
       'Vendor/store ownership is not reassigned automatically during import; staff can update it manually in WordPress/WCFM after import.',
       cursor.shouldCreateVariations
-        ? `Imported ${importedVariationIds.length} CJ variant(s) into Woo variations using the current landed-pricing rules.`
+        ? `Imported ${importedVariationIds.length} supplier variant(s) into Woo variations using the current landed-pricing rules.`
         : 'The imported item was stored as a Woo simple product.',
       cursor.shouldWriteProductImages
         ? `Uploaded ${Number(cursor.uploadedProductImagesCount || 0)} product image(s) into WordPress media before Woo import.`
@@ -978,6 +997,9 @@ async function prepareJob(adminClient, job) {
   const {
     provider,
     externalProductId,
+    supplierSource,
+    supplierProductId,
+    supplierUrl,
     receivingHubId,
     fulfillmentMode,
     targetVendorId,
@@ -993,7 +1015,7 @@ async function prepareJob(adminClient, job) {
 
     const selectedVariant = normalizeSelectedVariant(payload);
     if (!selectedVariant.externalVariantId) {
-      throw createImportError('A CJ variant selection is required for landed-price import', 400);
+      throw createImportError('A supplier variant selection is required for landed-price import', 400);
     }
 
     const selectedAttributes = normalizeSelectedAttributes(payload, selectedVariant);
@@ -1005,7 +1027,7 @@ async function prepareJob(adminClient, job) {
       (variant) => variant.externalVariantId && variant.sourcePrice !== null
     );
     if (importableVariants.length === 0) {
-      throw createImportError('No importable CJ variants were provided', 400);
+      throw createImportError('No importable supplier variants were provided', 400);
     }
 
     const variantCandidatesWithAttributes = importableVariants.filter(
@@ -1013,7 +1035,7 @@ async function prepareJob(adminClient, job) {
     );
     if (importableVariants.length > 1 && variantCandidatesWithAttributes.length === 0) {
       throw createImportError(
-        'CJ returned multiple variants but none included usable attributes for Woo variation creation',
+        'The supplier returned multiple variants but none included usable attributes for Woo variation creation',
         400
       );
     }
@@ -1036,10 +1058,18 @@ async function prepareJob(adminClient, job) {
       ? payload.pricing_preview
       : await buildLandedPricingPreview({
           client: adminClient,
+          provider,
           receivingHubId: receivingHub.id,
           externalVariantId: selectedVariant.externalVariantId,
           sourcePrice,
           sourceCurrency,
+          inboundShippingUsd:
+            selectedVariant.inboundShippingUsd ??
+            payload?.inbound_shipping_usd ??
+            null,
+          estimatedInboundDaysMin: payload?.estimated_inbound_days_min ?? null,
+          estimatedInboundDaysMax: payload?.estimated_inbound_days_max ?? null,
+          carrierName: payload?.carrier_name ?? null,
         });
 
     const pricingDefaults = await loadGlobalSourcingPricingDefaults(adminClient, provider);
@@ -1087,7 +1117,10 @@ async function prepareJob(adminClient, job) {
     }
 
     if (variantCandidatesWithAttributes.length > 0 && variationPlans.length === 0) {
-      throw createImportError('Unable to calculate landed pricing for any CJ variant on this product', 500);
+      throw createImportError(
+        'Unable to calculate landed pricing for any importable variant on this product',
+        500
+      );
     }
 
     const productAttributes = buildProductAttributesMatrix(variationPlans.map((plan) => plan.variant));
@@ -1244,6 +1277,11 @@ async function prepareJob(adminClient, job) {
     provider,
     cjPid: externalProductId,
     cjVid: shouldCreateVariations ? null : String(existingCursor.selectedVariantId || '').trim() || null,
+    supplierSource,
+    supplierProductId,
+    supplierVariantId:
+      shouldCreateVariations ? null : String(existingCursor.selectedVariantId || '').trim() || null,
+    supplierUrl,
     fulfillmentMode,
     receivingHubId: receivingHub.id,
     receivingHubName: receivingHub.name,
@@ -1393,7 +1431,7 @@ async function prepareVariationProcessing(adminClient, job) {
     );
     const signature = buildAttributeSignature(Array.isArray(variant.attributes) ? variant.attributes : []);
     const matchedVariation =
-      lookup.byCjVid.get(variant.externalVariantId) ||
+      lookup.byExternalVariantId.get(variant.externalVariantId) ||
       (fallbackVariationId
         ? existingVariations.find((existingVariation) => String(existingVariation.id) === fallbackVariationId)
         : null) ||
@@ -1462,6 +1500,10 @@ async function processVariationBatch(adminClient, job) {
       provider: cursor.provider,
       cjPid: cursor.externalProductId,
       cjVid: variant.externalVariantId,
+      supplierSource: payload?.supplier_source || cursor.provider,
+      supplierProductId: payload?.supplier_product_id || cursor.externalProductId,
+      supplierVariantId: variant.externalVariantId,
+      supplierUrl: payload?.supplier_url || null,
       fulfillmentMode: cursor.fulfillmentMode,
       receivingHubId: cursor.receivingHub?.id,
       receivingHubName: cursor.receivingHub?.name,

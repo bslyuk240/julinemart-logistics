@@ -1,12 +1,91 @@
 ﻿import { useState } from 'react';
 import { 
   Settings, Book, Webhook, Key, Database, Server, Code, 
-  ExternalLink, Copy, Check, FileText, Zap, Play
+  ExternalLink, Copy, Check, FileText, Zap, Play, RefreshCw, Loader2, CheckCircle, AlertCircle
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
+import { useCallback, useEffect } from 'react';
 
-type TabType = 'documentation' | 'webhooks' | 'api' | 'database';
+type TabType = 'documentation' | 'webhooks' | 'api' | 'database' | 'global-sourcing';
+
+interface SettingsStatus {
+  configured: boolean;
+  wooConfigured: boolean;
+  checks: Record<string, boolean>;
+  authenticated?: boolean;
+  expires_at?: string;
+}
+
+const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
+
+function formatDate(value?: string | null) {
+  if (!value) return 'Not set';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error ? error.message : fallback;
+}
+
+function endpointCandidates(endpoint: string) {
+  const urls = [`/api/${endpoint}`, `${functionsBase}/${endpoint}`];
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost' && window.location.port !== '8888') {
+    urls.push(`http://localhost:8888/api/${endpoint}`);
+    urls.push(`http://localhost:8888${functionsBase}/${endpoint}`);
+  }
+  return Array.from(new Set(urls));
+}
+
+async function callAdmin<T>(endpoint: string, accessToken: string, init: RequestInit = {}): Promise<T> {
+  const urls = endpointCandidates(endpoint);
+  let lastError: Error | null = null;
+
+  for (let index = 0; index < urls.length; index += 1) {
+    const url = urls[index];
+    const isLast = index === urls.length - 1;
+
+    try {
+      const response = await fetch(url, {
+        ...init,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+          ...(init.headers || {}),
+        },
+      });
+
+      if (response.status === 404 && !isLast) continue;
+
+      const raw = await response.text();
+      let body: Record<string, unknown> = {};
+      try {
+        body = raw ? JSON.parse(raw) : {};
+      } catch {
+        body = raw ? { raw } : {};
+      }
+
+      if (!response.ok) {
+        const detail =
+          typeof body?.details === 'object' && body?.details && 'stage' in body.details
+            ? ` [stage: ${String((body.details as { stage?: unknown }).stage || 'unknown')}]`
+            : '';
+        throw new Error(
+          String(body?.message || body?.error || body?.raw || `Request failed (${response.status})`) +
+            detail
+        );
+      }
+
+      return body as T;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('Request failed');
+      if (isLast) throw lastError;
+    }
+  }
+
+  throw lastError || new Error('Request failed');
+}
 
 export function SettingsPage() {
   const notification = useNotification();
@@ -25,6 +104,7 @@ export function SettingsPage() {
     { id: 'webhooks', label: 'Webhooks', icon: Webhook },
     { id: 'api', label: 'API Reference', icon: Key },
     { id: 'database', label: 'Database', icon: Database },
+    { id: 'global-sourcing', label: 'Global Sourcing', icon: Server },
   ];
 
   return (
@@ -71,6 +151,7 @@ export function SettingsPage() {
         {activeTab === 'webhooks' && <WebhooksTab copyToClipboard={copyToClipboard} copiedItem={copiedItem} />}
         {activeTab === 'api' && <APIReferenceTab copyToClipboard={copyToClipboard} copiedItem={copiedItem} />}
         {activeTab === 'database' && <DatabaseTab copyToClipboard={copyToClipboard} copiedItem={copiedItem} />}
+        {activeTab === 'global-sourcing' && <GlobalSourcingSettingsTab />}
       </div>
     </div>
   );
@@ -763,6 +844,121 @@ function DatabaseTab({ copyToClipboard, copiedItem }: any) {
               <li>Click "Create backup"</li>
             </ol>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GlobalSourcingSettingsTab() {
+  const { session } = useAuth();
+  const notification = useNotification();
+  const [settingsStatus, setSettingsStatus] = useState<SettingsStatus | null>(null);
+  const [loadingSettings, setLoadingSettings] = useState(false);
+  const [testingSettings, setTestingSettings] = useState(false);
+
+  const loadSettingsStatus = useCallback(async () => {
+    if (!session?.access_token) return;
+    setLoadingSettings(true);
+    try {
+      const response = await callAdmin<{ data: SettingsStatus }>('cj-auth', session.access_token, { method: 'GET' });
+      setSettingsStatus(response.data);
+    } catch (error: unknown) {
+      notification.error('Settings failed', getErrorMessage(error, 'Unable to load settings status'));
+    } finally {
+      setLoadingSettings(false);
+    }
+  }, [notification, session?.access_token]);
+
+  const testSettings = useCallback(async () => {
+    if (!session?.access_token) return;
+    setTestingSettings(true);
+    try {
+      const response = await callAdmin<{ data: SettingsStatus }>('cj-auth', session.access_token, { method: 'POST' });
+      setSettingsStatus((current) => ({ ...(current || { configured: false, wooConfigured: false, checks: {} }), ...response.data }));
+      notification.success('CJ ready', 'CJ backend authentication succeeded');
+    } catch (error: unknown) {
+      notification.error('CJ auth failed', getErrorMessage(error, 'Unable to authenticate with CJ'));
+    } finally {
+      setTestingSettings(false);
+    }
+  }, [notification, session?.access_token]);
+
+  useEffect(() => {
+    if (!settingsStatus) {
+      void loadSettingsStatus();
+    }
+  }, [loadSettingsStatus, settingsStatus]);
+
+  return (
+    <div className="space-y-6">
+      <div className="card space-y-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900">Global Sourcing Provider Health</h2>
+            <p className="mt-1 text-sm text-gray-600">
+              Backend-only config checks. No secrets are exposed to agents on the sourcing page.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => void loadSettingsStatus()}
+              className="btn-secondary inline-flex items-center gap-2"
+              disabled={loadingSettings}
+            >
+              {loadingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => void testSettings()}
+              className="btn-primary inline-flex items-center gap-2"
+              disabled={testingSettings}
+            >
+              {testingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+              Test CJ backend authentication
+            </button>
+          </div>
+        </div>
+
+        {settingsStatus ? (
+          <>
+            <div className={`rounded-lg px-4 py-3 text-sm ${settingsStatus.configured ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+              CJ config: {settingsStatus.configured ? 'present' : 'missing'}
+            </div>
+            <div className={`rounded-lg px-4 py-3 text-sm ${settingsStatus.wooConfigured ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+              Woo config: {settingsStatus.wooConfigured ? 'present' : 'missing'}
+            </div>
+            {settingsStatus.authenticated !== undefined ? (
+              <div className="rounded-lg bg-primary-50 px-4 py-3 text-sm text-primary-800">
+                CJ auth: {settingsStatus.authenticated ? 'authenticated' : 'not authenticated'}
+                {settingsStatus.expires_at ? ` · expires ${formatDate(settingsStatus.expires_at)}` : ''}
+              </div>
+            ) : null}
+            <div className="space-y-2">
+              {Object.entries(settingsStatus.checks || {}).map(([key, value]) => (
+                <div key={key} className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3 text-sm">
+                  <span className="font-medium text-gray-700">{key}</span>
+                  <span className={value ? 'text-green-700' : 'text-red-700'}>{value ? 'configured' : 'missing'}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="rounded-lg border border-dashed border-gray-300 px-6 py-10 text-center text-sm text-gray-600">
+            Load settings status to verify backend configuration.
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
+        <div className="flex gap-3">
+          <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
+          <p className="text-sm">
+            Use this tab for admin-only sourcing provider diagnostics. Product import defaults still stay on the Global
+            Sourcing page for day-to-day operations.
+          </p>
         </div>
       </div>
     </div>

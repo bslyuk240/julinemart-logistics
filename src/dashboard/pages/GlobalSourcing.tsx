@@ -295,14 +295,6 @@ function getVariantOptionLabel(variant: ProductVariant, index: number, productTi
     : baseLabel;
 }
 
-interface SettingsStatus {
-  configured: boolean;
-  wooConfigured: boolean;
-  checks: Record<string, boolean>;
-  authenticated?: boolean;
-  expires_at?: string;
-}
-
 interface GlobalSourcingSettingsData {
   provider: string;
   saved: boolean;
@@ -758,9 +750,6 @@ export function GlobalSourcingPage() {
   });
   const [manualSupplierNotes, setManualSupplierNotes] = useState('');
   const [savingManualSupplierOrder, setSavingManualSupplierOrder] = useState(false);
-  const [settingsStatus, setSettingsStatus] = useState<SettingsStatus | null>(null);
-  const [loadingSettings, setLoadingSettings] = useState(false);
-  const [testingSettings, setTestingSettings] = useState(false);
   const [pricingSettings, setPricingSettings] = useState<GlobalSourcingSettingsData | null>(null);
   const [loadingPricingSettings, setLoadingPricingSettings] = useState(false);
   const [savingPricingSettings, setSavingPricingSettings] = useState(false);
@@ -1083,19 +1072,6 @@ export function GlobalSourcingPage() {
     }
   }, [notification, session?.access_token]);
 
-  const loadSettingsStatus = useCallback(async () => {
-    if (!session?.access_token) return;
-    setLoadingSettings(true);
-    try {
-      const response = await callAdmin<{ data: SettingsStatus }>('cj-auth', session.access_token, { method: 'GET' });
-      setSettingsStatus(response.data);
-    } catch (error: unknown) {
-      notification.error('Settings failed', getErrorMessage(error, 'Unable to load settings status'));
-    } finally {
-      setLoadingSettings(false);
-    }
-  }, [notification, session?.access_token]);
-
   const loadPricingSettings = useCallback(async () => {
     if (!session?.access_token) return;
     setLoadingPricingSettings(true);
@@ -1151,7 +1127,6 @@ export function GlobalSourcingPage() {
     if (activeTab === 'source-by-link' && sourceRequests.length === 0) void loadSourceRequests();
     if (activeTab === 'imported-products' && importedProducts.length === 0) void loadImportedProducts();
     if (activeTab === 'inbound-shipments' && shipments.length === 0) void loadShipments();
-    if (activeTab === 'settings' && !settingsStatus) void loadSettingsStatus();
     if (activeTab === 'settings' && !pricingSettings && !loadingPricingSettings) void loadPricingSettings();
   }, [
     activeTab,
@@ -1159,13 +1134,11 @@ export function GlobalSourcingPage() {
     importedProducts.length,
     loadImportedProducts,
     loadPricingSettings,
-    loadSettingsStatus,
     loadShipments,
     loadingPricingSettings,
     sourceRequests.length,
     session?.access_token,
     pricingSettings,
-    settingsStatus,
     shipments.length,
   ]);
 
@@ -1174,20 +1147,6 @@ export function GlobalSourcingPage() {
       current.filter((shipmentId) => shipments.some((shipment) => shipment.id === shipmentId))
     );
   }, [shipments]);
-
-  const testSettings = async () => {
-    if (!session?.access_token) return;
-    setTestingSettings(true);
-    try {
-      const response = await callAdmin<{ data: SettingsStatus }>('cj-auth', session.access_token, { method: 'POST' });
-      setSettingsStatus((current) => ({ ...(current || { configured: false, wooConfigured: false, checks: {} }), ...response.data }));
-      notification.success('CJ ready', 'CJ backend authentication succeeded');
-    } catch (error: unknown) {
-      notification.error('CJ auth failed', getErrorMessage(error, 'Unable to authenticate with CJ'));
-    } finally {
-      setTestingSettings(false);
-    }
-  };
 
   const savePricingSettings = async () => {
     if (!session?.access_token) return;
@@ -2710,47 +2669,13 @@ export function GlobalSourcingPage() {
       ) : null}
 
       {!loadingReferenceData && activeTab === 'settings' ? (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="space-y-6">
           <div className="card space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">Provider Health</h2>
-                <p className="text-sm text-gray-600">Backend-only config checks. No secrets are exposed.</p>
-              </div>
-              <button type="button" onClick={() => void loadSettingsStatus()} className="btn-secondary inline-flex items-center gap-2">
-                {loadingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                Refresh
-              </button>
-            </div>
+            <h2 className="text-lg font-semibold text-gray-900">Admin-Only Diagnostics</h2>
 
-            {settingsStatus ? (
-              <>
-                <div className={`rounded-lg px-4 py-3 text-sm ${settingsStatus.configured ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
-                  CJ config: {settingsStatus.configured ? 'present' : 'missing'}
-                </div>
-                <div className={`rounded-lg px-4 py-3 text-sm ${settingsStatus.wooConfigured ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
-                  Woo config: {settingsStatus.wooConfigured ? 'present' : 'missing'}
-                </div>
-                {settingsStatus.authenticated !== undefined ? (
-                  <div className="rounded-lg bg-primary-50 px-4 py-3 text-sm text-primary-800">
-                    CJ auth: {settingsStatus.authenticated ? 'authenticated' : 'not authenticated'}
-                    {settingsStatus.expires_at ? ` · expires ${formatDate(settingsStatus.expires_at)}` : ''}
-                  </div>
-                ) : null}
-                <div className="space-y-2">
-                  {Object.entries(settingsStatus.checks || {}).map(([key, value]) => (
-                    <div key={key} className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3 text-sm">
-                      <span className="font-medium text-gray-700">{key}</span>
-                      <span className={value ? 'text-green-700' : 'text-red-700'}>{value ? 'configured' : 'missing'}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div className="rounded-lg border border-dashed border-gray-300 px-6 py-10 text-center text-sm text-gray-600">
-                Load settings status to verify backend configuration.
-              </div>
-            )}
+            <div className="rounded-lg border border-dashed border-gray-300 px-6 py-10 text-center text-sm text-gray-600">
+              Provider health and CJ backend authentication checks now live on the Admin Settings page.
+            </div>
           </div>
 
           <div className="card space-y-4 text-sm text-gray-700">
@@ -2848,10 +2773,6 @@ export function GlobalSourcingPage() {
                 </button>
               </div>
             </div>
-            <button type="button" onClick={() => void testSettings()} className="btn-primary inline-flex items-center gap-2" disabled={testingSettings}>
-              {testingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
-              Test CJ backend authentication
-            </button>
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
               <div className="flex gap-3">
                 <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />

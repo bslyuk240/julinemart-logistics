@@ -1,4 +1,5 @@
 import {
+  GLOBAL_SOURCING_ALLOWED_ROLES,
   headers,
   jsonResponse,
   requireAdmin,
@@ -41,7 +42,7 @@ export async function handler(event) {
     return jsonResponse(405, { success: false, error: 'Method not allowed' });
   }
 
-  const auth = await requireAdmin(event, ['admin']);
+  const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
   if (auth.errorResponse) return auth.errorResponse;
 
   try {

@@ -52,6 +52,7 @@ const sharedRoutes = [
   { path: 'rates', element: <ShippingRatesPage /> },
   { path: 'whatsapp', element: <WhatsAppSupportPage /> },
   { path: 'whatsapp/:chatId', element: <WhatsAppChatView /> },
+  { path: 'global-sourcing', element: <GlobalSourcingPage /> },
 ];
 
 // Routes accessible only by admin
@@ -69,7 +70,6 @@ const adminOnlyRoutes = [
   { path: 'settlements', element: <SettlementsPage /> },
   { path: 'activity-logs', element: <ActivityLogsPage /> },
   { path: 'vouchers', element: <VouchersPage /> },
-  { path: 'global-sourcing', element: <GlobalSourcingPage /> },
   { path: 'notifications', element: <NotificationsPage /> },
   { path: 'notifications/new', element: <NotificationsNewPage /> },
   { path: 'notifications/:id', element: <NotificationDetailsPage /> },

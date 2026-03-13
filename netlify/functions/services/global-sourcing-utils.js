@@ -23,6 +23,8 @@ export const headers = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
 };
 
+export const GLOBAL_SOURCING_ALLOWED_ROLES = ['admin', 'agent'];
+
 export function jsonResponse(statusCode, body) {
   return {
     statusCode,

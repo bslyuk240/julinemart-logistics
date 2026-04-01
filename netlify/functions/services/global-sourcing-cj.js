@@ -5,6 +5,7 @@ import {
   isPlainObject,
   mergeGlobalSourcingMetadata,
 } from './global-sourcing-utils.js';
+import { getEffectiveUsdToNgnRate } from './global-sourcing-fx.js';
 import { getCjAccessToken, requestCjJson } from './cjAuth.js';
 import {
   buildOrderDeepLink,
@@ -458,7 +459,6 @@ export async function buildLandedPricingPreview({
   importBufferUsd,
   markupPercent,
   markupFlatNgn,
-  usdToNgnRate,
 }) {
   const normalizedProvider = pickString(provider)?.toLowerCase() || PROVIDER;
   const shouldUseCjFreightQuote =
@@ -487,6 +487,10 @@ export async function buildLandedPricingPreview({
             : Number(estimatedInboundDaysMax),
       };
 
+  const fxRate = await getEffectiveUsdToNgnRate(client, {
+    provider: normalizedProvider,
+  });
+
   const pricing = computeWooNgnPricing({
     sourcePrice,
     sourceCurrency,
@@ -494,7 +498,7 @@ export async function buildLandedPricingPreview({
     importBufferUsd,
     markupPercent,
     markupFlatNgn,
-    usdToNgnRate,
+    usdToNgnRate: fxRate.rate,
   });
 
   return {
@@ -509,6 +513,10 @@ export async function buildLandedPricingPreview({
     import_buffer_usd: Number(pricing.importBufferUsd.toFixed(2)),
     landed_cost_usd: Number(pricing.landedCostUsd.toFixed(2)),
     exchange_rate: pricing.exchangeRate,
+    usd_to_ngn_rate_used: fxRate.rate,
+    usd_to_ngn_rate_source: fxRate.source,
+    fx_rate_fetched_at: fxRate.fetchedAt || null,
+    fx_rate_note: fxRate.note || null,
     markup_percent: pricing.markupPercent,
     markup_flat_ngn: pricing.markupFlatNgn,
     final_price_ngn: pricing.regularPriceWoo,
@@ -535,6 +543,8 @@ export function isUsablePricingPreview(preview, { receivingHubId, externalVarian
     asFiniteNumber(preview.inbound_shipping_quote_usd) !== null &&
     asFiniteNumber(preview.landed_cost_usd) !== null &&
     asFiniteNumber(preview.exchange_rate) !== null &&
+    asFiniteNumber(preview.usd_to_ngn_rate_used) !== null &&
+    pickString(preview.usd_to_ngn_rate_source) !== null &&
     pickString(preview.final_price_ngn) !== null
   );
 }

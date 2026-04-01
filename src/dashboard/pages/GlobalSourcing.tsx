@@ -151,6 +151,25 @@ interface PricingPreview {
   estimated_inbound_days_min?: number | null;
   estimated_inbound_days_max?: number | null;
   carrier_name?: string | null;
+  usd_to_ngn_rate_used?: number;
+  usd_to_ngn_rate_source?: string;
+  fx_rate_fetched_at?: string | null;
+  fx_rate_note?: string | null;
+}
+
+interface FxSettingsData {
+  provider: string;
+  manual_override_enabled: boolean;
+  manual_rate: number | null;
+  manual_rate_note: string | null;
+  live_api_enabled: boolean;
+  last_fetched_rate: number | null;
+  last_fetched_at: string | null;
+  cache_expires_at: string | null;
+  effective_rate: number | null;
+  effective_source: string;
+  effective_fetched_at: string | null;
+  effective_note: string | null;
 }
 
 interface ImportResultData {
@@ -305,6 +324,7 @@ interface GlobalSourcingSettingsData {
     markup_flat_ngn: number | null;
     usd_to_ngn_rate: number | null;
   };
+  fx?: FxSettingsData;
 }
 
 interface ReferenceDataResponse {
@@ -336,6 +356,23 @@ function formatDate(value?: string | null) {
   if (!value) return 'Not set';
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+}
+
+function formatFxSourceLabel(source?: string | null) {
+  switch (String(source || '').trim()) {
+    case 'manual_override':
+      return 'Manual override';
+    case 'cached_api':
+      return 'Cached API';
+    case 'live_api':
+      return 'Live API';
+    case 'env_fallback':
+      return 'Env fallback';
+    case 'hardcoded_fallback':
+      return 'Hardcoded fallback';
+    default:
+      return source || 'Not set';
+  }
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -753,6 +790,11 @@ export function GlobalSourcingPage() {
   const [pricingSettings, setPricingSettings] = useState<GlobalSourcingSettingsData | null>(null);
   const [loadingPricingSettings, setLoadingPricingSettings] = useState(false);
   const [savingPricingSettings, setSavingPricingSettings] = useState(false);
+  const [refreshingFxRate, setRefreshingFxRate] = useState(false);
+  const [fxManualOverrideEnabled, setFxManualOverrideEnabled] = useState(false);
+  const [fxManualRate, setFxManualRate] = useState('');
+  const [fxManualRateNote, setFxManualRateNote] = useState('');
+  const [fxLiveApiEnabled, setFxLiveApiEnabled] = useState(true);
 
   const selectedVariant = useMemo(
     () => productDetails?.variants.find((variant) => variant.external_variant_id === selectedVariantId) || null,
@@ -791,12 +833,20 @@ export function GlobalSourcingPage() {
     const parsed = Number(trimmed);
     return Number.isFinite(parsed) ? parsed : null;
   }, [markupFlatNgn]);
+  const parsedFxManualRate = useMemo(() => {
+    const trimmed = fxManualRate.trim();
+    if (!trimmed) return null;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [fxManualRate]);
   const effectiveImportBufferUsd =
     parsedImportBufferUsd ?? pricingSettings?.values?.import_buffer_usd ?? null;
   const effectiveMarkupPercent =
     parsedMarkupPercent ?? pricingSettings?.values?.markup_percent ?? null;
   const effectiveMarkupFlatNgn =
     parsedMarkupFlatNgn ?? pricingSettings?.values?.markup_flat_ngn ?? null;
+  const effectiveFxRate = pricingSettings?.fx?.effective_rate ?? pricingSettings?.fx?.last_fetched_rate ?? null;
+  const effectiveFxSource = pricingSettings?.fx?.effective_source ?? 'Not set';
 
   const pickDefaultInboundHub = useCallback((hubRows: HubOption[]) => {
     return (
@@ -844,6 +894,31 @@ export function GlobalSourcingPage() {
             : ''
           : current
       );
+    },
+    []
+  );
+
+  const applyFxSettingsToForm = useCallback(
+    (settings: GlobalSourcingSettingsData, force = false) => {
+      const fx = settings.fx || null;
+      if (!fx) return;
+
+      setFxManualOverrideEnabled(fx.manual_override_enabled);
+      setFxManualRate((current) =>
+        force || !current.trim()
+          ? fx.manual_rate !== null
+            ? String(fx.manual_rate)
+            : ''
+          : current
+      );
+      setFxManualRateNote((current) =>
+        force || !current.trim()
+          ? fx.manual_rate_note !== null
+            ? String(fx.manual_rate_note)
+            : ''
+          : current
+      );
+      setFxLiveApiEnabled(fx.live_api_enabled);
     },
     []
   );
@@ -1083,6 +1158,7 @@ export function GlobalSourcingPage() {
       );
       setPricingSettings(response.data);
       applyPricingDefaultsToForm(response.data, false);
+      applyFxSettingsToForm(response.data, false);
     } catch (error: unknown) {
       notification.error(
         'Pricing defaults failed',
@@ -1091,7 +1167,7 @@ export function GlobalSourcingPage() {
     } finally {
       setLoadingPricingSettings(false);
     }
-  }, [applyPricingDefaultsToForm, notification, session?.access_token]);
+  }, [applyFxSettingsToForm, applyPricingDefaultsToForm, notification, session?.access_token]);
 
   useEffect(() => {
     if (!session?.access_token) return;
@@ -1150,6 +1226,13 @@ export function GlobalSourcingPage() {
 
   const savePricingSettings = async () => {
     if (!session?.access_token) return;
+    if (fxManualOverrideEnabled && parsedFxManualRate === null) {
+      notification.error(
+        'FX settings required',
+        'Enter a manual USD → NGN rate before enabling manual override'
+      );
+      return;
+    }
     setSavingPricingSettings(true);
     try {
       const response = await callAdmin<{ data: GlobalSourcingSettingsData }>(
@@ -1162,12 +1245,17 @@ export function GlobalSourcingPage() {
             markup_percent: parsedMarkupPercent,
             markup_flat_ngn: parsedMarkupFlatNgn,
             usd_to_ngn_rate: pricingSettings?.values?.usd_to_ngn_rate ?? null,
+            manual_override_enabled: fxManualOverrideEnabled,
+            manual_rate: parsedFxManualRate,
+            manual_rate_note: fxManualRateNote.trim() || null,
+            live_api_enabled: fxLiveApiEnabled,
           }),
         }
       );
       setPricingSettings(response.data);
       applyPricingDefaultsToForm(response.data, true);
-      notification.success('Saved', 'Global Sourcing pricing defaults updated');
+      applyFxSettingsToForm(response.data, true);
+      notification.success('Saved', 'Global Sourcing settings updated');
     } catch (error: unknown) {
       notification.error(
         'Save failed',
@@ -1175,6 +1263,35 @@ export function GlobalSourcingPage() {
       );
     } finally {
       setSavingPricingSettings(false);
+    }
+  };
+
+  const refreshFxRate = async () => {
+    if (!session?.access_token) return;
+    setRefreshingFxRate(true);
+    try {
+      const response = await callAdmin<{ data: GlobalSourcingSettingsData; note?: string | null }>(
+        'global-sourcing-settings',
+        session.access_token,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'refresh_fx_rate',
+          }),
+        }
+      );
+      setPricingSettings(response.data);
+      applyPricingDefaultsToForm(response.data, true);
+      applyFxSettingsToForm(response.data, true);
+      if (response.note) {
+        notification.warning('FX refreshed with cache warning', response.note);
+      } else {
+        notification.success('FX refreshed', 'Fetched and cached the latest live USD → NGN rate');
+      }
+    } catch (error: unknown) {
+      notification.error('FX refresh failed', getErrorMessage(error, 'Unable to fetch the latest live rate'));
+    } finally {
+      setRefreshingFxRate(false);
     }
   };
 
@@ -2107,7 +2224,14 @@ export function GlobalSourcingPage() {
                     <p className="mt-1">Inbound shipping: USD {pricingPreview.inbound_shipping_quote_usd}</p>
                     <p className="mt-1">Import buffer: USD {pricingPreview.import_buffer_usd}</p>
                     <p className="mt-1">Landed cost: USD {pricingPreview.landed_cost_usd}</p>
-                    <p className="mt-1">Exchange rate: {pricingPreview.exchange_rate}</p>
+                    <p className="mt-1">Exchange rate: {pricingPreview.usd_to_ngn_rate_used ?? pricingPreview.exchange_rate}</p>
+                    <p className="mt-1">FX source: {formatFxSourceLabel(pricingPreview.usd_to_ngn_rate_source)}</p>
+                    <p className="mt-1">FX fetched: {formatDate(pricingPreview.fx_rate_fetched_at)}</p>
+                    {pricingPreview.fx_rate_note ? (
+                      <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        FX note: {pricingPreview.fx_rate_note}
+                      </p>
+                    ) : null}
                     <p className="mt-1">Final NGN price: ₦{pricingPreview.final_price_ngn}</p>
                     <p className="mt-1 font-medium text-green-700">
                       Estimated profit: ₦
@@ -2682,6 +2806,7 @@ export function GlobalSourcingPage() {
             <h2 className="text-lg font-semibold text-gray-900">Operational Notes</h2>
             <p>Products remain in WooCommerce. Vendor ownership is resolved from the existing JLO vendors table.</p>
             <p>Inbound shipment state is stored in JLO without changing the existing last-mile delivery enum.</p>
+
             <div className="rounded-lg border border-gray-200 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -2701,20 +2826,14 @@ export function GlobalSourcingPage() {
                   className="btn-secondary inline-flex items-center gap-2"
                   disabled={loadingPricingSettings}
                 >
-                  {loadingPricingSettings ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4" />
-                  )}
+                  {loadingPricingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                   Refresh
                 </button>
               </div>
 
               <div className="mt-4 grid gap-3 md:grid-cols-3">
                 <label className="block">
-                  <span className="mb-2 block text-sm font-medium text-gray-700">
-                    Default Buffer (USD)
-                  </span>
+                  <span className="mb-2 block text-sm font-medium text-gray-700">Default Buffer (USD)</span>
                   <input
                     value={importBufferUsd}
                     onChange={(event) => setImportBufferUsd(event.target.value)}
@@ -2724,9 +2843,7 @@ export function GlobalSourcingPage() {
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-2 block text-sm font-medium text-gray-700">
-                    Default Markup %
-                  </span>
+                  <span className="mb-2 block text-sm font-medium text-gray-700">Default Markup %</span>
                   <input
                     value={markupPercent}
                     onChange={(event) => setMarkupPercent(event.target.value)}
@@ -2736,9 +2853,7 @@ export function GlobalSourcingPage() {
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-2 block text-sm font-medium text-gray-700">
-                    Default Flat Markup (NGN)
-                  </span>
+                  <span className="mb-2 block text-sm font-medium text-gray-700">Default Flat Markup (NGN)</span>
                   <input
                     value={markupFlatNgn}
                     onChange={(event) => setMarkupFlatNgn(event.target.value)}
@@ -2748,6 +2863,119 @@ export function GlobalSourcingPage() {
                   />
                 </label>
               </div>
+            </div>
+
+            <div className="rounded-lg border border-gray-200 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-gray-900">FX Rate Control</h3>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Manual override takes precedence over the provider rate. If live FX fetch is disabled, the quote flow falls back to cache, env, or the project default.
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Current provider: exchangerate.host
+                  </p>
+                  {pricingSettings?.fx?.effective_note ? (
+                    <p className="mt-1 text-xs text-amber-700">{pricingSettings.fx.effective_note}</p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void refreshFxRate()}
+                  className="btn-secondary inline-flex items-center gap-2"
+                  disabled={refreshingFxRate}
+                >
+                  {refreshingFxRate ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                  Fetch latest live rate
+                </button>
+              </div>
+
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                    <div className="flex items-start gap-3">
+                      <input
+                        id="fx-manual-override"
+                        type="checkbox"
+                        checked={fxManualOverrideEnabled}
+                        onChange={(event) => setFxManualOverrideEnabled(event.target.checked)}
+                        className="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      />
+                      <label htmlFor="fx-manual-override" className="block">
+                        <span className="block text-sm font-medium text-gray-900">Enable manual USD → NGN override</span>
+                        <span className="mt-1 block text-xs text-gray-500">
+                          Use this when operational pricing should follow a business rate instead of the live market rate.
+                        </span>
+                      </label>
+                    </div>
+                    <div className="mt-4">
+                      <label className="block">
+                        <span className="mb-2 block text-sm font-medium text-gray-700">Manual USD → NGN rate</span>
+                        <input
+                          value={fxManualRate}
+                          onChange={(event) => setFxManualRate(event.target.value)}
+                          className="w-full rounded-lg border border-gray-300 px-4 py-3"
+                          inputMode="decimal"
+                          placeholder="Enter override rate"
+                          required={fxManualOverrideEnabled}
+                        />
+                      </label>
+                    </div>
+                    <div className="mt-4">
+                      <label className="block">
+                        <span className="mb-2 block text-sm font-medium text-gray-700">Override note</span>
+                        <textarea
+                          value={fxManualRateNote}
+                          onChange={(event) => setFxManualRateNote(event.target.value)}
+                          className="min-h-[92px] w-full rounded-lg border border-gray-300 px-4 py-3"
+                          placeholder="Parallel market rate / bank rate / emergency pricing override"
+                        />
+                      </label>
+                    </div>
+                    <div className="mt-4 flex items-start gap-3">
+                      <input
+                        id="fx-live-api-enabled"
+                        type="checkbox"
+                        checked={fxLiveApiEnabled}
+                        onChange={(event) => setFxLiveApiEnabled(event.target.checked)}
+                        className="mt-1 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      />
+                      <label htmlFor="fx-live-api-enabled" className="block">
+                        <span className="block text-sm font-medium text-gray-900">Enable live FX fetch</span>
+                        <span className="mt-1 block text-xs text-gray-500">
+                          Disable this to keep the system in manual-only or cached-only mode.
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                    <p className="text-sm font-semibold text-gray-900">Live rate</p>
+                    <div className="mt-2 space-y-1 text-sm text-gray-700">
+                      <p>Last fetched rate: {pricingSettings?.fx?.last_fetched_rate ?? 'Not fetched yet'}</p>
+                      <p>Last fetched time: {formatDate(pricingSettings?.fx?.last_fetched_at)}</p>
+                      <p>Cache expiry: {formatDate(pricingSettings?.fx?.cache_expires_at)}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                    <p className="text-sm font-semibold text-gray-900">Effective rate</p>
+                    <div className="mt-2 space-y-1 text-sm text-gray-700">
+                      <p>Current effective rate: {effectiveFxRate ?? 'Not set'}</p>
+                      <p>Source: {formatFxSourceLabel(effectiveFxSource)}</p>
+                      <p>Effective fetched at: {formatDate(pricingSettings?.fx?.effective_fetched_at)}</p>
+                    </div>
+                  </div>
+
+                  {fxManualOverrideEnabled ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                      Manual override is enabled, so it takes precedence over cached and live FX rates.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
 
               <div className="mt-4 flex flex-wrap gap-3">
                 <button
@@ -2756,12 +2984,8 @@ export function GlobalSourcingPage() {
                   className="btn-primary inline-flex items-center gap-2"
                   disabled={savingPricingSettings}
                 >
-                  {savingPricingSettings ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <CheckCircle className="h-4 w-4" />
-                  )}
-                  Save Pricing Defaults
+                  {savingPricingSettings ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                  Save Settings
                 </button>
                 <button
                   type="button"
@@ -2773,6 +2997,7 @@ export function GlobalSourcingPage() {
                 </button>
               </div>
             </div>
+
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
               <div className="flex gap-3">
                 <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />

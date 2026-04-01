@@ -219,6 +219,8 @@ final_sell_price_ngn =
 - `_inbound_shipping_snapshot_usd`
 - `_landed_cost_snapshot_usd`
 - `_usd_to_ngn_rate_snapshot`
+- `_usd_to_ngn_rate_source_snapshot`
+- `_fx_rate_fetched_at_snapshot`
 - `_final_price_snapshot_ngn`
 - `_global_sourcing_pricing_mode`
 - `_landed_cost_snapshot`
@@ -381,6 +383,12 @@ Pricing and hub defaults:
 - `GLOBAL_SOURCING_MARKUP_FLAT_NGN`
 - `GLOBAL_SOURCING_DEFAULT_COUNTRY_CODE`
 - `GLOBAL_SOURCING_DEFAULT_COUNTRY_NAME`
+
+FX provider and cache:
+
+- `EXCHANGERATE_API_KEY`
+- `EXCHANGERATE_API_BASE_URL`
+- `FX_RATE_CACHE_MINUTES`
 
 Optional auth override:
 

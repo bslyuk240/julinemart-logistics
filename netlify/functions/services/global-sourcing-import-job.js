@@ -621,6 +621,10 @@ function buildDerivedVariantPricingPreview({
     import_buffer_usd: Number(pricing.importBufferUsd.toFixed(2)),
     landed_cost_usd: Number(pricing.landedCostUsd.toFixed(2)),
     exchange_rate: pricing.exchangeRate,
+    usd_to_ngn_rate_used: anchorPreview.usd_to_ngn_rate_used ?? pricing.exchangeRate,
+    usd_to_ngn_rate_source: anchorPreview.usd_to_ngn_rate_source || 'cached_api',
+    fx_rate_fetched_at: anchorPreview.fx_rate_fetched_at || null,
+    fx_rate_note: anchorPreview.fx_rate_note || null,
     markup_percent: pricing.markupPercent,
     markup_flat_ngn: pricing.markupFlatNgn,
     final_price_ngn: pricing.regularPriceWoo,
@@ -902,6 +906,9 @@ function buildCompletionResult(cursor) {
       import_buffer_usd: cursor.pricingPreview?.import_buffer_usd ?? null,
       landed_cost_usd: cursor.pricingPreview?.landed_cost_usd ?? null,
       exchange_rate: cursor.pricingPreview?.exchange_rate ?? null,
+      usd_to_ngn_rate_used: cursor.pricingPreview?.usd_to_ngn_rate_used ?? null,
+      usd_to_ngn_rate_source: cursor.pricingPreview?.usd_to_ngn_rate_source ?? null,
+      fx_rate_fetched_at: cursor.pricingPreview?.fx_rate_fetched_at ?? null,
       markup_percent: cursor.pricingPreview?.markup_percent ?? null,
       markup_flat_ngn: cursor.pricingPreview?.markup_flat_ngn ?? null,
       regular_price_ngn: cursor.pricingPreview?.final_price_ngn ?? null,
@@ -1074,10 +1081,15 @@ async function prepareJob(adminClient, job) {
 
     const pricingDefaults = await loadGlobalSourcingPricingDefaults(adminClient, provider);
     const variantPricingConfig = {
-      importBufferUsd: pricingPreview.import_buffer_usd ?? pricingDefaults.values?.import_buffer_usd ?? null,
+      importBufferUsd:
+        pricingPreview.import_buffer_usd ?? pricingDefaults.values?.import_buffer_usd ?? null,
       markupPercent: pricingPreview.markup_percent ?? pricingDefaults.values?.markup_percent ?? null,
       markupFlatNgn: pricingPreview.markup_flat_ngn ?? pricingDefaults.values?.markup_flat_ngn ?? null,
-      usdToNgnRate: pricingPreview.exchange_rate ?? pricingDefaults.values?.usd_to_ngn_rate ?? null,
+      usdToNgnRate:
+        pricingPreview.usd_to_ngn_rate_used ??
+        pricingPreview.exchange_rate ??
+        pricingDefaults.values?.usd_to_ngn_rate ??
+        null,
     };
     const importWarnings = [];
     const variationPlans = [];
@@ -1295,7 +1307,9 @@ async function prepareJob(adminClient, job) {
     supplierPriceSnapshotUsd: pricingPreview.supplier_price_usd,
     inboundShippingSnapshotUsd: pricingPreview.inbound_shipping_quote_usd,
     landedCostSnapshotUsd: pricingPreview.landed_cost_usd,
-    usdToNgnRateSnapshot: pricingPreview.exchange_rate,
+    usdToNgnRateSnapshot: pricingPreview.usd_to_ngn_rate_used ?? pricingPreview.exchange_rate,
+    usdToNgnRateSourceSnapshot: pricingPreview.usd_to_ngn_rate_source,
+    fxRateFetchedAtSnapshot: pricingPreview.fx_rate_fetched_at || undefined,
     finalPriceSnapshotNgn: pricingPreview.final_price_ngn,
     pricingMode: 'landed',
     vendorId: vendorMapping.id,
@@ -1519,7 +1533,10 @@ async function processVariationBatch(adminClient, job) {
       supplierPriceSnapshotUsd: variantPricingPreview.supplier_price_usd,
       inboundShippingSnapshotUsd: variantPricingPreview.inbound_shipping_quote_usd,
       landedCostSnapshotUsd: variantPricingPreview.landed_cost_usd,
-      usdToNgnRateSnapshot: variantPricingPreview.exchange_rate,
+      usdToNgnRateSnapshot:
+        variantPricingPreview.usd_to_ngn_rate_used ?? variantPricingPreview.exchange_rate,
+      usdToNgnRateSourceSnapshot: variantPricingPreview.usd_to_ngn_rate_source,
+      fxRateFetchedAtSnapshot: variantPricingPreview.fx_rate_fetched_at || undefined,
       finalPriceSnapshotNgn: variantPricingPreview.final_price_ngn,
       pricingMode: 'landed',
       vendorId: cursor.vendorMapping?.id,

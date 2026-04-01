@@ -1309,6 +1309,8 @@ export function buildGlobalSourcingMeta({
   landedCostSnapshotUsd,
   supplierPriceSnapshotUsd,
   usdToNgnRateSnapshot,
+  usdToNgnRateSourceSnapshot,
+  fxRateFetchedAtSnapshot,
   finalPriceSnapshotNgn,
   pricingMode,
   vendorId,
@@ -1390,6 +1392,12 @@ export function buildGlobalSourcingMeta({
       : {}),
     ...(usdToNgnRateSnapshot !== undefined
       ? { _usd_to_ngn_rate_snapshot: String(usdToNgnRateSnapshot) }
+      : {}),
+    ...(usdToNgnRateSourceSnapshot !== undefined
+      ? { _usd_to_ngn_rate_source_snapshot: String(usdToNgnRateSourceSnapshot) }
+      : {}),
+    ...(fxRateFetchedAtSnapshot !== undefined
+      ? { _fx_rate_fetched_at_snapshot: String(fxRateFetchedAtSnapshot) }
       : {}),
     ...(finalPriceSnapshotNgn !== undefined
       ? { _final_price_snapshot_ngn: String(finalPriceSnapshotNgn) }

@@ -39,6 +39,10 @@ function getEnvFallbackRate() {
   return explicitEnvRate ?? null;
 }
 
+function hasExchangeRateApiKey() {
+  return Boolean(String(process.env.EXCHANGERATE_API_KEY || '').trim());
+}
+
 function normalizeRow(data, provider = DEFAULT_PROVIDER) {
   return {
     provider,
@@ -201,6 +205,10 @@ export async function getEffectiveUsdToNgnRate(
     notes.push('Manual override is enabled but no manual rate is configured.');
   }
 
+  if (!hasExchangeRateApiKey()) {
+    notes.push('ExchangeRate Host API key is not configured.');
+  }
+
   if (!forceRefresh && isCacheValid(settings)) {
     return {
       rate: asFiniteNumber(fx.last_fetched_rate),
@@ -260,6 +268,21 @@ export async function getEffectiveUsdToNgnRate(
 }
 
 export async function refreshGlobalSourcingUsdToNgnRate(client, provider = DEFAULT_PROVIDER) {
+  if (!hasExchangeRateApiKey()) {
+    const fallback = await getEffectiveUsdToNgnRate(client, {
+      provider,
+      forceRefresh: false,
+      requireFreshRate: false,
+    });
+
+    return {
+      ...fallback,
+      note: [fallback.note, 'ExchangeRate Host API key is not configured.']
+        .filter(Boolean)
+        .join(' '),
+    };
+  }
+
   const liveRate = await tryFetchLiveRate();
   const cacheDurationMs = getCacheDurationMs();
   const cacheExpiresAt = new Date(Date.now() + cacheDurationMs).toISOString();

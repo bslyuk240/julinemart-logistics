@@ -164,6 +164,45 @@ function hasImages(html: string): boolean {
   return /<img[\s>]/i.test(html);
 }
 
+/** Extract all <img …> tags from an HTML string */
+function extractImgTags(html: string): string {
+  return (html.match(/<img[^>]*\/?>/gi) || []).join('\n');
+}
+
+/** Remove all <img …> tags from an HTML string */
+function stripImgTags(html: string): string {
+  return html.replace(/<img[^>]*\/?>/gi, '');
+}
+
+/** Convert HTML to editable plain text (preserves line structure, decodes entities) */
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** Convert plain text back to simple HTML paragraphs, then append preserved img tags */
+function plainTextToHtml(text: string, imgHtml: string): string {
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((para) => para.trim())
+    .filter(Boolean)
+    .map((para) => `<p>${para.replace(/\n/g, '<br />')}</p>`)
+    .join('\n');
+  return imgHtml ? `${paragraphs}\n${imgHtml}` : paragraphs;
+}
+
 function formatNgn(price: string): string {
   if (!price) return '—';
   const n = Number(price);
@@ -221,8 +260,10 @@ export function ProductModerationPage() {
   // Image viewer
   const [imageIndex, setImageIndex] = useState(0);
 
-  // Description HTML edit toggle
-  const [descHtmlMode, setDescHtmlMode] = useState(false);
+  // Description edit mode: 'text' = plain-text editor, 'html' = raw HTML editor, 'preview' = rendered view
+  const [descMode, setDescMode] = useState<'text' | 'html' | 'preview'>('text');
+  // Extracted <img> tags preserved separately so plain-text editing doesn't destroy them
+  const [descImages, setDescImages] = useState('');
 
   // Actions
   const [saving, setSaving] = useState(false);
@@ -310,7 +351,8 @@ export function ProductModerationPage() {
       setActionSuccess(null);
       setActiveTab('info');
       setImageIndex(0);
-      setDescHtmlMode(false);
+      setDescMode('text');
+      setDescImages('');
       setDetailLoading(true);
       try {
         const res = await fetch(`/.netlify/functions/product-moderation-detail?id=${id}`, {
@@ -320,9 +362,12 @@ export function ProductModerationPage() {
         if (!json.success) throw new Error(json.message || json.error);
         const d: ProductDetail = json.data;
         setDetail(d);
+        // Extract embedded images so plain-text editing doesn't destroy them
+        const imgs = extractImgTags(d.description);
+        setDescImages(imgs);
         setEdit({
           name: d.name,
-          description: d.description,
+          description: htmlToPlainText(stripImgTags(d.description)),
           short_description: stripHtml(d.short_description),
           regular_price: d.regular_price,
           sale_price: d.sale_price,
@@ -402,10 +447,16 @@ export function ProductModerationPage() {
   // ── Build save payload ──────────────────────────────────────────────────────
   const buildPayload = (publish = false) => {
     if (!detail || !edit) return null;
+    // Reconstruct final HTML: in 'text' mode combine plain text + preserved img tags;
+    // in 'html' mode the raw HTML is already in edit.description.
+    const finalDescription =
+      descMode === 'html'
+        ? edit.description
+        : plainTextToHtml(edit.description, descImages);
     return {
       woo_product_id: detail.id,
       name: edit.name,
-      description: edit.description,
+      description: finalDescription,
       short_description: edit.short_description,
       regular_price: edit.regular_price,
       sale_price: edit.sale_price,
@@ -747,21 +798,45 @@ export function ProductModerationPage() {
                       <div className="flex items-center justify-between mb-1">
                         <label className="text-sm font-medium text-gray-700">Full Description</label>
                         <div className="flex items-center gap-2">
-                          {hasImages(edit.description) && !descHtmlMode && (
+                          {descImages && (
                             <span className="text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
-                              ✓ Contains images
+                              ✓ Images preserved
                             </span>
                           )}
-                          <button
-                            type="button"
-                            onClick={() => setDescHtmlMode((v) => !v)}
-                            className="text-xs text-primary-600 hover:underline"
-                          >
-                            {descHtmlMode ? 'Preview' : 'Edit HTML'}
-                          </button>
+                          {/* Mode toggle pills */}
+                          <div className="flex rounded-md border border-gray-200 overflow-hidden text-xs">
+                            {(['text', 'html', 'preview'] as const).map((mode) => (
+                              <button
+                                key={mode}
+                                type="button"
+                                onClick={() => {
+                                  if (mode === descMode) return;
+                                  if (mode === 'html') {
+                                    // Switch to HTML: rebuild full HTML from current text + images
+                                    setField('description', plainTextToHtml(edit.description, descImages));
+                                    setDescImages('');
+                                  } else if (mode === 'text') {
+                                    // Switch to text: extract images from current HTML, show plain text
+                                    const imgs = extractImgTags(edit.description);
+                                    setDescImages(imgs);
+                                    setField('description', htmlToPlainText(stripImgTags(edit.description)));
+                                  }
+                                  setDescMode(mode);
+                                }}
+                                className={`px-2 py-1 capitalize transition-colors ${
+                                  descMode === mode
+                                    ? 'bg-primary-600 text-white'
+                                    : 'bg-white text-gray-600 hover:bg-gray-50'
+                                }`}
+                              >
+                                {mode === 'text' ? 'Plain Text' : mode === 'html' ? 'HTML' : 'Preview'}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                      {descHtmlMode ? (
+
+                      {descMode === 'html' ? (
                         <textarea
                           value={edit.description}
                           onChange={(e) => setField('description', e.target.value)}
@@ -770,11 +845,22 @@ export function ProductModerationPage() {
                           placeholder="HTML description"
                           spellCheck={false}
                         />
+                      ) : descMode === 'text' ? (
+                        <textarea
+                          value={edit.description}
+                          onChange={(e) => setField('description', e.target.value)}
+                          rows={12}
+                          className={`${inputCls} resize-y`}
+                          placeholder="Type the product description here. Images embedded by CJ are automatically preserved."
+                        />
                       ) : (
+                        /* Preview mode — reconstruct full HTML with images for display */
                         <div
                           className="w-full min-h-32 border border-gray-200 rounded-lg p-3 text-sm text-gray-700 overflow-auto prose prose-sm max-w-none bg-gray-50"
                           style={{ maxHeight: '420px' }}
-                          dangerouslySetInnerHTML={{ __html: edit.description || '<span class="text-gray-400">No description</span>' }}
+                          dangerouslySetInnerHTML={{
+                            __html: plainTextToHtml(edit.description, descImages) || '<span class="text-gray-400">No description</span>',
+                          }}
                         />
                       )}
                     </div>

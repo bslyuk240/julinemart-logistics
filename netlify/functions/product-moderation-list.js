@@ -28,24 +28,32 @@ export async function handler(event) {
       extractMetaValue(p.meta_data, ['_global_sourcing_provider', 'global_sourcing_provider'])
     );
 
-    // Collect JLO vendor UUIDs for Supabase lookup
+    // Collect JLO vendor UUIDs + hub UUIDs for Supabase lookup
     const jloVendorIds = new Set();
+    const hubIds = new Set();
     moderationList.forEach((p) => {
       const vid = extractMetaValue(p.meta_data, ['_jlo_vendor_id', 'vendor_id', '_vendor_id']);
+      const hid = extractMetaValue(p.meta_data, ['_receiving_hub_id', 'receiving_hub_id', '_julinemart_hub_id', '_hub_id', 'hub_id']);
       if (vid && vid.includes('-')) jloVendorIds.add(vid);
+      if (hid && hid.includes('-')) hubIds.add(hid);
     });
 
     let vendorMap = new Map();
-    if (jloVendorIds.size > 0) {
-      const { data } = await auth.adminClient
-        .from('vendors')
-        .select('id, store_name, woocommerce_vendor_id')
-        .in('id', Array.from(jloVendorIds));
-      if (data) data.forEach((v) => vendorMap.set(v.id, v));
-    }
+    let hubMap = new Map();
+    const [vendorRes, hubRes] = await Promise.all([
+      jloVendorIds.size > 0
+        ? auth.adminClient.from('vendors').select('id, store_name, woocommerce_vendor_id').in('id', Array.from(jloVendorIds))
+        : Promise.resolve({ data: [] }),
+      hubIds.size > 0
+        ? auth.adminClient.from('hubs').select('id, name, code').in('id', Array.from(hubIds))
+        : Promise.resolve({ data: [] }),
+    ]);
+    if (vendorRes.data) vendorRes.data.forEach((v) => vendorMap.set(v.id, v));
+    if (hubRes.data) hubRes.data.forEach((h) => hubMap.set(h.id, h));
 
     const normalized = moderationList.map((p) => {
       const jloVendorId = extractMetaValue(p.meta_data, ['_jlo_vendor_id', 'vendor_id', '_vendor_id']);
+      const hubId = extractMetaValue(p.meta_data, ['_receiving_hub_id', 'receiving_hub_id', '_julinemart_hub_id', '_hub_id', 'hub_id']);
       const wooVendorId =
         extractMetaValue(p.meta_data, ['_wcfm_vendor_id', '_woocommerce_vendor_id', 'wcfm_vendor_id']) ||
         (p.author ? String(p.author) : null);
@@ -54,19 +62,16 @@ export async function handler(event) {
         id: p.id,
         name: p.name,
         status: p.status,
-        description: p.description || '',
-        short_description: p.short_description || '',
         regular_price: p.regular_price || '',
-        sale_price: p.sale_price || '',
         images: (p.images || []).map((img) => ({ id: img.id, src: img.src, alt: img.alt || '' })),
-        permalink: p.permalink || null,
         provider: extractMetaValue(p.meta_data, ['_global_sourcing_provider', 'global_sourcing_provider']),
         cj_pid: extractMetaValue(p.meta_data, ['_cj_pid', 'cj_pid', '_supplier_product_id', 'supplier_product_id']),
         jlo_vendor_id: jloVendorId || null,
         woo_vendor_id: wooVendorId,
         vendor: jloVendorId && vendorMap.has(jloVendorId) ? vendorMap.get(jloVendorId) : null,
+        hub_id: hubId || null,
+        hub: hubId && hubMap.has(hubId) ? hubMap.get(hubId) : null,
         date_created: p.date_created || null,
-        date_modified: p.date_modified || null,
       };
     });
 

@@ -24,17 +24,23 @@ export async function handler(event) {
       requestWoo(`/products/${encodeURIComponent(id)}/variations?per_page=100`).catch(() => []),
     ]);
 
-    // Resolve JLO vendor from Supabase
+    // Resolve JLO vendor + hub from Supabase in parallel
     const jloVendorId = extractMetaValue(product.meta_data, ['_jlo_vendor_id', 'vendor_id', '_vendor_id']);
-    let vendor = null;
-    if (jloVendorId && jloVendorId.includes('-')) {
-      const { data } = await auth.adminClient
-        .from('vendors')
-        .select('id, store_name, woocommerce_vendor_id')
-        .eq('id', jloVendorId)
-        .single();
-      vendor = data || null;
-    }
+    const hubId = extractMetaValue(product.meta_data, [
+      '_receiving_hub_id', 'receiving_hub_id', '_julinemart_hub_id', '_hub_id', 'hub_id',
+    ]);
+
+    const [vendorResult, hubResult] = await Promise.all([
+      jloVendorId && jloVendorId.includes('-')
+        ? auth.adminClient.from('vendors').select('id, store_name, woocommerce_vendor_id').eq('id', jloVendorId).single()
+        : Promise.resolve({ data: null }),
+      hubId && hubId.includes('-')
+        ? auth.adminClient.from('hubs').select('id, name, code').eq('id', hubId).single()
+        : Promise.resolve({ data: null }),
+    ]);
+
+    const vendor = vendorResult.data || null;
+    const hub = hubResult.data || null;
 
     const variations = Array.isArray(variationsRaw)
       ? variationsRaw.map((v) => ({
@@ -99,6 +105,8 @@ export async function handler(event) {
           extractMetaValue(product.meta_data, ['_wcfm_vendor_id', '_woocommerce_vendor_id', 'wcfm_vendor_id']) ||
           (product.author ? String(product.author) : null),
         vendor,
+        hub_id: hubId || null,
+        hub,
         // Pricing snapshots (read-only reference)
         meta_pricing: {
           supplier_price_usd: extractMetaValue(product.meta_data, ['_supplier_price_snapshot_usd']),

@@ -46,6 +46,8 @@ export async function handler(event) {
       attributes,
       // Vendor
       vendor_id,
+      // Hub
+      hub_id,
       // Variations batch update
       variations,
       // Publish flag
@@ -59,21 +61,30 @@ export async function handler(event) {
       return jsonResponse(403, { success: false, error: 'Only admins can publish products' });
     }
 
-    // Resolve vendor from Supabase if provided
+    // Resolve vendor + hub from Supabase in parallel
     let wooVendorId = null;
     let vendorRecord = null;
-    if (vendor_id) {
-      const { data, error } = await auth.adminClient
-        .from('vendors')
-        .select('id, store_name, woocommerce_vendor_id')
-        .eq('id', vendor_id)
-        .single();
-      if (error || !data) {
-        return jsonResponse(400, { success: false, error: 'Vendor not found' });
-      }
-      vendorRecord = data;
-      wooVendorId = data.woocommerce_vendor_id;
+    let hubRecord = null;
+
+    const [vendorResult, hubResult] = await Promise.all([
+      vendor_id
+        ? auth.adminClient.from('vendors').select('id, store_name, woocommerce_vendor_id').eq('id', vendor_id).single()
+        : Promise.resolve({ data: null, error: null }),
+      hub_id
+        ? auth.adminClient.from('hubs').select('id, name, code').eq('id', hub_id).single()
+        : Promise.resolve({ data: null, error: null }),
+    ]);
+
+    if (vendor_id && (vendorResult.error || !vendorResult.data)) {
+      return jsonResponse(400, { success: false, error: 'Vendor not found' });
     }
+    if (hub_id && (hubResult.error || !hubResult.data)) {
+      return jsonResponse(400, { success: false, error: 'Hub not found' });
+    }
+
+    vendorRecord = vendorResult.data || null;
+    hubRecord = hubResult.data || null;
+    wooVendorId = vendorRecord?.woocommerce_vendor_id || null;
 
     // ── Build WooCommerce product payload ──────────────────────────────────
     const payload = {};
@@ -138,6 +149,18 @@ export async function handler(event) {
         { key: '_vendor_id', value: vendor_id }
       );
     }
+    if (hub_id && hubRecord) {
+      metaEntries.push(
+        { key: '_receiving_hub_id', value: hub_id },
+        { key: 'receiving_hub_id', value: hub_id },
+        { key: '_julinemart_hub_id', value: hub_id },
+        { key: '_hub_id', value: hub_id },
+        { key: 'hub_id', value: hub_id },
+        { key: '_julinemart_hub_name', value: hubRecord.name },
+        { key: '_hub_name', value: hubRecord.name },
+        { key: 'hub_name', value: hubRecord.name }
+      );
+    }
     if (metaEntries.length > 0) payload.meta_data = metaEntries;
 
     // ── Update product ─────────────────────────────────────────────────────
@@ -183,6 +206,7 @@ export async function handler(event) {
         regular_price: updated.regular_price,
         permalink: updated.permalink || null,
         vendor: vendorRecord,
+        hub: hubRecord,
       },
       message: publish ? 'Product published successfully' : 'Product saved',
     });

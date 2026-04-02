@@ -59,6 +59,12 @@ interface Vendor {
   woocommerce_vendor_id: string;
 }
 
+interface Hub {
+  id: string;
+  name: string;
+  code: string;
+}
+
 interface ProductDetail {
   id: number;
   name: string;
@@ -86,6 +92,8 @@ interface ProductDetail {
   jlo_vendor_id: string | null;
   woo_vendor_id: string | null;
   vendor: Vendor | null;
+  hub_id: string | null;
+  hub: Hub | null;
   meta_pricing: {
     supplier_price_usd: string | null;
     landed_cost_usd: string | null;
@@ -103,6 +111,7 @@ interface ListProduct {
   cj_pid: string | null;
   jlo_vendor_id: string | null;
   vendor: Vendor | null;
+  hub: Hub | null;
 }
 
 interface EditVariation {
@@ -133,6 +142,7 @@ interface EditState {
   category_ids: number[];
   tag_ids: number[];
   vendor_id: string;
+  hub_id: string;
   variations: EditVariation[];
 }
 
@@ -195,8 +205,9 @@ export function ProductModerationPage() {
   const [wcMeta, setWcMeta] = useState<WcMeta>({ categories: [], tags: [], shippingClasses: [] });
   const [wcMetaLoading, setWcMetaLoading] = useState(false);
 
-  // Vendors
+  // Vendors & Hubs
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [hubs, setHubs] = useState<Hub[]>([]);
 
   // Edit state
   const [edit, setEdit] = useState<EditState | null>(null);
@@ -264,15 +275,16 @@ export function ProductModerationPage() {
     load();
   }, [getAuthHeader]);
 
-  // ── Fetch vendors ───────────────────────────────────────────────────────────
+  // ── Fetch vendors + hubs ────────────────────────────────────────────────────
   useEffect(() => {
     const load = async () => {
       try {
-        const { data } = await supabase
-          .from('vendors')
-          .select('id, store_name, woocommerce_vendor_id')
-          .order('store_name');
-        setVendors(data || []);
+        const [vendorRes, hubRes] = await Promise.all([
+          supabase.from('vendors').select('id, store_name, woocommerce_vendor_id').order('store_name'),
+          supabase.from('hubs').select('id, name, code').order('name'),
+        ]);
+        setVendors(vendorRes.data || []);
+        setHubs(hubRes.data || []);
       } catch {
         // non-critical
       }
@@ -318,6 +330,7 @@ export function ProductModerationPage() {
           category_ids: d.categories.map((c) => c.id),
           tag_ids: d.tags.map((t) => t.id),
           vendor_id: d.jlo_vendor_id || '',
+          hub_id: d.hub_id || '',
           variations: d.variations.map((v) => ({
             id: v.id,
             regular_price: v.regular_price,
@@ -398,6 +411,7 @@ export function ProductModerationPage() {
       categories: edit.category_ids.map((id) => ({ id })),
       tags: edit.tag_ids.map((id) => ({ id })),
       vendor_id: edit.vendor_id || undefined,
+      hub_id: edit.hub_id || undefined,
       variations: edit.variations.length > 0 ? edit.variations : undefined,
       publish,
     };
@@ -423,7 +437,7 @@ export function ProductModerationPage() {
       setListProducts((prev) =>
         prev.map((p) =>
           p.id === detail.id
-            ? { ...p, name: edit.name, regular_price: edit.regular_price, vendor: json.data.vendor || p.vendor }
+            ? { ...p, name: edit.name, regular_price: edit.regular_price, vendor: json.data.vendor || p.vendor, hub: json.data.hub || p.hub }
             : p
         )
       );
@@ -476,7 +490,7 @@ export function ProductModerationPage() {
       { id: 'media' as Tab, label: 'Media' },
       { id: 'variations' as Tab, label: `Variations${isVariable ? ` (${detail?.variations.length ?? 0})` : ''}`, hidden: !isVariable },
       { id: 'taxonomy' as Tab, label: 'Categories & Tags' },
-      { id: 'vendor' as Tab, label: 'Vendor' },
+      { id: 'vendor' as Tab, label: 'Assignment' },
     ] as Array<{ id: Tab; label: string; hidden?: boolean }>
   ).filter((t) => !t.hidden);
 
@@ -559,6 +573,11 @@ export function ProductModerationPage() {
                           ) : (
                             <span className="text-xs px-1.5 py-0.5 bg-yellow-50 text-yellow-700 rounded">
                               No vendor
+                            </span>
+                          )}
+                          {p.hub && (
+                            <span className="text-xs px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded">
+                              {p.hub.code}
                             </span>
                           )}
                         </div>
@@ -1137,47 +1156,84 @@ export function ProductModerationPage() {
 
                 {/* ── VENDOR ── */}
                 {activeTab === 'vendor' && (
-                  <div className="space-y-5 max-w-md">
-                    <Field label="Assign Vendor">
-                      <select
-                        value={edit.vendor_id}
-                        onChange={(e) => setField('vendor_id', e.target.value)}
-                        className={selectCls}
-                      >
-                        <option value="">— No vendor assigned —</option>
-                        {vendors.map((v) => (
-                          <option key={v.id} value={v.id}>
-                            {v.store_name} (WC #{v.woocommerce_vendor_id})
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
+                  <div className="space-y-6 max-w-md">
 
-                    {/* Current assignment */}
-                    <div className="p-4 bg-gray-50 rounded-lg text-sm space-y-1">
-                      <p className="font-medium text-gray-700">Current assignment</p>
-                      {detail.vendor ? (
-                        <>
-                          <p className="text-gray-600">
-                            Store: <span className="font-medium">{detail.vendor.store_name}</span>
+                    {/* Hub */}
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-gray-800 border-b border-gray-200 pb-2">
+                        Receiving Hub
+                      </h3>
+                      <Field label="Assign Hub">
+                        <select
+                          value={edit.hub_id}
+                          onChange={(e) => setField('hub_id', e.target.value)}
+                          className={selectCls}
+                        >
+                          <option value="">— No hub assigned —</option>
+                          {hubs.map((h) => (
+                            <option key={h.id} value={h.id}>
+                              {h.name} ({h.code})
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <div className="p-3 bg-gray-50 rounded-lg text-sm">
+                        {detail.hub ? (
+                          <p className="text-gray-700">
+                            Current: <span className="font-medium">{detail.hub.name}</span>
+                            <span className="ml-1 text-gray-500">({detail.hub.code})</span>
                           </p>
-                          <p className="text-gray-600">
-                            WC vendor ID: <span className="font-mono">{detail.vendor.woocommerce_vendor_id}</span>
+                        ) : detail.hub_id ? (
+                          <p className="text-yellow-700">Hub ID set but not resolved: <span className="font-mono text-xs">{detail.hub_id}</span></p>
+                        ) : (
+                          <p className="text-yellow-600">No hub assigned</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Vendor */}
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-gray-800 border-b border-gray-200 pb-2">
+                        Vendor Store
+                      </h3>
+                      <Field label="Assign Vendor">
+                        <select
+                          value={edit.vendor_id}
+                          onChange={(e) => setField('vendor_id', e.target.value)}
+                          className={selectCls}
+                        >
+                          <option value="">— No vendor assigned —</option>
+                          {vendors.map((v) => (
+                            <option key={v.id} value={v.id}>
+                              {v.store_name} (WC #{v.woocommerce_vendor_id})
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <div className="p-3 bg-gray-50 rounded-lg text-sm">
+                        {detail.vendor ? (
+                          <>
+                            <p className="text-gray-700">
+                              Store: <span className="font-medium">{detail.vendor.store_name}</span>
+                            </p>
+                            <p className="text-gray-500 text-xs mt-0.5">
+                              WC vendor ID: {detail.vendor.woocommerce_vendor_id}
+                            </p>
+                          </>
+                        ) : detail.woo_vendor_id ? (
+                          <p className="text-gray-600 text-xs">
+                            WC vendor ID: <span className="font-mono">{detail.woo_vendor_id}</span>{' '}
+                            <span className="text-yellow-600">(not mapped in JLO)</span>
                           </p>
-                        </>
-                      ) : detail.woo_vendor_id ? (
-                        <p className="text-gray-600">
-                          WC vendor ID: <span className="font-mono">{detail.woo_vendor_id}</span>{' '}
-                          <span className="text-yellow-600">(not mapped in JLO)</span>
-                        </p>
-                      ) : (
-                        <p className="text-yellow-600">No vendor assigned yet</p>
-                      )}
+                        ) : (
+                          <p className="text-yellow-600">No vendor assigned</p>
+                        )}
+                      </div>
                     </div>
 
                     {!isAdmin && (
                       <p className="text-xs text-gray-500 bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2">
-                        Only admins can publish. You can assign a vendor and save the draft for admin review.
+                        Only admins can publish. Assign hub + vendor and save the draft for admin review.
                       </p>
                     )}
                   </div>

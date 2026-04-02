@@ -21,7 +21,8 @@ import {
   Megaphone,
   Ticket,
   BellRing,
-  Search
+  Search,
+  ClipboardCheck
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
 import { BrandLogo } from '../../shared/BrandLogo';
@@ -56,6 +57,7 @@ const navigation = [
   { name: 'Shipping Discounts', href: '/admin/discounts', icon: Percent, roles: ['admin'] },
   { name: 'Vouchers', href: '/admin/vouchers', icon: Ticket, roles: ['admin'] },
   { name: 'Global Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['admin', 'agent'] },
+  { name: 'Product Moderation', href: '/admin/products/moderation', icon: ClipboardCheck, roles: ['admin', 'agent'] },
   { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },
   { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
   { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },

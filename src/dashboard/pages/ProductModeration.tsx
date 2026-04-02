@@ -277,9 +277,9 @@ export function ProductModerationPage() {
     return `Bearer ${data.session?.access_token || ''}`;
   }, []);
 
-  // ── Fetch list ──────────────────────────────────────────────────────────────
+  // ── Fetch list (with 1 auto-retry on network/timeout errors) ───────────────
   const fetchList = useCallback(
-    async (p: number) => {
+    async (p: number, attempt = 1) => {
       setListLoading(true);
       setListError(null);
       try {
@@ -287,12 +287,27 @@ export function ProductModerationPage() {
           `/.netlify/functions/product-moderation-list?page=${p}&per_page=30`,
           { headers: { Authorization: await getAuthHeader() } }
         );
+        if (res.status === 401) throw new Error('Session expired — please refresh the page');
+        if (res.status === 403) throw new Error('Access denied');
+        if (res.status === 504 || res.status === 502) throw new Error('__timeout__');
         const json = await res.json();
-        if (!json.success) throw new Error(json.message || json.error);
+        if (!json.success) throw new Error(json.message || json.error || `Server error (${res.status})`);
         setListProducts(json.data);
         setHasMore(json.data.length === 30);
       } catch (err: unknown) {
-        setListError(err instanceof Error ? err.message : 'Failed to load');
+        const msg = err instanceof Error ? err.message : 'Failed to load';
+        // Auto-retry once on timeout/network failure
+        if ((msg === '__timeout__' || msg === 'Failed to fetch') && attempt < 2) {
+          setTimeout(() => fetchList(p, 2), 2000);
+          return;
+        }
+        setListError(
+          msg === '__timeout__'
+            ? 'Request timed out — WooCommerce is slow to respond. Click Refresh to try again.'
+            : msg === 'Failed to fetch'
+            ? 'Network error — check your connection and click Refresh.'
+            : msg
+        );
       } finally {
         setListLoading(false);
       }
@@ -358,8 +373,10 @@ export function ProductModerationPage() {
         const res = await fetch(`/.netlify/functions/product-moderation-detail?id=${id}`, {
           headers: { Authorization: await getAuthHeader() },
         });
+        if (res.status === 401) throw new Error('Session expired — please refresh the page');
+        if (res.status === 504 || res.status === 502) throw new Error('Request timed out — WooCommerce is slow. Try again in a moment.');
         const json = await res.json();
-        if (!json.success) throw new Error(json.message || json.error);
+        if (!json.success) throw new Error(json.message || json.error || `Server error (${res.status})`);
         const d: ProductDetail = json.data;
         setDetail(d);
         // Extract embedded images so plain-text editing doesn't destroy them

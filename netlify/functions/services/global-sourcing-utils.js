@@ -447,7 +447,18 @@ export async function updateWordPressProductAuthor(productId, authorId) {
   // Use the dedicated JLO mu-plugin endpoint which directly calls wp_update_post()
   // to set post_author. The standard WP REST /wp/v2/product endpoint does not exist
   // because WooCommerce registers products with show_in_rest=false.
-  const responseBody = await requestWordPress('/jlo/v1/set-product-author', {
+  //
+  // requestWordPress() appends paths to its rootUrl which already ends in /wp/v2,
+  // so we must pass the full absolute URL to avoid /wp-json/wp/v2/jlo/v1/...
+  const { baseUrl } = getWooConfig();
+  const wpJsonIndex = baseUrl.toLowerCase().indexOf('/wp-json/');
+  const wpJsonBase =
+    wpJsonIndex >= 0
+      ? baseUrl.slice(0, wpJsonIndex) + '/wp-json'
+      : baseUrl.replace(/\/+$/, '') + '/wp-json';
+  const endpointUrl = `${wpJsonBase}/jlo/v1/set-product-author`;
+
+  const responseBody = await requestWordPress(endpointUrl, {
     method: 'POST',
     body: JSON.stringify({
       product_id: Number(normalizedProductId),

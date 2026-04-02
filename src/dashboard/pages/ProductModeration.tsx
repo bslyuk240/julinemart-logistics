@@ -468,16 +468,18 @@ export function ProductModerationPage() {
 
   // ─── Tabs config ─────────────────────────────────────────────────────────────
   const isVariable = detail?.type === 'variable';
-  const tabs: { id: Tab; label: string; hidden?: boolean }[] = [
-    { id: 'info', label: 'Info' },
-    { id: 'pricing', label: 'Pricing' },
-    { id: 'stock', label: 'Stock' },
-    { id: 'shipping', label: 'Shipping' },
-    { id: 'media', label: 'Media' },
-    { id: 'variations', label: `Variations${isVariable ? ` (${detail?.variations.length ?? 0})` : ''}`, hidden: !isVariable },
-    { id: 'taxonomy', label: 'Categories & Tags' },
-    { id: 'vendor', label: 'Vendor' },
-  ].filter((t) => !t.hidden);
+  const tabs = (
+    [
+      { id: 'info' as Tab, label: 'Info' },
+      { id: 'pricing' as Tab, label: 'Pricing' },
+      { id: 'stock' as Tab, label: 'Stock' },
+      { id: 'shipping' as Tab, label: 'Shipping' },
+      { id: 'media' as Tab, label: 'Media' },
+      { id: 'variations' as Tab, label: `Variations${isVariable ? ` (${detail?.variations.length ?? 0})` : ''}`, hidden: !isVariable },
+      { id: 'taxonomy' as Tab, label: 'Categories & Tags' },
+      { id: 'vendor' as Tab, label: 'Vendor' },
+    ] as Array<{ id: Tab; label: string; hidden?: boolean }>
+  ).filter((t) => !t.hidden);
 
   // ─── Render ──────────────────────────────────────────────────────────────────
   return (

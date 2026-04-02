@@ -122,6 +122,18 @@
   included_files = ["netlify/functions/services/**"]
   external_node_modules = ["pdfkit"]
 
+[functions."product-moderation-list"]
+  timeout = 30
+
+[functions."product-moderation-detail"]
+  timeout = 30
+
+[functions."product-moderation-update"]
+  timeout = 30
+
+[functions."product-moderation-meta"]
+  timeout = 20
+
 # -------------------------------------------------
 # EDGE FUNCTIONS
 # -------------------------------------------------

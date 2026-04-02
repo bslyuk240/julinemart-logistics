@@ -13,6 +13,7 @@ import {
   normalizeProductTitle,
   requestWoo,
   resolveVendorMapping,
+  updateWordPressProductAuthor,
   uploadRemoteImageToWordPress,
 } from './global-sourcing-utils.js';
 import {
@@ -983,6 +984,18 @@ async function finalizeImportedProduct(cursor) {
 
 async function completeJob(adminClient, job, cursor) {
   const finalizedCursor = await finalizeImportedProduct(cursor);
+
+  // Set WordPress post_author so the product appears under the correct vendor
+  // store in WCFM. Must use the WP REST API via our mu-plugin — WooCommerce's
+  // own REST API silently ignores the author field.
+  const productId = finalizedCursor?.productSummary?.id;
+  const wooVendorId = finalizedCursor?.vendorMapping?.woocommerce_vendor_id;
+  if (productId && wooVendorId) {
+    updateWordPressProductAuthor(productId, wooVendorId).catch((e) => {
+      console.warn('[import-job] updateWordPressProductAuthor failed:', e?.message);
+    });
+  }
+
   const result = buildCompletionResult(finalizedCursor);
   const completed = await updateJobRow(adminClient, job.id, {
     status: 'completed',

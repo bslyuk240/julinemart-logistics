@@ -154,6 +154,49 @@ interface WcMeta {
 
 type Tab = 'info' | 'pricing' | 'stock' | 'shipping' | 'media' | 'variations' | 'taxonomy' | 'vendor';
 
+// ─── List cache (sessionStorage, 5-minute TTL) ────────────────────────────────
+// Prevents re-hitting WooCommerce on every page navigation/tab switch.
+// Cache is invalidated automatically after 5 minutes, or immediately when
+// a product is published/saved (so the list stays accurate).
+
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function cacheKey(page: number) {
+  return `jlo_mod_list_p${page}`;
+}
+
+function readListCache(page: number): { data: ListProduct[]; hasMore: boolean } | null {
+  try {
+    const raw = sessionStorage.getItem(cacheKey(page));
+    if (!raw) return null;
+    const { data, hasMore, ts } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL_MS) {
+      sessionStorage.removeItem(cacheKey(page));
+      return null;
+    }
+    return { data, hasMore };
+  } catch {
+    return null;
+  }
+}
+
+function writeListCache(page: number, data: ListProduct[], hasMore: boolean) {
+  try {
+    sessionStorage.setItem(cacheKey(page), JSON.stringify({ data, hasMore, ts: Date.now() }));
+  } catch {
+    // sessionStorage full or unavailable — ignore
+  }
+}
+
+function bustListCache() {
+  try {
+    const keys = Object.keys(sessionStorage).filter((k) => k.startsWith('jlo_mod_list_'));
+    keys.forEach((k) => sessionStorage.removeItem(k));
+  } catch {
+    // ignore
+  }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function stripHtml(html: string): string {
@@ -277,9 +320,19 @@ export function ProductModerationPage() {
     return `Bearer ${data.session?.access_token || ''}`;
   }, []);
 
-  // ── Fetch list (with 1 auto-retry on network/timeout errors) ───────────────
+  // ── Fetch list (cached, with 1 auto-retry on network/timeout errors) ─────────
   const fetchList = useCallback(
-    async (p: number, attempt = 1) => {
+    async (p: number, { force = false, attempt = 1 }: { force?: boolean; attempt?: number } = {}) => {
+      // Serve from sessionStorage cache if available and not forcing refresh
+      if (!force) {
+        const cached = readListCache(p);
+        if (cached) {
+          setListProducts(cached.data);
+          setHasMore(cached.hasMore);
+          setListLoading(false);
+          return;
+        }
+      }
       setListLoading(true);
       setListError(null);
       try {
@@ -292,13 +345,15 @@ export function ProductModerationPage() {
         if (res.status === 504 || res.status === 502) throw new Error('__timeout__');
         const json = await res.json();
         if (!json.success) throw new Error(json.message || json.error || `Server error (${res.status})`);
+        const more = json.data.length === 10;
         setListProducts(json.data);
-        setHasMore(json.data.length === 10);
+        setHasMore(more);
+        writeListCache(p, json.data, more);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to load';
         // Auto-retry once on timeout/network failure
         if ((msg === '__timeout__' || msg === 'Failed to fetch') && attempt < 2) {
-          setTimeout(() => fetchList(p, 2), 2000);
+          setTimeout(() => fetchList(p, { force, attempt: 2 }), 2000);
           return;
         }
         setListError(
@@ -509,14 +564,16 @@ export function ProductModerationPage() {
       if (!json.success) throw new Error(json.message || json.error);
       setActionSuccess('Saved');
       setDirty(false);
-      // Sync list entry
-      setListProducts((prev) =>
-        prev.map((p) =>
+      // Update list entry in place and write back to cache
+      setListProducts((prev) => {
+        const updated = prev.map((p) =>
           p.id === detail.id
             ? { ...p, name: edit.name, regular_price: edit.regular_price, vendor: json.data.vendor || p.vendor, hub: json.data.hub || p.hub }
             : p
-        )
-      );
+        );
+        writeListCache(page, updated, hasMore);
+        return updated;
+      });
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -545,6 +602,8 @@ export function ProductModerationPage() {
       if (!json.success) throw new Error(json.message || json.error);
       setActionSuccess('Published');
       setDirty(false);
+      // Remove from list and bust all cached pages so count stays accurate
+      bustListCache();
       setListProducts((prev) => prev.filter((p) => p.id !== detail.id));
       setDetail(null);
       setEdit(null);
@@ -580,7 +639,7 @@ export function ProductModerationPage() {
           <p className="text-sm text-gray-500 mt-1">Review and publish CJ-imported draft products</p>
         </div>
         <button
-          onClick={() => fetchList(page)}
+          onClick={() => { bustListCache(); fetchList(page, { force: true }); }}
           disabled={listLoading}
           className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
         >

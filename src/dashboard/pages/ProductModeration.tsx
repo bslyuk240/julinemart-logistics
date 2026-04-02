@@ -284,7 +284,7 @@ export function ProductModerationPage() {
       setListError(null);
       try {
         const res = await fetch(
-          `/.netlify/functions/product-moderation-list?page=${p}&per_page=30`,
+          `/.netlify/functions/product-moderation-list?page=${p}&per_page=10`,
           { headers: { Authorization: await getAuthHeader() } }
         );
         if (res.status === 401) throw new Error('Session expired — please refresh the page');
@@ -293,7 +293,7 @@ export function ProductModerationPage() {
         const json = await res.json();
         if (!json.success) throw new Error(json.message || json.error || `Server error (${res.status})`);
         setListProducts(json.data);
-        setHasMore(json.data.length === 30);
+        setHasMore(json.data.length === 10);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to load';
         // Auto-retry once on timeout/network failure

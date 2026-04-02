@@ -18,10 +18,20 @@ export async function handler(event) {
 
   try {
     const page = Math.max(Number(event.queryStringParameters?.page || 1), 1);
-    const perPage = Math.min(Math.max(Number(event.queryStringParameters?.per_page || 50), 1), 100);
+    // Hard-cap at 10 per page — WooCommerce on shared hosting is resource-intensive.
+    // Fetching too many products at once spikes server CPU/memory and takes the
+    // storefront offline. 10 is safe without overloading the server.
+    const perPage = Math.min(Math.max(Number(event.queryStringParameters?.per_page || 10), 1), 10);
+
+    // Request only the fields we actually need for the list view.
+    // This dramatically reduces the PHP processing and response payload on WC.
+    const fields = [
+      'id', 'name', 'status', 'regular_price', 'images', 'author',
+      'meta_data', 'date_created',
+    ].join(',');
 
     const products = await requestWoo(
-      `/products?status=draft&per_page=${perPage}&page=${page}&orderby=date&order=desc`
+      `/products?status=draft&per_page=${perPage}&page=${page}&orderby=date&order=desc&_fields=${fields}`
     );
     const list = Array.isArray(products) ? products : [];
 

@@ -18,34 +18,46 @@ export async function handler(event) {
   if (!id) return jsonResponse(400, { success: false, error: 'id is required' });
 
   try {
-    // Fetch product and variations in parallel
+    // ── Fetch product + variations from WooCommerce ──────────────────────
     const [product, variationsRaw] = await Promise.all([
       requestWoo(`/products/${encodeURIComponent(id)}`),
       requestWoo(`/products/${encodeURIComponent(id)}/variations?per_page=100`).catch(() => []),
     ]);
 
-    // Resolve JLO vendor + hub from Supabase in parallel
-    const jloVendorId = extractMetaValue(product.meta_data, ['_jlo_vendor_id', 'vendor_id', '_vendor_id']);
-    const hubId = extractMetaValue(product.meta_data, [
+    const metaData = Array.isArray(product.meta_data) ? product.meta_data : [];
+
+    // ── Extract IDs from meta ────────────────────────────────────────────
+    const jloVendorId = extractMetaValue(metaData, ['_jlo_vendor_id', '_vendor_id']) || null;
+    const hubId = extractMetaValue(metaData, [
       '_receiving_hub_id', 'receiving_hub_id', '_julinemart_hub_id', '_hub_id', 'hub_id',
-    ]);
+    ]) || null;
 
-    const [vendorResult, hubResult] = await Promise.all([
-      jloVendorId && jloVendorId.includes('-')
-        ? auth.adminClient.from('vendors').select('id, store_name, woocommerce_vendor_id').eq('id', jloVendorId).single()
-        : Promise.resolve({ data: null }),
-      hubId && hubId.includes('-')
-        ? auth.adminClient.from('hubs').select('id, name, code').eq('id', hubId).single()
-        : Promise.resolve({ data: null }),
-    ]);
+    // ── Resolve vendor + hub from Supabase (non-fatal) ───────────────────
+    const isUuid = (v) => typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v);
 
-    const vendor = vendorResult.data || null;
-    const hub = hubResult.data || null;
+    let vendor = null;
+    let hub = null;
 
+    try {
+      const [vendorRes, hubRes] = await Promise.all([
+        isUuid(jloVendorId)
+          ? auth.adminClient.from('vendors').select('id, store_name, woocommerce_vendor_id').eq('id', jloVendorId).maybeSingle()
+          : Promise.resolve({ data: null }),
+        isUuid(hubId)
+          ? auth.adminClient.from('hubs').select('id, name, code').eq('id', hubId).maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
+      vendor = vendorRes?.data || null;
+      hub = hubRes?.data || null;
+    } catch (_e) {
+      // Non-fatal — continue without enriched vendor/hub names
+    }
+
+    // ── Normalise variations ─────────────────────────────────────────────
     const variations = Array.isArray(variationsRaw)
       ? variationsRaw.map((v) => ({
           id: v.id,
-          status: v.status,
+          status: v.status || 'publish',
           sku: v.sku || '',
           regular_price: v.regular_price || '',
           sale_price: v.sale_price || '',
@@ -61,9 +73,9 @@ export async function handler(event) {
       success: true,
       data: {
         id: product.id,
-        name: product.name,
-        type: product.type,
-        status: product.status,
+        name: product.name || '',
+        type: product.type || 'simple',
+        status: product.status || 'draft',
         description: product.description || '',
         short_description: product.short_description || '',
         sku: product.sku || '',
@@ -98,21 +110,20 @@ export async function handler(event) {
         })),
         variations,
         permalink: product.permalink || null,
-        provider: extractMetaValue(product.meta_data, ['_global_sourcing_provider', 'global_sourcing_provider']),
-        cj_pid: extractMetaValue(product.meta_data, ['_cj_pid', 'cj_pid', '_supplier_product_id']),
-        jlo_vendor_id: jloVendorId || null,
+        provider: extractMetaValue(metaData, ['_global_sourcing_provider', 'global_sourcing_provider']),
+        cj_pid: extractMetaValue(metaData, ['_cj_pid', 'cj_pid', '_supplier_product_id']),
+        jlo_vendor_id: jloVendorId,
         woo_vendor_id:
-          extractMetaValue(product.meta_data, ['_wcfm_vendor_id', '_woocommerce_vendor_id', 'wcfm_vendor_id']) ||
+          extractMetaValue(metaData, ['_wcfm_vendor_id', '_woocommerce_vendor_id', 'wcfm_vendor_id']) ||
           (product.author ? String(product.author) : null),
         vendor,
-        hub_id: hubId || null,
+        hub_id: hubId,
         hub,
-        // Pricing snapshots (read-only reference)
         meta_pricing: {
-          supplier_price_usd: extractMetaValue(product.meta_data, ['_supplier_price_snapshot_usd']),
-          landed_cost_usd: extractMetaValue(product.meta_data, ['_landed_cost_snapshot_usd']),
-          exchange_rate: extractMetaValue(product.meta_data, ['_usd_to_ngn_rate_snapshot']),
-          inbound_shipping_usd: extractMetaValue(product.meta_data, ['_inbound_shipping_snapshot_usd']),
+          supplier_price_usd: extractMetaValue(metaData, ['_supplier_price_snapshot_usd']),
+          landed_cost_usd: extractMetaValue(metaData, ['_landed_cost_snapshot_usd']),
+          exchange_rate: extractMetaValue(metaData, ['_usd_to_ngn_rate_snapshot']),
+          inbound_shipping_usd: extractMetaValue(metaData, ['_inbound_shipping_snapshot_usd']),
         },
       },
     });
@@ -120,7 +131,7 @@ export async function handler(event) {
     return jsonResponse(error?.statusCode || 500, {
       success: false,
       error: 'Failed to load product detail',
-      message: error?.message,
+      message: error?.message || String(error),
       details: error?.responseBody || null,
     });
   }

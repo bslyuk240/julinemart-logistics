@@ -160,6 +160,10 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]*>/g, '');
 }
 
+function hasImages(html: string): boolean {
+  return /<img[\s>]/i.test(html);
+}
+
 function formatNgn(price: string): string {
   if (!price) return '—';
   const n = Number(price);
@@ -216,6 +220,9 @@ export function ProductModerationPage() {
 
   // Image viewer
   const [imageIndex, setImageIndex] = useState(0);
+
+  // Description HTML edit toggle
+  const [descHtmlMode, setDescHtmlMode] = useState(false);
 
   // Actions
   const [saving, setSaving] = useState(false);
@@ -303,6 +310,7 @@ export function ProductModerationPage() {
       setActionSuccess(null);
       setActiveTab('info');
       setImageIndex(0);
+      setDescHtmlMode(false);
       setDetailLoading(true);
       try {
         const res = await fetch(`/.netlify/functions/product-moderation-detail?id=${id}`, {
@@ -314,7 +322,7 @@ export function ProductModerationPage() {
         setDetail(d);
         setEdit({
           name: d.name,
-          description: stripHtml(d.description),
+          description: d.description,
           short_description: stripHtml(d.short_description),
           regular_price: d.regular_price,
           sale_price: d.sale_price,
@@ -735,14 +743,41 @@ export function ProductModerationPage() {
                         placeholder="Brief product summary shown in listings"
                       />
                     </Field>
-                    <Field label="Full Description">
-                      <textarea
-                        value={edit.description}
-                        onChange={(e) => setField('description', e.target.value)}
-                        rows={10}
-                        className={`${inputCls} resize-y`}
-                      />
-                    </Field>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-sm font-medium text-gray-700">Full Description</label>
+                        <div className="flex items-center gap-2">
+                          {hasImages(edit.description) && !descHtmlMode && (
+                            <span className="text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded-full">
+                              ✓ Contains images
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setDescHtmlMode((v) => !v)}
+                            className="text-xs text-primary-600 hover:underline"
+                          >
+                            {descHtmlMode ? 'Preview' : 'Edit HTML'}
+                          </button>
+                        </div>
+                      </div>
+                      {descHtmlMode ? (
+                        <textarea
+                          value={edit.description}
+                          onChange={(e) => setField('description', e.target.value)}
+                          rows={12}
+                          className={`${inputCls} resize-y font-mono text-xs`}
+                          placeholder="HTML description"
+                          spellCheck={false}
+                        />
+                      ) : (
+                        <div
+                          className="w-full min-h-32 border border-gray-200 rounded-lg p-3 text-sm text-gray-700 overflow-auto prose prose-sm max-w-none bg-gray-50"
+                          style={{ maxHeight: '420px' }}
+                          dangerouslySetInnerHTML={{ __html: edit.description || '<span class="text-gray-400">No description</span>' }}
+                        />
+                      )}
+                    </div>
                     {/* CJ pricing reference */}
                     {(detail.meta_pricing.supplier_price_usd || detail.meta_pricing.landed_cost_usd) && (
                       <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg text-sm space-y-1">

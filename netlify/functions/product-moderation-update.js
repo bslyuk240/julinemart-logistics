@@ -4,6 +4,7 @@ import {
   jsonResponse,
   requestWoo,
   requireAdmin,
+  updateWordPressProductAuthor,
 } from './services/global-sourcing-utils.js';
 
 export async function handler(event) {
@@ -129,7 +130,6 @@ export async function handler(event) {
     // ── Vendor meta ────────────────────────────────────────────────────────
     const metaEntries = [];
     if (wooVendorId) {
-      payload.author = Number(wooVendorId);
       metaEntries.push(
         { key: '_wcfm_vendor_id', value: String(wooVendorId) },
         { key: 'wcfm_vendor_id', value: String(wooVendorId) },
@@ -191,6 +191,15 @@ export async function handler(event) {
     }
 
     const [updated] = await Promise.all(updatePromises);
+
+    // ── Set WordPress post_author so the product appears under the vendor ──
+    // WooCommerce REST API does not expose post_author — must go through the
+    // WordPress REST API. Non-fatal: log but don't fail the whole request.
+    if (wooVendorId) {
+      updateWordPressProductAuthor(woo_product_id, wooVendorId).catch((e) => {
+        console.warn('[moderation-update] updateWordPressProductAuthor failed:', e?.message);
+      });
+    }
 
     return jsonResponse(200, {
       success: true,

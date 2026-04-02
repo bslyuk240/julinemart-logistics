@@ -74,7 +74,7 @@ export async function handler(event) {
         name: p.name || '',
         status: p.status || 'draft',
         regular_price: p.regular_price || '',
-        images: (p.images || []).map((img) => ({ id: img.id, src: img.src, alt: img.alt || '' })),
+        images: (p.images || []).filter(Boolean).map((img) => ({ id: img.id, src: img.src, alt: img.alt || '' })),
         provider: extractMetaValue(meta, ['_global_sourcing_provider', 'global_sourcing_provider']),
         cj_pid: extractMetaValue(meta, ['_cj_pid', 'cj_pid', '_supplier_product_id', 'supplier_product_id']),
         jlo_vendor_id: jloVendorId,

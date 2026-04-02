@@ -94,7 +94,7 @@ export async function handler(event) {
         shipping_class_id: product.shipping_class_id ?? null,
         catalog_visibility: product.catalog_visibility || 'visible',
         purchase_note: product.purchase_note || '',
-        images: (product.images || []).map((img) => ({
+        images: (product.images || []).filter(Boolean).map((img) => ({
           id: img.id,
           src: img.src,
           alt: img.alt || '',

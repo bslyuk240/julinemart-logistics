@@ -15,8 +15,6 @@ export async function handler(event) {
   const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
   if (auth.errorResponse) return auth.errorResponse;
 
-  const isAdmin = auth.user?.role === 'admin';
-
   try {
     const body = JSON.parse(event.body || '{}');
     const {
@@ -56,9 +54,6 @@ export async function handler(event) {
 
     if (!woo_product_id) {
       return jsonResponse(400, { success: false, error: 'woo_product_id is required' });
-    }
-    if (publish && !isAdmin) {
-      return jsonResponse(403, { success: false, error: 'Only admins can publish products' });
     }
 
     // Resolve vendor + hub from Supabase in parallel

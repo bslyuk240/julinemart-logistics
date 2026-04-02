@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '../../lib/supabase';
 import {
   AlertCircle,
   CheckCircle,
@@ -213,7 +214,6 @@ export function ProductModerationPage() {
 
   // ── Auth header ─────────────────────────────────────────────────────────────
   const getAuthHeader = useCallback(async (): Promise<string> => {
-    const { supabase } = await import('../../lib/supabase');
     const { data } = await supabase.auth.getSession();
     return `Bearer ${data.session?.access_token || ''}`;
   }, []);
@@ -268,7 +268,6 @@ export function ProductModerationPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const { supabase } = await import('../../lib/supabase');
         const { data } = await supabase
           .from('vendors')
           .select('id, store_name, woocommerce_vendor_id')

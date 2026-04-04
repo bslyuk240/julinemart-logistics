@@ -146,6 +146,12 @@
 [functions."catalog-homepage"]
   timeout = 10
 
+[functions."create-order"]
+  timeout = 20
+
+[functions."paystack-webhook"]
+  timeout = 10
+
 # -------------------------------------------------
 # EDGE FUNCTIONS
 # -------------------------------------------------

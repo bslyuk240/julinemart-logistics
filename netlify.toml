@@ -152,6 +152,9 @@
 [functions."paystack-webhook"]
   timeout = 10
 
+[functions."verify-payment"]
+  timeout = 15
+
 # -------------------------------------------------
 # EDGE FUNCTIONS
 # -------------------------------------------------

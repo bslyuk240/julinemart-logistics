@@ -1,9 +1,6 @@
 import {
-  applyMetaUpdates,
   buildGlobalSourcingMeta,
   computeWooNgnPricing,
-  ensureWooProductTag,
-  extractMetaValue,
   isPlainObject,
   loadGlobalSourcingPricingDefaults,
   normalizeAttributeName,
@@ -11,10 +8,7 @@ import {
   normalizeImages,
   normalizeProductDescription,
   normalizeProductTitle,
-  requestWoo,
   resolveVendorMapping,
-  updateWordPressProductAuthor,
-  uploadRemoteImageToWordPress,
 } from './global-sourcing-utils.js';
 import {
   buildLandedPricingPreview,
@@ -32,21 +26,11 @@ const MAX_VARIATIONS_PER_BATCH = Math.max(
   Number(process.env.GLOBAL_SOURCING_MAX_VARIATIONS_PER_BATCH || 20) || 20,
   1
 );
-const MAX_UNIQUE_VARIATION_IMAGE_UPLOADS = Math.max(
-  Number(process.env.GLOBAL_SOURCING_MAX_VARIATION_IMAGES || 3) || 3,
-  0
-);
-const MAX_DESCRIPTION_IMAGE_UPLOADS = Math.max(
-  Number(process.env.GLOBAL_SOURCING_MAX_DESCRIPTION_IMAGES || 8) || 8,
-  0
-);
 
 function createImportError(message, statusCode = 500, details = null) {
   const error = new Error(message);
   error.statusCode = statusCode;
-  if (details !== null && details !== undefined) {
-    error.details = details;
-  }
+  if (details !== null && details !== undefined) error.details = details;
   return error;
 }
 
@@ -54,37 +38,26 @@ function normalizeSelectedVariant(payload) {
   const source = isPlainObject(payload?.selected_variant) ? payload.selected_variant : {};
   return {
     externalVariantId: String(
-      payload?.external_variant_id ||
-        payload?.cj_vid ||
-        source.external_variant_id ||
-        source.cj_vid ||
-        ''
+      payload?.external_variant_id || payload?.cj_vid ||
+      source.external_variant_id || source.cj_vid || ''
     ).trim() || null,
     title: String(source.title || source.variant_title || payload?.variant_title || '').trim() || null,
     image:
-      typeof source.image === 'string'
-        ? source.image.trim()
-        : typeof source.image?.src === 'string'
-        ? source.image.src.trim()
-        : null,
+      typeof source.image === 'string' ? source.image.trim()
+      : typeof source.image?.src === 'string' ? source.image.src.trim()
+      : null,
     sourcePrice: source.source_price ?? payload?.supplier_price_snapshot ?? payload?.regular_price ?? null,
     currency: String(source.currency || payload?.currency || 'USD').trim().toUpperCase(),
-    inboundShippingUsd:
-      source.inbound_shipping_usd ??
-      payload?.inbound_shipping_usd ??
-      null,
+    inboundShippingUsd: source.inbound_shipping_usd ?? payload?.inbound_shipping_usd ?? null,
     attributes: source.attributes,
   };
 }
 
 function normalizeSelectedAttributes(payload, selectedVariant) {
   const source =
-    payload?.selected_attributes ||
-    payload?.selectedAttributes ||
-    payload?.variant_attributes ||
-    payload?.variantAttributes ||
-    selectedVariant?.attributes ||
-    {};
+    payload?.selected_attributes || payload?.selectedAttributes ||
+    payload?.variant_attributes || payload?.variantAttributes ||
+    selectedVariant?.attributes || {};
 
   const rows = Array.isArray(source)
     ? source
@@ -113,17 +86,10 @@ function normalizeImportVariant(entry) {
     ).trim() || null,
     title: String(source.title || source.variant_title || source.name || '').trim() || null,
     image:
-      typeof source.image === 'string'
-        ? source.image.trim()
-        : typeof source.image?.src === 'string'
-        ? source.image.src.trim()
-        : null,
-    sourcePrice:
-      source.source_price ??
-      source.supplier_price_snapshot ??
-      source.price ??
-      source.regular_price ??
-      null,
+      typeof source.image === 'string' ? source.image.trim()
+      : typeof source.image?.src === 'string' ? source.image.src.trim()
+      : null,
+    sourcePrice: source.source_price ?? source.supplier_price_snapshot ?? source.price ?? source.regular_price ?? null,
     currency: String(source.currency || 'USD').trim().toUpperCase(),
     inboundShippingUsd: source.inbound_shipping_usd ?? null,
     attributes: normalizeSelectedAttributes({ selected_attributes: source.attributes || {} }, null),
@@ -134,34 +100,25 @@ function buildImportVariants(payload, selectedVariant, selectedAttributes) {
   const sourceVariants = Array.isArray(payload?.variants) ? payload.variants.map(normalizeImportVariant) : [];
   const fallbackVariant =
     selectedVariant?.externalVariantId || selectedAttributes.length > 0
-      ? [
-          {
-            externalVariantId: selectedVariant.externalVariantId,
-            title: selectedVariant.title,
-            image: selectedVariant.image,
-            sourcePrice: selectedVariant.sourcePrice,
-            currency: selectedVariant.currency,
-            inboundShippingUsd: selectedVariant.inboundShippingUsd,
-            attributes: selectedAttributes,
-          },
-        ]
+      ? [{
+          externalVariantId: selectedVariant.externalVariantId,
+          title: selectedVariant.title,
+          image: selectedVariant.image,
+          sourcePrice: selectedVariant.sourcePrice,
+          currency: selectedVariant.currency,
+          inboundShippingUsd: selectedVariant.inboundShippingUsd,
+          attributes: selectedAttributes,
+        }]
       : [];
 
   const variants = sourceVariants.length > 0 ? sourceVariants : fallbackVariant;
   const deduped = new Map();
-
   variants.forEach((variant, index) => {
     const key =
       variant.externalVariantId ||
-      `${variant.attributes
-        .map((attribute) => `${attribute.name.toLowerCase()}:${attribute.value.toLowerCase()}`)
-        .sort()
-        .join('|')}:${index}`;
-    if (!deduped.has(key)) {
-      deduped.set(key, variant);
-    }
+      `${variant.attributes.map((a) => `${a.name.toLowerCase()}:${a.value.toLowerCase()}`).sort().join('|')}:${index}`;
+    if (!deduped.has(key)) deduped.set(key, variant);
   });
-
   return Array.from(deduped.values());
 }
 
@@ -182,7 +139,6 @@ function stripTitlePrefix(label, productTitle) {
   const normalizedLabel = humanizeVariantTitle(label);
   const normalizedTitle = humanizeVariantTitle(productTitle);
   if (!normalizedLabel || !normalizedTitle) return normalizedLabel;
-
   const prefixPattern = new RegExp(`^${escapeRegExp(normalizedTitle)}\\s*`, 'i');
   return normalizedLabel.replace(prefixPattern, '').trim() || normalizedLabel;
 }
@@ -191,27 +147,19 @@ function removeCommonLeadingTokens(labels) {
   const tokenized = labels
     .map((label) => humanizeVariantTitle(label).split(/\s+/).filter(Boolean))
     .filter((parts) => parts.length > 0);
-  if (tokenized.length <= 1) {
-    return labels.map((label) => humanizeVariantTitle(label));
-  }
+  if (tokenized.length <= 1) return labels.map((label) => humanizeVariantTitle(label));
 
   let sharedCount = 0;
   while (sharedCount < tokenized[0].length) {
     const candidate = tokenized[0][sharedCount];
-    if (!candidate) {
-      break;
-    }
+    if (!candidate) break;
     const matchesAll = tokenized.every(
       (parts) => String(parts[sharedCount] || '').toLowerCase() === candidate.toLowerCase()
     );
     if (!matchesAll) break;
     sharedCount += 1;
   }
-
-  if (sharedCount === 0) {
-    return labels.map((label) => humanizeVariantTitle(label));
-  }
-
+  if (sharedCount === 0) return labels.map((label) => humanizeVariantTitle(label));
   return tokenized.map((parts, index) => {
     const trimmed = parts.slice(sharedCount).join(' ').trim();
     return trimmed || humanizeVariantTitle(labels[index]);
@@ -243,7 +191,6 @@ function inferFallbackVariantAttributes(variants, productTitle) {
     const parts = humanizeVariantTitle(label).split(/\s+/).filter(Boolean);
     const lastToken = parts[parts.length - 1] || '';
     const hasSizeSuffix = parts.length >= 2 && isSizeLikeToken(lastToken);
-
     return {
       label: humanizeVariantTitle(label),
       colorValue: hasSizeSuffix ? parts.slice(0, -1).join(' ').trim() : '',
@@ -261,27 +208,19 @@ function inferFallbackVariantAttributes(variants, productTitle) {
 
   if (sharedModelAnchor) {
     const splitRows = tokenizedRows.map((parts) => {
-      const anchorIndex = parts.findIndex((part, index) =>
-        index > 0 && part.toLowerCase() === sharedModelAnchor.toLowerCase()
+      const anchorIndex = parts.findIndex(
+        (part, index) => index > 0 && part.toLowerCase() === sharedModelAnchor.toLowerCase()
       );
-
       return {
         colorValue: anchorIndex > 0 ? parts.slice(0, anchorIndex).join(' ').trim() : '',
         modelValue: anchorIndex >= 0 ? parts.slice(anchorIndex).join(' ').trim() : '',
       };
     });
-
     const colorCount = splitRows.filter((row) => row.colorValue).length;
     const modelCount = splitRows.filter((row) => row.modelValue).length;
     const uniqueColors = new Set(splitRows.map((row) => row.colorValue.toLowerCase()).filter(Boolean));
     const uniqueModels = new Set(splitRows.map((row) => row.modelValue.toLowerCase()).filter(Boolean));
-
-    if (
-      colorCount === baseVariants.length &&
-      modelCount === baseVariants.length &&
-      uniqueColors.size > 1 &&
-      uniqueModels.size > 1
-    ) {
+    if (colorCount === baseVariants.length && modelCount === baseVariants.length && uniqueColors.size > 1 && uniqueModels.size > 1) {
       return baseVariants.map((variant, index) => ({
         ...variant,
         attributes: [
@@ -294,12 +233,8 @@ function inferFallbackVariantAttributes(variants, productTitle) {
 
   const colorCount = parsedRows.filter((row) => row.colorValue).length;
   const sizeCount = parsedRows.filter((row) => row.sizeValue).length;
-  const uniqueColors = new Set(
-    parsedRows.map((row) => row.colorValue.toLowerCase()).filter(Boolean)
-  );
-  const uniqueSizes = new Set(
-    parsedRows.map((row) => row.sizeValue.toLowerCase()).filter(Boolean)
-  );
+  const uniqueColors = new Set(parsedRows.map((row) => row.colorValue.toLowerCase()).filter(Boolean));
+  const uniqueSizes = new Set(parsedRows.map((row) => row.sizeValue.toLowerCase()).filter(Boolean));
 
   if (colorCount === baseVariants.length && sizeCount === baseVariants.length && uniqueColors.size > 1 && uniqueSizes.size > 1) {
     return baseVariants.map((variant, index) => ({
@@ -310,42 +245,35 @@ function inferFallbackVariantAttributes(variants, productTitle) {
       ],
     }));
   }
-
   if (sizeCount === baseVariants.length && uniqueSizes.size > 1) {
     return baseVariants.map((variant, index) => ({
       ...variant,
       attributes: [{ name: 'Size', value: parsedRows[index].sizeValue }],
     }));
   }
-
   if (colorCount === baseVariants.length && uniqueColors.size > 1) {
     return baseVariants.map((variant, index) => ({
       ...variant,
       attributes: [{ name: 'Colour', value: parsedRows[index].colorValue }],
     }));
   }
-
   return baseVariants.map((variant, index) => ({
     ...variant,
-    attributes: [
-      {
-        name: 'Option',
-        value:
-          parsedRows[index].label ||
-          String(variant.title || '').trim() ||
-          (variant.externalVariantId ? `Variant ${variant.externalVariantId}` : `Variant ${index + 1}`),
-      },
-    ],
+    attributes: [{
+      name: 'Option',
+      value:
+        parsedRows[index].label ||
+        String(variant.title || '').trim() ||
+        (variant.externalVariantId ? `Variant ${variant.externalVariantId}` : `Variant ${index + 1}`),
+    }],
   }));
 }
 
 function ensureVariantAttributes(variants, productTitle = '') {
   const normalized = Array.isArray(variants) ? variants : [];
   if (normalized.length <= 1) return normalized;
-
   const hasStructuredAttributes = normalized.some((variant) => variant.attributes.length > 0);
   if (hasStructuredAttributes) return normalized;
-
   return inferFallbackVariantAttributes(normalized, productTitle);
 }
 
@@ -354,11 +282,7 @@ function mapProductImages(productImages, selectedVariantImage) {
     selectedVariantImage,
     ...(Array.isArray(productImages) ? productImages : []),
   ]);
-
-  return normalized.map((src, index) => ({
-    src,
-    position: index,
-  }));
+  return normalized.map((src, index) => ({ src, position: index }));
 }
 
 function slugifyTitle(value) {
@@ -372,234 +296,65 @@ function slugifyTitle(value) {
 
 function escapeHtml(value) {
   return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-async function uploadWooImage(remoteUrl, { title, slot, cache }) {
-  const sourceUrl = String(remoteUrl || '').trim();
-  if (!sourceUrl) return null;
-
-  if (cache.has(sourceUrl)) {
-    return cache.get(sourceUrl);
-  }
-
-  const filenameBase = `${slugifyTitle(title) || 'global-sourcing'}-${slot}`;
-  const uploadPromise = uploadRemoteImageToWordPress(sourceUrl, { filenameBase }).catch((error) => {
-    cache.delete(sourceUrl);
-    throw error;
-  });
-
-  cache.set(sourceUrl, uploadPromise);
-  return uploadPromise;
-}
-
-async function resolveWooProductImages(images, { title, cache, warnings }) {
-  const limitedImages = images.slice(0, MAX_PRODUCT_IMAGE_UPLOADS);
-  if (images.length > limitedImages.length) {
-    warnings.push(
-      `Skipped ${images.length - limitedImages.length} extra gallery image(s) to keep import within runtime limits`
-    );
-  }
-
-  const uploaded = [];
-
-  for (let index = 0; index < limitedImages.length; index += 1) {
-    const image = limitedImages[index];
-    try {
-      const asset = await uploadWooImage(image?.src, {
-        title,
-        slot: `product-${index + 1}`,
-        cache,
-      });
-
-      if (asset?.id) {
-        uploaded.push({
-          id: Number(asset.id),
-          position: uploaded.length,
-        });
-      }
-    } catch (error) {
-      warnings.push(
-        `Skipped product image ${index + 1} (${image?.src || 'unknown source'}): ${
-          error?.message || 'upload failed'
-        }`
-      );
-    }
-  }
-
-  return uploaded;
-}
-
-async function resolveWooDescriptionImages(imageUrls, { title, cache, warnings }) {
-  const limitedImages = imageUrls.slice(0, MAX_DESCRIPTION_IMAGE_UPLOADS);
-  if (imageUrls.length > limitedImages.length) {
-    warnings.push(
-      `Skipped ${imageUrls.length - limitedImages.length} extra description image(s) to keep import within runtime limits`
-    );
-  }
-
-  const resolved = [];
-
-  for (let index = 0; index < limitedImages.length; index += 1) {
-    const imageUrl = String(limitedImages[index] || '').trim();
-    if (!imageUrl) continue;
-
-    try {
-      const asset = await uploadWooImage(imageUrl, {
-        title,
-        slot: `description-${index + 1}`,
-        cache,
-      });
-      if (asset?.source_url) {
-        resolved.push(asset.source_url);
-      } else {
-        warnings.push(
-          `Skipped embedded description image ${index + 1} (${imageUrl}): uploaded media did not return a usable source URL`
-        );
-      }
-    } catch (error) {
-      warnings.push(
-        `Skipped embedded description image ${index + 1} (${imageUrl}): ${
-          error?.message || 'upload failed'
-        }`
-      );
-    }
-  }
-
-  return resolved;
-}
-
-function buildWooDescriptionHtml(descriptionText, descriptionImages, title) {
+function buildDescriptionHtml(descriptionText, descriptionImages, title) {
   const blocks = [];
-  const lines = String(descriptionText || '')
-    .split('\n')
-    .map((line) => String(line || '').trim())
-    .filter(Boolean);
+  const lines = String(descriptionText || '').split('\n').map((l) => String(l || '').trim()).filter(Boolean);
   const listItems = [];
-
   const flushList = () => {
     if (!listItems.length) return;
     blocks.push(`<ul>${listItems.join('')}</ul>`);
     listItems.length = 0;
   };
-
   for (const line of lines) {
-    if (line.startsWith('- ')) {
-      listItems.push(`<li>${escapeHtml(line.slice(2))}</li>`);
-      continue;
-    }
-
+    if (line.startsWith('- ')) { listItems.push(`<li>${escapeHtml(line.slice(2))}</li>`); continue; }
     flushList();
     blocks.push(`<p>${escapeHtml(line)}</p>`);
   }
-
   flushList();
-
   const altText = escapeHtml(title || 'Product detail image');
   for (const imageUrl of descriptionImages) {
-    const normalizedUrl = String(imageUrl || '').trim();
-    if (!normalizedUrl) continue;
-    blocks.push(`<p><img src="${escapeHtml(normalizedUrl)}" alt="${altText}" /></p>`);
+    const url = String(imageUrl || '').trim();
+    if (!url) continue;
+    blocks.push(`<p><img src="${escapeHtml(url)}" alt="${altText}" /></p>`);
   }
-
   return blocks.join('\n').trim();
 }
 
-async function resolveWooVariationImage(imageUrl, { title, cache, warnings }) {
-  if (!imageUrl) return null;
-
-  try {
-    const asset = await uploadWooImage(imageUrl, {
-      title,
-      slot: 'variation',
-      cache,
+function buildProductAttributesMatrix(variants) {
+  const attributes = new Map();
+  variants.forEach((variant) => {
+    variant.attributes.forEach((attribute) => {
+      const key = attribute.name.toLowerCase();
+      if (!attributes.has(key)) attributes.set(key, { name: attribute.name, options: new Map() });
+      const bucket = attributes.get(key);
+      if (!bucket.options.has(attribute.value.toLowerCase())) {
+        bucket.options.set(attribute.value.toLowerCase(), attribute.value);
+      }
     });
-    return asset?.id ? Number(asset.id) : null;
-  } catch (error) {
-    warnings.push(`Skipped variation image (${imageUrl}): ${error?.message || 'upload failed'}`);
-    return null;
-  }
+  });
+  return Array.from(attributes.values()).map((attribute) => ({
+    name: attribute.name,
+    options: Array.from(attribute.options.values()),
+  }));
 }
 
-function buildOwnershipMeta(vendorMapping) {
-  const wooVendorId = String(vendorMapping.woocommerce_vendor_id);
-  return {
-    _woocommerce_vendor_id: wooVendorId,
-    _wcfm_vendor_id: wooVendorId,
-    wcfm_vendor_id: wooVendorId,
-    _wcfm_product_author: wooVendorId,
-    _vendor_id: vendorMapping.id,
-    vendor_id: vendorMapping.id,
-    _jlo_vendor_id: vendorMapping.id,
-  };
+function buildAttributeSignature(attributes) {
+  return attributes
+    .map((a) => ({
+      name: String(a?.name || '').trim().toLowerCase(),
+      value: String(a?.value || a?.option || '').trim().toLowerCase(),
+    }))
+    .filter((a) => a.name && a.value)
+    .sort((l, r) => l.name.localeCompare(r.name) || l.value.localeCompare(r.value))
+    .map((a) => `${a.name}:${a.value}`)
+    .join('|');
 }
 
-function buildProductPayload({
-  title,
-  description,
-  shortDescription,
-  images,
-  tags,
-  metaData,
-  attributes,
-  pricing,
-  wooStatus,
-  stockStatus = 'instock',
-  vendorMapping,
-}) {
-  return {
-    name: title,
-    description,
-    short_description: shortDescription,
-    status: wooStatus,
-    type: attributes.length > 0 ? 'variable' : 'simple',
-    regular_price: attributes.length === 0 ? pricing.regularPriceWoo : undefined,
-    sale_price: attributes.length === 0 ? pricing.salePriceWoo || undefined : undefined,
-    images: images.length > 0 ? images : undefined,
-    tags: tags.length > 0 ? tags : undefined,
-    meta_data: metaData,
-    stock_status: stockStatus,
-    attributes:
-      attributes.length > 0
-        ? attributes.map((attribute) => ({
-            name: attribute.name,
-            visible: true,
-            variation: true,
-            options: attribute.options,
-          }))
-        : undefined,
-    catalog_visibility: 'visible',
-    manage_stock: false,
-    reviews_allowed: false,
-    purchase_note: `Mapped to ${vendorMapping.store_name} via Global Sourcing`,
-  };
-}
-
-function buildVariationPayload({ attributes, pricing, variationImageId, metaData }) {
-  return {
-    regular_price: pricing.regularPriceWoo,
-    sale_price: pricing.salePriceWoo || undefined,
-    stock_status: 'instock',
-    image: variationImageId ? { id: variationImageId } : undefined,
-    attributes: attributes.map((attribute) => ({
-      name: attribute.name,
-      option: attribute.value,
-    })),
-    meta_data: metaData,
-  };
-}
-
-function buildDerivedVariantPricingPreview({
-  variant,
-  anchorPreview,
-  receivingHubId,
-  receivingHubName,
-  pricingConfig,
-}) {
+function buildDerivedVariantPricingPreview({ variant, anchorPreview, receivingHubId, receivingHubName, pricingConfig }) {
   const pricing = computeWooNgnPricing({
     sourcePrice: variant.sourcePrice,
     sourceCurrency: variant.currency,
@@ -609,7 +364,6 @@ function buildDerivedVariantPricingPreview({
     markupFlatNgn: pricingConfig.markupFlatNgn,
     usdToNgnRate: pricingConfig.usdToNgnRate,
   });
-
   return {
     provider: anchorPreview.provider || 'cj',
     pricing_mode: 'landed',
@@ -637,178 +391,105 @@ function buildDerivedVariantPricingPreview({
   };
 }
 
-function buildProductAttributesMatrix(variants) {
-  const attributes = new Map();
-
-  variants.forEach((variant) => {
-    variant.attributes.forEach((attribute) => {
-      const key = attribute.name.toLowerCase();
-      if (!attributes.has(key)) {
-        attributes.set(key, {
-          name: attribute.name,
-          options: new Map(),
-        });
-      }
-
-      const bucket = attributes.get(key);
-      if (!bucket.options.has(attribute.value.toLowerCase())) {
-        bucket.options.set(attribute.value.toLowerCase(), attribute.value);
-      }
-    });
-  });
-
-  return Array.from(attributes.values()).map((attribute) => ({
-    name: attribute.name,
-    options: Array.from(attribute.options.values()),
-  }));
+function appendUniqueStrings(existingValues, nextValues) {
+  const merged = new Set(
+    [...(Array.isArray(existingValues) ? existingValues : []), ...(Array.isArray(nextValues) ? nextValues : [])]
+      .map((v) => String(v || '').trim()).filter(Boolean)
+  );
+  return Array.from(merged.values());
 }
 
-function buildAttributeSignature(attributes) {
-  return attributes
-    .map((attribute) => ({
-      name: String(attribute?.name || '').trim().toLowerCase(),
-      value: String(attribute?.value || attribute?.option || '').trim().toLowerCase(),
+// ─── Supabase helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Ensure a tag exists in the `tags` table by slug. Returns its UUID.
+ */
+async function ensureSupabaseTag(adminClient, { name, slug }) {
+  const { data: existing } = await adminClient.from('tags').select('id').eq('slug', slug).maybeSingle();
+  if (existing) return existing.id;
+  const { data: inserted } = await adminClient
+    .from('tags').insert({ name, slug }).select('id').single();
+  return inserted?.id || null;
+}
+
+/**
+ * Ensure a product_attribute row exists by slug. Returns its UUID.
+ */
+async function ensureSupabaseAttribute(adminClient, { name, slug }) {
+  const { data: existing } = await adminClient
+    .from('product_attributes').select('id').eq('slug', slug).maybeSingle();
+  if (existing) return existing.id;
+  const { data: inserted } = await adminClient
+    .from('product_attributes').insert({ name, slug, type: 'select' }).select('id').single();
+  return inserted?.id || null;
+}
+
+/**
+ * Find existing Supabase product by CJ product ID stored in sourcing_meta.
+ */
+async function findExistingProduct(adminClient, cjProductId) {
+  const { data } = await adminClient
+    .from('products')
+    .select('id, slug, status, type')
+    .eq("sourcing_meta->>'cj_product_id'", cjProductId)
+    .maybeSingle();
+  return data || null;
+}
+
+/**
+ * Write product images to product_images table. Clears existing first.
+ */
+async function writeProductImages(adminClient, productId, images) {
+  await adminClient.from('product_images').delete().eq('product_id', productId).is('variation_id', null);
+  if (images.length === 0) return;
+  await adminClient.from('product_images').insert(
+    images.map((img, i) => ({
+      product_id: productId,
+      src: img.src,
+      alt: img.alt || '',
+      position: img.position ?? i,
+      is_thumbnail: i === 0,
     }))
-    .filter((attribute) => attribute.name && attribute.value)
-    .sort((left, right) => left.name.localeCompare(right.name) || left.value.localeCompare(right.value))
-    .map((attribute) => `${attribute.name}:${attribute.value}`)
-    .join('|');
+  );
 }
 
-async function listWooVariations(productId) {
-  const variations = [];
-  let page = 1;
-
-  for (;;) {
-    const response = await requestWoo(`/products/${productId}/variations?per_page=100&page=${page}`);
-    const pageRows = Array.isArray(response) ? response : [];
-    variations.push(...pageRows);
-    if (pageRows.length < 100) break;
-    page += 1;
-  }
-
-  return variations;
-}
-
-async function getExistingVariationMeta(productId, variation) {
-  if (Array.isArray(variation?.meta_data)) {
-    return variation.meta_data;
-  }
-
-  if (!variation?.id) return [];
-  const detailedVariation = await requestWoo(`/products/${productId}/variations/${variation.id}`);
-  return Array.isArray(detailedVariation?.meta_data) ? detailedVariation.meta_data : [];
-}
-
-function buildVariationResponseMap(rows, descriptors) {
-  const map = new Map();
-  const responseRows = Array.isArray(rows) ? rows : [];
-
-  descriptors.forEach((descriptor, index) => {
-    const row = responseRows[index];
-    if (!row?.id) return;
-    map.set(descriptor.variant.externalVariantId, String(row.id));
+/**
+ * Write variation image to product_images with variation_id set.
+ */
+async function writeVariationImage(adminClient, productId, variationId, imageUrl) {
+  if (!imageUrl) return;
+  await adminClient.from('product_images').delete().eq('variation_id', variationId);
+  await adminClient.from('product_images').insert({
+    product_id: productId,
+    variation_id: variationId,
+    src: imageUrl,
+    alt: '',
+    position: 0,
+    is_thumbnail: true,
   });
-
-  return map;
 }
 
-function buildExistingVariationLookup(variations) {
-  const byExternalVariantId = new Map();
-  const byAttributes = new Map();
-
-  variations.forEach((variation) => {
-    const externalVariantId = extractMetaValue(variation?.meta_data, [
-      '_supplier_variant_id',
-      'supplier_variant_id',
-      '_cj_vid',
-      'cj_vid',
-    ]);
-    if (externalVariantId) {
-      byExternalVariantId.set(String(externalVariantId), variation);
-      return;
-    }
-
-    const signature = buildAttributeSignature(
-      Array.isArray(variation?.attributes)
-        ? variation.attributes.map((attribute) => ({
-            name: attribute?.name,
-            value: attribute?.option,
-          }))
-        : []
-    );
-    if (signature) {
-      byAttributes.set(signature, variation);
-    }
-  });
-
-  return { byExternalVariantId, byAttributes };
-}
-
-function pickExistingVariationId(payloadVariationId, selectedVariantId, variant) {
-  if (!payloadVariationId) return null;
-  if (selectedVariantId && selectedVariantId === variant.externalVariantId) {
-    return String(payloadVariationId);
+/**
+ * Upsert product_attribute_map rows for a product.
+ */
+async function writeProductAttributes(adminClient, productId, attributesMatrix) {
+  await adminClient.from('product_attribute_map').delete().eq('product_id', productId);
+  for (let i = 0; i < attributesMatrix.length; i++) {
+    const attr = attributesMatrix[i];
+    const attrSlug = attr.name.toLowerCase().replace(/\s+/g, '-');
+    const attrId = await ensureSupabaseAttribute(adminClient, { name: attr.name, slug: attrSlug });
+    if (!attrId) continue;
+    await adminClient.from('product_attribute_map').insert({
+      product_id: productId,
+      attribute_id: attrId,
+      options: attr.options,
+      is_variation: true,
+      display_order: i,
+    });
   }
-  return null;
 }
 
-function parseImportPayload(payload) {
-  const provider = String(payload?.provider || 'cj').trim().toLowerCase();
-  const externalProductId = String(payload?.external_product_id || payload?.cj_pid || '').trim();
-  const supplierSource = String(payload?.supplier_source || provider || '').trim().toLowerCase() || null;
-  const supplierProductId = String(
-    payload?.supplier_product_id || payload?.external_product_id || payload?.cj_pid || ''
-  ).trim() || null;
-  const supplierUrl = String(payload?.supplier_url || '').trim() || null;
-  const receivingHubId = String(payload?.receiving_hub_id || '').trim() || null;
-  const fulfillmentMode = String(payload?.fulfillment_mode || 'cj_hub').trim() || 'cj_hub';
-  const targetVendorId = String(
-    payload?.target_vendor_mapping?.vendor_id || payload?.target_vendor_mapping?.id || ''
-  ).trim();
-  const targetWooVendorId = String(
-    payload?.target_vendor_mapping?.woocommerce_vendor_id ||
-      payload?.target_vendor_mapping?.woo_vendor_id ||
-      payload?.target_vendor_mapping?.wcfm_vendor_id ||
-      ''
-  ).trim();
-
-  return {
-    provider,
-    externalProductId,
-    supplierSource,
-    supplierProductId,
-    supplierUrl,
-    receivingHubId,
-    fulfillmentMode,
-    targetVendorId,
-    targetWooVendorId,
-  };
-}
-
-function validateImportPayload(payload) {
-  const parsed = parseImportPayload(payload);
-
-  if (!['cj', 'aliexpress'].includes(parsed.provider)) {
-    throw createImportError('Only provider=cj and provider=aliexpress are supported', 400);
-  }
-
-  if (!parsed.externalProductId || (!parsed.targetVendorId && !parsed.targetWooVendorId)) {
-    throw createImportError(
-      'external_product_id and target_vendor_mapping.vendor_id or target_vendor_mapping.woocommerce_vendor_id are required',
-      400
-    );
-  }
-
-  if (parsed.fulfillmentMode !== 'cj_hub') {
-    throw createImportError(
-      'Global Sourcing imports currently support only fulfillment_mode=cj_hub',
-      400
-    );
-  }
-
-  return parsed;
-}
+// ─── Job state helpers ────────────────────────────────────────────────────────
 
 function shapeJobRow(job) {
   return {
@@ -830,51 +511,33 @@ function shapeJobRow(job) {
 }
 
 async function loadJobRow(adminClient, jobId) {
-  const { data, error } = await adminClient
-    .from(JOB_TABLE)
-    .select('*')
-    .eq('id', jobId)
-    .maybeSingle();
-
-  if (error) {
-    throw createImportError(error.message || 'Unable to load import job', 500, error);
-  }
-
-  if (!data) {
-    throw createImportError('Import job not found', 404);
-  }
-
+  const { data, error } = await adminClient.from(JOB_TABLE).select('*').eq('id', jobId).maybeSingle();
+  if (error) throw createImportError(error.message || 'Unable to load import job', 500, error);
+  if (!data) throw createImportError('Import job not found', 404);
   return data;
 }
 
 async function updateJobRow(adminClient, jobId, patch) {
   const { data, error } = await adminClient
-    .from(JOB_TABLE)
-    .update(patch)
-    .eq('id', jobId)
-    .select('*')
-    .single();
-
-  if (error || !data) {
-    throw createImportError(error?.message || 'Unable to update import job', 500, error);
-  }
-
+    .from(JOB_TABLE).update(patch).eq('id', jobId).select('*').single();
+  if (error || !data) throw createImportError(error?.message || 'Unable to update import job', 500, error);
   return data;
 }
 
-function appendUniqueStrings(existingValues, nextValues) {
-  const merged = new Set(
-    [...(Array.isArray(existingValues) ? existingValues : []), ...(Array.isArray(nextValues) ? nextValues : [])]
-      .map((value) => String(value || '').trim())
-      .filter(Boolean)
-  );
-  return Array.from(merged.values());
+async function failJob(adminClient, job, stage, error) {
+  return updateJobRow(adminClient, job.id, {
+    status: 'failed',
+    progress_stage: stage || 'failed',
+    error_message: error?.message || 'Unable to process import job',
+    error_details: { stage: stage || 'unknown', response: error?.responseBody || error?.details || null },
+    failed_at: new Date().toISOString(),
+  });
 }
 
 function buildCompletionResult(cursor) {
   const importedVariationIds = appendUniqueStrings(cursor.importedVariationIds, []);
   const warnings = Array.isArray(cursor.warnings)
-    ? cursor.warnings.map((warning) => String(warning || '').trim()).filter(Boolean)
+    ? cursor.warnings.map((w) => String(w || '').trim()).filter(Boolean)
     : [];
   const effectiveImportedVariantCount = cursor.shouldCreateVariations
     ? importedVariationIds.length
@@ -883,20 +546,16 @@ function buildCompletionResult(cursor) {
 
   return {
     provider: cursor.provider,
-    woo_product_id: String(cursor.productSummary?.id || ''),
-    woo_variation_id: cursor.selectedVariationId || null,
-    woo_variation_ids: importedVariationIds,
-    imported_variation_count: importedVariationIds.length,
-    skipped_variant_count: skippedVariantCount,
+    supabase_product_id: cursor.productSummary?.supabase_id || null,
     product_name: cursor.productSummary?.name || null,
     product_status: cursor.productSummary?.status || null,
     product_type: cursor.productSummary?.type || null,
-    permalink: cursor.productSummary?.permalink || null,
+    imported_variation_count: importedVariationIds.length,
+    skipped_variant_count: skippedVariantCount,
     vendor_mapping: {
       vendor_id: cursor.vendorMapping?.id || null,
       woocommerce_vendor_id: cursor.vendorMapping?.woocommerce_vendor_id || null,
       store_name: cursor.vendorMapping?.store_name || null,
-      store_slug: cursor.vendorMapping?.store_slug || null,
     },
     fulfillment_mode: cursor.fulfillmentMode || null,
     receiving_hub_id: cursor.receivingHub?.id || null,
@@ -904,105 +563,30 @@ function buildCompletionResult(cursor) {
       source_currency: cursor.sourceCurrency || 'USD',
       supplier_price_usd: cursor.pricingPreview?.supplier_price_usd ?? null,
       inbound_shipping_quote_usd: cursor.pricingPreview?.inbound_shipping_quote_usd ?? null,
-      import_buffer_usd: cursor.pricingPreview?.import_buffer_usd ?? null,
       landed_cost_usd: cursor.pricingPreview?.landed_cost_usd ?? null,
-      exchange_rate: cursor.pricingPreview?.exchange_rate ?? null,
       usd_to_ngn_rate_used: cursor.pricingPreview?.usd_to_ngn_rate_used ?? null,
-      usd_to_ngn_rate_source: cursor.pricingPreview?.usd_to_ngn_rate_source ?? null,
-      fx_rate_fetched_at: cursor.pricingPreview?.fx_rate_fetched_at ?? null,
-      markup_percent: cursor.pricingPreview?.markup_percent ?? null,
-      markup_flat_ngn: cursor.pricingPreview?.markup_flat_ngn ?? null,
       regular_price_ngn: cursor.pricingPreview?.final_price_ngn ?? null,
       sale_price_ngn: cursor.pricingPreview?.sale_price_ngn ?? null,
     },
     notes: [
-      'WooCommerce remains the source of truth for the imported product record.',
-      'Vendor/store ownership is not reassigned automatically during import; staff can update it manually in WordPress/WCFM after import.',
+      'Product written directly to Supabase catalog.',
       cursor.shouldCreateVariations
-        ? `Imported ${importedVariationIds.length} supplier variant(s) into Woo variations using the current landed-pricing rules.`
-        : 'The imported item was stored as a Woo simple product.',
-      cursor.shouldWriteProductImages
-        ? `Uploaded ${Number(cursor.uploadedProductImagesCount || 0)} product image(s) into WordPress media before Woo import.`
-        : 'One or more product images failed to upload on update, so the existing Woo gallery was preserved.',
-      Number(cursor.ensuredTagsCount || 0) > 0
-        ? `Applied ${Number(cursor.ensuredTagsCount || 0)} Woo product tag(s), including the sourcing tag.`
-        : 'No Woo product tags could be applied during import.',
-      ...(warnings.length > 0 ? [`${warnings.length} warning(s) were recorded during import.`] : []),
+        ? `Imported ${importedVariationIds.length} supplier variant(s) as Supabase product_variations.`
+        : 'Imported as a simple product.',
+      ...(warnings.length > 0 ? [`${warnings.length} warning(s) recorded.`] : []),
     ],
     warnings: warnings.length > 0 ? warnings : undefined,
   };
 }
 
-async function failJob(adminClient, job, stage, error) {
-  return updateJobRow(adminClient, job.id, {
-    status: 'failed',
-    progress_stage: stage || 'failed',
-    error_message: error?.message || 'Unable to process import job',
-    error_details: {
-      stage: stage || 'unknown',
-      response: error?.responseBody || error?.details || null,
-    },
-    failed_at: new Date().toISOString(),
-  });
-}
-
-async function finalizeImportedProduct(cursor) {
-  const productId = String(cursor?.productSummary?.id || '').trim();
-  const desiredStatus = String(cursor?.desiredWooStatus || '').trim();
-  if (!productId || !desiredStatus) return cursor;
-
-  try {
-    const finalizedProduct = await requestWoo(`/products/${productId}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        status: desiredStatus,
-        stock_status: 'instock',
-      }),
-    });
-
-    return {
-      ...cursor,
-      productSummary: {
-        ...(isPlainObject(cursor?.productSummary) ? cursor.productSummary : {}),
-        id: String(finalizedProduct?.id || productId),
-        name: finalizedProduct?.name || cursor?.productSummary?.name || null,
-        status: finalizedProduct?.status || desiredStatus,
-        type: finalizedProduct?.type || cursor?.productSummary?.type || null,
-        permalink: finalizedProduct?.permalink || cursor?.productSummary?.permalink || null,
-      },
-    };
-  } catch (error) {
-    return {
-      ...cursor,
-      warnings: [
-        ...(Array.isArray(cursor?.warnings) ? cursor.warnings : []),
-        `Unable to finalize Woo product visibility/status: ${error?.message || 'update failed'}`,
-      ],
-    };
-  }
-}
-
 async function completeJob(adminClient, job, cursor) {
-  const finalizedCursor = await finalizeImportedProduct(cursor);
-
-  // Set WordPress post_author so the product appears under the correct vendor
-  // store in WCFM. Must use the WP REST API via our mu-plugin — WooCommerce's
-  // own REST API silently ignores the author field.
-  const productId = finalizedCursor?.productSummary?.id;
-  const wooVendorId = finalizedCursor?.vendorMapping?.woocommerce_vendor_id;
-  if (productId && wooVendorId) {
-    updateWordPressProductAuthor(productId, wooVendorId).catch((e) => {
-      console.warn('[import-job] updateWordPressProductAuthor failed:', e?.message);
-    });
-  }
-
-  const result = buildCompletionResult(finalizedCursor);
+  const result = buildCompletionResult(cursor);
   const completed = await updateJobRow(adminClient, job.id, {
     status: 'completed',
     progress_stage: 'completed',
-    progress_current: Number(job.progress_total || 0) || Number(finalizedCursor.progressTotal || 1),
-    progress_total: Number(job.progress_total || 0) || Number(finalizedCursor.progressTotal || 1),
-    cursor: finalizedCursor,
+    progress_current: Number(job.progress_total || 0) || Number(cursor.progressTotal || 1),
+    progress_total: Number(job.progress_total || 0) || Number(cursor.progressTotal || 1),
+    cursor,
     result,
     error_message: null,
     error_details: null,
@@ -1011,66 +595,80 @@ async function completeJob(adminClient, job, cursor) {
   return completed;
 }
 
+// ─── Payload parsing ──────────────────────────────────────────────────────────
+
+function parseImportPayload(payload) {
+  const provider = String(payload?.provider || 'cj').trim().toLowerCase();
+  const externalProductId = String(payload?.external_product_id || payload?.cj_pid || '').trim();
+  const supplierSource = String(payload?.supplier_source || provider || '').trim().toLowerCase() || null;
+  const supplierProductId = String(payload?.supplier_product_id || payload?.external_product_id || payload?.cj_pid || '').trim() || null;
+  const supplierUrl = String(payload?.supplier_url || '').trim() || null;
+  const receivingHubId = String(payload?.receiving_hub_id || '').trim() || null;
+  const fulfillmentMode = String(payload?.fulfillment_mode || 'cj_hub').trim() || 'cj_hub';
+  const targetVendorId = String(payload?.target_vendor_mapping?.vendor_id || payload?.target_vendor_mapping?.id || '').trim();
+  const targetWooVendorId = String(
+    payload?.target_vendor_mapping?.woocommerce_vendor_id ||
+    payload?.target_vendor_mapping?.woo_vendor_id ||
+    payload?.target_vendor_mapping?.wcfm_vendor_id || ''
+  ).trim();
+  return { provider, externalProductId, supplierSource, supplierProductId, supplierUrl, receivingHubId, fulfillmentMode, targetVendorId, targetWooVendorId };
+}
+
+function validateImportPayload(payload) {
+  const parsed = parseImportPayload(payload);
+  if (!['cj', 'aliexpress'].includes(parsed.provider)) {
+    throw createImportError('Only provider=cj and provider=aliexpress are supported', 400);
+  }
+  if (!parsed.externalProductId || (!parsed.targetVendorId && !parsed.targetWooVendorId)) {
+    throw createImportError(
+      'external_product_id and target_vendor_mapping.vendor_id or woocommerce_vendor_id are required', 400
+    );
+  }
+  if (parsed.fulfillmentMode !== 'cj_hub') {
+    throw createImportError('Global Sourcing imports currently support only fulfillment_mode=cj_hub', 400);
+  }
+  return parsed;
+}
+
+// ─── Job processing stages ────────────────────────────────────────────────────
+
 async function prepareJob(adminClient, job) {
   const payload = isPlainObject(job.payload) ? job.payload : {};
   const existingCursor = isPlainObject(job.cursor) ? job.cursor : {};
   const {
-    provider,
-    externalProductId,
-    supplierSource,
-    supplierProductId,
-    supplierUrl,
-    receivingHubId,
-    fulfillmentMode,
-    targetVendorId,
+    provider, externalProductId, supplierSource, supplierProductId,
+    supplierUrl, receivingHubId, fulfillmentMode, targetVendorId,
   } = validateImportPayload(payload);
 
+  // ── Stage 1: build cursor (prepare) ────────────────────────────────────────
   if (!existingCursor.prepared) {
-    let importStage = 'resolve_vendor';
-    const vendorMapping = await resolveVendorMapping(
-      adminClient,
-      targetVendorId,
-      payload?.target_vendor_mapping || {}
-    );
-
+    const vendorMapping = await resolveVendorMapping(adminClient, targetVendorId, payload?.target_vendor_mapping || {});
     const selectedVariant = normalizeSelectedVariant(payload);
     if (!selectedVariant.externalVariantId) {
       throw createImportError('A supplier variant selection is required for landed-price import', 400);
     }
-
     const selectedAttributes = normalizeSelectedAttributes(payload, selectedVariant);
     const importVariants = ensureVariantAttributes(
       buildImportVariants(payload, selectedVariant, selectedAttributes),
       payload.title || ''
     );
     const importableVariants = importVariants.filter(
-      (variant) => variant.externalVariantId && variant.sourcePrice !== null
+      (v) => v.externalVariantId && v.sourcePrice !== null
     );
     if (importableVariants.length === 0) {
       throw createImportError('No importable supplier variants were provided', 400);
     }
-
-    const variantCandidatesWithAttributes = importableVariants.filter(
-      (variant) => variant.attributes.length > 0
-    );
+    const variantCandidatesWithAttributes = importableVariants.filter((v) => v.attributes.length > 0);
     if (importableVariants.length > 1 && variantCandidatesWithAttributes.length === 0) {
       throw createImportError(
-        'The supplier returned multiple variants but none included usable attributes for Woo variation creation',
-        400
+        'The supplier returned multiple variants but none included usable attributes', 400
       );
     }
 
     const sourceCurrency = selectedVariant.currency || String(payload.currency || 'USD').trim().toUpperCase();
-    const sourcePrice =
-      selectedVariant.sourcePrice ??
-      payload.source_price ??
-      payload.supplier_price_snapshot ??
-      payload.regular_price;
-
-    importStage = 'resolve_receiving_hub';
+    const sourcePrice = selectedVariant.sourcePrice ?? payload.source_price ?? payload.supplier_price_snapshot ?? payload.regular_price;
     const receivingHub = await resolveReceivingHub(adminClient, receivingHubId);
 
-    importStage = 'quote_anchor_variant';
     const pricingPreview = isUsablePricingPreview(payload?.pricing_preview, {
       receivingHubId: receivingHub.id,
       externalVariantId: selectedVariant.externalVariantId,
@@ -1083,10 +681,7 @@ async function prepareJob(adminClient, job) {
           externalVariantId: selectedVariant.externalVariantId,
           sourcePrice,
           sourceCurrency,
-          inboundShippingUsd:
-            selectedVariant.inboundShippingUsd ??
-            payload?.inbound_shipping_usd ??
-            null,
+          inboundShippingUsd: selectedVariant.inboundShippingUsd ?? payload?.inbound_shipping_usd ?? null,
           estimatedInboundDaysMin: payload?.estimated_inbound_days_min ?? null,
           estimatedInboundDaysMax: payload?.estimated_inbound_days_max ?? null,
           carrierName: payload?.carrier_name ?? null,
@@ -1094,26 +689,18 @@ async function prepareJob(adminClient, job) {
 
     const pricingDefaults = await loadGlobalSourcingPricingDefaults(adminClient, provider);
     const variantPricingConfig = {
-      importBufferUsd:
-        pricingPreview.import_buffer_usd ?? pricingDefaults.values?.import_buffer_usd ?? null,
+      importBufferUsd: pricingPreview.import_buffer_usd ?? pricingDefaults.values?.import_buffer_usd ?? null,
       markupPercent: pricingPreview.markup_percent ?? pricingDefaults.values?.markup_percent ?? null,
       markupFlatNgn: pricingPreview.markup_flat_ngn ?? pricingDefaults.values?.markup_flat_ngn ?? null,
-      usdToNgnRate:
-        pricingPreview.usd_to_ngn_rate_used ??
-        pricingPreview.exchange_rate ??
-        pricingDefaults.values?.usd_to_ngn_rate ??
-        null,
+      usdToNgnRate: pricingPreview.usd_to_ngn_rate_used ?? pricingPreview.exchange_rate ?? pricingDefaults.values?.usd_to_ngn_rate ?? null,
     };
+
     const importWarnings = [];
     const variationPlans = [];
 
     for (const variant of importableVariants) {
-      if (variant.attributes.length === 0) {
-        continue;
-      }
-
+      if (variant.attributes.length === 0) continue;
       try {
-        importStage = `price_variant:${variant.externalVariantId}`;
         const variantPricingPreview =
           variant.externalVariantId === selectedVariant.externalVariantId
             ? pricingPreview
@@ -1122,43 +709,28 @@ async function prepareJob(adminClient, job) {
                 anchorPreview: pricingPreview,
                 receivingHubId: receivingHub.id,
                 receivingHubName: receivingHub.name,
-                pricingConfig: {
-                  importBufferUsd: variantPricingConfig.importBufferUsd,
-                  markupPercent: variantPricingConfig.markupPercent,
-                  markupFlatNgn: variantPricingConfig.markupFlatNgn,
-                  usdToNgnRate: variantPricingConfig.usdToNgnRate,
-                },
+                pricingConfig: variantPricingConfig,
               });
-
-        variationPlans.push({
-          variant,
-          pricingPreview: variantPricingPreview,
-        });
+        variationPlans.push({ variant, pricingPreview: variantPricingPreview });
       } catch (error) {
-        importWarnings.push(
-          `Skipped variant ${variant.externalVariantId}: ${error?.message || 'unable to calculate landed pricing'}`
-        );
+        importWarnings.push(`Skipped variant ${variant.externalVariantId}: ${error?.message || 'unable to calculate pricing'}`);
       }
     }
 
     if (variantCandidatesWithAttributes.length > 0 && variationPlans.length === 0) {
-      throw createImportError(
-        'Unable to calculate landed pricing for any importable variant on this product',
-        500
-      );
+      throw createImportError('Unable to calculate landed pricing for any importable variant', 500);
     }
 
-    const productAttributes = buildProductAttributesMatrix(variationPlans.map((plan) => plan.variant));
+    const productAttributes = buildProductAttributesMatrix(variationPlans.map((p) => p.variant));
     const shouldCreateVariations = productAttributes.length > 0;
     const normalizedTitle = normalizeProductTitle(payload.title || '');
-    if (!normalizedTitle) {
-      throw createImportError('A valid product title is required', 400);
-    }
+    if (!normalizedTitle) throw createImportError('A valid product title is required', 400);
 
     const normalizedDescription = normalizeProductDescription(payload.description || '', normalizedTitle);
-    const sourceDescriptionImages = normalizeImages(payload.description_images || []);
+    const sourceDescriptionImages = (payload.description_images || []).slice(0, 8);
     const shortDescription = String(payload.sourcing_tag_label_suggestion || 'Ships from Abroad').trim();
     const sourceProductImages = mapProductImages(payload.images, selectedVariant.image);
+
     const parentPricing = shouldCreateVariations
       ? { regularPriceWoo: null, salePriceWoo: null }
       : computeWooNgnPricing({
@@ -1170,13 +742,11 @@ async function prepareJob(adminClient, job) {
           markupFlatNgn: variantPricingConfig.markupFlatNgn,
           usdToNgnRate: variantPricingConfig.usdToNgnRate,
         });
-    const desiredWooStatus = String(payload.woo_status || 'draft');
-    const initialWooStatus =
-      payload.woo_product_id || !shouldCreateVariations ? desiredWooStatus : 'draft';
+
+    const desiredStatus = String(payload.woo_status || 'draft');
     const progressTotal = shouldCreateVariations
       ? 1 + Math.ceil(variationPlans.length / MAX_VARIATIONS_PER_BATCH)
       : 1;
-    void importStage;
 
     return updateJobRow(adminClient, job.id, {
       status: 'processing',
@@ -1202,15 +772,17 @@ async function prepareJob(adminClient, job) {
         productAttributes,
         parentPricing,
         variationPlans,
-        desiredWooStatus,
-        initialWooStatus,
+        desiredStatus,
         warnings: importWarnings,
         importVariantCount: importVariants.length,
         importableVariantCount: importableVariants.length,
         nextVariationIndex: 0,
         importedVariationIds: [],
-        selectedVariationId: null,
         progressTotal,
+        // fields for re-import
+        supplierSource,
+        supplierProductId,
+        supplierUrl,
       },
       result: null,
       error_message: null,
@@ -1218,101 +790,50 @@ async function prepareJob(adminClient, job) {
     });
   }
 
-  let importStage = 'materialize_product';
-  const importWarnings = Array.isArray(existingCursor.warnings)
-    ? existingCursor.warnings.map((warning) => String(warning || '').trim()).filter(Boolean)
-    : [];
-  const imageWarnings = [];
-  const imageUploadCache = new Map();
-  const vendorMapping = isPlainObject(existingCursor.vendorMapping) ? existingCursor.vendorMapping : {};
-  const receivingHub = isPlainObject(existingCursor.receivingHub) ? existingCursor.receivingHub : {};
-  const pricingPreview = isPlainObject(existingCursor.pricingPreview) ? existingCursor.pricingPreview : {};
-  const normalizedTitle = String(existingCursor.normalizedTitle || '').trim();
-  const normalizedDescription = String(existingCursor.normalizedDescription || '').trim();
-  const sourceDescriptionImages = Array.isArray(existingCursor.sourceDescriptionImages)
-    ? existingCursor.sourceDescriptionImages
-    : [];
-  const shortDescription = String(existingCursor.shortDescription || 'Ships from Abroad').trim();
-  const sourceProductImages = Array.isArray(existingCursor.sourceProductImages)
-    ? existingCursor.sourceProductImages
-    : [];
-  const shouldCreateVariations = Boolean(existingCursor.shouldCreateVariations);
-  const productAttributes = Array.isArray(existingCursor.productAttributes)
-    ? existingCursor.productAttributes
-    : [];
-  const parentPricing = isPlainObject(existingCursor.parentPricing) ? existingCursor.parentPricing : {};
-  const variationPlans = Array.isArray(existingCursor.variationPlans) ? existingCursor.variationPlans : [];
-  const ownershipMeta = buildOwnershipMeta(vendorMapping);
+  // ── Stage 2: materialize product in Supabase ──────────────────────────────
+  const cursor = existingCursor;
+  const warnings = Array.isArray(cursor.warnings) ? [...cursor.warnings] : [];
 
-  let existingProductMeta = [];
-  if (payload.woo_product_id) {
-    importStage = 'load_existing_product';
-    const existingProduct = await requestWoo(`/products/${payload.woo_product_id}`);
-    existingProductMeta = Array.isArray(existingProduct?.meta_data) ? existingProduct.meta_data : [];
+  const vendorMapping = isPlainObject(cursor.vendorMapping) ? cursor.vendorMapping : {};
+  const receivingHub = isPlainObject(cursor.receivingHub) ? cursor.receivingHub : {};
+  const pricingPreview = isPlainObject(cursor.pricingPreview) ? cursor.pricingPreview : {};
+  const normalizedTitle = String(cursor.normalizedTitle || '').trim();
+  const normalizedDescription = String(cursor.normalizedDescription || '').trim();
+  const sourceDescriptionImages = Array.isArray(cursor.sourceDescriptionImages) ? cursor.sourceDescriptionImages : [];
+  const shortDescription = String(cursor.shortDescription || 'Ships from Abroad').trim();
+  const sourceProductImages = (Array.isArray(cursor.sourceProductImages) ? cursor.sourceProductImages : [])
+    .slice(0, MAX_PRODUCT_IMAGE_UPLOADS);
+  const shouldCreateVariations = Boolean(cursor.shouldCreateVariations);
+  const productAttributes = Array.isArray(cursor.productAttributes) ? cursor.productAttributes : [];
+  const parentPricing = isPlainObject(cursor.parentPricing) ? cursor.parentPricing : {};
+  const variationPlans = Array.isArray(cursor.variationPlans) ? cursor.variationPlans : [];
+
+  // Build description with CJ image URLs embedded directly (no WordPress upload)
+  const richDescription = buildDescriptionHtml(normalizedDescription, sourceDescriptionImages, normalizedTitle);
+
+  // Ensure "ships-from-abroad" tag exists
+  let shipsTagId = null;
+  try {
+    shipsTagId = await ensureSupabaseTag(adminClient, { name: 'Ships from Abroad', slug: 'ships-from-abroad' });
+  } catch (e) {
+    warnings.push(`Could not ensure ships-from-abroad tag: ${e?.message}`);
   }
 
-  importStage = 'upload_product_images';
-  const uploadedProductImages = await resolveWooProductImages(sourceProductImages, {
-    title: normalizedTitle,
-    cache: imageUploadCache,
-    warnings: imageWarnings,
-  });
-  const uploadedDescriptionImages = await resolveWooDescriptionImages(sourceDescriptionImages, {
-    title: normalizedTitle,
-    cache: imageUploadCache,
-    warnings: importWarnings,
-  });
-  const shouldWriteProductImages = !payload.woo_product_id || imageWarnings.length === 0;
-  const richDescription = buildWooDescriptionHtml(
-    normalizedDescription,
-    uploadedDescriptionImages,
-    normalizedTitle
-  );
-
-  if (!payload.woo_product_id && sourceProductImages.length > 0 && uploadedProductImages.length === 0) {
-    throw createImportError(
-      [...importWarnings, ...imageWarnings][0] ||
-        'No source images could be uploaded to WordPress media for this new Woo product',
-      500
-    );
-  }
-
-  const normalizedTagSpecs = [
-    {
-      name: 'Ships from Abroad',
-      slug: 'ships-from-abroad',
-    },
-  ];
-  const ensuredTags = [];
-  for (const tagSpec of normalizedTagSpecs) {
-    try {
-      importStage = `ensure_tag:${tagSpec.slug || tagSpec.name}`;
-      const tag = await ensureWooProductTag(tagSpec);
-      if (tag?.id) {
-        ensuredTags.push({ id: Number(tag.id) });
-      }
-    } catch (error) {
-      importWarnings.push(
-        `Skipped Woo tag "${tagSpec.name}": ${error?.message || 'unable to create tag'}`
-      );
-    }
-  }
-
-  const productMeta = buildGlobalSourcingMeta({
-    provider,
+  // Build sourcing_meta
+  const sourcingMeta = buildGlobalSourcingMeta({
+    provider: cursor.provider,
     cjPid: externalProductId,
-    cjVid: shouldCreateVariations ? null : String(existingCursor.selectedVariantId || '').trim() || null,
-    supplierSource,
-    supplierProductId,
-    supplierVariantId:
-      shouldCreateVariations ? null : String(existingCursor.selectedVariantId || '').trim() || null,
-    supplierUrl,
-    fulfillmentMode,
+    cjVid: shouldCreateVariations ? null : String(cursor.selectedVariantId || '').trim() || null,
+    supplierSource: cursor.supplierSource,
+    supplierProductId: cursor.supplierProductId,
+    supplierVariantId: shouldCreateVariations ? null : String(cursor.selectedVariantId || '').trim() || null,
+    supplierUrl: cursor.supplierUrl,
+    fulfillmentMode: cursor.fulfillmentMode,
     receivingHubId: receivingHub.id,
     receivingHubName: receivingHub.name,
     sourcingTag: shortDescription,
-    estimatedInboundDaysMin: pricingPreview.estimated_inbound_days_min ?? payload.estimated_inbound_days_min,
-    estimatedInboundDaysMax: pricingPreview.estimated_inbound_days_max ?? payload.estimated_inbound_days_max,
+    estimatedInboundDaysMin: pricingPreview.estimated_inbound_days_min ?? payload?.estimated_inbound_days_min,
+    estimatedInboundDaysMax: pricingPreview.estimated_inbound_days_max ?? payload?.estimated_inbound_days_max,
     landedCostSnapshot: pricingPreview.final_price_ngn,
     supplierPriceSnapshot: pricingPreview.supplier_price_usd,
     exchangeRateSnapshot: pricingPreview.exchange_rate,
@@ -1329,70 +850,83 @@ async function prepareJob(adminClient, job) {
     woocommerceVendorId: vendorMapping.woocommerce_vendor_id,
   });
 
-  const productPayload = buildProductPayload({
-    title: normalizedTitle,
-    description: richDescription || normalizedDescription,
-    shortDescription,
-    images: shouldWriteProductImages ? uploadedProductImages : [],
-    tags: ensuredTags,
-    metaData: applyMetaUpdates(existingProductMeta, {
-      ...productMeta,
-      ...ownershipMeta,
-    }),
-    attributes: productAttributes,
-    pricing: {
-      regularPriceWoo: parentPricing.regularPriceWoo,
-      salePriceWoo: parentPricing.salePriceWoo || null,
-    },
-    wooStatus: String(existingCursor.initialWooStatus || existingCursor.desiredWooStatus || 'draft'),
-    stockStatus: 'instock',
-    vendorMapping,
-  });
+  // Add wc_vendor_id for backfill compatibility
+  if (vendorMapping.woocommerce_vendor_id) {
+    sourcingMeta.wc_vendor_id = String(vendorMapping.woocommerce_vendor_id);
+  }
 
-  const product =
-    payload.woo_product_id
-      ? await (async () => {
-          importStage = 'update_product';
-          return requestWoo(`/products/${payload.woo_product_id}`, {
-            method: 'PUT',
-            body: JSON.stringify(productPayload),
-          });
-        })()
-      : await (async () => {
-          importStage = 'create_product';
-          return requestWoo('/products', {
-            method: 'POST',
-            body: JSON.stringify(productPayload),
-          });
-        })();
-  void importStage;
+  // Generate slug from title + timestamp suffix to avoid collisions
+  const baseSlug = slugifyTitle(normalizedTitle);
+  const slugSuffix = Date.now().toString(36).slice(-4);
+  const productSlug = `${baseSlug}-${slugSuffix}`;
+
+  // Check if product already exists (re-import)
+  const existingProduct = externalProductId ? await findExistingProduct(adminClient, externalProductId) : null;
+
+  const productRow = {
+    name: normalizedTitle,
+    description: richDescription || normalizedDescription,
+    short_description: shortDescription,
+    status: cursor.desiredStatus || 'draft',
+    type: shouldCreateVariations ? 'variable' : 'simple',
+    regular_price: shouldCreateVariations ? null : (parentPricing.regularPriceWoo ?? null),
+    sale_price: shouldCreateVariations ? null : (parentPricing.salePriceWoo || null),
+    stock_status: 'instock',
+    manage_stock: false,
+    ships_from_abroad: true,
+    is_virtual: false,
+    vendor_id: vendorMapping.id || null,
+    hub_id: receivingHub.id || null,
+    sourcing_meta: sourcingMeta,
+    updated_at: new Date().toISOString(),
+  };
+
+  let productId;
+  if (existingProduct) {
+    // Update existing
+    const { error } = await adminClient.from('products').update(productRow).eq('id', existingProduct.id);
+    if (error) throw createImportError(`Failed to update product: ${error.message}`, 500);
+    productId = existingProduct.id;
+  } else {
+    // Insert new
+    const { data: inserted, error } = await adminClient
+      .from('products')
+      .insert({ ...productRow, slug: productSlug })
+      .select('id')
+      .single();
+    if (error) throw createImportError(`Failed to insert product: ${error.message}`, 500);
+    productId = inserted.id;
+  }
+
+  // Write product images (CJ CDN URLs directly, no upload)
+  await writeProductImages(adminClient, productId, sourceProductImages);
+
+  // Write attribute matrix
+  if (productAttributes.length > 0) {
+    await writeProductAttributes(adminClient, productId, productAttributes);
+  }
+
+  // Write tag
+  if (shipsTagId) {
+    await adminClient.from('product_tag_map').delete().eq('product_id', productId).eq('tag_id', shipsTagId);
+    await adminClient.from('product_tag_map').insert({ product_id: productId, tag_id: shipsTagId });
+  }
+
   const baseCursor = {
-    ...existingCursor,
-    prepared: true,
-    provider,
-    externalProductId,
-    fulfillmentMode,
-    receivingHub,
-    pricingPreview,
-    vendorMapping,
-    shortDescription,
-    shouldCreateVariations,
-    shouldWriteProductImages,
-    uploadedProductImagesCount: uploadedProductImages.length,
-    ensuredTagsCount: ensuredTags.length,
-    warnings: [...importWarnings, ...imageWarnings],
+    ...cursor,
+    warnings,
     productSummary: {
-      id: String(product.id),
-      name: product.name,
-      status: product.status,
-      type: product.type,
-      permalink: product.permalink || null,
+      supabase_id: productId,
+      name: normalizedTitle,
+      status: cursor.desiredStatus || 'draft',
+      type: shouldCreateVariations ? 'variable' : 'simple',
     },
     sourceProductPrimaryImage: sourceProductImages[0]?.src || null,
     nextVariationIndex: 0,
     importedVariationIds: [],
     selectedVariationId: null,
     variationPlansPrepared: !shouldCreateVariations,
+    productId,
   };
 
   if (!shouldCreateVariations) {
@@ -1403,7 +937,7 @@ async function prepareJob(adminClient, job) {
     status: 'processing',
     progress_stage: 'product_materialized',
     progress_current: 1,
-    progress_total: Number(existingCursor.progressTotal || 1),
+    progress_total: Number(cursor.progressTotal || 1),
     cursor: baseCursor,
     result: null,
     error_message: null,
@@ -1412,65 +946,29 @@ async function prepareJob(adminClient, job) {
 }
 
 async function prepareVariationProcessing(adminClient, job) {
-  const payload = isPlainObject(job.payload) ? job.payload : {};
   const cursor = isPlainObject(job.cursor) ? job.cursor : {};
   const variationPlans = Array.isArray(cursor.variationPlans) ? cursor.variationPlans : [];
-  const sourceProductPrimaryImage = String(cursor.sourceProductPrimaryImage || '').trim();
-  const productId = String(cursor.productSummary?.id || '').trim();
+  const productId = cursor.productId;
 
-  if (!productId) {
-    throw createImportError('Woo product was created but job cursor is missing product summary', 500);
-  }
+  if (!productId) throw createImportError('Product was created but job cursor is missing productId', 500);
 
-  const existingVariations = payload.woo_product_id ? await listWooVariations(productId) : [];
-  const lookup = buildExistingVariationLookup(existingVariations);
-  const allowedVariationImageUrlSet = new Set();
+  // Look up existing variations in Supabase by cj_vid in sourcing_meta
+  const { data: existingVariations } = await adminClient
+    .from('product_variations')
+    .select('id, sourcing_meta, attributes')
+    .eq('product_id', productId);
 
-  if (MAX_UNIQUE_VARIATION_IMAGE_UPLOADS > 0) {
-    for (const plan of variationPlans) {
-      const candidateUrl = String(plan?.variant?.image || '').trim();
-      if (!candidateUrl || candidateUrl === sourceProductPrimaryImage) continue;
-      allowedVariationImageUrlSet.add(candidateUrl);
-      if (allowedVariationImageUrlSet.size >= MAX_UNIQUE_VARIATION_IMAGE_UPLOADS) break;
-    }
-  }
-
-  const uniqueVariationImageCount = new Set(
-    variationPlans
-      .map((plan) => String(plan?.variant?.image || '').trim())
-      .filter((url) => Boolean(url) && url !== sourceProductPrimaryImage)
-  ).size;
-  const warnings = Array.isArray(cursor.warnings)
-    ? cursor.warnings.map((warning) => String(warning || '').trim()).filter(Boolean)
-    : [];
-  if (uniqueVariationImageCount > allowedVariationImageUrlSet.size) {
-    warnings.push(
-      `Skipped ${uniqueVariationImageCount - allowedVariationImageUrlSet.size} unique variation image(s) to keep import within runtime limits`
-    );
-  }
-
-  const preparedVariationPlans = variationPlans.map((plan) => {
-    const variant = isPlainObject(plan?.variant) ? plan.variant : {};
-    const fallbackVariationId = pickExistingVariationId(
-      payload.woo_variation_id,
-      cursor.selectedVariantId,
-      variant
-    );
-    const signature = buildAttributeSignature(Array.isArray(variant.attributes) ? variant.attributes : []);
-    const matchedVariation =
-      lookup.byExternalVariantId.get(variant.externalVariantId) ||
-      (fallbackVariationId
-        ? existingVariations.find((existingVariation) => String(existingVariation.id) === fallbackVariationId)
-        : null) ||
-      lookup.byAttributes.get(signature) ||
-      null;
-
-    return {
-      variant,
-      pricingPreview: isPlainObject(plan?.pricingPreview) ? plan.pricingPreview : {},
-      matchedVariationId: matchedVariation?.id ? String(matchedVariation.id) : null,
-    };
+  const byExternalVariantId = new Map();
+  (existingVariations || []).forEach((v) => {
+    const cjVid = v.sourcing_meta?.cj_variant_id || v.sourcing_meta?.cj_vid;
+    if (cjVid) byExternalVariantId.set(String(cjVid), v.id);
   });
+
+  const preparedVariationPlans = variationPlans.map((plan) => ({
+    variant: plan.variant,
+    pricingPreview: plan.pricingPreview,
+    existingVariationId: byExternalVariantId.get(plan.variant.externalVariantId) || null,
+  }));
 
   return updateJobRow(adminClient, job.id, {
     status: 'processing',
@@ -1479,15 +977,10 @@ async function prepareVariationProcessing(adminClient, job) {
     progress_total: Number(job.progress_total || cursor.progressTotal || 1),
     cursor: {
       ...cursor,
-      warnings,
-      allowedVariationImageUrls: Array.from(allowedVariationImageUrlSet.values()),
       variationPlans: preparedVariationPlans,
       variationPlansPrepared: true,
       nextVariationIndex: 0,
-      importedVariationIds: Array.isArray(cursor.importedVariationIds)
-        ? cursor.importedVariationIds
-        : [],
-      selectedVariationId: cursor.selectedVariationId || null,
+      importedVariationIds: Array.isArray(cursor.importedVariationIds) ? cursor.importedVariationIds : [],
     },
     result: null,
     error_message: null,
@@ -1496,7 +989,6 @@ async function prepareVariationProcessing(adminClient, job) {
 }
 
 async function processVariationBatch(adminClient, job) {
-  const payload = isPlainObject(job.payload) ? job.payload : {};
   const cursor = isPlainObject(job.cursor) ? job.cursor : {};
   const variationPlans = Array.isArray(cursor.variationPlans) ? cursor.variationPlans : [];
   const nextVariationIndex = Number(cursor.nextVariationIndex || 0);
@@ -1506,39 +998,29 @@ async function processVariationBatch(adminClient, job) {
   }
 
   const batchPlans = variationPlans.slice(nextVariationIndex, nextVariationIndex + MAX_VARIATIONS_PER_BATCH);
-  const imageUploadCache = new Map();
-  const imageWarnings = [];
-  const createDescriptors = [];
-  const updateDescriptors = [];
-  const allowedVariationImageUrls = new Set(
-    (Array.isArray(cursor.allowedVariationImageUrls) ? cursor.allowedVariationImageUrls : [])
-      .map((value) => String(value || '').trim())
-      .filter(Boolean)
-  );
-  const ownershipMeta = buildOwnershipMeta(cursor.vendorMapping || {});
+  const productId = cursor.productId;
+  const warnings = Array.isArray(cursor.warnings) ? [...cursor.warnings] : [];
+  const importedVariationIds = Array.isArray(cursor.importedVariationIds) ? [...cursor.importedVariationIds] : [];
+  const pricingPreview = isPlainObject(cursor.pricingPreview) ? cursor.pricingPreview : {};
 
   for (const plan of batchPlans) {
     const variant = isPlainObject(plan?.variant) ? plan.variant : {};
-    const variantPricingPreview = isPlainObject(plan?.pricingPreview) ? plan.pricingPreview : {};
-    const existingVariationMeta = plan?.matchedVariationId
-      ? await getExistingVariationMeta(cursor.productSummary?.id, { id: plan.matchedVariationId })
-      : [];
-    const variationMeta = buildGlobalSourcingMeta({
+    const variantPricingPreview = isPlainObject(plan?.pricingPreview) ? plan.pricingPreview : pricingPreview;
+
+    const variationSourcingMeta = buildGlobalSourcingMeta({
       provider: cursor.provider,
       cjPid: cursor.externalProductId,
       cjVid: variant.externalVariantId,
-      supplierSource: payload?.supplier_source || cursor.provider,
-      supplierProductId: payload?.supplier_product_id || cursor.externalProductId,
+      supplierSource: cursor.supplierSource,
+      supplierProductId: cursor.supplierProductId,
       supplierVariantId: variant.externalVariantId,
-      supplierUrl: payload?.supplier_url || null,
+      supplierUrl: cursor.supplierUrl,
       fulfillmentMode: cursor.fulfillmentMode,
       receivingHubId: cursor.receivingHub?.id,
       receivingHubName: cursor.receivingHub?.name,
       sourcingTag: cursor.shortDescription,
-      estimatedInboundDaysMin:
-        variantPricingPreview.estimated_inbound_days_min ?? payload.estimated_inbound_days_min,
-      estimatedInboundDaysMax:
-        variantPricingPreview.estimated_inbound_days_max ?? payload.estimated_inbound_days_max,
+      estimatedInboundDaysMin: variantPricingPreview.estimated_inbound_days_min,
+      estimatedInboundDaysMax: variantPricingPreview.estimated_inbound_days_max,
       landedCostSnapshot: variantPricingPreview.final_price_ngn,
       supplierPriceSnapshot: variantPricingPreview.supplier_price_usd,
       exchangeRateSnapshot: variantPricingPreview.exchange_rate,
@@ -1546,8 +1028,7 @@ async function processVariationBatch(adminClient, job) {
       supplierPriceSnapshotUsd: variantPricingPreview.supplier_price_usd,
       inboundShippingSnapshotUsd: variantPricingPreview.inbound_shipping_quote_usd,
       landedCostSnapshotUsd: variantPricingPreview.landed_cost_usd,
-      usdToNgnRateSnapshot:
-        variantPricingPreview.usd_to_ngn_rate_used ?? variantPricingPreview.exchange_rate,
+      usdToNgnRateSnapshot: variantPricingPreview.usd_to_ngn_rate_used ?? variantPricingPreview.exchange_rate,
       usdToNgnRateSourceSnapshot: variantPricingPreview.usd_to_ngn_rate_source,
       fxRateFetchedAtSnapshot: variantPricingPreview.fx_rate_fetched_at || undefined,
       finalPriceSnapshotNgn: variantPricingPreview.final_price_ngn,
@@ -1556,81 +1037,54 @@ async function processVariationBatch(adminClient, job) {
       woocommerceVendorId: cursor.vendorMapping?.woocommerce_vendor_id,
     });
 
-    const variationImageSource = allowedVariationImageUrls.has(String(variant.image || '').trim())
-      ? variant.image
-      : null;
+    // attributes stored as JSONB array: [{name, value}, ...]
+    const attributesJson = (Array.isArray(variant.attributes) ? variant.attributes : []).map((a) => ({
+      name: a.name,
+      value: a.value,
+    }));
 
-    const variationPayload = buildVariationPayload({
-      attributes: Array.isArray(variant.attributes) ? variant.attributes : [],
-      pricing: {
-        regularPriceWoo: variantPricingPreview.final_price_ngn,
-        salePriceWoo: variantPricingPreview.sale_price_ngn || null,
-      },
-      variationImageId: await resolveWooVariationImage(variationImageSource, {
-        title: cursor.normalizedTitle,
-        cache: imageUploadCache,
-        warnings: imageWarnings,
-      }),
-      metaData: applyMetaUpdates(existingVariationMeta, {
-        ...variationMeta,
-        ...ownershipMeta,
-      }),
-    });
+    const variationRow = {
+      product_id: productId,
+      regular_price: variantPricingPreview.final_price_ngn ?? null,
+      sale_price: variantPricingPreview.sale_price_ngn || null,
+      stock_status: 'instock',
+      manage_stock: false,
+      attributes: attributesJson,
+      vendor_id: cursor.vendorMapping?.id || null,
+      hub_id: cursor.receivingHub?.id || null,
+      sourcing_meta: variationSourcingMeta,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    };
 
-    if (plan?.matchedVariationId) {
-      updateDescriptors.push({
-        variant,
-        payload: {
-          id: Number(plan.matchedVariationId),
-          ...variationPayload,
-        },
-      });
-    } else {
-      createDescriptors.push({
-        variant,
-        payload: variationPayload,
-      });
+    try {
+      let variationId = plan.existingVariationId;
+      if (variationId) {
+        await adminClient.from('product_variations').update(variationRow).eq('id', variationId);
+      } else {
+        const { data: inserted, error } = await adminClient
+          .from('product_variations').insert(variationRow).select('id').single();
+        if (error) throw new Error(error.message);
+        variationId = inserted.id;
+      }
+
+      // Write variation image (CJ URL directly)
+      const variantImageUrl = String(variant.image || '').trim();
+      if (variantImageUrl && variantImageUrl !== cursor.sourceProductPrimaryImage) {
+        await writeVariationImage(adminClient, productId, variationId, variantImageUrl);
+      }
+
+      importedVariationIds.push(variationId);
+    } catch (err) {
+      warnings.push(`Skipped variant ${variant.externalVariantId}: ${err?.message || 'write failed'}`);
     }
   }
 
   const batchNumber = Math.floor(nextVariationIndex / MAX_VARIATIONS_PER_BATCH) + 1;
-  const batchResult = await requestWoo(`/products/${cursor.productSummary?.id}/variations/batch`, {
-    method: 'POST',
-    body: JSON.stringify({
-      create: createDescriptors.map((entry) => entry.payload),
-      update: updateDescriptors.map((entry) => entry.payload),
-    }),
-  });
-
-  const variationIdMap = new Map();
-  buildVariationResponseMap(batchResult?.create, createDescriptors).forEach((value, key) => {
-    variationIdMap.set(key, value);
-  });
-  buildVariationResponseMap(batchResult?.update, updateDescriptors).forEach((value, key) => {
-    variationIdMap.set(key, value);
-  });
-
-  const nextImportedVariationIds = appendUniqueStrings(
-    cursor.importedVariationIds,
-    batchPlans
-      .map((plan) => variationIdMap.get(plan.variant.externalVariantId))
-      .filter(Boolean)
-  );
-  const nextSelectedVariationId =
-    cursor.selectedVariationId ||
-    batchPlans
-      .map((plan) =>
-        plan.variant.externalVariantId === cursor.selectedVariantId
-          ? variationIdMap.get(plan.variant.externalVariantId)
-          : null
-      )
-      .find(Boolean) ||
-    null;
   const updatedCursor = {
     ...cursor,
-    warnings: [...(Array.isArray(cursor.warnings) ? cursor.warnings : []), ...imageWarnings],
-    importedVariationIds: nextImportedVariationIds,
-    selectedVariationId: nextSelectedVariationId,
+    warnings,
+    importedVariationIds,
     nextVariationIndex: nextVariationIndex + batchPlans.length,
   };
 
@@ -1653,6 +1107,8 @@ async function processVariationBatch(adminClient, job) {
   });
 }
 
+// ─── Public API ───────────────────────────────────────────────────────────────
+
 export async function enqueueGlobalSourcingImportJob({ adminClient, requestedBy, payload }) {
   const { provider } = validateImportPayload(payload);
   const { data, error } = await adminClient
@@ -1673,10 +1129,7 @@ export async function enqueueGlobalSourcingImportJob({ adminClient, requestedBy,
     .select('*')
     .single();
 
-  if (error || !data) {
-    throw createImportError(error?.message || 'Unable to queue import job', 500, error);
-  }
-
+  if (error || !data) throw createImportError(error?.message || 'Unable to queue import job', 500, error);
   return shapeJobRow(data);
 }
 
@@ -1688,9 +1141,7 @@ export async function getGlobalSourcingImportJob({ adminClient, jobId }) {
 export async function processGlobalSourcingImportJob({ adminClient, jobId }) {
   let job = await loadJobRow(adminClient, jobId);
 
-  if (job.status === 'completed' || job.status === 'failed') {
-    return shapeJobRow(job);
-  }
+  if (job.status === 'completed' || job.status === 'failed') return shapeJobRow(job);
 
   try {
     if (job.status === 'queued') {
@@ -1710,21 +1161,14 @@ export async function processGlobalSourcingImportJob({ adminClient, jobId }) {
       job = await prepareJob(adminClient, job);
       return shapeJobRow(job);
     }
-
     if (cursor.shouldCreateVariations && !cursor.variationPlansPrepared) {
       job = await prepareVariationProcessing(adminClient, job);
       return shapeJobRow(job);
     }
-
     job = await processVariationBatch(adminClient, job);
     return shapeJobRow(job);
   } catch (error) {
-    const failedJob = await failJob(
-      adminClient,
-      job,
-      job.progress_stage || 'processing',
-      error
-    );
+    const failedJob = await failJob(adminClient, job, job.progress_stage || 'processing', error);
     return shapeJobRow(failedJob);
   }
 }

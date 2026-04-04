@@ -26,6 +26,8 @@ import {
 } from './services/global-sourcing-utils.js';
 
 const PER_PAGE = 20; // safe for IONOS shared hosting
+const VAR_PER_PAGE = 10; // fewer variable products per page — each makes a WC call
+const VAR_INTER_DELAY_MS = 2000; // 2s between each product's variation fetch
 
 /**
  * Migration target client — reads from MIGRATION_SUPABASE_* env vars.
@@ -392,14 +394,14 @@ async function syncVariations(adminClient, page) {
   const hubSet = new Set((hubRes.data || []).map((h) => h.id));
 
   // Page through variable products in Supabase
-  const offset = (page - 1) * PER_PAGE;
+  const offset = (page - 1) * VAR_PER_PAGE;
   const { data: variableProducts, error: vpErr, count } = await adminClient
     .from('products')
     .select('id, woo_product_id', { count: 'exact' })
     .eq('type', 'variable')
     .not('woo_product_id', 'is', null)
     .order('woo_product_id', { ascending: true })
-    .range(offset, offset + PER_PAGE - 1);
+    .range(offset, offset + VAR_PER_PAGE - 1);
 
   if (vpErr) return { success: false, error: vpErr.message, page };
 
@@ -407,10 +409,21 @@ async function syncVariations(adminClient, page) {
 
   for (const product of (variableProducts || [])) {
     try {
-      const wcVars = await requestWoo(
-        `/products/${product.woo_product_id}/variations?per_page=100&_fields=id,sku,regular_price,sale_price,stock_quantity,stock_status,manage_stock,attributes,image,meta_data`
-      );
-      if (!Array.isArray(wcVars)) continue;
+      let wcVars;
+      try {
+        wcVars = await requestWoo(
+          `/products/${product.woo_product_id}/variations?per_page=100&_fields=id,sku,regular_price,sale_price,stock_quantity,stock_status,manage_stock,attributes,image,meta_data`
+        );
+      } catch (wcErr) {
+        // WooCommerce returned HTML error page (server overloaded) — skip this product
+        errors.push(`woo_id=${product.woo_product_id}: WC error — ${wcErr.message?.slice(0, 80)}`);
+        await new Promise((r) => setTimeout(r, VAR_INTER_DELAY_MS));
+        continue;
+      }
+      if (!Array.isArray(wcVars)) {
+        errors.push(`woo_id=${product.woo_product_id}: WC returned non-array`);
+        continue;
+      }
 
       for (const v of wcVars) {
         const meta = Array.isArray(v.meta_data) ? v.meta_data : [];
@@ -472,12 +485,14 @@ async function syncVariations(adminClient, page) {
       }
 
       processed++;
+      // Delay between products to avoid overloading IONOS
+      await new Promise((r) => setTimeout(r, VAR_INTER_DELAY_MS));
     } catch (e) {
       errors.push(`variations for product woo_id=${product.woo_product_id}: ${e.message}`);
     }
   }
 
-  const totalPages = count ? Math.ceil(count / PER_PAGE) : 1;
+  const totalPages = count ? Math.ceil(count / VAR_PER_PAGE) : 1;
 
   return {
     success: true,

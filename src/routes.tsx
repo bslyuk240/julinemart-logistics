@@ -23,6 +23,7 @@ import { GlobalSourcingPage } from './dashboard/pages/GlobalSourcing';
 import { ProductModerationPage } from './dashboard/pages/ProductModeration';
 import HomepageContent from './dashboard/pages/HomepageContent';
 import CatalogMigration from './dashboard/pages/CatalogMigration';
+import ProductUpload from './dashboard/pages/ProductUpload';
 import { HubsPage } from './dashboard/pages/Hubs';
 import { HubDispatchPage } from './dashboard/pages/HubDispatch';
 import InfluencerDetailPage from './dashboard/pages/InfluencerDetailPage.tsx';
@@ -55,6 +56,7 @@ const sharedRoutes = [
   { path: 'rates', element: <ShippingRatesPage /> },
   { path: 'whatsapp', element: <WhatsAppSupportPage /> },
   { path: 'whatsapp/:chatId', element: <WhatsAppChatView /> },
+  { path: 'products/upload', element: <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent']}><ProductUpload /></ProtectedRoute> },
   { path: 'global-sourcing', element: <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent']}><GlobalSourcingPage /></ProtectedRoute> },
   { path: 'products/moderation', element: <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent']}><ProductModerationPage /></ProtectedRoute> },
   { path: 'homepage-content', element: <ProtectedRoute allowedRoles={['admin', 'shop_manager']}><HomepageContent /></ProtectedRoute> },

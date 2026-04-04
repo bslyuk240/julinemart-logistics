@@ -60,8 +60,9 @@ const navigation: NavItem[] = [
   { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent'] },
   { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'agent'] },
   // Catalog: admin, shop_manager, and agents with catalog_access
-  { name: 'Global Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['admin', 'shop_manager'], requireCatalogAccess: true },
+  { name: 'Add Product', href: '/admin/products/upload', icon: Plus, roles: ['admin', 'shop_manager'], requireCatalogAccess: true },
   { name: 'Product Moderation', href: '/admin/products/moderation', icon: ClipboardCheck, roles: ['admin', 'shop_manager'], requireCatalogAccess: true },
+  { name: 'Global Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['admin', 'shop_manager'], requireCatalogAccess: true },
   { name: 'Homepage Content', href: '/admin/homepage-content', icon: LayoutGrid, roles: ['admin', 'shop_manager'] },
   { name: 'Catalog Migration', href: '/admin/catalog-migration', icon: DatabaseZap, roles: ['admin'] },
   // Admin only

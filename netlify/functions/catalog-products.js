@@ -81,9 +81,17 @@ export async function handler(event) {
       query = query.in('id', ids);
     }
 
-    // Vendor filter
+    // Vendor filter — by Supabase UUID or by WooCommerce vendor ID
     if (q.vendor_id) {
       query = query.eq('vendor_id', q.vendor_id);
+    } else if (q.woo_vendor_id) {
+      const { data: vendor } = await adminClient
+        .from('vendors')
+        .select('id')
+        .eq('woocommerce_vendor_id', q.woo_vendor_id)
+        .maybeSingle();
+      if (!vendor) return jsonResponse(200, { success: true, data: [], meta: { page, per_page: perPage, total: 0, total_pages: 0 } });
+      query = query.eq('vendor_id', vendor.id);
     }
 
     // Type filter

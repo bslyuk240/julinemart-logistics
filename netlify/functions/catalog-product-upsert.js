@@ -19,7 +19,8 @@ export async function handler(event) {
 
   const isPost = event.httpMethod === 'POST';
   const isPut = event.httpMethod === 'PUT';
-  if (!isPost && !isPut) return jsonResponse(405, { error: 'Method not allowed' });
+  const isDelete = event.httpMethod === 'DELETE';
+  if (!isPost && !isPut && !isDelete) return jsonResponse(405, { error: 'Method not allowed' });
 
   const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
   if (auth.errorResponse) return auth.errorResponse;
@@ -28,7 +29,26 @@ export async function handler(event) {
   if (!body) return jsonResponse(400, { error: 'Invalid JSON body' });
 
   const productId = event.queryStringParameters?.id || null;
-  if (isPut && !productId) return jsonResponse(400, { error: 'id query param required for PUT' });
+  if ((isPut || isDelete) && !productId) return jsonResponse(400, { error: 'id query param required' });
+
+  // ── DELETE ────────────────────────────────────────────────────────────────────
+  if (isDelete) {
+    try {
+      // Delete related rows first (images, maps, variations)
+      await Promise.all([
+        auth.adminClient.from('product_images').delete().eq('product_id', productId),
+        auth.adminClient.from('product_category_map').delete().eq('product_id', productId),
+        auth.adminClient.from('product_tag_map').delete().eq('product_id', productId),
+        auth.adminClient.from('product_attribute_map').delete().eq('product_id', productId),
+        auth.adminClient.from('product_variations').delete().eq('product_id', productId),
+      ]);
+      const { error } = await auth.adminClient.from('products').delete().eq('id', productId);
+      if (error) return jsonResponse(500, { success: false, error: error.message });
+      return jsonResponse(200, { success: true });
+    } catch (err) {
+      return jsonResponse(500, { success: false, error: 'Failed to delete product', message: err?.message });
+    }
+  }
 
   const {
     name,

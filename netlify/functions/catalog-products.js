@@ -41,8 +41,11 @@ export async function handler(event) {
          product_category_map ( categories ( id, name, slug ) ),
          product_tag_map ( tags ( id, name, slug ) )`,
         { count: 'exact' }
-      )
-      .eq('status', status)
+      );
+
+    // 'all' skips the status filter — used by admin product list
+    if (status !== 'all') query = query.eq('status', status);
+    query = query
       .order('created_at', { ascending: false })
       .range(offset, offset + perPage - 1);
 

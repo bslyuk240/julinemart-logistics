@@ -22,7 +22,9 @@ import {
   Ticket,
   BellRing,
   Search,
-  ClipboardCheck
+  ClipboardCheck,
+  LayoutGrid,
+  DatabaseZap
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
 import { BrandLogo } from '../../shared/BrandLogo';
@@ -58,6 +60,8 @@ const navigation = [
   { name: 'Vouchers', href: '/admin/vouchers', icon: Ticket, roles: ['admin'] },
   { name: 'Global Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['admin', 'agent'] },
   { name: 'Product Moderation', href: '/admin/products/moderation', icon: ClipboardCheck, roles: ['admin', 'agent'] },
+  { name: 'Homepage Content', href: '/admin/homepage-content', icon: LayoutGrid, roles: ['admin'] },
+  { name: 'Catalog Migration', href: '/admin/catalog-migration', icon: DatabaseZap, roles: ['admin'] },
   { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },
   { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
   { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },

@@ -1,10 +1,10 @@
 ﻿import { ReactNode, useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
-  LayoutDashboard, 
-  Package, 
-  MapPin, 
-  Truck, 
+  LayoutDashboard,
+  Package,
+  MapPin,
+  Truck,
   DollarSign,
   BarChart3,
   Users,
@@ -24,7 +24,8 @@ import {
   Search,
   ClipboardCheck,
   LayoutGrid,
-  DatabaseZap
+  DatabaseZap,
+  Plus
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
 import { BrandLogo } from '../../shared/BrandLogo';

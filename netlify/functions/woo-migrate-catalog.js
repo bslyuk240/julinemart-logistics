@@ -109,105 +109,80 @@ function buildSourcingMeta(metaData) {
 
 async function syncTaxonomy(adminClient) {
   const errors = [];
-  let categoriesCount = 0;
-  let tagsCount = 0;
 
-  // 1. Categories (all pages)
-  let catPage = 1;
-  while (true) {
-    const cats = await requestWoo(`/products/categories?per_page=100&page=${catPage}`);
-    if (!Array.isArray(cats) || cats.length === 0) break;
+  // 1. Fetch ALL categories from WooCommerce in one shot (78 fits in 100)
+  const allWcCats = await requestWoo(`/products/categories?per_page=100&page=1`);
+  const wcCats = Array.isArray(allWcCats) ? allWcCats : [];
 
-    const rows = cats.map((c) => ({
-      woo_term_id: c.id,
-      name: c.name || '',
-      slug: c.slug || slugify(c.name),
-      description: c.description || null,
-      image_url: c.image?.src || null,
-      display_order: c.menu_order || 0,
-      // parent handled in second pass below
-    }));
+  // Upsert all categories (without parent_id first — avoids FK ordering issues)
+  const catRows = wcCats.map((c) => ({
+    woo_term_id: c.id,
+    name: c.name || '',
+    slug: c.slug || slugify(c.name),
+    description: c.description || null,
+    image_url: c.image?.src || null,
+    display_order: c.menu_order || 0,
+  }));
 
-    const { error } = await adminClient
+  const { error: catErr } = await adminClient
+    .from('categories')
+    .upsert(catRows, { onConflict: 'woo_term_id', ignoreDuplicates: false });
+  if (catErr) errors.push(`categories upsert: ${catErr.message}`);
+
+  // 2. Wire parent_id — fetch all rows back in one query, build map, batch update
+  const catsWithParent = wcCats.filter((c) => c.parent && c.parent !== 0);
+  if (catsWithParent.length > 0) {
+    const allWooIds = wcCats.map((c) => c.id);
+    const { data: sbCats } = await adminClient
       .from('categories')
-      .upsert(rows, { onConflict: 'woo_term_id', ignoreDuplicates: false });
-    if (error) errors.push(`categories page ${catPage}: ${error.message}`);
-    else categoriesCount += rows.length;
+      .select('id, woo_term_id')
+      .in('woo_term_id', allWooIds);
 
-    if (cats.length < 100) break;
-    catPage++;
-  }
+    // Build woo_term_id → supabase uuid map
+    const wooToUuid = new Map((sbCats || []).map((r) => [r.woo_term_id, r.id]));
 
-  // 2. Wire up parent_id (second pass — all categories must exist first)
-  let parentPage = 1;
-  while (true) {
-    const cats = await requestWoo(`/products/categories?per_page=100&page=${parentPage}&parent=0&exclude=0`);
-    // Get all cats with a parent
-    const withParent = await requestWoo(`/products/categories?per_page=100&page=${parentPage}`);
-    if (!Array.isArray(withParent) || withParent.length === 0) break;
+    // Build update rows: { id (supabase uuid), parent_id (supabase uuid) }
+    const parentUpdates = catsWithParent
+      .map((c) => ({ id: wooToUuid.get(c.id), parent_id: wooToUuid.get(c.parent) }))
+      .filter((r) => r.id && r.parent_id);
 
-    for (const c of withParent) {
-      if (!c.parent || c.parent === 0) continue;
-      // Find parent uuid in Supabase
-      const { data: parentRow } = await adminClient
+    // Batch update using upsert (categories table has id as PK)
+    if (parentUpdates.length > 0) {
+      const { error: parentErr } = await adminClient
         .from('categories')
-        .select('id')
-        .eq('woo_term_id', c.parent)
-        .maybeSingle();
-      if (!parentRow) continue;
-
-      const { data: childRow } = await adminClient
-        .from('categories')
-        .select('id')
-        .eq('woo_term_id', c.id)
-        .maybeSingle();
-      if (!childRow) continue;
-
-      await adminClient
-        .from('categories')
-        .update({ parent_id: parentRow.id })
-        .eq('id', childRow.id);
+        .upsert(parentUpdates, { onConflict: 'id' });
+      if (parentErr) errors.push(`parent_id wiring: ${parentErr.message}`);
     }
-    if (withParent.length < 100) break;
-    parentPage++;
   }
 
-  // 3. Tags (all pages)
-  let tagPage = 1;
-  while (true) {
-    const tags = await requestWoo(`/products/tags?per_page=100&page=${tagPage}`);
-    if (!Array.isArray(tags) || tags.length === 0) break;
-
-    const rows = tags.map((t) => ({
-      woo_term_id: t.id,
-      name: t.name || '',
-      slug: t.slug || slugify(t.name),
-    }));
-
-    const { error } = await adminClient
+  // 3. Tags — single fetch (15 tags, fits in 100)
+  const allWcTags = await requestWoo(`/products/tags?per_page=100&page=1`);
+  const wcTags = Array.isArray(allWcTags) ? allWcTags : [];
+  const tagRows = wcTags.map((t) => ({
+    woo_term_id: t.id,
+    name: t.name || '',
+    slug: t.slug || slugify(t.name),
+  }));
+  if (tagRows.length > 0) {
+    const { error: tagErr } = await adminClient
       .from('tags')
-      .upsert(rows, { onConflict: 'woo_term_id', ignoreDuplicates: false });
-    if (error) errors.push(`tags page ${tagPage}: ${error.message}`);
-    else tagsCount += rows.length;
-
-    if (tags.length < 100) break;
-    tagPage++;
+      .upsert(tagRows, { onConflict: 'woo_term_id', ignoreDuplicates: false });
+    if (tagErr) errors.push(`tags upsert: ${tagErr.message}`);
   }
 
   // 4. Seed the 2 global attributes
-  const attrRows = [
-    { name: 'Colour', slug: 'colour', type: 'select', display_order: 1 },
-    { name: 'Size',   slug: 'size',   type: 'select', display_order: 2 },
-  ];
   const { error: attrErr } = await adminClient
     .from('product_attributes')
-    .upsert(attrRows, { onConflict: 'slug', ignoreDuplicates: false });
+    .upsert([
+      { name: 'Colour', slug: 'colour', type: 'select', display_order: 1 },
+      { name: 'Size',   slug: 'size',   type: 'select', display_order: 2 },
+    ], { onConflict: 'slug', ignoreDuplicates: false });
   if (attrErr) errors.push(`attributes: ${attrErr.message}`);
 
   return {
     success: errors.length === 0,
-    categories: categoriesCount,
-    tags: tagsCount,
+    categories: catRows.length,
+    tags: tagRows.length,
     attributes: 2,
     errors,
   };

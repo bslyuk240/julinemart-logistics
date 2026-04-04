@@ -2,6 +2,7 @@
  * Product Upload / Edit
  *
  * Create or edit a product directly in Supabase.
+ * Supports simple products and variable products with full attribute/variation manager.
  * Accessible by: admin, shop_manager, agents with catalog_access.
  *
  * Route: /admin/products/upload          (new)
@@ -10,11 +11,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { X, Plus, Upload, ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 
-// ─── types ────────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface VendorOption { id: string; store_name: string; store_slug: string }
 interface HubOption    { id: string; name: string; code: string }
@@ -26,6 +27,25 @@ interface ImageRow {
   alt: string;
   position: number;
   is_thumbnail: boolean;
+}
+
+// Attribute row in the builder (before generating variations)
+interface VarAttr {
+  name: string;
+  optionsRaw: string; // comma-separated input value
+  is_variation: boolean;
+}
+
+// A single variation row
+interface VarRow {
+  id?: string; // set when editing existing variation
+  attributes: { name: string; value: string }[];
+  sku: string;
+  regular_price: string;
+  sale_price: string;
+  stock_status: 'instock' | 'outofstock' | 'onbackorder';
+  manage_stock: boolean;
+  stock_quantity: string;
 }
 
 interface FormState {
@@ -63,7 +83,7 @@ const EMPTY_FORM: FormState = {
   category_ids: [], tag_ids: [], images: [],
 };
 
-// ─── slug helper ──────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function toSlug(name: string): string {
   return name
@@ -74,7 +94,28 @@ function toSlug(name: string): string {
     .replace(/-+/g, '-');
 }
 
-// ─── component ────────────────────────────────────────────────────────────────
+function attrSignature(attrs: { name: string; value: string }[]): string {
+  return attrs.map((a) => `${a.name}::${a.value}`).sort().join('||');
+}
+
+function generateCombinations(varAttrs: VarAttr[]): { name: string; value: string }[][] {
+  const active = varAttrs
+    .filter((a) => a.is_variation && a.name.trim() && a.optionsRaw.trim())
+    .map((a) => ({
+      name: a.name.trim(),
+      values: a.optionsRaw.split(',').map((o) => o.trim()).filter(Boolean),
+    }));
+
+  if (active.length === 0) return [];
+
+  return active.reduce<{ name: string; value: string }[][]>(
+    (combos, attr) =>
+      combos.flatMap((combo) => attr.values.map((v) => [...combo, { name: attr.name, value: v }])),
+    [[]]
+  );
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ProductUpload() {
   const { session } = useAuth();
@@ -84,11 +125,20 @@ export default function ProductUpload() {
   const editId = searchParams.get('id');
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
+  // Form state
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [varAttrs, setVarAttrs] = useState<VarAttr[]>([
+    { name: '', optionsRaw: '', is_variation: true },
+  ]);
+  const [variations, setVariations] = useState<VarRow[]>([]);
+
+  // Meta
   const [vendors, setVendors] = useState<VendorOption[]>([]);
   const [hubs, setHubs] = useState<HubOption[]>([]);
   const [allCategories, setAllCategories] = useState<CatOption[]>([]);
   const [allTags, setAllTags] = useState<TagOption[]>([]);
+
+  // UI state
   const [saving, setSaving] = useState(false);
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -101,7 +151,7 @@ export default function ProductUpload() {
     ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
   }), [session]);
 
-  // Load vendors, hubs, categories, tags
+  // ── Load meta ───────────────────────────────────────────────────────────────
   useEffect(() => {
     const load = async () => {
       try {
@@ -109,7 +159,6 @@ export default function ProductUpload() {
           fetch(`${apiBase}/.netlify/functions/catalog-meta?type=${type}`, { headers: authHeaders() })
             .then((r) => r.json())
             .catch(() => ({ data: [] }));
-
         const [vData, hData, cData, tData] = await Promise.all([
           meta('vendors'), meta('hubs'), meta('categories'), meta('tags'),
         ]);
@@ -117,8 +166,6 @@ export default function ProductUpload() {
         setHubs(hData.data || []);
         setAllCategories(cData.data || []);
         setAllTags(tData.data || []);
-      } catch (e) {
-        console.error('Failed to load form meta:', e);
       } finally {
         setLoadingMeta(false);
       }
@@ -126,7 +173,7 @@ export default function ProductUpload() {
     load();
   }, [apiBase, authHeaders]);
 
-  // Load product for edit
+  // ── Load product for edit ────────────────────────────────────────────────────
   useEffect(() => {
     if (!editId) return;
     const load = async () => {
@@ -134,6 +181,7 @@ export default function ProductUpload() {
       const json = await res.json();
       if (!json.success || !json.data) return;
       const p = json.data;
+
       setForm({
         name: p.name || '',
         slug: p.slug || '',
@@ -156,17 +204,40 @@ export default function ProductUpload() {
         category_ids: (p.categories || []).map((c: any) => c.id),
         tag_ids: (p.tags || []).map((t: any) => t.id),
         images: (p.images || []).map((img: any) => ({
-          src: img.src,
-          alt: img.alt || '',
-          position: img.position ?? 0,
-          is_thumbnail: !!img.is_thumbnail,
+          src: img.src, alt: img.alt || '',
+          position: img.position ?? 0, is_thumbnail: !!img.is_thumbnail,
         })),
       });
+
+      // Populate variation attributes and rows
+      if (p.type === 'variable') {
+        const attrs: VarAttr[] = (p.attributes || []).map((a: any) => ({
+          name: a.name || '',
+          optionsRaw: (a.options || []).join(', '),
+          is_variation: a.is_variation ?? true,
+        }));
+        setVarAttrs(attrs.length > 0 ? attrs : [{ name: '', optionsRaw: '', is_variation: true }]);
+
+        setVariations(
+          (p.variations || []).map((v: any) => ({
+            id: v.id,
+            attributes: Array.isArray(v.attributes) ? v.attributes : [],
+            sku: v.sku || '',
+            regular_price: v.regular_price != null ? String(v.regular_price) : '',
+            sale_price: v.sale_price != null ? String(v.sale_price) : '',
+            stock_status: v.stock_status || 'instock',
+            manage_stock: !!v.manage_stock,
+            stock_quantity: v.stock_quantity != null ? String(v.stock_quantity) : '',
+          }))
+        );
+      }
+
       slugEditedManually.current = true;
     };
     load();
   }, [editId, apiBase]);
 
+  // ── Form helpers ─────────────────────────────────────────────────────────────
   const set = (key: keyof FormState, value: any) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -194,9 +265,7 @@ export default function ProductUpload() {
   const removeImage = (i: number) =>
     setForm((prev) => {
       const imgs = prev.images.filter((_, idx) => idx !== i).map((img, idx) => ({
-        ...img,
-        position: idx,
-        is_thumbnail: idx === 0,
+        ...img, position: idx, is_thumbnail: idx === 0,
       }));
       return { ...prev, images: imgs };
     });
@@ -217,11 +286,60 @@ export default function ProductUpload() {
         : [...prev.tag_ids, id],
     }));
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // ── Variation helpers ────────────────────────────────────────────────────────
+  const updateAttr = (i: number, field: keyof VarAttr, value: string | boolean) =>
+    setVarAttrs((prev) => prev.map((a, idx) => idx === i ? { ...a, [field]: value } : a));
+
+  const addAttr = () =>
+    setVarAttrs((prev) => [...prev, { name: '', optionsRaw: '', is_variation: true }]);
+
+  const removeAttr = (i: number) =>
+    setVarAttrs((prev) => prev.filter((_, idx) => idx !== i));
+
+  const handleGenerateVariations = () => {
+    const combos = generateCombinations(varAttrs);
+    if (combos.length === 0) {
+      notification.error('No attributes', 'Add at least one attribute with options first');
+      return;
+    }
+
+    // Preserve existing variation data where the combination already exists
+    const existingMap = new Map(variations.map((v) => [attrSignature(v.attributes), v]));
+
+    const newRows: VarRow[] = combos.map((attrs) => {
+      const sig = attrSignature(attrs);
+      const existing = existingMap.get(sig);
+      return existing
+        ? { ...existing, attributes: attrs }
+        : {
+            attributes: attrs,
+            sku: '',
+            regular_price: '',
+            sale_price: '',
+            stock_status: 'instock',
+            manage_stock: false,
+            stock_quantity: '',
+          };
+    });
+
+    setVariations(newRows);
+  };
+
+  const updateVariation = (i: number, field: keyof VarRow, value: string | boolean) =>
+    setVariations((prev) => prev.map((v, idx) => idx === i ? { ...v, [field]: value } : v));
+
+  const removeVariation = (i: number) =>
+    setVariations((prev) => prev.filter((_, idx) => idx !== i));
+
+  // ── Submit ────────────────────────────────────────────────────────────────────
+  const handleSubmit = async (targetStatus: 'draft' | 'published') => {
     if (!form.name.trim()) { notification.error('Validation', 'Product name is required'); return; }
     if (!form.slug.trim()) { notification.error('Validation', 'Slug is required'); return; }
     if (!form.vendor_id) { notification.error('Validation', 'Please assign a vendor'); return; }
+    if (form.type === 'variable' && variations.length === 0) {
+      notification.error('Validation', 'Generate variations before saving a variable product');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -230,14 +348,40 @@ export default function ProductUpload() {
         : `${apiBase}/.netlify/functions/catalog-product-upsert`;
       const method = editId ? 'PUT' : 'POST';
 
-      const payload = {
+      const payload: Record<string, any> = {
         ...form,
-        regular_price: form.regular_price ? Number(form.regular_price) : null,
-        sale_price: form.sale_price ? Number(form.sale_price) : null,
+        status: targetStatus,
+        regular_price: form.type === 'simple' && form.regular_price ? Number(form.regular_price) : null,
+        sale_price: form.type === 'simple' && form.sale_price ? Number(form.sale_price) : null,
         stock_quantity: form.manage_stock && form.stock_quantity ? Number(form.stock_quantity) : null,
         vendor_id: form.vendor_id || null,
         hub_id: form.hub_id || null,
       };
+
+      // Include attributes + variations for variable products
+      if (form.type === 'variable') {
+        payload.attributes = varAttrs
+          .filter((a) => a.name.trim())
+          .map((a) => ({
+            name: a.name.trim(),
+            options: a.optionsRaw.split(',').map((o) => o.trim()).filter(Boolean),
+            is_variation: a.is_variation,
+          }));
+        payload.variations = variations.map((v) => ({
+          ...(v.id ? { id: v.id } : {}),
+          attributes: v.attributes,
+          sku: v.sku || null,
+          regular_price: v.regular_price !== '' ? Number(v.regular_price) : null,
+          sale_price: v.sale_price !== '' ? Number(v.sale_price) : null,
+          stock_status: v.stock_status,
+          manage_stock: v.manage_stock,
+          stock_quantity: v.manage_stock && v.stock_quantity !== '' ? Number(v.stock_quantity) : null,
+        }));
+      } else {
+        // Switching from variable to simple — clear variations
+        payload.attributes = [];
+        payload.variations = [];
+      }
 
       const res = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(payload) });
       const json = await res.json();
@@ -271,7 +415,9 @@ export default function ProductUpload() {
   const filteredTags = allTags.filter((t) =>
     tagInput ? t.name.toLowerCase().includes(tagInput.toLowerCase()) : true
   );
+  const isVariable = form.type === 'variable';
 
+  // ─── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
@@ -291,9 +437,43 @@ export default function ProductUpload() {
         </span>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="space-y-6">
 
-        {/* ── Basic Info ─────────────────────────────────────────────── */}
+        {/* ── Product Type ────────────────────────────────────────────── */}
+        <section className="bg-white rounded-xl border border-gray-200 p-6">
+          <h2 className="font-semibold text-gray-900 mb-3">Product Type</h2>
+          <div className="flex gap-3">
+            {(['simple', 'variable'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => {
+                  set('type', t);
+                  if (t === 'simple') setVariations([]);
+                }}
+                className={`flex-1 py-3 px-4 rounded-lg border-2 text-sm font-medium transition-colors ${
+                  form.type === t
+                    ? 'border-primary-500 bg-primary-50 text-primary-700'
+                    : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                }`}
+              >
+                {t === 'simple' ? (
+                  <div>
+                    <div className="font-semibold">Simple Product</div>
+                    <div className="text-xs font-normal mt-0.5 opacity-70">Single price, one SKU</div>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="font-semibold">Variable Product</div>
+                    <div className="text-xs font-normal mt-0.5 opacity-70">Multiple options (size, color…)</div>
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* ── Basic Info ──────────────────────────────────────────────── */}
         <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">Basic Info</h2>
 
@@ -343,88 +523,258 @@ export default function ProductUpload() {
           </div>
         </section>
 
-        {/* ── Pricing & Stock ────────────────────────────────────────── */}
-        <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-          <h2 className="font-semibold text-gray-900">Pricing & Stock</h2>
+        {/* ── Pricing & Stock (simple only) ───────────────────────────── */}
+        {!isVariable ? (
+          <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+            <h2 className="font-semibold text-gray-900">Pricing & Stock</h2>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Regular Price (₦)</label>
-              <input
-                type="number"
-                value={form.regular_price}
-                onChange={(e) => set('regular_price', e.target.value)}
-                min="0"
-                step="0.01"
-                placeholder="0.00"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Sale Price (₦)</label>
-              <input
-                type="number"
-                value={form.sale_price}
-                onChange={(e) => set('sale_price', e.target.value)}
-                min="0"
-                step="0.01"
-                placeholder="Leave blank if no sale"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">SKU</label>
-              <input
-                type="text"
-                value={form.sku}
-                onChange={(e) => set('sku', e.target.value)}
-                placeholder="e.g. CFH-SNK-001"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 font-mono text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Stock Status</label>
-              <select
-                value={form.stock_status}
-                onChange={(e) => set('stock_status', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-              >
-                <option value="instock">In Stock</option>
-                <option value="outofstock">Out of Stock</option>
-                <option value="onbackorder">On Backorder</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-6">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={form.manage_stock}
-                onChange={(e) => set('manage_stock', e.target.checked)}
-                className="w-4 h-4 text-primary-600 rounded"
-              />
-              <span className="text-sm text-gray-700">Track stock quantity</span>
-            </label>
-            {form.manage_stock && (
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-gray-700">Quantity:</label>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Regular Price (₦)</label>
                 <input
-                  type="number"
-                  value={form.stock_quantity}
-                  onChange={(e) => set('stock_quantity', e.target.value)}
-                  min="0"
-                  className="w-24 px-3 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  type="number" value={form.regular_price}
+                  onChange={(e) => set('regular_price', e.target.value)}
+                  min="0" step="0.01" placeholder="0.00"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
               </div>
-            )}
-          </div>
-        </section>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Sale Price (₦)</label>
+                <input
+                  type="number" value={form.sale_price}
+                  onChange={(e) => set('sale_price', e.target.value)}
+                  min="0" step="0.01" placeholder="Leave blank if no sale"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+            </div>
 
-        {/* ── Vendor & Hub ───────────────────────────────────────────── */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">SKU</label>
+                <input
+                  type="text" value={form.sku}
+                  onChange={(e) => set('sku', e.target.value)}
+                  placeholder="e.g. CFH-SNK-001"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 font-mono text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Stock Status</label>
+                <select
+                  value={form.stock_status}
+                  onChange={(e) => set('stock_status', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="instock">In Stock</option>
+                  <option value="outofstock">Out of Stock</option>
+                  <option value="onbackorder">On Backorder</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-6">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox" checked={form.manage_stock}
+                  onChange={(e) => set('manage_stock', e.target.checked)}
+                  className="w-4 h-4 text-primary-600 rounded"
+                />
+                <span className="text-sm text-gray-700">Track stock quantity</span>
+              </label>
+              {form.manage_stock && (
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-700">Quantity:</label>
+                  <input
+                    type="number" value={form.stock_quantity}
+                    onChange={(e) => set('stock_quantity', e.target.value)}
+                    min="0"
+                    className="w-24 px-3 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              )}
+            </div>
+          </section>
+        ) : (
+          // ── Attributes (variable) ──────────────────────────────────────
+          <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-gray-900">Attributes</h2>
+              <p className="text-xs text-gray-400">Define options, then generate variation rows below</p>
+            </div>
+
+            <div className="space-y-2">
+              {varAttrs.map((attr, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={attr.name}
+                    onChange={(e) => updateAttr(i, 'name', e.target.value)}
+                    placeholder="Attribute name (e.g. Color)"
+                    className="w-36 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                  />
+                  <input
+                    type="text"
+                    value={attr.optionsRaw}
+                    onChange={(e) => updateAttr(i, 'optionsRaw', e.target.value)}
+                    placeholder="Options (comma-separated: Red, Blue, Green)"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                  />
+                  <label className="flex items-center gap-1.5 text-xs text-gray-500 whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={attr.is_variation}
+                      onChange={(e) => updateAttr(i, 'is_variation', e.target.checked)}
+                      className="w-3.5 h-3.5"
+                    />
+                    Used for variations
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removeAttr(i)}
+                    disabled={varAttrs.length === 1}
+                    className="p-1.5 text-gray-400 hover:text-red-500 disabled:opacity-30"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-3 pt-1">
+              <button
+                type="button"
+                onClick={addAttr}
+                className="flex items-center gap-1.5 text-sm text-primary-600 hover:text-primary-700 font-medium"
+              >
+                <Plus className="w-4 h-4" />
+                Add attribute
+              </button>
+              <button
+                type="button"
+                onClick={handleGenerateVariations}
+                className="flex items-center gap-1.5 ml-auto px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Generate Variations
+              </button>
+            </div>
+          </section>
+        )}
+
+        {/* ── Variations table (variable only) ───────────────────────── */}
+        {isVariable && variations.length > 0 && (
+          <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-gray-900">
+                Variations
+                <span className="ml-2 text-xs font-normal text-gray-400">
+                  {variations.length} variation{variations.length !== 1 ? 's' : ''}
+                </span>
+              </h2>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
+                    <th className="pb-2 font-medium">Attributes</th>
+                    <th className="pb-2 font-medium pl-3">SKU</th>
+                    <th className="pb-2 font-medium pl-3">Regular Price (₦)</th>
+                    <th className="pb-2 font-medium pl-3">Sale Price (₦)</th>
+                    <th className="pb-2 font-medium pl-3">Stock</th>
+                    <th className="pb-2 w-8" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {variations.map((v, i) => (
+                    <tr key={i} className="group">
+                      {/* Attribute labels */}
+                      <td className="py-2 pr-2">
+                        <div className="flex flex-wrap gap-1">
+                          {v.attributes.map((a) => (
+                            <span
+                              key={a.name}
+                              className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full"
+                            >
+                              <span className="text-gray-400">{a.name}:</span> {a.value}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="py-2 pl-3">
+                        <input
+                          type="text"
+                          value={v.sku}
+                          onChange={(e) => updateVariation(i, 'sku', e.target.value)}
+                          placeholder="SKU"
+                          className="w-28 px-2 py-1.5 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                        />
+                      </td>
+                      <td className="py-2 pl-3">
+                        <input
+                          type="number"
+                          value={v.regular_price}
+                          onChange={(e) => updateVariation(i, 'regular_price', e.target.value)}
+                          placeholder="0"
+                          min="0"
+                          step="0.01"
+                          className="w-28 px-2 py-1.5 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                        />
+                      </td>
+                      <td className="py-2 pl-3">
+                        <input
+                          type="number"
+                          value={v.sale_price}
+                          onChange={(e) => updateVariation(i, 'sale_price', e.target.value)}
+                          placeholder="—"
+                          min="0"
+                          step="0.01"
+                          className="w-28 px-2 py-1.5 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                        />
+                      </td>
+                      <td className="py-2 pl-3">
+                        <select
+                          value={v.stock_status}
+                          onChange={(e) => updateVariation(i, 'stock_status', e.target.value)}
+                          className="px-2 py-1.5 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-primary-500"
+                        >
+                          <option value="instock">In Stock</option>
+                          <option value="outofstock">Out of Stock</option>
+                          <option value="onbackorder">Backorder</option>
+                        </select>
+                      </td>
+                      <td className="py-2 pl-2">
+                        <button
+                          type="button"
+                          onClick={() => removeVariation(i)}
+                          className="p-1 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Bulk price fill */}
+            <BulkPriceFill
+              onApply={(price, salePrice) => {
+                setVariations((prev) =>
+                  prev.map((v) => ({
+                    ...v,
+                    regular_price: price || v.regular_price,
+                    sale_price: salePrice !== undefined ? salePrice : v.sale_price,
+                  }))
+                );
+              }}
+            />
+          </section>
+        )}
+
+        {/* ── Vendor & Hub ────────────────────────────────────────────── */}
         <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">Vendor & Hub</h2>
 
@@ -460,8 +810,7 @@ export default function ProductUpload() {
           <div className="flex items-center gap-6">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
-                type="checkbox"
-                checked={form.ships_from_abroad}
+                type="checkbox" checked={form.ships_from_abroad}
                 onChange={(e) => set('ships_from_abroad', e.target.checked)}
                 className="w-4 h-4 text-primary-600 rounded"
               />
@@ -469,8 +818,7 @@ export default function ProductUpload() {
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
-                type="checkbox"
-                checked={form.is_virtual}
+                type="checkbox" checked={form.is_virtual}
                 onChange={(e) => set('is_virtual', e.target.checked)}
                 className="w-4 h-4 text-primary-600 rounded"
               />
@@ -479,7 +827,7 @@ export default function ProductUpload() {
           </div>
         </section>
 
-        {/* ── Categories ─────────────────────────────────────────────── */}
+        {/* ── Categories ──────────────────────────────────────────────── */}
         <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
           <h2 className="font-semibold text-gray-900">Categories</h2>
           {allCategories.length === 0 ? (
@@ -520,12 +868,11 @@ export default function ProductUpload() {
           )}
         </section>
 
-        {/* ── Tags ───────────────────────────────────────────────────── */}
+        {/* ── Tags ────────────────────────────────────────────────────── */}
         <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
           <h2 className="font-semibold text-gray-900">Tags</h2>
           <input
-            type="text"
-            value={tagInput}
+            type="text" value={tagInput}
             onChange={(e) => setTagInput(e.target.value)}
             placeholder="Filter tags..."
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
@@ -548,7 +895,7 @@ export default function ProductUpload() {
           </div>
         </section>
 
-        {/* ── Images ─────────────────────────────────────────────────── */}
+        {/* ── Images ──────────────────────────────────────────────────── */}
         <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">Images</h2>
 
@@ -557,12 +904,14 @@ export default function ProductUpload() {
               {form.images.map((img, i) => (
                 <div key={i} className="relative group">
                   <img
-                    src={img.src}
-                    alt={img.alt}
+                    src={img.src} alt={img.alt}
                     className={`w-full aspect-square object-cover rounded-lg border-2 ${
                       img.is_thumbnail ? 'border-primary-500' : 'border-gray-200'
                     }`}
-                    onError={(e) => { (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect fill="%23eee" width="100" height="100"/><text x="50%" y="50%" text-anchor="middle" fill="%23999" font-size="12">Error</text></svg>'; }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src =
+                        'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect fill="%23eee" width="100" height="100"/><text x="50%" y="50%" text-anchor="middle" fill="%23999" font-size="12">Error</text></svg>';
+                    }}
                   />
                   {img.is_thumbnail && (
                     <span className="absolute top-1 left-1 bg-primary-600 text-white text-xs px-1.5 py-0.5 rounded">Main</span>
@@ -581,8 +930,7 @@ export default function ProductUpload() {
 
           <div className="flex gap-2">
             <input
-              type="url"
-              value={newImageUrl}
+              type="url" value={newImageUrl}
               onChange={(e) => setNewImageUrl(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addImage(); } }}
               placeholder="Paste image URL and press Enter or click Add"
@@ -593,14 +941,13 @@ export default function ProductUpload() {
               onClick={addImage}
               className="flex items-center gap-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition-colors"
             >
-              <Plus className="w-4 h-4" />
-              Add
+              <Plus className="w-4 h-4" /> Add
             </button>
           </div>
-          <p className="text-xs text-gray-400">First image is the main thumbnail. Drag-and-drop upload coming soon.</p>
+          <p className="text-xs text-gray-400">First image is the main thumbnail.</p>
         </section>
 
-        {/* ── Advanced / SEO ─────────────────────────────────────────── */}
+        {/* ── Advanced / SEO ──────────────────────────────────────────── */}
         <section className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <button
             type="button"
@@ -612,43 +959,16 @@ export default function ProductUpload() {
           </button>
 
           {showAdvanced && (
-            <div className="px-6 pb-6 space-y-4 border-t border-gray-100">
-              <div className="grid grid-cols-2 gap-4 pt-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Product Type</label>
-                  <select
-                    value={form.type}
-                    onChange={(e) => set('type', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                  >
-                    <option value="simple">Simple</option>
-                    <option value="variable">Variable (has variations)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                  <select
-                    value={form.status}
-                    onChange={(e) => set('status', e.target.value as 'draft' | 'published')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-                  >
-                    <option value="draft">Draft</option>
-                    <option value="published">Published</option>
-                  </select>
-                </div>
-              </div>
-
+            <div className="px-6 pb-6 space-y-4 border-t border-gray-100 pt-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">SEO Title</label>
                 <input
-                  type="text"
-                  value={form.seo_title}
+                  type="text" value={form.seo_title}
                   onChange={(e) => set('seo_title', e.target.value)}
                   placeholder="Defaults to product name if empty"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                 />
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">SEO Description</label>
                 <textarea
@@ -663,20 +983,20 @@ export default function ProductUpload() {
           )}
         </section>
 
-        {/* ── Actions ────────────────────────────────────────────────── */}
+        {/* ── Actions ─────────────────────────────────────────────────── */}
         <div className="flex items-center gap-3 pb-8">
           <button
-            type="submit"
+            type="button"
             disabled={saving}
-            onClick={() => set('status', 'draft')}
+            onClick={() => handleSubmit('draft')}
             className="px-6 py-2.5 bg-gray-100 text-gray-700 border border-gray-300 rounded-lg font-medium hover:bg-gray-200 transition-colors disabled:opacity-50"
           >
             {saving ? 'Saving...' : 'Save as Draft'}
           </button>
           <button
-            type="submit"
+            type="button"
             disabled={saving}
-            onClick={() => set('status', 'published')}
+            onClick={() => handleSubmit('published')}
             className="px-6 py-2.5 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
           >
             {saving ? 'Publishing...' : 'Publish'}
@@ -689,7 +1009,59 @@ export default function ProductUpload() {
             Cancel
           </button>
         </div>
-      </form>
+
+      </div>
+    </div>
+  );
+}
+
+// ── Bulk Price Fill ────────────────────────────────────────────────────────────
+// Lets staff set the same price on all variations at once
+
+function BulkPriceFill({ onApply }: { onApply: (price: string, salePrice: string) => void }) {
+  const [price, setPrice] = useState('');
+  const [sale, setSale] = useState('');
+  const [open, setOpen] = useState(false);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+      >
+        Set price for all variations
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 pt-1">
+      <span className="text-xs text-gray-500">Set all:</span>
+      <input
+        type="number" value={price} onChange={(e) => setPrice(e.target.value)}
+        placeholder="Regular ₦" min="0" step="0.01"
+        className="w-28 px-2 py-1.5 border border-gray-200 rounded-md text-xs focus:ring-1 focus:ring-primary-500"
+      />
+      <input
+        type="number" value={sale} onChange={(e) => setSale(e.target.value)}
+        placeholder="Sale ₦ (opt)" min="0" step="0.01"
+        className="w-28 px-2 py-1.5 border border-gray-200 rounded-md text-xs focus:ring-1 focus:ring-primary-500"
+      />
+      <button
+        type="button"
+        onClick={() => { onApply(price, sale); setOpen(false); setPrice(''); setSale(''); }}
+        className="px-3 py-1.5 bg-primary-600 text-white text-xs rounded-md hover:bg-primary-700"
+      >
+        Apply
+      </button>
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        className="px-3 py-1.5 text-gray-500 text-xs hover:text-gray-700"
+      >
+        Cancel
+      </button>
     </div>
   );
 }

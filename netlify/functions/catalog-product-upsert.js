@@ -1,9 +1,11 @@
 /**
  * POST /api/catalog-product-upsert  — create a new product
  * PUT  /api/catalog-product-upsert?id=<uuid> — update existing product
+ * DELETE /api/catalog-product-upsert?id=<uuid> — delete product and all related rows
  *
  * Accessible by: admin, shop_manager, and agents with catalog_access.
- * Writes to Supabase only (products, product_images, product_category_map, product_tag_map).
+ * Writes to Supabase: products, product_images, product_category_map,
+ *   product_tag_map, product_attribute_map, product_variations.
  */
 
 import {
@@ -26,7 +28,7 @@ export async function handler(event) {
   if (auth.errorResponse) return auth.errorResponse;
 
   const body = parseJsonBody(event.body);
-  if (!body) return jsonResponse(400, { error: 'Invalid JSON body' });
+  if (!body && !isDelete) return jsonResponse(400, { error: 'Invalid JSON body' });
 
   const productId = event.queryStringParameters?.id || null;
   if ((isPut || isDelete) && !productId) return jsonResponse(400, { error: 'id query param required' });
@@ -34,7 +36,6 @@ export async function handler(event) {
   // ── DELETE ────────────────────────────────────────────────────────────────────
   if (isDelete) {
     try {
-      // Delete related rows first (images, maps, variations)
       await Promise.all([
         auth.adminClient.from('product_images').delete().eq('product_id', productId),
         auth.adminClient.from('product_category_map').delete().eq('product_id', productId),
@@ -69,10 +70,17 @@ export async function handler(event) {
     hub_id,
     seo_title,
     seo_description,
-    images = [],      // [{ src, alt, position, is_thumbnail }]
+    images = [],       // [{ src, alt, position, is_thumbnail }]
     category_ids = [], // uuid[]
     tag_ids = [],      // uuid[]
+    // attributes: [{name, options: string[], is_variation}] — only processed when key present
+    // variations: [{id?, attributes: [{name,value}], sku, regular_price, sale_price, stock_status, manage_stock, stock_quantity}]
   } = body;
+
+  const attributesProvided = 'attributes' in body;
+  const variationsProvided = 'variations' in body;
+  const rawAttributes = body.attributes || [];
+  const rawVariations = body.variations || [];
 
   if (isPost && !name) return jsonResponse(400, { error: 'name is required' });
   if (isPost && !slug) return jsonResponse(400, { error: 'slug is required' });
@@ -103,7 +111,6 @@ export async function handler(event) {
     let savedProduct;
 
     if (isPost) {
-      // Check slug uniqueness
       const { data: existing } = await auth.adminClient
         .from('products')
         .select('id')
@@ -132,23 +139,26 @@ export async function handler(event) {
 
     const pid = savedProduct.id;
 
-    // Replace images, categories, tags in parallel
+    // ── Write images, categories, tags, attributes, variations in parallel ────
     await Promise.all([
-      // Images — delete existing then insert new
+
+      // Images
       (async () => {
-        if (images.length === 0 && isPut) return; // no change sent
+        if (images.length === 0 && isPut) return;
         await auth.adminClient.from('product_images').delete().eq('product_id', pid);
         if (images.length > 0) {
-          const rows = images.map((img, i) => ({
-            product_id: pid,
-            src: img.src,
-            alt: img.alt || '',
-            position: img.position ?? i,
-            is_thumbnail: img.is_thumbnail ?? i === 0,
-          }));
-          await auth.adminClient.from('product_images').insert(rows);
+          await auth.adminClient.from('product_images').insert(
+            images.map((img, i) => ({
+              product_id: pid,
+              src: img.src,
+              alt: img.alt || '',
+              position: img.position ?? i,
+              is_thumbnail: img.is_thumbnail ?? i === 0,
+            }))
+          );
         }
       })(),
+
       // Categories
       (async () => {
         if (!Array.isArray(category_ids)) return;
@@ -159,6 +169,7 @@ export async function handler(event) {
           );
         }
       })(),
+
       // Tags
       (async () => {
         if (!Array.isArray(tag_ids)) return;
@@ -169,6 +180,84 @@ export async function handler(event) {
           );
         }
       })(),
+
+      // Attributes (only when key is present in body)
+      (async () => {
+        if (!attributesProvided) return;
+        // Clear existing attribute map for this product
+        await auth.adminClient.from('product_attribute_map').delete().eq('product_id', pid);
+        if (rawAttributes.length === 0) return;
+
+        for (let i = 0; i < rawAttributes.length; i++) {
+          const attr = rawAttributes[i];
+          if (!attr.name?.trim()) continue;
+          const slug = attr.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+          // Upsert the global attribute by slug
+          const { data: attrRow, error: attrErr } = await auth.adminClient
+            .from('product_attributes')
+            .upsert({ name: attr.name.trim(), slug }, { onConflict: 'slug' })
+            .select('id')
+            .single();
+          if (attrErr || !attrRow) continue;
+
+          await auth.adminClient.from('product_attribute_map').insert({
+            product_id: pid,
+            attribute_id: attrRow.id,
+            options: Array.isArray(attr.options) ? attr.options : [],
+            is_variation: attr.is_variation ?? true,
+            display_order: i,
+          });
+        }
+      })(),
+
+      // Variations (only when key is present in body)
+      (async () => {
+        if (!variationsProvided) return;
+
+        const submittedIds = rawVariations.filter((v) => v.id).map((v) => v.id);
+
+        // Deactivate removed variations (those not in submitted list)
+        if (isPut) {
+          let deactivateQ = auth.adminClient
+            .from('product_variations')
+            .update({ is_active: false, updated_at: new Date().toISOString() })
+            .eq('product_id', pid);
+          if (submittedIds.length > 0) {
+            deactivateQ = deactivateQ.not('id', 'in', `(${submittedIds.map((id) => `"${id}"`).join(',')})`);
+          }
+          await deactivateQ;
+        }
+
+        for (const v of rawVariations) {
+          const varData = {
+            product_id: pid,
+            sku: v.sku || null,
+            regular_price: v.regular_price != null && v.regular_price !== '' ? Number(v.regular_price) : null,
+            sale_price: v.sale_price != null && v.sale_price !== '' ? Number(v.sale_price) : null,
+            stock_status: v.stock_status || 'instock',
+            manage_stock: !!v.manage_stock,
+            stock_quantity: v.manage_stock && v.stock_quantity != null && v.stock_quantity !== ''
+              ? Number(v.stock_quantity) : null,
+            attributes: Array.isArray(v.attributes) ? v.attributes : [],
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          };
+
+          if (v.id) {
+            await auth.adminClient
+              .from('product_variations')
+              .update(varData)
+              .eq('id', v.id)
+              .eq('product_id', pid);
+          } else {
+            await auth.adminClient
+              .from('product_variations')
+              .insert({ ...varData, vendor_id: vendor_id || null, hub_id: hub_id || null });
+          }
+        }
+      })(),
+
     ]);
 
     return jsonResponse(isPost ? 201 : 200, { success: true, data: savedProduct });

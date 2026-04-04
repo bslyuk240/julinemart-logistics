@@ -10,8 +10,7 @@
 import {
   headers,
   jsonResponse,
-  requireAdmin,
-  GLOBAL_SOURCING_ALLOWED_ROLES,
+  adminClient,
 } from './services/global-sourcing-utils.js';
 
 const DEFAULT_PER_PAGE = 20;
@@ -21,8 +20,7 @@ export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
   if (event.httpMethod !== 'GET') return jsonResponse(405, { error: 'Method not allowed' });
 
-  const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
-  if (auth.errorResponse) return auth.errorResponse;
+  if (!adminClient) return jsonResponse(503, { error: 'Database not configured' });
 
   const q = event.queryStringParameters || {};
   const page = Math.max(Number(q.page || 1), 1);
@@ -31,7 +29,7 @@ export async function handler(event) {
   const status = q.status || 'published';
 
   try {
-    let query = auth.adminClient
+    let query = adminClient
       .from('products')
       .select(
         `id, woo_product_id, name, slug, short_description, status, type,
@@ -50,14 +48,14 @@ export async function handler(event) {
 
     // Category filter by slug
     if (q.category) {
-      const { data: cat } = await auth.adminClient
+      const { data: cat } = await adminClient
         .from('categories')
         .select('id')
         .eq('slug', q.category)
         .maybeSingle();
       if (!cat) return jsonResponse(200, { success: true, data: [], meta: { page, per_page: perPage, total: 0, total_pages: 0 } });
       // Need product IDs in this category
-      const { data: catMap } = await auth.adminClient
+      const { data: catMap } = await adminClient
         .from('product_category_map')
         .select('product_id')
         .eq('category_id', cat.id);
@@ -68,13 +66,13 @@ export async function handler(event) {
 
     // Tag filter by slug
     if (q.tag) {
-      const { data: tag } = await auth.adminClient
+      const { data: tag } = await adminClient
         .from('tags')
         .select('id')
         .eq('slug', q.tag)
         .maybeSingle();
       if (!tag) return jsonResponse(200, { success: true, data: [], meta: { page, per_page: perPage, total: 0, total_pages: 0 } });
-      const { data: tagMap } = await auth.adminClient
+      const { data: tagMap } = await adminClient
         .from('product_tag_map')
         .select('product_id')
         .eq('tag_id', tag.id);

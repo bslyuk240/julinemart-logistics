@@ -13,20 +13,20 @@ import {
   jsonResponse,
   parseJsonBody,
   requireAdmin,
+  adminClient,
   GLOBAL_SOURCING_ALLOWED_ROLES,
 } from './services/global-sourcing-utils.js';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
 
-  const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
-  if (auth.errorResponse) return auth.errorResponse;
-
-  // GET — return all or filtered by type/key
+  // GET — public, no auth required
   if (event.httpMethod === 'GET') {
+    if (!adminClient) return jsonResponse(503, { error: 'Database not configured' });
+
     const q = event.queryStringParameters || {};
 
-    let query = auth.adminClient
+    let query = adminClient
       .from('homepage_content')
       .select('id, type, key, content, is_active, display_order, updated_at')
       .order('display_order', { ascending: true });
@@ -43,6 +43,9 @@ export async function handler(event) {
 
   // PUT — update content for a specific key (admin only)
   if (event.httpMethod === 'PUT') {
+    const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
+    if (auth.errorResponse) return auth.errorResponse;
+
     const key = event.queryStringParameters?.key;
     if (!key) return jsonResponse(400, { error: 'key query param required' });
 

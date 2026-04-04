@@ -16,6 +16,9 @@ const authClient =
 const adminClient =
   SUPABASE_URL && SERVICE_ROLE_KEY ? createClient(SUPABASE_URL, SERVICE_ROLE_KEY) : null;
 
+/** Service-role Supabase client — bypasses RLS. Use for public catalog reads. */
+export { adminClient };
+
 export const headers = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',

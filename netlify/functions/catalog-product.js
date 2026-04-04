@@ -10,21 +10,19 @@
 import {
   headers,
   jsonResponse,
-  requireAdmin,
-  GLOBAL_SOURCING_ALLOWED_ROLES,
+  adminClient,
 } from './services/global-sourcing-utils.js';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
   if (event.httpMethod !== 'GET') return jsonResponse(405, { error: 'Method not allowed' });
 
-  const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
-  if (auth.errorResponse) return auth.errorResponse;
+  if (!adminClient) return jsonResponse(503, { error: 'Database not configured' });
 
   const q = event.queryStringParameters || {};
 
   try {
-    let productQuery = auth.adminClient
+    let productQuery = adminClient
       .from('products')
       .select(
         `id, woo_product_id, name, slug, description, short_description, status, type,

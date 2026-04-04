@@ -11,8 +11,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronDown, ChevronUp, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -145,7 +146,52 @@ export default function ProductUpload() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [newImageUrl, setNewImageUrl] = useState('');
   const [tagInput, setTagInput] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingVariationIdx, setUploadingVariationIdx] = useState<number | null>(null);
   const slugEditedManually = useRef(false);
+
+  // ── Image upload to Supabase Storage ─────────────────────────────────────────
+  const uploadImageFile = async (file: File): Promise<string | null> => {
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const path = `products/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+    const { error } = await supabase.storage.from('product-images').upload(path, file, {
+      cacheControl: '31536000',
+      upsert: false,
+    });
+    if (error) {
+      notification.error('Upload failed', error.message);
+      return null;
+    }
+    const { data } = supabase.storage.from('product-images').getPublicUrl(path);
+    return data.publicUrl;
+  };
+
+  const handleProductImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingImage(true);
+    const url = await uploadImageFile(file);
+    setUploadingImage(false);
+    e.target.value = '';
+    if (!url) return;
+    setForm((prev) => ({
+      ...prev,
+      images: [
+        ...prev.images,
+        { src: url, alt: '', position: prev.images.length, is_thumbnail: prev.images.length === 0 },
+      ],
+    }));
+  };
+
+  const handleVariationImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, idx: number) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingVariationIdx(idx);
+    const url = await uploadImageFile(file);
+    setUploadingVariationIdx(null);
+    e.target.value = '';
+    if (url) updateVariation(idx, 'image_url', url);
+  };
 
   const authHeaders = useCallback((): Record<string, string> => ({
     'Content-Type': 'application/json',
@@ -710,21 +756,33 @@ export default function ProductUpload() {
                       {/* Variation image */}
                       <td className="py-2 pl-3">
                         <div className="flex items-center gap-1.5">
-                          {v.image_url && (
+                          {v.image_url ? (
                             <img
                               src={v.image_url}
                               alt="variation"
                               className="w-8 h-8 rounded object-cover border border-gray-200 flex-shrink-0"
                               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                             />
-                          )}
+                          ) : null}
                           <input
                             type="url"
                             value={v.image_url}
                             onChange={(e) => updateVariation(i, 'image_url', e.target.value)}
                             placeholder="https://..."
-                            className="w-36 px-2 py-1.5 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                            className="w-28 px-2 py-1.5 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
                           />
+                          <label className={`flex items-center justify-center w-8 h-8 rounded border cursor-pointer transition-colors flex-shrink-0 ${uploadingVariationIdx === i ? 'border-gray-200 text-gray-300 pointer-events-none' : 'border-primary-200 text-primary-600 hover:bg-primary-50'}`} title="Upload image">
+                            {uploadingVariationIdx === i
+                              ? <span className="text-xs">…</span>
+                              : <Upload className="w-3.5 h-3.5" />}
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp,image/gif"
+                              className="hidden"
+                              disabled={uploadingVariationIdx !== null}
+                              onChange={(e) => handleVariationImageUpload(e, i)}
+                            />
+                          </label>
                         </div>
                       </td>
                       <td className="py-2 pl-3">
@@ -968,8 +1026,19 @@ export default function ProductUpload() {
             >
               <Plus className="w-4 h-4" /> Add
             </button>
+            <label className={`flex items-center gap-1 px-4 py-2 rounded-lg text-sm cursor-pointer transition-colors ${uploadingImage ? 'bg-gray-100 text-gray-400 pointer-events-none' : 'bg-primary-50 text-primary-700 hover:bg-primary-100 border border-primary-200'}`}>
+              <Upload className="w-4 h-4" />
+              {uploadingImage ? 'Uploading…' : 'Upload'}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                disabled={uploadingImage}
+                onChange={handleProductImageUpload}
+              />
+            </label>
           </div>
-          <p className="text-xs text-gray-400">First image is the main thumbnail.</p>
+          <p className="text-xs text-gray-400">First image is the main thumbnail. Max 5 MB per image.</p>
         </section>
 
         {/* ── Advanced / SEO ──────────────────────────────────────────── */}

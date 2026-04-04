@@ -75,6 +75,8 @@ export default function CatalogMigration() {
   const [status, setStatus] = useState<RunStatus>('idle');
   const [logs, setLogs] = useState<Log[]>([]);
   const [progress, setProgress] = useState({ phase: '' as Phase | '', page: 0, totalPages: 0, processed: 0 });
+  // Tracks last successfully completed page per phase so Resume skips already-done work
+  const [checkpoint, setCheckpoint] = useState({ taxDone: false, productPage: 0, varPage: 0 });
   const abortRef = useRef(false);
   const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -83,30 +85,46 @@ export default function CatalogMigration() {
     setTimeout(() => logEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
   }, []);
 
-  const runMigration = useCallback(async () => {
+  const runMigration = useCallback(async (resume = false) => {
     abortRef.current = false;
-    setLogs([]);
+    if (!resume) {
+      setLogs([]);
+      setCheckpoint({ taxDone: false, productPage: 0, varPage: 0 });
+    }
     setStatus('running');
     setProgress({ phase: '', page: 0, totalPages: 0, processed: 0 });
 
+    // Snapshot checkpoint at start so the closure is stable
+    const from = resume ? checkpoint : { taxDone: false, productPage: 0, varPage: 0 };
+
     try {
       // ── Phase 1: Taxonomy ────────────────────────────────────────────────
-      addLog('info', '▶ Phase 1/3 — Syncing categories, tags, and attributes...');
-      setProgress((p) => ({ ...p, phase: 'taxonomy' }));
+      if (!from.taxDone) {
+        addLog('info', '▶ Phase 1/3 — Syncing categories, tags, and attributes...');
+        setProgress((p) => ({ ...p, phase: 'taxonomy' }));
 
-      const taxResult = await runPhase('taxonomy', 1);
-      if (!taxResult.success) throw new Error(taxResult.errors?.[0] || 'Taxonomy sync failed');
+        const taxResult = await runPhase('taxonomy', 1);
+        if (!taxResult.success) throw new Error(taxResult.errors?.[0] || 'Taxonomy sync failed');
 
-      addLog('success', `✓ Categories: ${taxResult.categories}  Tags: ${taxResult.tags}  Attributes: ${taxResult.attributes}`);
-      if (taxResult.errors?.length) {
-        taxResult.errors.forEach((e) => addLog('warn', `  ⚠ ${e}`));
+        addLog('success', `✓ Categories: ${taxResult.categories}  Tags: ${taxResult.tags}  Attributes: ${taxResult.attributes}`);
+        if (taxResult.errors?.length) {
+          taxResult.errors.forEach((e) => addLog('warn', `  ⚠ ${e}`));
+        }
+        setCheckpoint((c) => ({ ...c, taxDone: true }));
+      } else {
+        addLog('info', '↷ Phase 1/3 — Taxonomy already synced, skipping...');
       }
 
       if (abortRef.current) { addLog('warn', 'Aborted by user.'); setStatus('idle'); return; }
 
       // ── Phase 2: Products ────────────────────────────────────────────────
-      addLog('info', '▶ Phase 2/3 — Syncing products...');
-      let productPage = 1;
+      const startProductPage = from.productPage + 1;
+      if (from.productPage > 0) {
+        addLog('info', `▶ Phase 2/3 — Resuming products from page ${startProductPage}...`);
+      } else {
+        addLog('info', '▶ Phase 2/3 — Syncing products...');
+      }
+      let productPage = startProductPage;
       let totalProductsProcessed = 0;
 
       while (true) {
@@ -125,18 +143,24 @@ export default function CatalogMigration() {
           result.errors.forEach((e) => addLog('warn', `    ⚠ ${e}`));
         }
 
+        setCheckpoint((c) => ({ ...c, productPage }));
         if (!result.has_more) break;
         productPage++;
         await delay(INTER_PAGE_DELAY_MS);
       }
 
-      addLog('success', `✓ Products complete — ${totalProductsProcessed} total synced`);
+      addLog('success', `✓ Products complete — ${totalProductsProcessed} synced this run`);
 
       if (abortRef.current) { addLog('warn', 'Aborted by user.'); setStatus('idle'); return; }
 
       // ── Phase 3: Variations ──────────────────────────────────────────────
-      addLog('info', '▶ Phase 3/3 — Syncing product variations...');
-      let varPage = 1;
+      const startVarPage = from.varPage + 1;
+      if (from.varPage > 0) {
+        addLog('info', `▶ Phase 3/3 — Resuming variations from page ${startVarPage}...`);
+      } else {
+        addLog('info', '▶ Phase 3/3 — Syncing product variations...');
+      }
+      let varPage = startVarPage;
       let totalVarProcessed = 0;
       let varTotalPages = 1;
 
@@ -157,6 +181,7 @@ export default function CatalogMigration() {
           result.errors.forEach((e) => addLog('warn', `    ⚠ ${e}`));
         }
 
+        setCheckpoint((c) => ({ ...c, varPage }));
         if (!result.has_more) break;
         varPage++;
         await delay(VAR_INTER_PAGE_DELAY_MS);
@@ -169,10 +194,15 @@ export default function CatalogMigration() {
       addLog('error', `✗ ${e.message || String(e)}`);
       setStatus('error');
     }
-  }, [addLog]);
+  }, [addLog, checkpoint]);
 
   const abort = () => { abortRef.current = true; };
-  const reset = () => { setStatus('idle'); setLogs([]); setProgress({ phase: '', page: 0, totalPages: 0, processed: 0 }); };
+  const reset = () => {
+    setStatus('idle');
+    setLogs([]);
+    setProgress({ phase: '', page: 0, totalPages: 0, processed: 0 });
+    setCheckpoint({ taxDone: false, productPage: 0, varPage: 0 });
+  };
 
   const isRunning = status === 'running';
   const phaseLabel: Record<Phase | '', string> = {
@@ -210,10 +240,20 @@ export default function CatalogMigration() {
 
       {/* Controls */}
       <div style={styles.controls}>
-        {!isRunning && status !== 'done' && (
-          <button onClick={runMigration} style={styles.primaryBtn}>
-            {status === 'error' ? '↺ Retry Migration' : '▶ Start Migration'}
+        {!isRunning && status !== 'done' && status !== 'error' && (
+          <button onClick={() => runMigration(false)} style={styles.primaryBtn}>
+            ▶ Start Migration
           </button>
+        )}
+        {!isRunning && status === 'error' && (
+          <>
+            <button onClick={() => runMigration(true)} style={styles.primaryBtn}>
+              ↺ Resume Migration
+            </button>
+            <button onClick={() => runMigration(false)} style={styles.secondaryBtn}>
+              Start Fresh
+            </button>
+          </>
         )}
         {isRunning && (
           <>
@@ -232,7 +272,7 @@ export default function CatalogMigration() {
             <button onClick={reset} style={styles.secondaryBtn}>Run Again</button>
           </>
         )}
-        {(status === 'error' || status === 'idle') && logs.length > 0 && (
+        {(status === 'idle') && logs.length > 0 && (
           <button onClick={reset} style={styles.secondaryBtn}>Clear</button>
         )}
       </div>

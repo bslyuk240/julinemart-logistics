@@ -201,7 +201,7 @@ async function syncTaxonomy(adminClient) {
 async function syncProducts(adminClient, page) {
   const errors = [];
 
-  // Pre-fetch lookup maps from Supabase
+  // Pre-fetch lookup maps from Supabase (all parallel)
   const [vendorRes, hubRes, catRes, tagRes, attrRes] = await Promise.all([
     adminClient.from('vendors').select('id, woocommerce_vendor_id'),
     adminClient.from('hubs').select('id'),
@@ -216,7 +216,7 @@ async function syncProducts(adminClient, page) {
   const tagMap = new Map((tagRes.data || []).map((t) => [t.woo_term_id, t.id]));
   const attrMap = new Map((attrRes.data || []).map((a) => [a.slug, a.id]));
 
-  // Fetch products page from WooCommerce
+  // Fetch products page from WooCommerce with abort timeout
   const fields = [
     'id', 'name', 'slug', 'description', 'short_description', 'status', 'type',
     'regular_price', 'sale_price', 'sku', 'weight', 'dimensions',
@@ -226,156 +226,143 @@ async function syncProducts(adminClient, page) {
     'date_created',
   ].join(',');
 
-  const wcProducts = await requestWoo(
-    `/products?status=publish&per_page=${PER_PAGE}&page=${page}&orderby=id&order=asc&_fields=${fields}`
-  );
+  let wcProducts;
+  try {
+    const rawBase = process.env.WOO_BASE_URL || process.env.WOOCOMMERCE_URL || '';
+    const ck = process.env.WOO_CONSUMER_KEY || process.env.WOOCOMMERCE_CONSUMER_KEY || '';
+    const cs = process.env.WOO_CONSUMER_SECRET || process.env.WOOCOMMERCE_CONSUMER_SECRET || '';
+    const base = rawBase.includes('/wp-json/') ? rawBase.replace(/\/+$/, '') : `${rawBase.replace(/\/+$/, '')}/wp-json/wc/v3`;
+    const auth = `Basic ${Buffer.from(`${ck}:${cs}`).toString('base64')}`;
+    const url = `${base}/products?status=publish&per_page=${PER_PAGE}&page=${page}&orderby=id&order=asc&_fields=${fields}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 25000);
+    try {
+      const res = await fetch(url, { signal: controller.signal, headers: { Authorization: auth, 'Content-Type': 'application/json' } });
+      const text = await res.text();
+      if (!res.ok) throw new Error(`WC ${res.status}: ${text.slice(0, 120)}`);
+      wcProducts = JSON.parse(text);
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (wcErr) {
+    const msg = wcErr.name === 'AbortError' ? 'WC products request timed out (25s)' : wcErr.message?.slice(0, 120);
+    return { success: false, error: msg, page, has_more: false };
+  }
+
   if (!Array.isArray(wcProducts)) {
     return { success: false, error: 'WooCommerce returned non-array', page, has_more: false };
   }
 
-  // Get total count from a lightweight head request
-  let totalProducts = 0;
-  try {
-    const countResp = await requestWoo(`/products?status=publish&per_page=1&page=1&_fields=id`);
-    // WC doesn't return total in body — we'll estimate from page size
-    totalProducts = wcProducts.length < PER_PAGE ? (page - 1) * PER_PAGE + wcProducts.length : null;
-  } catch (_) {}
-
-  let processed = 0;
+  // ── Build product rows and secondary data in one pass ───────────────────────
+  const productRows = [];
+  const secondaryByWooId = new Map(); // woo_product_id → { images, catIds, tagIds, attrRows }
 
   for (const p of wcProducts) {
-    try {
-      const meta = Array.isArray(p.meta_data) ? p.meta_data : [];
+    const meta = Array.isArray(p.meta_data) ? p.meta_data : [];
 
-      // Vendor resolution
-      const wooVendorId = extractMetaValue(meta, ['_wcfm_product_author', '_wcfm_vendor_id', '_vendor_id'])
-        || (p.post_author ? String(p.post_author) : null);
-      const vendorId = wooVendorId ? (vendorMap.get(String(wooVendorId)) || null) : null;
+    const wooVendorId = extractMetaValue(meta, ['_wcfm_product_author', '_wcfm_vendor_id', '_vendor_id'])
+      || (p.post_author ? String(p.post_author) : null);
+    const vendorId = wooVendorId ? (vendorMap.get(String(wooVendorId)) || null) : null;
+    const hubId = extractMetaValue(meta, ['_julinemart_hub_id', '_receiving_hub_id', '_hub_id', 'hub_id']);
+    const resolvedHubId = hubId && hubSet.has(hubId) ? hubId : null;
+    const shipsFromAbroad = parseBool(extractMetaValue(meta, ['_ships_from_abroad', 'ships_from_abroad']));
 
-      // Hub resolution
-      const hubId = extractMetaValue(meta, ['_julinemart_hub_id', '_receiving_hub_id', '_hub_id', 'hub_id']);
-      const resolvedHubId = hubId && hubSet.has(hubId) ? hubId : null;
+    productRows.push({
+      woo_product_id: p.id,
+      name: p.name || '',
+      slug: p.slug || slugify(p.name),
+      description: p.description || null,
+      short_description: p.short_description || null,
+      status: mapStatus(p.status),
+      type: p.type === 'variable' ? 'variable' : 'simple',
+      regular_price: parsePrice(p.regular_price),
+      sale_price: parsePrice(p.sale_price),
+      sku: p.sku || null,
+      weight: parsePrice(p.weight),
+      length: parsePrice(p.dimensions?.length),
+      width: parsePrice(p.dimensions?.width),
+      height: parsePrice(p.dimensions?.height),
+      manage_stock: !!p.manage_stock,
+      stock_quantity: p.stock_quantity ?? null,
+      stock_status: p.stock_status || 'instock',
+      is_virtual: !!p.virtual,
+      is_downloadable: !!p.downloadable,
+      ships_from_abroad: shipsFromAbroad,
+      sold_individually: !!p.sold_individually,
+      vendor_id: vendorId,
+      hub_id: resolvedHubId,
+      sourcing_meta: buildSourcingMeta(meta),
+      seo_title: extractMetaValue(meta, ['_aioseop_title', '_aioseo_title']) || null,
+      seo_description: extractMetaValue(meta, ['_aioseop_description', '_aioseo_description']) || null,
+    });
 
-      // Ships from abroad
-      const sfaRaw = extractMetaValue(meta, ['_ships_from_abroad', 'ships_from_abroad']);
-      const shipsFromAbroad = parseBool(sfaRaw);
+    // Secondary rows built once UUID is known (below)
+    const images = (p.images || []).filter(Boolean);
+    const catIds = (p.categories || []).map((c) => catMap.get(c.id)).filter(Boolean);
+    const tagIds = (p.tags || []).map((t) => tagMap.get(t.id)).filter(Boolean);
+    const attrRows = (p.attributes || [])
+      .filter((a) => a.variation)
+      .map((a) => {
+        const attrId = attrMap.get(slugify(a.name));
+        if (!attrId) return null;
+        return { attribute_id: attrId, options: a.options || [], is_variation: true, display_order: a.position || 0 };
+      })
+      .filter(Boolean);
 
-      const productRow = {
-        woo_product_id: p.id,
-        name: p.name || '',
-        slug: p.slug || slugify(p.name),
-        description: p.description || null,
-        short_description: p.short_description || null,
-        status: mapStatus(p.status),
-        type: p.type === 'variable' ? 'variable' : 'simple',
-        regular_price: parsePrice(p.regular_price),
-        sale_price: parsePrice(p.sale_price),
-        sku: p.sku || null,
-        weight: parsePrice(p.weight),
-        length: parsePrice(p.dimensions?.length),
-        width: parsePrice(p.dimensions?.width),
-        height: parsePrice(p.dimensions?.height),
-        manage_stock: !!p.manage_stock,
-        stock_quantity: p.stock_quantity ?? null,
-        stock_status: p.stock_status || 'instock',
-        is_virtual: !!p.virtual,
-        is_downloadable: !!p.downloadable,
-        ships_from_abroad: shipsFromAbroad,
-        sold_individually: !!p.sold_individually,
-        vendor_id: vendorId,
-        hub_id: resolvedHubId,
-        sourcing_meta: buildSourcingMeta(meta),
-        seo_title: extractMetaValue(meta, ['_aioseop_title', '_aioseo_title']) || null,
-        seo_description: extractMetaValue(meta, ['_aioseop_description', '_aioseo_description']) || null,
-      };
-
-      const { data: upserted, error: prodErr } = await adminClient
-        .from('products')
-        .upsert(productRow, { onConflict: 'woo_product_id' })
-        .select('id')
-        .single();
-
-      if (prodErr) {
-        errors.push(`product woo_id=${p.id}: ${prodErr.message}`);
-        continue;
-      }
-      const productUuid = upserted.id;
-
-      // Images
-      const images = (p.images || []).filter(Boolean);
-      if (images.length > 0) {
-        await adminClient.from('product_images').delete().eq('product_id', productUuid).is('variation_id', null);
-        const imgRows = images.map((img, i) => ({
-          product_id: productUuid,
-          src: img.src,
-          alt: img.alt || '',
-          position: i,
-          is_thumbnail: i === 0,
-        }));
-        await adminClient.from('product_images').insert(imgRows);
-      }
-
-      // Category map
-      const catIds = (p.categories || [])
-        .map((c) => catMap.get(c.id))
-        .filter(Boolean);
-      if (catIds.length > 0) {
-        await adminClient.from('product_category_map').delete().eq('product_id', productUuid);
-        await adminClient.from('product_category_map').insert(
-          catIds.map((cid) => ({ product_id: productUuid, category_id: cid }))
-        );
-      }
-
-      // Tag map
-      const tagIds = (p.tags || [])
-        .map((t) => tagMap.get(t.id))
-        .filter(Boolean);
-      if (tagIds.length > 0) {
-        await adminClient.from('product_tag_map').delete().eq('product_id', productUuid);
-        await adminClient.from('product_tag_map').insert(
-          tagIds.map((tid) => ({ product_id: productUuid, tag_id: tid }))
-        );
-      }
-
-      // Attribute map (variation-driving attributes only)
-      const wcAttrs = (p.attributes || []).filter((a) => a.variation);
-      if (wcAttrs.length > 0) {
-        await adminClient.from('product_attribute_map').delete().eq('product_id', productUuid);
-        const attrRows = wcAttrs
-          .map((a) => {
-            const attrSlug = slugify(a.name);
-            const attrId = attrMap.get(attrSlug);
-            if (!attrId) return null;
-            return {
-              product_id: productUuid,
-              attribute_id: attrId,
-              options: a.options || [],
-              is_variation: true,
-              display_order: a.position || 0,
-            };
-          })
-          .filter(Boolean);
-        if (attrRows.length > 0) {
-          await adminClient.from('product_attribute_map').insert(attrRows);
-        }
-      }
-
-      processed++;
-    } catch (e) {
-      errors.push(`product woo_id=${p.id}: ${e.message}`);
-    }
+    secondaryByWooId.set(p.id, { images, catIds, tagIds, attrRows });
   }
 
-  const hasMore = wcProducts.length === PER_PAGE;
+  // ── Batch upsert all products in one call ────────────────────────────────────
+  const { data: upserted, error: prodErr } = await adminClient
+    .from('products')
+    .upsert(productRows, { onConflict: 'woo_product_id' })
+    .select('id, woo_product_id');
+
+  if (prodErr) return { success: false, error: prodErr.message, page, has_more: false };
+
+  const uuidMap = new Map((upserted || []).map((r) => [r.woo_product_id, r.id]));
+  const allUuids = (upserted || []).map((r) => r.id);
+
+  // ── Collect secondary rows now that UUIDs are known ──────────────────────────
+  const allImages = [], allCatMaps = [], allTagMaps = [], allAttrMaps = [];
+
+  for (const p of wcProducts) {
+    const uuid = uuidMap.get(p.id);
+    if (!uuid) { errors.push(`product woo_id=${p.id}: missing uuid after upsert`); continue; }
+    const { images, catIds, tagIds, attrRows } = secondaryByWooId.get(p.id);
+
+    images.forEach((img, i) =>
+      allImages.push({ product_id: uuid, src: img.src, alt: img.alt || '', position: i, is_thumbnail: i === 0 })
+    );
+    catIds.forEach((cid) => allCatMaps.push({ product_id: uuid, category_id: cid }));
+    tagIds.forEach((tid) => allTagMaps.push({ product_id: uuid, tag_id: tid }));
+    attrRows.forEach((ar) => allAttrMaps.push({ ...ar, product_id: uuid }));
+  }
+
+  // ── Batch delete then batch insert (4 parallel deletes → 4 parallel inserts) ─
+  if (allUuids.length > 0) {
+    await Promise.all([
+      adminClient.from('product_images').delete().in('product_id', allUuids).is('variation_id', null),
+      adminClient.from('product_category_map').delete().in('product_id', allUuids),
+      adminClient.from('product_tag_map').delete().in('product_id', allUuids),
+      adminClient.from('product_attribute_map').delete().in('product_id', allUuids),
+    ]);
+    await Promise.all([
+      allImages.length   > 0 ? adminClient.from('product_images').insert(allImages) : null,
+      allCatMaps.length  > 0 ? adminClient.from('product_category_map').insert(allCatMaps) : null,
+      allTagMaps.length  > 0 ? adminClient.from('product_tag_map').insert(allTagMaps) : null,
+      allAttrMaps.length > 0 ? adminClient.from('product_attribute_map').insert(allAttrMaps) : null,
+    ].filter(Boolean));
+  }
 
   return {
     success: true,
     phase: 'products',
     page,
     per_page: PER_PAGE,
-    processed,
+    processed: upserted?.length || 0,
     errors,
-    has_more: hasMore,
+    has_more: wcProducts.length === PER_PAGE,
   };
 }
 
@@ -450,24 +437,16 @@ async function syncVariations(adminClient, page) {
         continue;
       }
 
-      for (const v of wcVars) {
+      // Batch upsert all variations for this product in one call
+      const varRows = wcVars.map((v) => {
         const meta = Array.isArray(v.meta_data) ? v.meta_data : [];
-
         const wooVendorId = extractMetaValue(meta, ['_wcfm_product_author', '_wcfm_vendor_id', '_vendor_id']);
-        const vendorId = wooVendorId ? (vendorMap.get(String(wooVendorId)) || null) : null;
-
         const hubId = extractMetaValue(meta, ['_julinemart_hub_id', '_receiving_hub_id', '_hub_id', 'hub_id']);
-        const resolvedHubId = hubId && hubSet.has(hubId) ? hubId : null;
-
-        // attributes: [{name: "Colour", option: "Red"}, ...]
         const attrs = {};
         for (const a of (v.attributes || [])) {
-          if (a.name && a.option) {
-            attrs[slugify(a.name)] = a.option;
-          }
+          if (a.name && a.option) attrs[slugify(a.name)] = a.option;
         }
-
-        const varRow = {
+        return {
           product_id: product.id,
           woo_variation_id: v.id,
           sku: v.sku || null,
@@ -477,35 +456,40 @@ async function syncVariations(adminClient, page) {
           stock_quantity: v.stock_quantity ?? null,
           stock_status: v.stock_status || 'instock',
           attributes: attrs,
-          vendor_id: vendorId,
-          hub_id: resolvedHubId,
+          vendor_id: wooVendorId ? (vendorMap.get(String(wooVendorId)) || null) : null,
+          hub_id: hubId && hubSet.has(hubId) ? hubId : null,
           sourcing_meta: buildSourcingMeta(meta),
           is_active: true,
+          _image: v.image?.src ? { src: v.image.src, alt: v.image.alt || '' } : null,
         };
+      });
 
-        const { data: upserted, error: varErr } = await adminClient
-          .from('product_variations')
-          .upsert(varRow, { onConflict: 'woo_variation_id' })
-          .select('id')
-          .single();
+      const varRowsClean = varRows.map(({ _image, ...r }) => r);
+      const { data: upsertedVars, error: varErr } = await adminClient
+        .from('product_variations')
+        .upsert(varRowsClean, { onConflict: 'woo_variation_id' })
+        .select('id, woo_variation_id');
 
-        if (varErr) {
-          errors.push(`variation woo_id=${v.id}: ${varErr.message}`);
-          continue;
-        }
+      if (varErr) {
+        errors.push(`variations for woo_product=${product.woo_product_id}: ${varErr.message}`);
+      } else {
+        // Batch insert variation images
+        const varUuidMap = new Map((upsertedVars || []).map((r) => [r.woo_variation_id, r.id]));
+        const imgRows = varRows
+          .filter((r) => r._image)
+          .map((r) => ({
+            product_id: product.id,
+            variation_id: varUuidMap.get(r.woo_variation_id),
+            src: r._image.src,
+            alt: r._image.alt,
+            position: 0,
+            is_thumbnail: true,
+          }))
+          .filter((r) => r.variation_id);
 
-        // Variation image
-        if (v.image?.src) {
-          await adminClient
-            .from('product_images')
-            .upsert({
-              product_id: product.id,
-              variation_id: upserted.id,
-              src: v.image.src,
-              alt: v.image.alt || '',
-              position: 0,
-              is_thumbnail: true,
-            }, { onConflict: 'product_id,variation_id,position' });
+        if (imgRows.length > 0) {
+          await adminClient.from('product_images')
+            .upsert(imgRows, { onConflict: 'product_id,variation_id,position' });
         }
       }
 

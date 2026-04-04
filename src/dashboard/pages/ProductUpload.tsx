@@ -46,6 +46,7 @@ interface VarRow {
   stock_status: 'instock' | 'outofstock' | 'onbackorder';
   manage_stock: boolean;
   stock_quantity: string;
+  image_url: string;
 }
 
 interface FormState {
@@ -228,6 +229,7 @@ export default function ProductUpload() {
             stock_status: v.stock_status || 'instock',
             manage_stock: !!v.manage_stock,
             stock_quantity: v.stock_quantity != null ? String(v.stock_quantity) : '',
+            image_url: v.image?.src || '',
           }))
         );
       }
@@ -319,6 +321,7 @@ export default function ProductUpload() {
             stock_status: 'instock',
             manage_stock: false,
             stock_quantity: '',
+            image_url: '',
           };
     });
 
@@ -376,6 +379,7 @@ export default function ProductUpload() {
           stock_status: v.stock_status,
           manage_stock: v.manage_stock,
           stock_quantity: v.manage_stock && v.stock_quantity !== '' ? Number(v.stock_quantity) : null,
+          image_url: v.image_url.trim() || null,
         }));
       } else {
         // Switching from variable to simple — clear variations
@@ -679,6 +683,7 @@ export default function ProductUpload() {
                 <thead>
                   <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
                     <th className="pb-2 font-medium">Attributes</th>
+                    <th className="pb-2 font-medium pl-3">Image URL</th>
                     <th className="pb-2 font-medium pl-3">SKU</th>
                     <th className="pb-2 font-medium pl-3">Regular Price (₦)</th>
                     <th className="pb-2 font-medium pl-3">Sale Price (₦)</th>
@@ -700,6 +705,26 @@ export default function ProductUpload() {
                               <span className="text-gray-400">{a.name}:</span> {a.value}
                             </span>
                           ))}
+                        </div>
+                      </td>
+                      {/* Variation image */}
+                      <td className="py-2 pl-3">
+                        <div className="flex items-center gap-1.5">
+                          {v.image_url && (
+                            <img
+                              src={v.image_url}
+                              alt="variation"
+                              className="w-8 h-8 rounded object-cover border border-gray-200 flex-shrink-0"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            />
+                          )}
+                          <input
+                            type="url"
+                            value={v.image_url}
+                            onChange={(e) => updateVariation(i, 'image_url', e.target.value)}
+                            placeholder="https://..."
+                            className="w-36 px-2 py-1.5 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                          />
                         </div>
                       </td>
                       <td className="py-2 pl-3">

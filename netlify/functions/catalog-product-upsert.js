@@ -244,6 +244,8 @@ export async function handler(event) {
             updated_at: new Date().toISOString(),
           };
 
+          let savedVariationId = v.id;
+
           if (v.id) {
             await auth.adminClient
               .from('product_variations')
@@ -251,9 +253,25 @@ export async function handler(event) {
               .eq('id', v.id)
               .eq('product_id', pid);
           } else {
-            await auth.adminClient
+            const { data: inserted } = await auth.adminClient
               .from('product_variations')
-              .insert({ ...varData, vendor_id: vendor_id || null, hub_id: hub_id || null });
+              .insert({ ...varData, vendor_id: vendor_id || null, hub_id: hub_id || null })
+              .select('id')
+              .single();
+            savedVariationId = inserted?.id;
+          }
+
+          // Persist variation image if provided
+          if (savedVariationId && v.image_url) {
+            await auth.adminClient.from('product_images').delete().eq('variation_id', savedVariationId);
+            await auth.adminClient.from('product_images').insert({
+              product_id: pid,
+              variation_id: savedVariationId,
+              src: v.image_url,
+              alt: '',
+              position: 0,
+              is_thumbnail: true,
+            });
           }
         }
       })(),

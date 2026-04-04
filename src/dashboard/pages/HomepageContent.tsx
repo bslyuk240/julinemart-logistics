@@ -220,7 +220,8 @@ export default function HomepageContent() {
       const sectionRows = res.data.filter((r) => r.type === 'section');
 
       setSlides(sliderRow?.content?.slides ?? []);
-      setBanner(bannerRow?.content ?? { enabled: true, text: '' });
+      const bc = bannerRow?.content ?? {};
+      setBanner({ enabled: Boolean(bc.enabled ?? true), text: bc.text ?? '', bg_color: bc.bg_color, link: bc.link });
       setSections(sectionRows);
     } catch (e: any) {
       setError(e.message || 'Failed to load');

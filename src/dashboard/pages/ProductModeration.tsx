@@ -222,7 +222,7 @@ export function ProductModerationPage() {
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
   const isCjImport = (p: ListProduct) =>
-    p.sourcing_meta && (p.sourcing_meta as Record<string, unknown>).cj_product_id;
+    !!(p.sourcing_meta && (p.sourcing_meta as Record<string, unknown>).cj_product_id);
 
   const formatPrice = (price: number | null) =>
     price != null ? `₦${price.toLocaleString()}` : '—';

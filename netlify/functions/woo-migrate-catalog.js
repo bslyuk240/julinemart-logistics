@@ -26,8 +26,7 @@ import {
 } from './services/global-sourcing-utils.js';
 
 const PER_PAGE = 20; // safe for IONOS shared hosting
-const VAR_PER_PAGE = 10; // fewer variable products per page — each makes a WC call
-const VAR_INTER_DELAY_MS = 2000; // 2s between each product's variation fetch
+const VAR_PER_PAGE = 3; // 3 variable products per page — each WC call capped at 12s → max ~36s for WC + headroom for Supabase writes
 
 /**
  * Migration target client — reads from MIGRATION_SUPABASE_* env vars.
@@ -407,17 +406,43 @@ async function syncVariations(adminClient, page) {
 
   let processed = 0;
 
+  // Local fetch with 12s AbortSignal timeout — requestWoo has no timeout;
+  // a single hung IONOS connection would blow the 60s Netlify limit.
+  async function fetchWooVariations(wooProductId) {
+    const { baseUrl: base, authHeader: auth } = (() => {
+      // Re-derive WC config inline to avoid closure issues with ESM
+      const rawBase = process.env.WOO_BASE_URL || process.env.WOOCOMMERCE_URL || '';
+      const ck = process.env.WOO_CONSUMER_KEY || process.env.WOOCOMMERCE_CONSUMER_KEY || '';
+      const cs = process.env.WOO_CONSUMER_SECRET || process.env.WOOCOMMERCE_CONSUMER_SECRET || '';
+      const normalised = rawBase.includes('/wp-json/') ? rawBase.replace(/\/+$/, '') : `${rawBase.replace(/\/+$/, '')}/wp-json/wc/v3`;
+      const header = `Basic ${Buffer.from(`${ck}:${cs}`).toString('base64')}`;
+      return { baseUrl: normalised, authHeader: header };
+    })();
+    const url = `${base}/products/${wooProductId}/variations?per_page=100&_fields=id,sku,regular_price,sale_price,stock_quantity,stock_status,manage_stock,attributes,image,meta_data`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    try {
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: { Authorization: auth, 'Content-Type': 'application/json' },
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(`WC ${res.status}: ${text.slice(0, 120)}`);
+      return JSON.parse(text);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   for (const product of (variableProducts || [])) {
     try {
       let wcVars;
       try {
-        wcVars = await requestWoo(
-          `/products/${product.woo_product_id}/variations?per_page=100&_fields=id,sku,regular_price,sale_price,stock_quantity,stock_status,manage_stock,attributes,image,meta_data`
-        );
+        wcVars = await fetchWooVariations(product.woo_product_id);
       } catch (wcErr) {
-        // WooCommerce returned HTML error page (server overloaded) — skip this product
-        errors.push(`woo_id=${product.woo_product_id}: WC error — ${wcErr.message?.slice(0, 80)}`);
-        await new Promise((r) => setTimeout(r, VAR_INTER_DELAY_MS));
+        // WooCommerce error (server overloaded, HTML response, or timeout) — skip product
+        const msg = wcErr.name === 'AbortError' ? 'WC request timed out (12s)' : wcErr.message?.slice(0, 120);
+        errors.push(`woo_id=${product.woo_product_id}: ${msg}`);
         continue;
       }
       if (!Array.isArray(wcVars)) {
@@ -485,8 +510,6 @@ async function syncVariations(adminClient, page) {
       }
 
       processed++;
-      // Delay between products to avoid overloading IONOS
-      await new Promise((r) => setTimeout(r, VAR_INTER_DELAY_MS));
     } catch (e) {
       errors.push(`variations for product woo_id=${product.woo_product_id}: ${e.message}`);
     }

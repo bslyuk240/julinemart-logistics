@@ -291,7 +291,13 @@ async function syncProducts(adminClient, page) {
       sold_individually: !!p.sold_individually,
       vendor_id: vendorId,
       hub_id: resolvedHubId,
-      sourcing_meta: buildSourcingMeta(meta),
+      sourcing_meta: (() => {
+        const sm = buildSourcingMeta(meta) || {};
+        // Always store the raw WC vendor ID so we can backfill vendor_id later
+        // once all vendors are imported into Supabase
+        if (wooVendorId) sm.wc_vendor_id = String(wooVendorId);
+        return Object.keys(sm).length > 0 ? sm : null;
+      })(),
       seo_title: extractMetaValue(meta, ['_aioseop_title', '_aioseo_title']) || null,
       seo_description: extractMetaValue(meta, ['_aioseop_description', '_aioseo_description']) || null,
     });

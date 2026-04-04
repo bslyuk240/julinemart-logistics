@@ -9,6 +9,7 @@ interface User {
   full_name: string;
   role: string;
   is_active: boolean;
+  catalog_access: boolean;
   last_login: string;
   created_at: string;
 }
@@ -60,15 +61,40 @@ export function UsersPage() {
   const getRoleColor = (role: string) => {
     const colors: Record<string, string> = {
       admin: 'bg-red-100 text-red-800',
-      agent: 'bg-blue-100 text-blue-800'
+      agent: 'bg-blue-100 text-blue-800',
+      shop_manager: 'bg-purple-100 text-purple-800',
+      vendor: 'bg-green-100 text-green-800',
     };
     return colors[role] || 'bg-gray-100 text-gray-800';
   };
 
   const getRoleIcon = (role: string) => {
     if (role === 'admin') return <Shield className="w-4 h-4" />;
+    if (role === 'shop_manager') return <Shield className="w-4 h-4" />;
     if (role === 'agent') return <UsersIcon className="w-4 h-4" />;
     return <Eye className="w-4 h-4" />;
+  };
+
+  const toggleCatalogAccess = async (user: User) => {
+    try {
+      const response = await fetch(`${apiBase}/api/users/${user.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ catalog_access: !user.catalog_access }),
+      });
+      if (response.ok) {
+        notification.success(
+          user.catalog_access ? 'Catalog Access Removed' : 'Catalog Access Granted',
+          `${user.email} can ${user.catalog_access ? 'no longer' : 'now'} manage products`
+        );
+        fetchData();
+      }
+    } catch {
+      notification.error('Error', 'Failed to update catalog access');
+    }
   };
 
   const handleEdit = (user: User) => {
@@ -200,6 +226,22 @@ export function UsersPage() {
                   </span>
                 </div>
 
+                {user.role === 'agent' && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Catalog Access</span>
+                    <button
+                      onClick={() => toggleCatalogAccess(user)}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                        user.catalog_access ? 'bg-purple-600' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                        user.catalog_access ? 'translate-x-4' : 'translate-x-1'
+                      }`} />
+                    </button>
+                  </div>
+                )}
+
                 {user.last_login && (
                   <div className="text-sm text-gray-600">
                     Last login: {new Date(user.last_login).toLocaleDateString()}
@@ -268,7 +310,8 @@ function UserForm({ user, roles, onClose, onSave }: UserFormProps) {
   });
   const availableRoles = roles.length ? roles : [
     { name: 'admin', display_name: 'Administrator', description: 'Full access' },
-    { name: 'agent', display_name: 'Agent', description: 'Manage orders & rates' }
+    { name: 'shop_manager', display_name: 'Shop Manager', description: 'Products, vendors & categories' },
+    { name: 'agent', display_name: 'Agent', description: 'Orders, dispatch & support' },
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {

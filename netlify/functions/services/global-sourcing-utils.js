@@ -26,7 +26,7 @@ export const headers = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
 };
 
-export const GLOBAL_SOURCING_ALLOWED_ROLES = ['admin', 'agent'];
+export const GLOBAL_SOURCING_ALLOWED_ROLES = ['admin', 'agent', 'shop_manager'];
 
 export function jsonResponse(statusCode, body) {
   return {
@@ -516,7 +516,7 @@ export async function requireAdmin(event, roles = ['admin']) {
 
   const { data: profile, error: profileError } = await adminClient
     .from('users')
-    .select('id, email, role, is_active')
+    .select('id, email, role, is_active, catalog_access')
     .eq('id', authData.user.id)
     .single();
 
@@ -530,7 +530,15 @@ export async function requireAdmin(event, roles = ['admin']) {
     };
   }
 
-  if (!roles.includes(profile.role)) {
+  // Agents with catalog_access granted are treated as shop_manager for catalog endpoints
+  const effectiveRole =
+    profile.role === 'agent' && profile.catalog_access ? 'agent_catalog' : profile.role;
+
+  const allowedEffective = roles.flatMap((r) =>
+    r === 'shop_manager' ? ['shop_manager', 'agent_catalog'] : [r]
+  );
+
+  if (!allowedEffective.includes(effectiveRole) && !roles.includes(profile.role)) {
     return {
       errorResponse: jsonResponse(403, {
         success: false,

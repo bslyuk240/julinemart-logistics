@@ -42,15 +42,29 @@ interface BeforeInstallPromptEvent extends Event {
   }>;
 }
 
-const navigation = [
-  // Agent can access: Dashboard, Orders, Shipping Rates
+// catalog_access flag on an agent grants access to catalog nav items
+type NavItem = {
+  name: string;
+  href: string;
+  icon: React.ElementType;
+  roles: string[];
+  requireCatalogAccess?: boolean;
+};
+
+const navigation: NavItem[] = [
+  // Shared: admin + agent
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'agent'] },
   { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent'] },
   { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent'] },
   { name: 'WhatsApp Support', href: '/admin/whatsapp', icon: MessageSquare, roles: ['admin', 'agent'] },
   { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent'] },
   { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'agent'] },
-  // Admin only pages
+  // Catalog: admin, shop_manager, and agents with catalog_access
+  { name: 'Global Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['admin', 'shop_manager'], requireCatalogAccess: true },
+  { name: 'Product Moderation', href: '/admin/products/moderation', icon: ClipboardCheck, roles: ['admin', 'shop_manager'], requireCatalogAccess: true },
+  { name: 'Homepage Content', href: '/admin/homepage-content', icon: LayoutGrid, roles: ['admin', 'shop_manager'] },
+  { name: 'Catalog Migration', href: '/admin/catalog-migration', icon: DatabaseZap, roles: ['admin'] },
+  // Admin only
   { name: 'Hubs', href: '/admin/hubs', icon: MapPin, roles: ['admin'] },
   { name: 'Couriers', href: '/admin/couriers', icon: Truck, roles: ['admin'] },
   { name: 'Settlements', href: '/admin/settlements', icon: DollarSign, roles: ['admin'] },
@@ -58,10 +72,6 @@ const navigation = [
   { name: 'Users', href: '/admin/users', icon: Users, roles: ['admin'] },
   { name: 'Shipping Discounts', href: '/admin/discounts', icon: Percent, roles: ['admin'] },
   { name: 'Vouchers', href: '/admin/vouchers', icon: Ticket, roles: ['admin'] },
-  { name: 'Global Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['admin', 'agent'] },
-  { name: 'Product Moderation', href: '/admin/products/moderation', icon: ClipboardCheck, roles: ['admin', 'agent'] },
-  { name: 'Homepage Content', href: '/admin/homepage-content', icon: LayoutGrid, roles: ['admin'] },
-  { name: 'Catalog Migration', href: '/admin/catalog-migration', icon: DatabaseZap, roles: ['admin'] },
   { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },
   { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
   { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },
@@ -237,10 +247,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     return colors[role] || 'bg-gray-100 text-gray-800';
   };
 
-  // Filter navigation items based on user role
-  const filteredNavigation = navigation.filter(item => 
-    !item.roles || item.roles.includes(user?.role || '')
-  );
+  // Filter navigation items based on user role and catalog_access flag
+  const filteredNavigation = navigation.filter(item => {
+    if (!item.roles) return true;
+    if (item.roles.includes(user?.role || '')) return true;
+    // Agents with catalog_access can see items marked requireCatalogAccess
+    if (item.requireCatalogAccess && user?.role === 'agent' && user?.catalog_access) return true;
+    return false;
+  });
   const canInstallApp = user?.role === 'admin' && !isInstalled;
 
   return (

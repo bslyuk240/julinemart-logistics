@@ -14,7 +14,7 @@ const READ_ONLY_KEY =
 // Use READ_ONLY_KEY only for auth token verification; all DB access goes through the service key
 const supabaseAuth = createClient(SUPABASE_URL || '', READ_ONLY_KEY || '');
 const supabaseAdmin = SERVICE_ROLE_KEY ? createClient(SUPABASE_URL || '', SERVICE_ROLE_KEY) : null;
-const allowedRoles = ['admin', 'agent'];
+const allowedRoles = ['admin', 'agent', 'shop_manager', 'vendor'];
 
 const headers = {
   'Content-Type': 'application/json',
@@ -103,7 +103,7 @@ export async function handler(event) {
 
       const { data, error } = await supabaseAdmin
         .from('users')
-        .select('id, email, full_name, role, is_active, last_login, created_at, updated_at')
+        .select('id, email, full_name, role, is_active, catalog_access, last_login, created_at, updated_at')
         .order('created_at', { ascending: false });
       if (error) throw error;
       return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: data || [] }) };
@@ -259,6 +259,7 @@ export async function handler(event) {
         updateData.role = payload.role;
       }
       if (payload.is_active !== undefined) updateData.is_active = payload.is_active;
+      if (payload.catalog_access !== undefined) updateData.catalog_access = !!payload.catalog_access;
 
       const { data, error } = await supabaseAdmin
         .from('users')

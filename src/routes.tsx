@@ -55,9 +55,9 @@ const sharedRoutes = [
   { path: 'rates', element: <ShippingRatesPage /> },
   { path: 'whatsapp', element: <WhatsAppSupportPage /> },
   { path: 'whatsapp/:chatId', element: <WhatsAppChatView /> },
-  { path: 'global-sourcing', element: <GlobalSourcingPage /> },
-  { path: 'products/moderation', element: <ProductModerationPage /> },
-  { path: 'homepage-content', element: <HomepageContent /> },
+  { path: 'global-sourcing', element: <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent']}><GlobalSourcingPage /></ProtectedRoute> },
+  { path: 'products/moderation', element: <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent']}><ProductModerationPage /></ProtectedRoute> },
+  { path: 'homepage-content', element: <ProtectedRoute allowedRoles={['admin', 'shop_manager']}><HomepageContent /></ProtectedRoute> },
   { path: 'catalog-migration', element: <CatalogMigration /> },
 ];
 
@@ -122,7 +122,7 @@ export const router = createBrowserRouter([
   {
     path: '/admin',
     element: (
-      <ProtectedRoute allowedRoles={['admin', 'agent']}>
+      <ProtectedRoute allowedRoles={['admin', 'agent', 'shop_manager']}>
         <DashboardLayout>
           <Outlet />
         </DashboardLayout>

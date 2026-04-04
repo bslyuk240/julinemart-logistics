@@ -16,6 +16,7 @@ interface User {
   full_name?: string;
   role: string;
   is_active: boolean;
+  catalog_access: boolean;
 }
 
 interface AuthContextType {
@@ -65,7 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       let { data, error }: any = await supabase
         .from('users')
-        .select('id, email, full_name, role, is_active')
+        .select('id, email, full_name, role, is_active, catalog_access')
         .eq('id', userId)
         .single();
 

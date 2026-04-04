@@ -27,8 +27,13 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (allowedRoles?.length && !allowedRoles.includes(user.role)) {
-    return <Navigate to="/unauthorized" replace />;
+  if (allowedRoles?.length) {
+    const hasRole = allowedRoles.includes(user.role);
+    // Agents with catalog_access granted by admin can access routes that allow 'agent'
+    const hasCatalogAccess = user.role === 'agent' && user.catalog_access && allowedRoles.includes('agent');
+    if (!hasRole && !hasCatalogAccess) {
+      return <Navigate to="/unauthorized" replace />;
+    }
   }
 
   return <>{children}</>;

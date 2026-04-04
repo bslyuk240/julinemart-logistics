@@ -141,17 +141,24 @@ async function syncTaxonomy(adminClient) {
     // Build woo_term_id → supabase uuid map
     const wooToUuid = new Map((sbCats || []).map((r) => [r.woo_term_id, r.id]));
 
-    // Build update rows: { id (supabase uuid), parent_id (supabase uuid) }
-    const parentUpdates = catsWithParent
-      .map((c) => ({ id: wooToUuid.get(c.id), parent_id: wooToUuid.get(c.parent) }))
-      .filter((r) => r.id && r.parent_id);
+    // Update parent_id using woo_term_id filter — avoids upsert NOT NULL issues
+    // Run in parallel batches of 10 to stay fast without overwhelming Supabase
+    const parentPairs = catsWithParent
+      .map((c) => ({ childWooId: c.id, parentUuid: wooToUuid.get(c.parent) }))
+      .filter((r) => r.parentUuid);
 
-    // Batch update using upsert (categories table has id as PK)
-    if (parentUpdates.length > 0) {
-      const { error: parentErr } = await adminClient
-        .from('categories')
-        .upsert(parentUpdates, { onConflict: 'id' });
-      if (parentErr) errors.push(`parent_id wiring: ${parentErr.message}`);
+    const BATCH = 10;
+    for (let i = 0; i < parentPairs.length; i += BATCH) {
+      const chunk = parentPairs.slice(i, i + BATCH);
+      await Promise.all(chunk.map(({ childWooId, parentUuid }) =>
+        adminClient
+          .from('categories')
+          .update({ parent_id: parentUuid })
+          .eq('woo_term_id', childWooId)
+      ));
+    }
+    if (parentPairs.length === 0) {
+      // no-op, all top-level
     }
   }
 

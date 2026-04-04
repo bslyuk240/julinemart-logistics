@@ -1,151 +1,198 @@
 import { serve } from "https://deno.land/std@0.203.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.81.1";
 
-const ALLOWED_ORIGINS = [
-  "https://jlo.julinemart.com",
-  "https://www.jlo.julinemart.com",
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-];
+// バ. IMPORT SHARED CORS
+import { corsHeaders } from "../_shared/cors.ts";
 
-const DEFAULT_ALLOWED_HEADERS = [
-  "authorization",
-  "x-client-info",
-  "apikey",
-  "content-type",
-];
+const STATUS_PRIORITY: Record<string, number> = {
+  pending: 1,
+  processing: 2,
+  assigned: 3,
+  picked_up: 4,
+  in_transit: 5,
+  out_for_delivery: 6,
+  delivered: 7,
+  returned: 8,
+  failed: 9,
+  cancelled: 10,
+};
 
-const DEFAULT_ALLOWED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+const ORDER_LIST_SELECT = `
+  *,
+  sub_orders (
+    status
+  )
+`;
 
-function getCorsHeaders(req: Request) {
-  const origin = req.headers.get("origin") ?? "";
-  const requestHeaders = req.headers.get("access-control-request-headers");
-  const requestedMethod = req.headers.get("access-control-request-method");
+const ORDER_DETAIL_SELECT = `
+  *,
+  sub_orders (
+    id,
+    main_order_id,
+    hub_id,
+    courier_id,
+    status,
+    tracking_number,
+    courier_waybill,
+    courier_shipment_id,
+    courier_tracking_url,
+    real_shipping_cost,
+    allocated_shipping_fee,
+    subtotal,
+    items,
+    last_tracking_update,
+    rider_name,
+    rider_phone,
+    hub_notes,
+    courier_notes,
+    metadata,
+    created_at,
+    hubs (
+      id,
+      name,
+      city,
+      address,
+      state
+    ),
+    couriers (
+      id,
+      name,
+      code,
+      api_enabled,
+      api_base_url
+    ),
+    tracking_events (
+      id,
+      status,
+      description,
+      location_name,
+      event_time,
+      created_at
+    )
+  )
+`;
 
-  const allowedHeaders = new Set(DEFAULT_ALLOWED_HEADERS);
-  if (requestHeaders) {
-    requestHeaders.split(",").forEach((header) => {
-      const sanitized = header.trim().toLowerCase();
-      if (sanitized) allowedHeaders.add(sanitized);
-    });
-  }
+const getOrderIdFromPath = (pathname: string) => {
+  const segments = pathname.split("/").filter(Boolean);
+  const ordersIndex = segments.lastIndexOf("orders");
+  if (ordersIndex === -1) return undefined;
+  return segments.length > ordersIndex + 1 ? segments[ordersIndex + 1] : undefined;
+};
 
-  const allowedMethods = new Set(DEFAULT_ALLOWED_METHODS);
-  if (requestedMethod) {
-    allowedMethods.add(requestedMethod.toUpperCase());
-  }
+const getEventTimestamp = (event: any) => {
+  const timestamp = event?.event_time ?? event?.created_at;
+  return timestamp ? new Date(timestamp).getTime() : 0;
+};
 
-  return {
-    "Access-Control-Allow-Origin": ALLOWED_ORIGINS.includes(origin)
-      ? origin
-      : "https://jlo.julinemart.com",
-    "Access-Control-Allow-Headers": Array.from(allowedHeaders).join(", "),
-    "Access-Control-Allow-Methods": Array.from(allowedMethods).join(", "),
-    "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Max-Age": "86400",
-  };
-}
+const getStatusPriority = (status?: string) => {
+  if (!status) return 0;
+  return STATUS_PRIORITY[status] ?? 0;
+};
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+const deriveOverallStatus = (order: any) => {
+  const fallback = order?.overall_status || "pending";
+  let bestStatus = fallback;
+  const statuses = Array.isArray(order?.sub_orders)
+    ? order.sub_orders.map((so: any) => so?.status).filter(Boolean)
+    : [];
+
+  statuses.forEach((status) => {
+    if (getStatusPriority(status) > getStatusPriority(bestStatus)) {
+      bestStatus = status;
+    }
+  });
+
+  return bestStatus;
+};
 
 serve(async (req: Request) => {
   const headers = {
     "Content-Type": "application/json",
-    ...getCorsHeaders(req),
+    ...corsHeaders(req),
   };
 
+  // バ. ALWAYS handle OPTIONS first
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 200, headers });
+    return new Response(null, { status: 204, headers });
   }
 
   try {
-    const supabaseService = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
 
-    // Verify authorization header (required for POST/DELETE, optional for GET)
-    const authHeader = req.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
+    const url = new URL(req.url);
+    const orderId = getOrderIdFromPath(url.pathname);
 
-    let supabaseClient = supabaseService;
-    let isAuthenticatedUser = false;
+    if (req.method === "GET") {
+      if (orderId) {
+        const { data, error } = await supabase
+          .from("orders")
+          .select(ORDER_DETAIL_SELECT)
+          .eq("id", orderId)
+          .single();
 
-    if (authHeader) {
-      const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
-        global: { headers: { authorization: authHeader } },
+        if (error) {
+          if (error.code === "PGRST116") {
+            return new Response(
+              JSON.stringify({ success: false, error: "Order not found" }),
+              { status: 404, headers }
+            );
+          }
+          throw error;
+        }
+
+        const transformed = {
+          ...data,
+          sub_orders: (data?.sub_orders || []).map((subOrder: any) => {
+            const events = subOrder?.tracking_events ?? [];
+            const sortedEvents = [...events].sort(
+              (a: any, b: any) => getEventTimestamp(b) - getEventTimestamp(a)
+            );
+
+            return {
+              ...subOrder,
+              tracking_events: sortedEvents,
+            };
+          }),
+        };
+
+        return new Response(
+          JSON.stringify({ success: true, data: transformed }),
+          { headers }
+        );
+      }
+
+      const { data, error } = await supabase
+        .from("orders")
+        .select(ORDER_LIST_SELECT)
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+      const enrichedData = (data || []).map((order: any) => {
+        const derivedStatus = deriveOverallStatus(order);
+        const { sub_orders, ...orderWithoutSubOrders } = order;
+        return {
+          ...orderWithoutSubOrders,
+          overall_status: derivedStatus,
+        };
       });
 
-      const { data: { user }, error: authError } = await supabaseUser.auth.getUser(token);
-      if (!authError && user) {
-        supabaseClient = supabaseUser;
-        isAuthenticatedUser = true;
-      }
-    }
-
-    if (!isAuthenticatedUser && req.method !== "GET") {
-      const message = authHeader ? "Invalid authorization token" : "Missing authorization header";
       return new Response(
-        JSON.stringify({ code: 401, message }),
-        { status: 401, headers }
+        JSON.stringify({ success: true, data: enrichedData }),
+        { headers }
       );
     }
 
-    const url = new URL(req.url);
-    const pathParts = url.pathname.split("/").filter(Boolean);
-    const orderId = pathParts[pathParts.length - 1];
-
-    if (req.method === "GET") {
-      const limit = Number(url.searchParams.get("limit") || 20);
-      const offset = Number(url.searchParams.get("offset") || 0);
-
-      const { data, error } = await supabaseClient
-        .from("orders")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .range(offset, offset + limit - 1);
-
-      if (error) throw error;
-
-      return new Response(JSON.stringify({ success: true, data }), {
-        headers,
-      });
-    }
-
-    if (req.method === "POST") {
-      const body = await req.json();
-      const { data, error } = await supabaseClient
-        .from("orders")
-        .insert(body)
-        .select("*");
-
-      if (error) throw error;
-
-      return new Response(JSON.stringify({ success: true, data }), {
-        headers,
-      });
-    }
-
-    if (req.method === "DELETE") {
-      const { error } = await supabaseService
-        .from("orders")
-        .delete()
-        .eq("id", orderId);
-
-      if (error) throw error;
-
-      return new Response(JSON.stringify({ success: true }), {
-        headers,
-      });
-    }
-
     return new Response(
-      JSON.stringify({ error: `${req.method} not supported` }),
+      JSON.stringify({ error: "Method not allowed" }),
       { status: 405, headers }
     );
-  } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
-      status: 400,
-      headers,
-    });
+  } catch (err: any) {
+    return new Response(
+      JSON.stringify({ error: err.message }),
+      { status: 500, headers }
+    );
   }
 });

@@ -7,8 +7,17 @@
     /* Use a standard Tailwind color to avoid custom token lookup issues */
     @apply border-gray-200;
   }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
   body {
     @apply bg-gray-50 text-gray-900;
+  }
+  body.admin-shell {
+    overscroll-behavior-y: none;
+    -webkit-overflow-scrolling: auto;
   }
 }
 
@@ -34,5 +43,67 @@
   }
   .card {
     @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6;
+  }
+
+  .admin-shell-root {
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  @supports (height: 100dvh) {
+    .admin-shell-root {
+      height: 100dvh;
+    }
+  }
+
+  .admin-main-scroll,
+  .admin-sidebar-scroll {
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+@media (max-width: 639px) {
+  h1 {
+    @apply text-2xl font-semibold leading-tight;
+  }
+
+  h2 {
+    @apply text-xl font-semibold leading-tight;
+  }
+
+  h3 {
+    @apply text-lg font-semibold leading-tight;
+  }
+
+  h4,
+  h5,
+  h6 {
+    @apply text-base font-semibold leading-tight;
+  }
+
+  .btn-primary,
+  .btn-secondary,
+  .btn-orange,
+  button {
+    @apply text-sm px-3 py-2 rounded-lg;
+  }
+
+  .admin-portal h1 {
+    font-size: 15px;
+    line-height: 1.25;
+    font-weight: 700;
+  }
+
+  .admin-portal h2 {
+    font-size: 12px;
+    line-height: 1.25;
+    font-weight: 600;
+  }
+
+  .admin-portal h1 svg,
+  .admin-portal h1 .lucide {
+    width: 15px;
+    height: 15px;
   }
 }

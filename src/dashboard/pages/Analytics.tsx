@@ -129,21 +129,21 @@ export function AnalyticsPage() {
       </div>
 
       {/* Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-6 mb-8">
         {metrics.map((metric) => {
           const Icon = metric.icon;
           return (
-            <div key={metric.name} className="card">
+            <div key={metric.name} className="card p-3 sm:p-6">
               <div className="flex items-center justify-between mb-4">
-                <div className={`${metric.color} w-12 h-12 rounded-lg flex items-center justify-center`}>
-                  <Icon className="w-6 h-6 text-white" />
+                <div className={`${metric.color} w-8 h-8 sm:w-12 sm:h-12 rounded-lg flex items-center justify-center`}>
+                  <Icon className="w-4 h-4 sm:w-6 sm:h-6 text-white" />
                 </div>
-                <span className="text-sm text-green-600 font-medium">
+                <span className="text-[10px] sm:text-sm text-green-600 font-medium">
                   {metric.trend}
                 </span>
               </div>
-              <p className="text-sm text-gray-600 mb-1">{metric.name}</p>
-              <p className="text-2xl font-bold text-gray-900">{metric.value}</p>
+              <p className="text-[11px] sm:text-sm text-gray-600 mb-1">{metric.name}</p>
+              <p className="text-lg sm:text-2xl font-bold text-gray-900">{metric.value}</p>
             </div>
           );
         })}
@@ -212,22 +212,22 @@ export function AnalyticsPage() {
       {/* Additional Stats */}
       <div className="card">
         <h2 className="text-xl font-semibold mb-4">Quick Stats</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-          <div className="text-center">
-            <p className="text-3xl font-bold text-gray-900">{zonesCount}</p>
-            <p className="text-sm text-gray-600 mt-1">Delivery Zones</p>
+        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-6">
+          <div className="text-center p-3 sm:p-0">
+            <p className="text-lg sm:text-3xl font-bold text-gray-900">{zonesCount}</p>
+            <p className="text-[11px] sm:text-sm text-gray-600 mt-1">Delivery Zones</p>
           </div>
-          <div className="text-center">
-            <p className="text-3xl font-bold text-gray-900">{activeHubs}</p>
-            <p className="text-sm text-gray-600 mt-1">Active Hubs</p>
+          <div className="text-center p-3 sm:p-0">
+            <p className="text-lg sm:text-3xl font-bold text-gray-900">{activeHubs}</p>
+            <p className="text-[11px] sm:text-sm text-gray-600 mt-1">Active Hubs</p>
           </div>
-          <div className="text-center">
-            <p className="text-3xl font-bold text-gray-900">{activeCouriers}</p>
-            <p className="text-sm text-gray-600 mt-1">Courier Partners</p>
+          <div className="text-center p-3 sm:p-0">
+            <p className="text-lg sm:text-3xl font-bold text-gray-900">{activeCouriers}</p>
+            <p className="text-[11px] sm:text-sm text-gray-600 mt-1">Courier Partners</p>
           </div>
-          <div className="text-center">
-            <p className="text-3xl font-bold text-gray-900">{avgDeliveryDays}</p>
-            <p className="text-sm text-gray-600 mt-1">Avg Delivery Days</p>
+          <div className="text-center p-3 sm:p-0">
+            <p className="text-lg sm:text-3xl font-bold text-gray-900">{avgDeliveryDays}</p>
+            <p className="text-[11px] sm:text-sm text-gray-600 mt-1">Avg Delivery Days</p>
           </div>
         </div>
       </div>

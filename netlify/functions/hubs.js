@@ -11,6 +11,50 @@ const headers = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization'
 };
 
+function parseMetadata(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value;
+  }
+  return {};
+}
+
+function pickPostcode(metadata = {}) {
+  return (
+    metadata.postcode ||
+    metadata.postal_code ||
+    metadata.zip ||
+    metadata.zip_code ||
+    ''
+  );
+}
+
+function shapeHub(row) {
+  if (!row) return row;
+  const metadata = parseMetadata(row.metadata);
+  return {
+    ...row,
+    metadata,
+    postcode: pickPostcode(metadata),
+  };
+}
+
+function buildHubMetadata(existingMetadata = {}, body = {}) {
+  const metadata = {
+    ...parseMetadata(existingMetadata),
+  };
+
+  if (body.postcode !== undefined) {
+    const postcode = String(body.postcode || '').trim();
+    if (postcode) {
+      metadata.postcode = postcode;
+    } else {
+      delete metadata.postcode;
+    }
+  }
+
+  return metadata;
+}
+
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
@@ -28,10 +72,14 @@ export async function handler(event) {
     if (event.httpMethod === 'GET') {
       const { data, error } = await supabase
         .from('hubs')
-        .select('id, name, code, address, city, state, phone, email, manager_name, manager_phone, is_active')
+        .select('id, name, code, address, city, state, phone, email, manager_name, manager_phone, is_active, metadata')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: data || [] }) };
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true, data: (data || []).map(shapeHub) })
+      };
     }
 
     if (event.httpMethod === 'POST') {
@@ -55,11 +103,12 @@ export async function handler(event) {
           manager_name: body.manager_name,
           manager_phone: body.manager_phone,
           is_active: body.is_active ?? true,
+          metadata: buildHubMetadata({}, body),
         }])
         .select('*')
         .single();
       if (error) throw error;
-      return { statusCode: 201, headers, body: JSON.stringify({ success: true, data }) };
+      return { statusCode: 201, headers, body: JSON.stringify({ success: true, data: shapeHub(data) }) };
     }
 
     if (event.httpMethod === 'PUT' && id) {
@@ -67,6 +116,15 @@ export async function handler(event) {
       const update = {};
       ['name','code','address','city','state','phone','email','manager_name','manager_phone','is_active']
         .forEach((k) => { if (body[k] !== undefined) update[k] = body[k]; });
+      if (body.postcode !== undefined) {
+        const { data: currentHub, error: currentHubError } = await supabase
+          .from('hubs')
+          .select('metadata')
+          .eq('id', id)
+          .single();
+        if (currentHubError) throw currentHubError;
+        update.metadata = buildHubMetadata(currentHub?.metadata, body);
+      }
       if (Object.keys(update).length === 0) {
         return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'No valid fields to update' }) };
       }
@@ -77,7 +135,7 @@ export async function handler(event) {
         .select('*')
         .single();
       if (error) throw error;
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data }) };
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: shapeHub(data) }) };
     }
 
     if (event.httpMethod === 'DELETE' && id) {

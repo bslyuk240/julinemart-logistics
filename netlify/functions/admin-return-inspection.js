@@ -1,6 +1,7 @@
 // Admin inspection + refund trigger (DROP-OFF ONLY, CLEAN FLOW)
 import { supabase, createWooRefund } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
+import { buildOrderDeepLink, sendPushToCustomer } from './services/pushNotifications.js';
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflightResponse();
@@ -163,6 +164,40 @@ export async function handler(event) {
         status: nextStatus,
       })
       .eq("return_request_id", returnId);
+
+    const orderRef = request.order_number || request.order_id || returnId;
+    const deepLink = buildOrderDeepLink(orderRef);
+    const pushPayload =
+      nextStatus === "refund_completed"
+        ? {
+            title: "Refund completed",
+            message: `Your refund for order ${orderRef} has been completed.`,
+            type: "order_update",
+            data: {
+              status: nextStatus,
+              orderReference: String(orderRef),
+              ...(deepLink ? { deepLink } : {}),
+            },
+          }
+        : nextStatus === "rejected"
+        ? {
+            title: "Return review update",
+            message: `Your return request for order ${orderRef} was not approved.`,
+            type: "order_update",
+            data: {
+              status: nextStatus,
+              orderReference: String(orderRef),
+              ...(deepLink ? { deepLink } : {}),
+            },
+          }
+        : null;
+
+    if (pushPayload) {
+      const pushResult = await sendPushToCustomer(request.wc_customer_id, pushPayload);
+      if (!pushResult.success && !pushResult.skipped) {
+        console.warn("Return inspection push failed:", pushResult);
+      }
+    }
 
     // ------------------------------
     // RESPONSE

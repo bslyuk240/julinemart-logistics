@@ -125,25 +125,25 @@ export function OrdersPage() {
       {/* Search and Filters */}
       {orders.length > 0 && (
         <div className="card mb-6">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
+          <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 items-center">
+            <div className="col-span-2">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <Search className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 sm:w-5 sm:h-5" />
                 <input
                   type="text"
                   placeholder="Search by order ID, customer name or email..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                  className="w-full pl-8 sm:pl-10 pr-3 sm:pr-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-xs sm:text-sm"
                 />
               </div>
             </div>
 
-            <div className="flex gap-3">
+            <div>
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                className="w-full px-2 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-xs sm:text-sm"
               >
                 <option value="all">All Status</option>
                 <option value="pending">Pending</option>
@@ -152,9 +152,11 @@ export function OrdersPage() {
                 <option value="delivered">Delivered</option>
                 <option value="cancelled">Cancelled</option>
               </select>
+            </div>
 
-              <button className="btn-secondary flex items-center">
-                <Download className="w-5 h-5 mr-2" />
+            <div className="flex justify-end">
+              <button className="btn-secondary flex items-center text-xs sm:text-sm px-3 py-1.5 sm:px-4 sm:py-2">
+                <Download className="w-4 h-4 sm:w-5 sm:h-5 mr-1 sm:mr-2" />
                 Export
               </button>
             </div>

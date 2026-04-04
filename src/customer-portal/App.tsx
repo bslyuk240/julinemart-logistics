@@ -3,17 +3,26 @@ import { CustomerPortalLanding } from './pages/Landing';
 import { OrderTrackingPage } from './pages/Track';
 import { ShippingEstimatePage } from './pages/ShippingEstimate';
 import { CustomerContactPage } from './pages/Contact';
+import DevBanner from '../components/DevBanner';
 
 function CustomerPortalApp() {
+  const isDevMode = process.env.NODE_ENV !== 'production';
+  const contentStyle = isDevMode ? { paddingTop: 36 } : undefined;
+
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<CustomerPortalLanding />} />
-        <Route path="/track" element={<OrderTrackingPage />} />
-        <Route path="/estimate" element={<ShippingEstimatePage />} />
-        <Route path="/contact" element={<CustomerContactPage />} />
-      </Routes>
-    </Router>
+    <>
+      <DevBanner />
+      <div style={contentStyle}>
+        <Router>
+          <Routes>
+            <Route path="/" element={<CustomerPortalLanding />} />
+            <Route path="/track" element={<OrderTrackingPage />} />
+            <Route path="/estimate" element={<ShippingEstimatePage />} />
+            <Route path="/contact" element={<CustomerContactPage />} />
+          </Routes>
+        </Router>
+      </div>
+    </>
   );
 }
 

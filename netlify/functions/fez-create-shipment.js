@@ -23,15 +23,47 @@ function generateShortUniqueId(subOrderId) {
 }
 
 async function authenticateFez() {
-  const FEZ_USER_ID = process.env.FEZ_USER_ID;
-  const FEZ_API_KEY = process.env.FEZ_PASSWORD || process.env.FEZ_API_KEY;
-  const FEZ_API_BASE_URL = process.env.FEZ_API_BASE_URL;
+  // Determine environment based on Netlify context
+  const isProduction = process.env.CONTEXT === 'production' || 
+                       process.env.NETLIFY_CONTEXT === 'production' ||
+                       process.env.NODE_ENV === 'production';
+  const environment = isProduction ? 'production' : 'sandbox';
+  
+  console.log(`📍 Environment detected: ${environment}`);
+  console.log("🔍 Fetching Fez credentials from database...");
 
-  if (!FEZ_USER_ID || !FEZ_API_KEY || !FEZ_API_BASE_URL) {
-    throw new Error("Missing Fez API environment variables");
+  // Fetch credentials from database based on environment
+  const { data: courier, error: dbError } = await supabase
+    .from('couriers')
+    .select('api_user_id, api_password, api_base_url')
+    .eq('code', 'fez')
+    .eq('api_enabled', true)
+    .eq('environment', environment)  // ENVIRONMENT-BASED LOOKUP
+    .single();
+
+  let FEZ_USER_ID, FEZ_API_KEY, FEZ_API_BASE_URL;
+
+  if (courier && !dbError) {
+    // Use database credentials (preferred)
+    FEZ_USER_ID = courier.api_user_id;
+    FEZ_API_KEY = courier.api_password;
+    FEZ_API_BASE_URL = courier.api_base_url;
+    console.log("✅ Using credentials from database");
+    console.log("   Environment:", environment);
+    console.log("   User ID:", FEZ_USER_ID);
+  } else {
+    // Fallback to environment variables
+    FEZ_USER_ID = process.env.FEZ_USER_ID;
+    FEZ_API_KEY = process.env.FEZ_PASSWORD || process.env.FEZ_API_KEY;
+    FEZ_API_BASE_URL = process.env.FEZ_API_BASE_URL;
+    console.log("⚠️ Fallback to environment variables");
   }
 
-  console.log("Authenticating with Fez...");
+  if (!FEZ_USER_ID || !FEZ_API_KEY || !FEZ_API_BASE_URL) {
+    throw new Error(`Missing Fez API credentials for ${environment} environment`);
+  }
+
+  console.log("🔐 Authenticating with Fez...");
   
   const res = await fetch(`${FEZ_API_BASE_URL}/user/authenticate`, {
     method: "POST",
@@ -171,7 +203,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { subOrderId } = JSON.parse(event.body || "{}");
+    const { subOrderId, force } = JSON.parse(event.body || "{}");
 
     if (!subOrderId) {
       return {
@@ -195,6 +227,7 @@ exports.handler = async (event) => {
         *,
         orders (
           id,
+          overall_status,
           woocommerce_order_id,
           customer_name,
           customer_email,
@@ -222,8 +255,24 @@ exports.handler = async (event) => {
       };
     }
 
+    const lane = subOrder?.metadata?.selected_lane || "fez";
+    if (lane !== "fez") {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: "Shipment lane is not FEZ. Switch lane to FEZ to dispatch."
+        })
+      };
+    }
+
     // Check if already has a VALID shipment (not an error message)
-    if (subOrder.courier_shipment_id && isValidFezOrderNumber(subOrder.tracking_number)) {
+    if (
+      !force &&
+      subOrder.courier_shipment_id &&
+      isValidFezOrderNumber(subOrder.tracking_number)
+    ) {
       console.log("Shipment already exists with valid tracking:", subOrder.tracking_number);
       return {
         statusCode: 200,
@@ -384,6 +433,18 @@ exports.handler = async (event) => {
       };
     }
 
+    // Promote overall order status if it is still pending
+    if (subOrder.orders?.id && subOrder.orders?.overall_status === "pending") {
+      try {
+        await supabase
+          .from("orders")
+          .update({ overall_status: "processing" })
+          .eq("id", subOrder.orders.id);
+      } catch (orderUpdateError) {
+        console.warn("Failed to promote overall order status", orderUpdateError);
+      }
+    }
+
     // Log activity
     await supabase.from("activity_logs").insert({
       user_id: null,
@@ -394,7 +455,9 @@ exports.handler = async (event) => {
         courier: "fez", 
         order_id: orderId,
         tracking_id: trackingId,
-        unique_id: uniqueId
+        unique_id: uniqueId,
+        forced_resend: Boolean(force),
+        previous_tracking: force ? subOrder.tracking_number : null
       }
     });
 

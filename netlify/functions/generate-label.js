@@ -38,7 +38,28 @@ function generateLabelHTML(labelData) {
     items,
     weight,
     created_date,
+    lane,
   } = labelData;
+
+  const isFezLane = lane !== 'local_rider';
+  const laneBadge = isFezLane
+    ? `
+      <div class="powered-by">
+        <div>POWERED BY</div>
+        <div class="powered-by-text">Fez Delivery</div>
+        <img
+          src="${FEZ_LOGO}"
+          alt="Fez Delivery Logo"
+          onerror="this.style.display='none';"
+        />
+      </div>
+    `
+    : `
+      <div class="powered-by">
+        <div>DELIVERY LANE</div>
+        <div class="powered-by-text local-rider-text">Local Rider</div>
+      </div>
+    `;
 
   return `
 <!DOCTYPE html>
@@ -109,6 +130,9 @@ function generateLabelHTML(labelData) {
       color: #fbbf24;
       font-weight: bold;
       font-size: 11px;
+    }
+    .powered-by-text.local-rider-text {
+      color: #86efac;
     }
     .order-info {
       text-align: right;
@@ -303,15 +327,7 @@ function generateLabelHTML(labelData) {
         <span class="logo-fallback" style="display:none;">JulineMart</span>
       </div>
       
-      <div class="powered-by">
-        <div>POWERED BY</div>
-        <div class="powered-by-text">Fez Delivery</div>
-        <img 
-          src="${FEZ_LOGO}" 
-          alt="Fez Delivery Logo" 
-          onerror="this.style.display='none';"
-        />
-      </div>
+      ${laneBadge}
 
       <div class="order-info">
         <div><strong>Order #${order_number}</strong></div>
@@ -496,6 +512,7 @@ exports.handler = async (event) => {
         month: 'short',
         year: 'numeric'
       }),
+      lane: subOrder?.metadata?.selected_lane === 'local_rider' ? 'local_rider' : 'fez',
     };
 
     // Generate HTML

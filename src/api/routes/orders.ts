@@ -1,6 +1,7 @@
-﻿import { Request, Response } from 'express';
+import { Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../../types/supabase';
+import { autoSendEmailOnStatusChange } from '../middleware/emailAutomation.js';
 
 type ShippingBreakdownInput = {
   hubId?: string | null;
@@ -149,18 +150,30 @@ export async function createOrderHandler(req: Request, res: Response) {
           (hubId ? hubCourierMap[hubId] : null) ||
           null;
 
+        // JLO placeholder tracking (10–13 chars) for manual/local rider; real Fez overwrites when shipment is created
+        const jloPlaceholder = (): string => {
+          const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+          let s = 'JLO-';
+          for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+          return s; // e.g. JLO-A1B2C3D4 (12 chars)
+        };
+
         return {
           main_order_id: order.id,
           hub_id: hubId,
           courier_id: courierId,
           status: 'pending',
-          tracking_number: `${(breakdown.courierName || 'CR').substring(0, 3).toUpperCase()}-${Date.now()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`,
+          tracking_number: jloPlaceholder(),
           // Schema requires items JSONB and subtotal
           items: breakdown.items || [],
           subtotal: 0,
           // Store shipping cost in real_shipping_cost (schema column)
           real_shipping_cost: breakdown.totalShippingFee || 0,
           allocated_shipping_fee: breakdown.totalShippingFee || 0,
+          metadata: {
+            selected_lane: 'fez',
+            eligible_lanes: ['fez', 'local_rider'],
+          },
         };
       });
 
@@ -209,6 +222,14 @@ export async function updateOrderStatusHandler(req: Request, res: Response) {
     const { id } = req.params;
     const { status } = req.body;
 
+    const { data: currentOrder, error: currentError } = await supabase
+      .from('orders')
+      .select('overall_status, email_notifications_enabled')
+      .eq('id', id)
+      .single();
+
+    if (currentError) throw currentError;
+
     const { data: order, error } = await supabase
       .from('orders')
       .update({ overall_status: status })
@@ -217,6 +238,10 @@ export async function updateOrderStatusHandler(req: Request, res: Response) {
       .single();
 
     if (error) throw error;
+
+    if (currentOrder?.email_notifications_enabled !== false) {
+      void autoSendEmailOnStatusChange(id, status, currentOrder?.overall_status);
+    }
 
     return res.status(200).json({
       success: true,

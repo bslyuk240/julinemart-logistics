@@ -1,4 +1,6 @@
-// GET /api/return-shipments/order/:orderId - Fetch all returns for an order (JLO Dashboard)
+// GET /api/return-shipments/order/:orderId
+// Fetch all return shipments for a WooCommerce order (Dashboard-safe)
+
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -13,7 +15,9 @@ const corsHeaders = {
 };
 
 export async function handler(event) {
-  // CORS preflight
+  // ----------------------------
+  // CORS PREFLIGHT
+  // ----------------------------
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers: corsHeaders, body: '' };
   }
@@ -22,65 +26,77 @@ export async function handler(event) {
     return {
       statusCode: 405,
       headers: corsHeaders,
-      body: JSON.stringify({ success: false, error: 'Method not allowed - use GET' }),
+      body: JSON.stringify({
+        success: false,
+        error: 'Method not allowed. Use GET.',
+      }),
     };
   }
 
   try {
-    console.log('=== GET RETURNS FOR ORDER ===');
-    console.log('Event path:', event.path);
-    console.log('Query params:', event.queryStringParameters);
+    console.log('=== GET ORDER RETURNS ===');
 
-    // Extract order_id from path OR query parameter
-    let orderId = null;
-    
-    // Method 1: From query parameter
-    if (event.queryStringParameters && event.queryStringParameters.order_id) {
-      orderId = event.queryStringParameters.order_id;
-      console.log('Got order_id from query param:', orderId);
-    }
-    
-    // Method 2: From path parameters
-    if (!orderId && event.pathParameters && event.pathParameters.orderId) {
-      orderId = event.pathParameters.orderId;
-      console.log('Got order_id from path param:', orderId);
-    }
-    
-    // Method 3: Parse from path manually
-    if (!orderId) {
-      const pathOnly = event.path.split('?')[0];
-      const pathParts = pathOnly.split('/').filter(Boolean);
-      
-      // Find 'order' and get next part
-      const orderIndex = pathParts.findIndex(part => part === 'order');
-      if (orderIndex >= 0 && pathParts[orderIndex + 1]) {
-        orderId = pathParts[orderIndex + 1];
-        console.log('Got order_id from path parsing:', orderId);
-      }
-    }
+    const orderNumber =
+      event.queryStringParameters?.orderId ||
+      event.queryStringParameters?.order_number;
 
-    if (!orderId) {
-      console.error('Could not extract order_id from path');
+    if (!orderNumber) {
       return {
         statusCode: 400,
         headers: corsHeaders,
-        body: JSON.stringify({ 
-          success: false, 
-          error: 'Order ID required',
-          hint: 'Use: /api/return-shipments/order/{orderId}'
+        body: JSON.stringify({
+          success: false,
+          error: 'orderId (Woo order number) is required',
         }),
       };
     }
 
-    console.log('Fetching returns for order_id:', orderId);
+    console.log('🔎 Resolving Woo order number:', orderNumber);
 
-    // Query return_shipments with their parent return_requests
-    // Join on return_requests to get order_id
-    const { data: shipments, error: queryError } = await supabase
+    // --------------------------------------------------
+    // 1. Resolve Woo order number → Supabase order UUID
+    // --------------------------------------------------
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('id')
+      .eq('woocommerce_order_id', orderNumber)
+      .single();
+
+    if (orderError || !order) {
+      console.warn('⚠️ Order not found in Supabase:', orderNumber);
+
+      // IMPORTANT: Not an error — just no returns yet
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: true,
+          data: [],
+          message: 'Order not found or no returns yet',
+        }),
+      };
+    }
+
+    const orderUUID = order.id;
+    console.log('✅ Order UUID resolved:', orderUUID);
+
+    // --------------------------------------------------
+    // 2. Fetch return shipments using UUID
+    // --------------------------------------------------
+    const { data: shipments, error: shipmentsError } = await supabase
       .from('return_shipments')
       .select(`
-        *,
-        return_request:return_requests!inner(
+        id,
+        return_code,
+        fez_tracking,
+        fez_shipment_id,
+        method,
+        status,
+        customer_submitted_tracking,
+        tracking_submitted_at,
+        created_at,
+        updated_at,
+        return_request:return_requests (
           id,
           order_id,
           order_number,
@@ -96,71 +112,46 @@ export async function handler(event) {
           updated_at
         )
       `)
-      .eq('return_request.order_id', orderId)
+      .eq('return_request.order_id', orderUUID)
       .order('created_at', { ascending: false });
 
-    if (queryError) {
-      console.error('Database query error:', queryError);
+    if (shipmentsError) {
+      console.error('❌ Failed to fetch return shipments:', shipmentsError);
+
       return {
         statusCode: 500,
         headers: corsHeaders,
         body: JSON.stringify({
           success: false,
-          error: 'Failed to fetch returns: ' + queryError.message,
+          error: 'Failed to fetch return shipments',
         }),
       };
     }
 
-    console.log(`Found ${shipments?.length || 0} returns for order ${orderId}`);
+    console.log(`📦 Found ${shipments?.length || 0} return shipment(s)`);
 
-    // Return empty array if no returns (not an error)
-    if (!shipments || shipments.length === 0) {
-      return {
-        statusCode: 200,
-        headers: corsHeaders,
-        body: JSON.stringify({
-          success: true,
-          data: [],
-          message: 'No returns found for this order',
-        }),
-      };
-    }
-
-    // Transform data for frontend
-    const transformedData = shipments.map(shipment => ({
-      // Shipment data
-      id: shipment.id,
-      return_code: shipment.return_code,
-      fez_tracking: shipment.fez_tracking,
-      fez_shipment_id: shipment.fez_shipment_id,
-      method: shipment.method,
-      status: shipment.status,
-      customer_submitted_tracking: shipment.customer_submitted_tracking,
-      tracking_submitted_at: shipment.tracking_submitted_at,
-      created_at: shipment.created_at,
-      updated_at: shipment.updated_at,
-      
-      // Return request data (nested)
-      return_request: shipment.return_request,
-    }));
-
+    // --------------------------------------------------
+    // 3. Always return a safe array
+    // --------------------------------------------------
     return {
       statusCode: 200,
       headers: corsHeaders,
       body: JSON.stringify({
         success: true,
-        data: transformedData,
-        count: transformedData.length,
+        data: shipments || [],
+        count: shipments?.length || 0,
       }),
     };
   } catch (error) {
-    console.error('Unexpected error:', error);
+    console.error('❌ Unexpected error:', error);
+
     return {
       statusCode: 500,
       headers: corsHeaders,
       body: JSON.stringify({
         success: false,
-        error: 'Internal server error: ' + error.message,
+        error: 'Internal server error',
+        message: error.message,
       }),
     };
   }

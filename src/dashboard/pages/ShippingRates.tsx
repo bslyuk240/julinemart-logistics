@@ -139,15 +139,15 @@ export function ShippingRatesPage() {
 
       {/* Filters */}
       <div className="card mb-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+        <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 items-center">
+          <div className="col-span-2">
+            <label className="block text-[11px] sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
               Filter by Hub
             </label>
             <select
               value={filterHub}
               onChange={(e) => setFilterHub(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="w-full px-2 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-xs sm:text-sm"
             >
               <option value="all">All Hubs</option>
               {hubs.map(hub => (
@@ -155,14 +155,14 @@ export function ShippingRatesPage() {
               ))}
             </select>
           </div>
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+          <div className="col-span-2">
+            <label className="block text-[11px] sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
               Filter by Zone
             </label>
             <select
               value={filterZone}
               onChange={(e) => setFilterZone(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              className="w-full px-2 sm:px-4 py-1.5 sm:py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-xs sm:text-sm"
             >
               <option value="all">All Zones</option>
               {zones.map(zone => (
@@ -188,12 +188,81 @@ export function ShippingRatesPage() {
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Route
+          <>
+            <div className="space-y-4 lg:hidden">
+              {filteredRates.map((rate) => (
+                <div key={rate.id} className="border border-gray-200 rounded-lg p-4 bg-white space-y-3">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {rate.hubs?.name || 'Any Hub'}  {rate.zones?.name || 'Unknown'}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {rate.hubs?.code}  {rate.zones?.code}
+                      </p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      rate.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      {rate.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-xs text-gray-600">
+                    <div>
+                      <p className="text-[10px] uppercase text-gray-400">Courier</p>
+                      <p className="text-sm text-gray-900">{rate.couriers?.name || 'Any Courier'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-gray-400">Delivery</p>
+                      <p className="text-sm text-gray-900">{rate.delivery_timeline_days || 3} days</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-gray-400">Base Rate</p>
+                      <p className="text-sm text-gray-900">
+                        {(rate.flat_rate || rate.base_rate || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-gray-400">Per KG</p>
+                      <p className="text-sm text-gray-900">
+                        {(rate.additional_weight_rate || rate.per_kg_rate || 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase text-gray-400">Weight Range</p>
+                      <p className="text-sm text-gray-900">
+                        {rate.min_weight || 0}kg - {rate.max_weight || 4}kg
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-2 border-t">
+                    <button
+                      onClick={() => handleEdit(rate)}
+                      className="btn-secondary flex-1 flex items-center justify-center gap-2"
+                    >
+                      <Edit className="w-4 h-4" />
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(rate.id)}
+                      className="btn-orange flex-1 flex items-center justify-center gap-2"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="overflow-x-auto hidden lg:block">
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Route
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Courier
@@ -271,7 +340,8 @@ export function ShippingRatesPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </div>
 

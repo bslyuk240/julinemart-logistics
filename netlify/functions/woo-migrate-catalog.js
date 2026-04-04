@@ -14,6 +14,7 @@
  * POST /api/woo-migrate-catalog?phase=variations&page=1
  */
 
+import { createClient } from '@supabase/supabase-js';
 import {
   extractMetaValue,
   extractGlobalSourcingFromMeta,
@@ -25,6 +26,26 @@ import {
 } from './services/global-sourcing-utils.js';
 
 const PER_PAGE = 20; // safe for IONOS shared hosting
+
+/**
+ * Migration target client — reads from MIGRATION_SUPABASE_* env vars.
+ * Falls back to the default SUPABASE_* vars when those aren't set
+ * (i.e. when the target IS production).
+ */
+function getMigrationClient() {
+  const url =
+    process.env.MIGRATION_SUPABASE_URL ||
+    process.env.SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
+    '';
+  const key =
+    process.env.MIGRATION_SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
+    '';
+  if (!url || !key) throw new Error('Migration Supabase credentials not configured');
+  return createClient(url, key);
+}
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -499,19 +520,26 @@ export async function handler(event) {
   const phase = event.queryStringParameters?.phase || 'taxonomy';
   const page = Math.max(Number(event.queryStringParameters?.page || 1), 1);
 
+  let migrationClient;
+  try {
+    migrationClient = getMigrationClient();
+  } catch (e) {
+    return jsonResponse(500, { success: false, error: e.message });
+  }
+
   try {
     if (phase === 'taxonomy') {
-      const result = await syncTaxonomy(auth.adminClient);
+      const result = await syncTaxonomy(migrationClient);
       return jsonResponse(200, { success: true, phase: 'taxonomy', ...result });
     }
 
     if (phase === 'products') {
-      const result = await syncProducts(auth.adminClient, page);
+      const result = await syncProducts(migrationClient, page);
       return jsonResponse(200, result);
     }
 
     if (phase === 'variations') {
-      const result = await syncVariations(auth.adminClient, page);
+      const result = await syncVariations(migrationClient, page);
       return jsonResponse(200, result);
     }
 

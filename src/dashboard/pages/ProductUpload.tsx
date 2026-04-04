@@ -15,6 +15,7 @@ import { ChevronDown, ChevronUp, Plus, RefreshCw, Trash2, Upload, X } from 'luci
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
+import RichTextEditor from '../components/RichTextEditor';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -552,23 +553,21 @@ export default function ProductUpload() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Short Description</label>
-            <textarea
+            <RichTextEditor
               value={form.short_description}
-              onChange={(e) => set('short_description', e.target.value)}
-              rows={2}
+              onChange={(html) => set('short_description', html)}
               placeholder="Brief summary shown on product cards"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 resize-none"
+              minHeight="80px"
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Full Description</label>
-            <textarea
+            <RichTextEditor
               value={form.description}
-              onChange={(e) => set('description', e.target.value)}
-              rows={5}
+              onChange={(html) => set('description', html)}
               placeholder="Full product description"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 resize-y"
+              minHeight="160px"
             />
           </div>
         </section>

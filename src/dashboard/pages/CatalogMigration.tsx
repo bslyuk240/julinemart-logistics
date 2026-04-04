@@ -61,6 +61,9 @@ async function runPhase(phase: Phase, page: number): Promise<PhaseResult> {
 
 // Delay between pages to avoid hammering IONOS shared hosting
 const INTER_PAGE_DELAY_MS = 1500;
+// Longer delay between variation pages — each page makes 3 WC calls so the server
+// needs more recovery time than the single-call product pages.
+const VAR_INTER_PAGE_DELAY_MS = 5000;
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -156,7 +159,7 @@ export default function CatalogMigration() {
 
         if (!result.has_more) break;
         varPage++;
-        await delay(INTER_PAGE_DELAY_MS);
+        await delay(VAR_INTER_PAGE_DELAY_MS);
       }
 
       addLog('success', `✓ Variations complete — ${totalVarProcessed} variable products processed`);

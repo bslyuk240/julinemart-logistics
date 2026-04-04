@@ -420,7 +420,7 @@ async function syncVariations(adminClient, page) {
     })();
     const url = `${base}/products/${wooProductId}/variations?per_page=100&_fields=id,sku,regular_price,sale_price,stock_quantity,stock_status,manage_stock,attributes,image,meta_data`;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
+    const timer = setTimeout(() => controller.abort(), 8000);
     try {
       const res = await fetch(url, {
         signal: controller.signal,

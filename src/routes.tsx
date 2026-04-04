@@ -21,6 +21,8 @@ import { DashboardHome } from './dashboard/pages/DashboardHome';
 import { EmailSettingsPage } from './dashboard/pages/EmailSettings';
 import { GlobalSourcingPage } from './dashboard/pages/GlobalSourcing';
 import { ProductModerationPage } from './dashboard/pages/ProductModeration';
+import HomepageContent from './dashboard/pages/HomepageContent';
+import CatalogMigration from './dashboard/pages/CatalogMigration';
 import { HubsPage } from './dashboard/pages/Hubs';
 import { HubDispatchPage } from './dashboard/pages/HubDispatch';
 import InfluencerDetailPage from './dashboard/pages/InfluencerDetailPage.tsx';
@@ -55,6 +57,8 @@ const sharedRoutes = [
   { path: 'whatsapp/:chatId', element: <WhatsAppChatView /> },
   { path: 'global-sourcing', element: <GlobalSourcingPage /> },
   { path: 'products/moderation', element: <ProductModerationPage /> },
+  { path: 'homepage-content', element: <HomepageContent /> },
+  { path: 'catalog-migration', element: <CatalogMigration /> },
 ];
 
 // Routes accessible only by admin

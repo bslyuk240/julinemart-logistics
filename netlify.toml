@@ -134,6 +134,18 @@
 [functions."product-moderation-meta"]
   timeout = 20
 
+[functions."woo-migrate-catalog"]
+  timeout = 60
+
+[functions."catalog-products"]
+  timeout = 15
+
+[functions."catalog-product"]
+  timeout = 15
+
+[functions."catalog-homepage"]
+  timeout = 10
+
 # -------------------------------------------------
 # EDGE FUNCTIONS
 # -------------------------------------------------

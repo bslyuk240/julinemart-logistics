@@ -494,8 +494,13 @@ async function syncVariations(adminClient, page) {
           .filter((r) => r.variation_id);
 
         if (imgRows.length > 0) {
-          await adminClient.from('product_images')
-            .upsert(imgRows, { onConflict: 'product_id,variation_id,position' });
+          const variationIdsToReplace = imgRows.map((r) => r.variation_id).filter(Boolean);
+          if (variationIdsToReplace.length > 0) {
+            await adminClient.from('product_images')
+              .delete()
+              .in('variation_id', variationIdsToReplace);
+          }
+          await adminClient.from('product_images').insert(imgRows);
         }
       }
 

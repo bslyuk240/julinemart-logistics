@@ -256,7 +256,7 @@ export const handler = async (event) => {
         return sum + (Number(item.weight || 0) * Number(item.quantity || 1));
       }, 0);
 
-      // Get shipping rate
+      // Get shipping rate — try hub-specific first, fall back to any active rate for this zone
       const { data: rates } = await supabase
         .from('shipping_rates')
         .select('*, couriers(id, name, code)')
@@ -265,7 +265,19 @@ export const handler = async (event) => {
         .eq('is_active', true)
         .limit(1);
 
-      const rate = rates && rates[0];
+      let rate = rates && rates[0];
+
+      if (!rate) {
+        console.warn(`No hub-specific rate for hub ${actualHubId} / zone ${zone.id} — trying zone fallback`);
+        const { data: fallbackRates } = await supabase
+          .from('shipping_rates')
+          .select('*, couriers(id, name, code)')
+          .eq('zone_id', zone.id)
+          .eq('is_active', true)
+          .limit(1);
+        rate = fallbackRates && fallbackRates[0];
+      }
+
       if (!rate) {
         console.error('No rate found for hub:', actualHubId, 'zone:', zone.id);
         continue;

@@ -223,6 +223,7 @@ export async function handler(event) {
     const { data: order, error: orderErr } = await adminClient
       .from('orders')
       .insert({
+        // order_number is auto-assigned by DB trigger
         customer_name: customer_name.trim(),
         customer_email: customer_email.trim().toLowerCase(),
         customer_phone: customer_phone.trim(),
@@ -246,11 +247,12 @@ export async function handler(event) {
           source: 'pwa',
         },
       })
-      .select('id')
+      .select('id, order_number')
       .single();
 
     if (orderErr) return jsonResponse(500, { error: 'Failed to create order', detail: orderErr.message });
     const orderId = order.id;
+    const orderNumber = order.order_number;
 
     // ── Insert order items ─────────────────────────────────────────────────
     const { error: itemsErr } = await adminClient.from('order_items').insert(
@@ -323,6 +325,7 @@ export async function handler(event) {
       success: true,
       data: {
         order_id: orderId,
+        order_number: orderNumber,
         payment_reference: paymentReference,
         subtotal,
         discount_amount: discountAmount,

@@ -6,6 +6,7 @@ import { callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
 
 interface Order {
   id: string;
+  order_number: number | null;
   woocommerce_order_id: string | null;
   payment_reference: string | null;
   customer_name: string;
@@ -52,6 +53,7 @@ export function OrdersPage() {
   const filteredOrders = orders.filter(order => {
     const matchesSearch =
       searchTerm === '' ||
+      String(order.order_number ?? '').includes(searchTerm) ||
       (order.woocommerce_order_id ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (order.payment_reference ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       order.customer_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -251,7 +253,7 @@ export function OrdersPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
                     <h3 className="text-lg font-semibold text-gray-900">
-                      #{order.woocommerce_order_id || order.payment_reference || order.id.slice(0, 8).toUpperCase()}
+                      #{order.order_number ?? order.woocommerce_order_id ?? order.payment_reference ?? order.id.slice(0, 8).toUpperCase()}
                     </h3>
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(order.overall_status)}`}>
                       {order.overall_status}

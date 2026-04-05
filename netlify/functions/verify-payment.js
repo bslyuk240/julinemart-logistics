@@ -80,7 +80,7 @@ export async function handler(event) {
     })
     .eq('payment_reference', payment_reference)
     .eq('payment_status', 'pending') // idempotent — skip if already paid
-    .select('id, payment_reference, overall_status, total_amount, customer_name, customer_email')
+    .select('id, order_number, payment_reference, overall_status, total_amount, customer_name, customer_email')
     .maybeSingle();
 
   if (updateErr) {
@@ -93,7 +93,7 @@ export async function handler(event) {
   if (!orderRow) {
     const { data: existing } = await adminClient
       .from('orders')
-      .select('id, payment_reference, overall_status, total_amount, customer_name, customer_email')
+      .select('id, order_number, payment_reference, overall_status, total_amount, customer_name, customer_email')
       .eq('payment_reference', payment_reference)
       .maybeSingle();
     orderRow = existing;
@@ -107,6 +107,7 @@ export async function handler(event) {
     success: true,
     order: {
       id: orderRow.id,
+      order_number: orderRow.order_number,
       payment_reference: orderRow.payment_reference,
       status: orderRow.overall_status,
       total_amount: orderRow.total_amount,

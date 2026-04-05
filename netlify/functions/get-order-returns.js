@@ -1,5 +1,8 @@
 // GET /api/return-shipments/order/:orderId
-// Fetch all return shipments for a WooCommerce order (Dashboard-safe)
+// Fetch all return shipments for an order.
+// Accepts either:
+//   ?order_id=<supabase-uuid>  — direct UUID lookup (preferred, Supabase-native)
+//   ?orderId=<wc-number>       — legacy WooCommerce order number (resolved to UUID)
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -36,49 +39,58 @@ export async function handler(event) {
   try {
     console.log('=== GET ORDER RETURNS ===');
 
-    const orderNumber =
+    // Prefer direct Supabase UUID; fall back to legacy WC order number
+    const directUUID = event.queryStringParameters?.order_id;
+    const legacyOrderNumber =
       event.queryStringParameters?.orderId ||
       event.queryStringParameters?.order_number;
 
-    if (!orderNumber) {
+    if (!directUUID && !legacyOrderNumber) {
       return {
         statusCode: 400,
         headers: corsHeaders,
         body: JSON.stringify({
           success: false,
-          error: 'orderId (Woo order number) is required',
+          error: 'order_id (Supabase UUID) or orderId is required',
         }),
       };
     }
 
-    console.log('🔎 Resolving Woo order number:', orderNumber);
+    let orderUUID;
 
-    // --------------------------------------------------
-    // 1. Resolve Woo order number → Supabase order UUID
-    // --------------------------------------------------
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .select('id')
-      .eq('woocommerce_order_id', orderNumber)
-      .single();
+    if (directUUID) {
+      // --------------------------------------------------
+      // 1a. Direct UUID — no resolution needed
+      // --------------------------------------------------
+      console.log('🔎 Using direct order UUID:', directUUID);
+      orderUUID = directUUID;
+    } else {
+      // --------------------------------------------------
+      // 1b. Legacy: resolve WC order number → Supabase UUID
+      // --------------------------------------------------
+      console.log('🔎 Resolving legacy order number:', legacyOrderNumber);
+      const { data: order, error: orderError } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('woocommerce_order_id', legacyOrderNumber)
+        .maybeSingle();
 
-    if (orderError || !order) {
-      console.warn('⚠️ Order not found in Supabase:', orderNumber);
-
-      // IMPORTANT: Not an error — just no returns yet
-      return {
-        statusCode: 200,
-        headers: corsHeaders,
-        body: JSON.stringify({
-          success: true,
-          data: [],
-          message: 'Order not found or no returns yet',
-        }),
-      };
+      if (orderError || !order) {
+        console.warn('⚠️ Order not found in Supabase:', legacyOrderNumber);
+        return {
+          statusCode: 200,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            success: true,
+            data: [],
+            message: 'Order not found or no returns yet',
+          }),
+        };
+      }
+      orderUUID = order.id;
     }
 
-    const orderUUID = order.id;
-    console.log('✅ Order UUID resolved:', orderUUID);
+    console.log('✅ Order UUID:', orderUUID);
 
     // --------------------------------------------------
     // 2. Fetch return shipments using UUID

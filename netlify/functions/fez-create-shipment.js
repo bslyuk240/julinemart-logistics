@@ -228,7 +228,7 @@ exports.handler = async (event) => {
         orders (
           id,
           overall_status,
-          woocommerce_order_id,
+          order_number,
           customer_name,
           customer_email,
           customer_phone,
@@ -326,7 +326,7 @@ exports.handler = async (event) => {
       recipientPhone: subOrder.orders?.customer_phone || "",
       recipientEmail: subOrder.orders?.customer_email || "",
       uniqueID: uniqueId,
-      BatchID: subOrder.orders?.woocommerce_order_id || subOrder.orders?.id || subOrderId,
+      BatchID: String(subOrder.orders?.order_number || subOrder.orders?.id || subOrderId),
       itemDescription: items.map(i => `${i.quantity}x ${i.name}`).join(", ") || "Package",
       valueOfItem: String(shippingValue),
       weight: Math.max(1, Math.round(totalWeight)) || 1,

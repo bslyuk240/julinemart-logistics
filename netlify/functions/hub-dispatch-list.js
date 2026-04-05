@@ -51,7 +51,7 @@ export async function handler(event) {
           metadata,
           subtotal,
           orders:main_order_id(
-            woocommerce_order_id,
+            order_number,
             customer_name,
             customer_phone,
             delivery_address,

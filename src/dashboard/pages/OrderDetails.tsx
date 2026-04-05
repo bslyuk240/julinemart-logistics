@@ -414,9 +414,9 @@ export function OrderDetailsPage() {
     }
   };
 
-  const fetchReturnShipments = async (wooOrderId?: Identifier) => {
-    // Returns are keyed on WooCommerce order_id in Supabase (not the internal order UUID)
-    const orderId = wooOrderId ?? order?.woocommerce_order_id;
+  const fetchReturnShipments = async () => {
+    // Use the Supabase order UUID directly — no WooCommerce lookup needed
+    const orderId = order?.id;
     if (!orderId) return;
     try {
       const headers = await getAuthHeaders();
@@ -425,7 +425,7 @@ export function OrderDetailsPage() {
       }
 
       const url = buildSupabaseFunctionUrl(
-        `get-order-returns?orderId=${encodeURIComponent(String(orderId))}`
+        `get-order-returns?order_id=${encodeURIComponent(String(orderId))}`
       );
       const response = await fetch(url, {
         method: 'GET',
@@ -453,13 +453,13 @@ export function OrderDetailsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // Fetch returns once the WooCommerce order id is known
+  // Fetch returns once the order is loaded (keyed on Supabase UUID)
   useEffect(() => {
-    if (order?.woocommerce_order_id) {
-      fetchReturnShipments(order.woocommerce_order_id);
+    if (order?.id) {
+      fetchReturnShipments();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [order?.woocommerce_order_id]);
+  }, [order?.id]);
 
   // Poll tracking for in-transit returns
   useEffect(() => {

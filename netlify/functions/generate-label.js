@@ -445,7 +445,7 @@ exports.handler = async (event) => {
       .select(`
         *,
         orders (
-          woocommerce_order_id,
+          order_number,
           customer_name,
           customer_phone,
           delivery_address,
@@ -495,7 +495,7 @@ exports.handler = async (event) => {
 
     const labelData = {
       tracking_number: subOrder.tracking_number,
-      order_number: subOrder.orders.woocommerce_order_id,
+      order_number: subOrder.orders.order_number,
       sender_name: subOrder.hubs.name,
       sender_address: subOrder.hubs.address,
       sender_city: `${subOrder.hubs.city}, ${subOrder.hubs.state}`,

@@ -253,6 +253,31 @@ async function syncProducts(adminClient, page) {
     return { success: false, error: 'WooCommerce returned non-array', page, has_more: false };
   }
 
+  // ── Auto-upsert any variation attribute not yet in product_attributes ────────
+  // This ensures attributes like "type", "strap", "option", or any custom WC
+  // attribute are persisted — not silently dropped because they weren't seeded
+  // in the taxonomy phase (which only seeds colour + size).
+  {
+    const uniqueAttrs = new Map(); // slug → displayName
+    for (const p of wcProducts) {
+      for (const a of (p.attributes || [])) {
+        if (!a.variation || !a.name) continue;
+        const slug = slugify(a.name);
+        if (slug && !uniqueAttrs.has(slug)) uniqueAttrs.set(slug, a.name);
+      }
+    }
+    const newAttrDefs = Array.from(uniqueAttrs.entries())
+      .filter(([slug]) => !attrMap.has(slug))
+      .map(([slug, name]) => ({ name, slug, type: 'select' }));
+    if (newAttrDefs.length > 0) {
+      const { data: created } = await adminClient
+        .from('product_attributes')
+        .upsert(newAttrDefs, { onConflict: 'slug', ignoreDuplicates: false })
+        .select('id, slug');
+      for (const a of (created || [])) attrMap.set(a.slug, a.id);
+    }
+  }
+
   // ── Build product rows and secondary data in one pass ───────────────────────
   const productRows = [];
   const secondaryByWooId = new Map(); // woo_product_id → { images, catIds, tagIds, attrRows }
@@ -502,6 +527,46 @@ async function syncVariations(adminClient, page) {
           }
           await adminClient.from('product_images').insert(imgRows);
         }
+
+        // ── Rebuild product_attribute_map from actual variation attributes ──────
+        // This is authoritative — it runs AFTER we have all variation data, so
+        // even if syncProducts missed an attribute (e.g. custom WC attribute), we
+        // correct it here with the real option values from the live variations.
+        const varAttrCollect = new Map(); // slug → { name, options: Set }
+        for (const v of wcVars) {
+          for (const a of (v.attributes || [])) {
+            if (!a.name || !a.option) continue;
+            const slug = slugify(a.name);
+            if (!varAttrCollect.has(slug)) varAttrCollect.set(slug, { name: a.name, options: new Set() });
+            varAttrCollect.get(slug).options.add(a.option);
+          }
+        }
+        if (varAttrCollect.size > 0) {
+          // Ensure every attribute name has a product_attributes row
+          const attrDefs = Array.from(varAttrCollect.entries()).map(([slug, { name }]) => ({
+            name, slug, type: 'select',
+          }));
+          const { data: savedAttrs } = await adminClient
+            .from('product_attributes')
+            .upsert(attrDefs, { onConflict: 'slug', ignoreDuplicates: false })
+            .select('id, slug');
+          const attrIdBySlug = new Map((savedAttrs || []).map((a) => [a.slug, a.id]));
+
+          const mapRows = Array.from(varAttrCollect.entries())
+            .map(([slug, { options }], i) => ({
+              product_id: product.id,
+              attribute_id: attrIdBySlug.get(slug),
+              options: Array.from(options),
+              is_variation: true,
+              display_order: i,
+            }))
+            .filter((r) => r.attribute_id);
+
+          if (mapRows.length > 0) {
+            await adminClient.from('product_attribute_map').delete().eq('product_id', product.id);
+            await adminClient.from('product_attribute_map').insert(mapRows);
+          }
+        }
       }
 
       processed++;
@@ -518,6 +583,136 @@ async function syncVariations(adminClient, page) {
     page,
     total_pages: totalPages,
     processed,
+    errors,
+    has_more: page < totalPages,
+  };
+}
+
+// ─── phase: fix-attributes (backfill) ────────────────────────────────────────
+//
+// Fixes all variable products that have variations in Supabase but an empty
+// product_attribute_map. Derives the attribute name + full option list directly
+// from the variation rows already in the DB — no WooCommerce call needed.
+//
+// Run once after the initial migration: POST ?phase=fix-attributes
+// Supports pagination: ?phase=fix-attributes&page=N  (50 products per page)
+
+const FIX_PER_PAGE = 50;
+
+async function syncFixAttributes(adminClient, page) {
+  const errors = [];
+  const offset = (page - 1) * FIX_PER_PAGE;
+
+  // Find variable products whose product_attribute_map is empty
+  const { data: broken, error: fetchErr, count } = await adminClient
+    .from('products')
+    .select('id', { count: 'exact' })
+    .eq('type', 'variable')
+    .not('woo_product_id', 'is', null)
+    .order('woo_product_id', { ascending: true })
+    .range(offset, offset + FIX_PER_PAGE - 1);
+
+  if (fetchErr) return { success: false, error: fetchErr.message };
+
+  // Filter to those with no attribute_map entries (check in one batch query)
+  const ids = (broken || []).map((p) => p.id);
+  if (ids.length === 0) return { success: true, phase: 'fix-attributes', page, processed: 0, has_more: false };
+
+  const { data: existingMaps } = await adminClient
+    .from('product_attribute_map')
+    .select('product_id')
+    .in('product_id', ids);
+  const hasMaps = new Set((existingMaps || []).map((r) => r.product_id));
+  const needsFix = ids.filter((id) => !hasMaps.has(id));
+
+  if (needsFix.length === 0) {
+    return {
+      success: true, phase: 'fix-attributes', page,
+      processed: 0, skipped: ids.length,
+      has_more: page < Math.ceil((count || 0) / FIX_PER_PAGE),
+    };
+  }
+
+  // Load all variations for these products
+  const { data: variations, error: varErr } = await adminClient
+    .from('product_variations')
+    .select('product_id, attributes')
+    .in('product_id', needsFix)
+    .eq('is_active', true);
+
+  if (varErr) return { success: false, error: varErr.message };
+
+  // Group variation attributes by product_id
+  const byProduct = new Map(); // product_id → Map<slug, { name, options: Set }>
+  for (const v of (variations || [])) {
+    if (!v.attributes) continue;
+    if (!byProduct.has(v.product_id)) byProduct.set(v.product_id, new Map());
+    const attrCollect = byProduct.get(v.product_id);
+
+    // Handle both storage formats:
+    //   CJ:  [{name, value}]  or  [{name, option}]
+    //   WC:  {slugified_name: value}
+    const entries = Array.isArray(v.attributes)
+      ? v.attributes
+          .filter((a) => a.name && (a.value ?? a.option) != null)
+          .map((a) => [slugify(a.name), { name: String(a.name).trim(), option: String(a.value ?? a.option ?? '').trim() }])
+      : typeof v.attributes === 'object'
+      ? Object.entries(v.attributes)
+          .filter(([k, val]) => k && val != null && String(val).trim() !== '')
+          .map(([k, val]) => [k.trim(), { name: k.trim(), option: String(val).trim() }])
+      : [];
+
+    for (const [slug, { name, option }] of entries) {
+      if (!slug || !option) continue;
+      if (!attrCollect.has(slug)) attrCollect.set(slug, { name, options: new Set() });
+      attrCollect.get(slug).options.add(option);
+    }
+  }
+
+  let fixed = 0;
+  for (const [productId, attrCollect] of byProduct) {
+    if (attrCollect.size === 0) continue;
+    try {
+      // Upsert attribute definitions
+      const attrDefs = Array.from(attrCollect.entries()).map(([slug, { name }]) => ({
+        name, slug, type: 'select',
+      }));
+      const { data: savedAttrs, error: attrUpsertErr } = await adminClient
+        .from('product_attributes')
+        .upsert(attrDefs, { onConflict: 'slug', ignoreDuplicates: false })
+        .select('id, slug');
+      if (attrUpsertErr) { errors.push(`product ${productId}: attr upsert: ${attrUpsertErr.message}`); continue; }
+
+      const attrIdBySlug = new Map((savedAttrs || []).map((a) => [a.slug, a.id]));
+      const mapRows = Array.from(attrCollect.entries())
+        .map(([slug, { options }], i) => ({
+          product_id: productId,
+          attribute_id: attrIdBySlug.get(slug),
+          options: Array.from(options),
+          is_variation: true,
+          display_order: i,
+        }))
+        .filter((r) => r.attribute_id);
+
+      if (mapRows.length > 0) {
+        await adminClient.from('product_attribute_map').delete().eq('product_id', productId);
+        const { error: insertErr } = await adminClient.from('product_attribute_map').insert(mapRows);
+        if (insertErr) { errors.push(`product ${productId}: map insert: ${insertErr.message}`); continue; }
+        fixed++;
+      }
+    } catch (e) {
+      errors.push(`product ${productId}: ${e.message}`);
+    }
+  }
+
+  const totalPages = Math.ceil((count || 0) / FIX_PER_PAGE);
+  return {
+    success: true,
+    phase: 'fix-attributes',
+    page,
+    total_pages: totalPages,
+    products_checked: ids.length,
+    products_fixed: fixed,
     errors,
     has_more: page < totalPages,
   };
@@ -558,7 +753,12 @@ export async function handler(event) {
       return jsonResponse(200, result);
     }
 
-    return jsonResponse(400, { error: `Unknown phase: ${phase}. Use taxonomy | products | variations` });
+    if (phase === 'fix-attributes') {
+      const result = await syncFixAttributes(migrationClient, page);
+      return jsonResponse(200, result);
+    }
+
+    return jsonResponse(400, { error: `Unknown phase: ${phase}. Use taxonomy | products | variations | fix-attributes` });
   } catch (error) {
     return jsonResponse(error?.statusCode || 500, {
       success: false,

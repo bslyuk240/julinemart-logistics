@@ -44,11 +44,24 @@ export async function handler(event) {
     const json = await res.json();
     pd = json?.data;
 
-    if (!json?.status || pd?.status !== 'success') {
+    if (!json?.status || !pd) {
       return jsonResponse(400, {
         success: false,
         error: 'Payment not confirmed by Paystack',
-        paystack_status: pd?.status ?? 'unknown',
+        paystack_status: 'unknown',
+        paystack_message: json?.message,
+      });
+    }
+
+    if (pd.status !== 'success') {
+      return jsonResponse(400, {
+        success: false,
+        error: pd.status === 'abandoned'
+          ? 'Payment was not completed. Please try again.'
+          : pd.status === 'failed'
+          ? 'Payment failed. Please try a different payment method.'
+          : `Payment not confirmed by Paystack (status: ${pd.status})`,
+        paystack_status: pd.status,
       });
     }
   } catch (err) {

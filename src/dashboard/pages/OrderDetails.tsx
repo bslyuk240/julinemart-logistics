@@ -113,7 +113,8 @@ const DEFAULT_ELIGIBLE_LANES: ShipmentLane[] = ['fez', 'local_rider'];
 
 type Order = {
   id: Identifier;
-  woocommerce_order_id: string;
+  woocommerce_order_id: string | null;
+  payment_reference: string | null;
   customer_name: string;
   customer_email: string;
   customer_phone: string;
@@ -827,7 +828,7 @@ export function OrderDetailsPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900">
-              Order #{order.woocommerce_order_id}
+              Order #{order.woocommerce_order_id || order.payment_reference || order.id.toString().slice(0, 8).toUpperCase()}
             </h1>
             <p className="text-gray-600 mt-2">
               Placed on {new Date(order.created_at).toLocaleDateString()}

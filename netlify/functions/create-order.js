@@ -133,29 +133,50 @@ export async function handler(event) {
       }
 
       // Use sale_price if set, else regular_price; variation price takes precedence
-      const source = variation || product;
-      const unitPrice = Number(source.sale_price || source.regular_price || 0);
+      let source = variation || product;
+      let unitPrice = Number(source.sale_price || source.regular_price || 0);
+
+      // Variable products have null price on the parent; price lives on variations.
+      // If no variation resolved (e.g. cart persisted with id=0 before a fix), fall
+      // back to the cheapest active variation so the order isn't rejected.
+      if (unitPrice <= 0 && product.type === 'variable' && !variation) {
+        const { data: fallbackVars } = await adminClient
+          .from('product_variations')
+          .select('id, regular_price, sale_price, sku, vendor_id, hub_id')
+          .eq('product_id', product.id)
+          .eq('is_active', true)
+          .order('regular_price', { ascending: true })
+          .limit(1);
+        const fallback = fallbackVars?.[0];
+        if (fallback) {
+          source = fallback;
+          unitPrice = Number(fallback.sale_price || fallback.regular_price || 0);
+        }
+      }
+
       if (unitPrice <= 0) {
         return jsonResponse(400, { error: `Product "${product.name}" has no price set` });
       }
 
+      // source may be the resolved variation, fallback variation, or product
+      const effectiveVariation = variation || (source !== product ? source : null);
       resolvedItems.push({
         product_id: product.id,
         product_name: product.name,
-        product_sku: variation?.sku || product.sku || null,
-        variation_id: variation?.id || null,
-        variation_details: variation ? { attributes: variation.attributes || [] } : null,
-        vendor_id: variation?.vendor_id || product.vendor_id || null,
-        hub_id: variation?.hub_id || product.hub_id || null,
+        product_sku: effectiveVariation?.sku || product.sku || null,
+        variation_id: effectiveVariation?.id || null,
+        variation_details: effectiveVariation ? { attributes: effectiveVariation.attributes || [] } : null,
+        vendor_id: effectiveVariation?.vendor_id || product.vendor_id || null,
+        hub_id: effectiveVariation?.hub_id || product.hub_id || null,
         unit_price: unitPrice,
         quantity: item.quantity,
         subtotal: unitPrice * item.quantity,
         // for sub_order items JSONB
         _name: product.name,
-        _sku: variation?.sku || product.sku || null,
-        _vendorId: variation?.vendor_id || product.vendor_id || null,
-        _hubId: variation?.hub_id || product.hub_id || null,
-        _variationAttributes: variation?.attributes || [],
+        _sku: effectiveVariation?.sku || product.sku || null,
+        _vendorId: effectiveVariation?.vendor_id || product.vendor_id || null,
+        _hubId: effectiveVariation?.hub_id || product.hub_id || null,
+        _variationAttributes: effectiveVariation?.attributes || [],
       });
     }
 

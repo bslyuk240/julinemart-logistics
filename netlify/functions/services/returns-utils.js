@@ -21,11 +21,9 @@ export const supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
 });
 
 // -----------------------------------------
-// WOO SETUP
+// PAYSTACK SETUP (for direct refund API)
 // -----------------------------------------
-const WOO_BASE = (process.env.WOOCOMMERCE_URL || "").replace(/\/$/, "");
-const WOO_KEY = process.env.WOOCOMMERCE_CONSUMER_KEY || "";
-const WOO_SECRET = process.env.WOOCOMMERCE_CONSUMER_SECRET || "";
+const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || "";
 
 // -----------------------------------------
 // FEZ SETUP (SANDBOX TEST URL)
@@ -48,14 +46,9 @@ export function daysBetween(a, b) {
   return Math.floor((a.getTime() - b.getTime()) / 86400000);
 }
 
+// Accepts a Supabase order row: uses paid_at → created_at as the anchor date
 export function validateReturnWindow(order, max = 14) {
-  const d =
-    order?.date_completed_gmt ||
-    order?.date_completed ||
-    order?.date_paid ||
-    order?.date_created_gmt ||
-    order?.date_created;
-
+  const d = order?.paid_at || order?.created_at;
   if (!d) return false;
   return daysBetween(new Date(), new Date(d)) <= max;
 }
@@ -145,70 +138,82 @@ export async function uploadReturnImages(images = [], requestId) {
 }
 
 // -----------------------------------------
-// WOO ORDER FETCH
+// SUPABASE ORDER FETCH (replaces fetchWooOrder)
 // -----------------------------------------
 
-export async function fetchWooOrder(orderId) {
-  if (!WOO_BASE) throw new Error("WooCommerce URL missing");
+export async function fetchSupabaseOrder(orderId) {
+  // orderId can be a Supabase UUID or a WC numeric id (legacy)
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(orderId));
 
-  const url = `${WOO_BASE}/orders/${orderId}`;
-  const res = await fetch(url, {
-    headers: {
-      Authorization:
-        "Basic " + Buffer.from(`${WOO_KEY}:${WOO_SECRET}`).toString("base64"),
-    },
-  });
+  const query = isUuid
+    ? supabase.from("orders").select("*").eq("id", orderId)
+    : supabase.from("orders").select("*").eq("woocommerce_order_id", String(orderId));
 
-  const data = await res.json();
-  if (!res.ok) throw new Error(data?.message || "Woo fetch failed");
-
+  const { data, error } = await query.maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error(`Order not found: ${orderId}`);
   return data;
 }
 
-export async function createWooRefund({
-  orderId,
-  amount,
-  reason,
-  apiRefund = true,
-}) {
-  if (!WOO_BASE) throw new Error("WooCommerce URL missing");
-  if (!orderId) throw new Error("orderId is required for Woo refund");
+// Keep old name as alias so existing callers don't break
+export const fetchWooOrder = fetchSupabaseOrder;
+
+// -----------------------------------------
+// PAYSTACK REFUND (replaces createWooRefund)
+// -----------------------------------------
+
+export async function createPaystackRefund({ transactionRef, amount, reason }) {
+  if (!PAYSTACK_SECRET) throw new Error("Paystack secret key not configured");
+  if (!transactionRef) throw new Error("transactionRef is required for Paystack refund");
   if (typeof amount !== "number" || amount <= 0)
     throw new Error("Refund amount must be a positive number");
 
-  const payload = {
-    amount: amount.toFixed(2),
-    api_refund: apiRefund,
-    ...(reason ? { reason } : {}),
-  };
+  // Paystack refund amount is in kobo (multiply NGN by 100)
+  const amountKobo = Math.round(amount * 100);
 
-  const url = `${WOO_BASE}/orders/${orderId}/refunds`;
-  const res = await fetch(url, {
+  const res = await fetch("https://api.paystack.co/refund", {
     method: "POST",
     headers: {
-      Authorization:
-        "Basic " + Buffer.from(`${WOO_KEY}:${WOO_SECRET}`).toString("base64"),
+      Authorization: `Bearer ${PAYSTACK_SECRET}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      transaction: transactionRef,
+      amount: amountKobo,
+      ...(reason ? { customer_note: reason, merchant_note: reason } : {}),
+    }),
   });
 
   const data = await res.json();
 
-  if (!res.ok) {
-    const message =
-      data?.message ||
-      (data?.data && typeof data.data === "object"
-        ? Object.values(data.data)
-            .flat()
-            .map((entry) => entry?.message || entry)
-            .join("; ")
-        : null) ||
-      "WooCommerce refund failed";
-    throw new Error(message);
+  if (!res.ok || !data.status) {
+    throw new Error(data?.message || "Paystack refund failed");
   }
 
-  return data;
+  return data.data; // { id, transaction, amount, currency, status, ... }
+}
+
+// Keep old signature as wrapper for admin-return-inspection.js
+export async function createWooRefund(orderId, amount, reason) {
+  // Resolve the Supabase order to get the Paystack transaction reference
+  const order = await fetchSupabaseOrder(orderId);
+  const transactionRef = order?.payment_reference;
+
+  if (!transactionRef) {
+    throw new Error("No Paystack transaction reference found on this order — refund cannot be processed automatically");
+  }
+
+  const result = await createPaystackRefund({ transactionRef, amount, reason });
+
+  // Return a shape similar to what admin-return-inspection.js expects
+  return {
+    id: result.id,
+    refund_id: result.id,
+    amount: result.amount / 100, // back to NGN
+    currency: result.currency || "NGN",
+    status: result.status,
+    paystack_raw: result,
+  };
 }
 
 // -----------------------------------------

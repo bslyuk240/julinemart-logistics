@@ -93,9 +93,12 @@ export async function handler(event) {
         // Build reason message
         const reason = `Return approved (Return ID: ${request.id}; Reason: ${request.reason_code || ""})`;
 
-        // Trigger WooCommerce Refund
+        // Trigger Paystack Refund via Supabase order lookup
+        // Prefer supabase_order_id (UUID) for new PWA orders; fall back to
+        // legacy WC numeric order_id for migrated orders
+        const refundOrderRef = request.supabase_order_id || request.order_id;
         const wooRefund = await createWooRefund(
-          request.order_id,
+          refundOrderRef,
           approved_refund_amount,
           reason
         );

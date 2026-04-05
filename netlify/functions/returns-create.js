@@ -1,10 +1,10 @@
 ﻿// Create Return Request (DROP-OFF ONLY)
-import { 
-  supabase, 
-  fetchWooOrder, 
-  validateReturnWindow, 
-  generateReturnCode, 
-  uploadReturnImages 
+import {
+  supabase,
+  fetchSupabaseOrder,
+  validateReturnWindow,
+  generateReturnCode,
+  uploadReturnImages
 } from './services/returns-utils.js';
 
 import { corsHeaders, preflightResponse } from './services/cors.js';
@@ -57,8 +57,8 @@ export async function handler(event) {
       };
     }
 
-    // 🟦 WooCommerce validation
-    const order = await fetchWooOrder(order_id);
+    // 🟦 Supabase order validation (replaces WooCommerce fetch)
+    const order = await fetchSupabaseOrder(order_id);
     const windowDays = Number(process.env.RETURN_WINDOW_DAYS || 14);
 
     if (!validateReturnWindow(order, windowDays)) {
@@ -72,8 +72,7 @@ export async function handler(event) {
       };
     }
 
-    const billing = order?.billing || {};
-    const customerName = `${billing.first_name || ''} ${billing.last_name || ''}`.trim() || 'Return Customer';
+    const customerName = order.customer_name || 'Return Customer';
 
     const { data: hubRecord, error: hubErr } = await supabase
       .from("hubs")
@@ -108,10 +107,10 @@ export async function handler(event) {
     const { data: request, error: reqErr } = await supabase
       .from("return_requests")
       .insert({
-        order_id,
-        order_number: order.number,
-        wc_customer_id: order.customer_id,
-        customer_email: billing.email,
+        order_id: order.woocommerce_order_id ? Number(order.woocommerce_order_id) : null,
+        supabase_order_id: order.id,
+        order_number: String(order.order_number || order.id),
+        customer_email: order.customer_email,
         customer_name: customerName,
         hub_id,
         preferred_resolution,

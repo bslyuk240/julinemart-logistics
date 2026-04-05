@@ -1,19 +1,12 @@
-// ENHANCED refund-queue.js
-// Fetches return shipments AND enriches with WooCommerce order payment data
-// Location: netlify/functions/refund-queue.js
+// refund-queue.js
+// Fetches return shipments enriched with Supabase order payment data
 
 import { createClient } from "@supabase/supabase-js";
-import fetch from "node-fetch";
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
 );
-
-// WooCommerce credentials
-const WC_BASE_URL = process.env.NEXT_PUBLIC_WP_URL || process.env.WP_URL;
-const WC_KEY = process.env.WC_KEY;
-const WC_SECRET = process.env.WC_SECRET;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,48 +17,29 @@ const corsHeaders = {
 const DEFAULT_STATUSES = ["approved", "refund_processing", "refund_completed"];
 
 /**
- * Fetch WooCommerce order to get payment details
+ * Fetch Supabase order payment data by UUID or WC order ID
  */
-async function fetchWooOrder(orderId) {
+async function fetchOrderPaymentData(supabaseOrderId, legacyWcOrderId) {
   try {
-    const auth = Buffer.from(`${WC_KEY}:${WC_SECRET}`).toString('base64');
-    const url = `${WC_BASE_URL}/wp-json/wc/v3/orders/${orderId}`;
+    let query = supabase
+      .from("orders")
+      .select("id, order_number, payment_method, payment_reference, paid_at, total_amount, customer_email, customer_name");
 
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `Basic ${auth}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      console.error(`Failed to fetch WooCommerce order ${orderId}:`, response.status);
+    if (supabaseOrderId) {
+      query = query.eq("id", supabaseOrderId);
+    } else if (legacyWcOrderId) {
+      query = query.eq("woocommerce_order_id", String(legacyWcOrderId));
+    } else {
       return null;
     }
 
-    return await response.json();
+    const { data, error } = await query.maybeSingle();
+    if (error || !data) return null;
+    return data;
   } catch (error) {
-    console.error(`Error fetching WooCommerce order ${orderId}:`, error.message);
+    console.error("Error fetching Supabase order:", error.message);
     return null;
   }
-}
-
-/**
- * Get Paystack transaction reference from order
- */
-function getPaystackReference(order) {
-  // First check meta_data for _paystack_reference
-  const paystackMeta = order.meta_data?.find(m => m.key === '_paystack_reference');
-  if (paystackMeta?.value) {
-    return paystackMeta.value;
-  }
-
-  // Fall back to transaction_id
-  if (order.transaction_id) {
-    return order.transaction_id;
-  }
-
-  return null;
 }
 
 export async function handler(event) {
@@ -126,55 +100,48 @@ export async function handler(event) {
       };
     }
 
-    // Enrich with WooCommerce payment data
-    console.log(`📦 Enriching ${data.length} refund queue items with WooCommerce data...`);
-    
+    // Enrich with Supabase order payment data
+    console.log(`📦 Enriching ${data.length} refund queue items with Supabase payment data...`);
+
     const enrichedData = await Promise.all(
       data.map(async (item) => {
         const returnRequest = item.return_request;
-        const orderId = returnRequest?.order_id;
 
-        if (!orderId) {
-          console.warn(`⚠️ Return shipment ${item.id} has no order_id`);
-          return { ...item, woo_order: null };
+        // Prefer supabase_order_id, fall back to legacy WC order_id
+        const supabaseOrderId = returnRequest?.supabase_order_id || null;
+        const legacyOrderId = returnRequest?.order_id || null;
+
+        if (!supabaseOrderId && !legacyOrderId) {
+          console.warn(`⚠️ Return shipment ${item.id} has no order reference`);
+          return { ...item, order_payment: null };
         }
 
-        // Fetch WooCommerce order
-        const wooOrder = await fetchWooOrder(orderId);
+        const orderData = await fetchOrderPaymentData(supabaseOrderId, legacyOrderId);
 
-        if (!wooOrder) {
-          console.warn(`⚠️ Could not fetch WooCommerce order ${orderId}`);
-          return { ...item, woo_order: null };
+        if (!orderData) {
+          console.warn(`⚠️ Could not fetch order for return shipment ${item.id}`);
+          return { ...item, order_payment: null };
         }
 
-        // Extract payment information
-        const paymentMethod = wooOrder.payment_method || '';
-        const paymentMethodTitle = wooOrder.payment_method_title || '';
-        const transactionId = getPaystackReference(wooOrder);
+        const isPaystackPayment =
+          (orderData.payment_method || '').toLowerCase().includes('paystack') ||
+          (orderData.payment_method || '').toLowerCase() === 'card' ||
+          Boolean(orderData.payment_reference?.startsWith('JLO-'));
 
-        // Check if this is a Paystack payment
-        const isPaystackPayment = 
-          paymentMethod === 'paystack' || 
-          paymentMethod === 'card' ||
-          paymentMethodTitle.toLowerCase().includes('paystack') ||
-          paymentMethodTitle.toLowerCase().includes('card');
-
-        console.log(`💳 Order #${orderId}: payment=${paymentMethod}, transaction=${transactionId}, isPaystack=${isPaystackPayment}`);
+        console.log(`💳 Order #${orderData.order_number}: method=${orderData.payment_method}, ref=${orderData.payment_reference}, isPaystack=${isPaystackPayment}`);
 
         return {
           ...item,
-          woo_order: {
-            id: wooOrder.id,
-            number: wooOrder.number,
-            status: wooOrder.status,
-            total: wooOrder.total,
-            payment_method: paymentMethod,
-            payment_method_title: paymentMethodTitle,
-            transaction_id: transactionId,
+          order_payment: {
+            id: orderData.id,
+            order_number: orderData.order_number,
+            total: orderData.total_amount,
+            payment_method: orderData.payment_method,
+            transaction_id: orderData.payment_reference,
             is_paystack_payment: isPaystackPayment,
-            billing: wooOrder.billing,
-            date_created: wooOrder.date_created,
-            date_paid: wooOrder.date_paid,
+            paid_at: orderData.paid_at,
+            customer_email: orderData.customer_email,
+            customer_name: orderData.customer_name,
           },
         };
       })

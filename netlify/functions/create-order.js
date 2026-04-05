@@ -300,10 +300,41 @@ export async function handler(event) {
       });
     }
 
+    // ── Resolve courier per hub ────────────────────────────────────────────
+    // Prefer a Fez courier (code='fez') so the dispatch UI is available;
+    // fall back to the highest-priority primary courier for the hub.
+    const hubIds = [...new Set(
+      Array.from(vendorGroups.values()).map((g) => g.hub_id).filter(Boolean)
+    )];
+
+    const hubCourierMap = {};
+    if (hubIds.length > 0) {
+      const { data: hcRows } = await adminClient
+        .from('hub_couriers')
+        .select('hub_id, courier_id, priority, couriers!inner(code)')
+        .in('hub_id', hubIds)
+        .eq('is_primary', true)
+        .order('hub_id')
+        .order('priority', { ascending: false });
+
+      for (const row of (hcRows || [])) {
+        const hubId = row.hub_id;
+        const isFez = row.couriers?.code?.toLowerCase() === 'fez';
+        if (!hubCourierMap[hubId]) {
+          // First result for this hub (highest priority)
+          hubCourierMap[hubId] = { courierId: row.courier_id, hasFez: isFez };
+        } else if (isFez && !hubCourierMap[hubId].hasFez) {
+          // Override with Fez if we haven't found one yet
+          hubCourierMap[hubId] = { courierId: row.courier_id, hasFez: true };
+        }
+      }
+    }
+
     const subOrderRows = Array.from(vendorGroups.values()).map((g) => ({
       main_order_id: orderId,
       vendor_id: g.vendor_id,
       hub_id: g.hub_id,
+      courier_id: hubCourierMap[g.hub_id]?.courierId || null,
       items: g.items,
       subtotal: g.subtotal,
       allocated_shipping_fee: vendorGroups.size === 1 ? shippingFee : 0,

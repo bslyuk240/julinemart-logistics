@@ -76,27 +76,58 @@ export async function handler(event) {
     const productIds = [...new Set(items.map((i) => i.product_id))];
     const variationIds = [...new Set(items.map((i) => i.variation_id).filter(Boolean))];
 
-    const [{ data: products }, { data: variations }] = await Promise.all([
-      adminClient.from('products')
-        .select('id, name, slug, sku, regular_price, sale_price, stock_status, vendor_id, hub_id, type')
-        .in('id', productIds),
-      variationIds.length > 0
-        ? adminClient.from('product_variations')
-            .select('id, product_id, sku, regular_price, sale_price, stock_status, attributes, vendor_id, hub_id')
-            .in('id', variationIds)
+    // Separate UUIDs from WooCommerce numeric IDs (items added from listing page
+    // via WooCommerce fallback won't have Supabase UUIDs)
+    const isUuid = (id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id));
+    const productUuids = productIds.filter(isUuid);
+    const productWooIds = productIds.filter((id) => !isUuid(id) && Number(id) > 0).map(Number);
+    const variationUuids = variationIds.filter(isUuid);
+    const variationWooIds = variationIds.filter((id) => !isUuid(id) && Number(id) > 0).map(Number);
+
+    const productSelect = 'id, woo_product_id, name, slug, sku, regular_price, sale_price, stock_status, vendor_id, hub_id, type';
+    const variationSelect = 'id, woo_variation_id, product_id, sku, regular_price, sale_price, stock_status, attributes, vendor_id, hub_id';
+
+    const [
+      { data: productsByUuid },
+      { data: productsByWoo },
+      { data: variationsByUuid },
+      { data: variationsByWoo },
+    ] = await Promise.all([
+      productUuids.length > 0
+        ? adminClient.from('products').select(productSelect).in('id', productUuids)
+        : Promise.resolve({ data: [] }),
+      productWooIds.length > 0
+        ? adminClient.from('products').select(productSelect).in('woo_product_id', productWooIds)
+        : Promise.resolve({ data: [] }),
+      variationUuids.length > 0
+        ? adminClient.from('product_variations').select(variationSelect).in('id', variationUuids)
+        : Promise.resolve({ data: [] }),
+      variationWooIds.length > 0
+        ? adminClient.from('product_variations').select(variationSelect).in('woo_variation_id', variationWooIds)
         : Promise.resolve({ data: [] }),
     ]);
 
-    const productMap = new Map((products || []).map((p) => [p.id, p]));
-    const variationMap = new Map((variations || []).map((v) => [v.id, v]));
+    // Build lookup maps: keyed by UUID and by WC numeric id
+    const productMap = new Map();
+    for (const p of [...(productsByUuid || []), ...(productsByWoo || [])]) {
+      productMap.set(p.id, p);
+      if (p.woo_product_id) productMap.set(String(p.woo_product_id), p);
+    }
+    const variationMap = new Map();
+    for (const v of [...(variationsByUuid || []), ...(variationsByWoo || [])]) {
+      variationMap.set(v.id, v);
+      if (v.woo_variation_id) variationMap.set(String(v.woo_variation_id), v);
+    }
 
     // ── Build resolved line items ───────────────────────────────────────────
     const resolvedItems = [];
     for (const item of items) {
-      const product = productMap.get(item.product_id);
+      const product = productMap.get(item.product_id) || productMap.get(String(item.product_id));
       if (!product) return jsonResponse(404, { error: `Product not found: ${item.product_id}` });
 
-      const variation = item.variation_id ? variationMap.get(item.variation_id) : null;
+      const variation = item.variation_id
+        ? (variationMap.get(item.variation_id) || variationMap.get(String(item.variation_id)))
+        : null;
       if (item.variation_id && !variation) {
         return jsonResponse(404, { error: `Variation not found: ${item.variation_id}` });
       }

@@ -57,6 +57,11 @@ export async function handler(event) {
           created_at, paid_at, updated_at,
           order_items (
             id, product_name, product_sku, variation_id, unit_price, quantity, subtotal
+          ),
+          sub_orders (
+            id, status, tracking_number, courier_waybill, delivered_at,
+            couriers ( name, code ),
+            hubs ( name, city )
           )
         `)
         .eq('customer_email', email);
@@ -95,14 +100,15 @@ export async function handler(event) {
       }
 
       const items = order.order_items || [];
-      const { order_items: _removed, ...orderWithoutItems } = order;
+      const subOrders = order.sub_orders || [];
+      const { order_items: _ri, sub_orders: _rs, ...orderCore } = order;
 
       return {
         statusCode: 200,
         headers: corsHeaders,
         body: JSON.stringify({
           success: true,
-          data: { ...orderWithoutItems, items },
+          data: { ...orderCore, items, sub_orders: subOrders },
         }),
       };
     }
@@ -117,7 +123,12 @@ export async function handler(event) {
         payment_reference, customer_name, customer_email, customer_phone,
         delivery_address, delivery_city, delivery_state,
         subtotal, shipping_fee_paid, discount_amount, total_amount,
-        created_at, paid_at, updated_at
+        created_at, paid_at, updated_at,
+        sub_orders (
+          id, status, tracking_number, courier_waybill, delivered_at,
+          couriers ( name, code ),
+          hubs ( name, city )
+        )
       `)
       .eq('customer_email', email)
       .order('created_at', { ascending: false })

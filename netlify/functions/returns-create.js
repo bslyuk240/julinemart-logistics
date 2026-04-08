@@ -8,6 +8,7 @@ import {
 } from './services/returns-utils.js';
 
 import { corsHeaders, preflightResponse } from './services/cors.js';
+import { sendTransactionalEmail } from './services/emailNotifications.js';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return preflightResponse();
@@ -127,6 +128,23 @@ export async function handler(event) {
       .single();
 
     if (reqErr) throw reqErr;
+
+    // Acknowledge the return request by email
+    if (order.customer_email) {
+      sendTransactionalEmail({
+        templateName: 'Return Request Received',
+        to: order.customer_email,
+        orderId: order.id,
+        data: {
+          customerName: customerName,
+          orderNumber: order.order_number ?? order.id,
+          returnId: request.id,
+          returnCode: request.return_code || returnCode,
+          reasonCode: reason_code || '',
+          resolution: preferred_resolution || 'refund',
+        },
+      });
+    }
 
     // Upload images
     let finalImages = [];

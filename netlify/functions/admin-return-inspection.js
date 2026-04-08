@@ -2,6 +2,7 @@
 import { supabase, createWooRefund } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { buildOrderDeepLink, sendPushToCustomer } from './services/pushNotifications.js';
+import { sendTransactionalEmail } from './services/emailNotifications.js';
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflightResponse();
@@ -199,6 +200,30 @@ export async function handler(event) {
       const pushResult = await sendPushToCustomer(request.wc_customer_id, pushPayload);
       if (!pushResult.success && !pushResult.skipped) {
         console.warn("Return inspection push failed:", pushResult);
+      }
+    }
+
+    // Send email for refund completed or rejected
+    if (request.customer_email) {
+      const emailTemplate =
+        nextStatus === 'refund_completed' ? 'Refund Completed' :
+        nextStatus === 'rejected'         ? 'Return Rejected'  : null;
+
+      if (emailTemplate) {
+        sendTransactionalEmail({
+          templateName: emailTemplate,
+          to: request.customer_email,
+          orderId: request.supabase_order_id || null,
+          data: {
+            customerName: request.customer_name || 'Customer',
+            orderNumber: request.order_number || orderRef,
+            returnId: request.id,
+            refundAmount: refundPayload
+              ? Number(refundPayload.amount || approved_refund_amount || 0).toLocaleString()
+              : '',
+            inspectionNotes: inspection_notes || '',
+          },
+        });
       }
     }
 

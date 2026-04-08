@@ -9,6 +9,7 @@ import {
   extractOrderReference,
   sendPushToCustomer,
 } from './services/pushNotifications.js';
+import { sendTransactionalEmail } from './services/emailNotifications.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
@@ -85,7 +86,7 @@ exports.handler = async (event) => {
     // Find sub-order by tracking number
     const { data: subOrders, error: findError } = await supabase
       .from('sub_orders')
-      .select('*, orders(id, overall_status, woocommerce_order_id, customer_email, metadata)')
+      .select('*, orders(id, order_number, overall_status, woocommerce_order_id, customer_name, customer_email, metadata)')
       .eq('tracking_number', orderNo);
 
     if (findError) {
@@ -176,6 +177,35 @@ exports.handler = async (event) => {
         const pushResult = await sendPushToCustomer(customerId, pushInput);
         if (!pushResult.success && !pushResult.skipped) {
           console.warn('Fez webhook push failed:', pushResult);
+        }
+      }
+
+      // Send email notification on key status transitions
+      const order = subOrder.orders;
+      if (order?.customer_email) {
+        const portalUrl = process.env.CUSTOMER_PORTAL_URL || 'https://julinemart.com';
+        const orderRef = order.order_number ?? order.id;
+        const emailData = {
+          customerName: order.customer_name || 'Customer',
+          orderNumber: orderRef,
+          trackingNumber: orderNo,
+          trackingUrl: `${portalUrl}/orders/${orderRef}`,
+        };
+
+        const templateMap = {
+          in_transit: 'Order Shipped',
+          out_for_delivery: 'Out for Delivery',
+          delivered: 'Order Delivered',
+        };
+
+        const templateName = templateMap[jloStatus];
+        if (templateName) {
+          sendTransactionalEmail({
+            templateName,
+            to: order.customer_email,
+            orderId: order.id,
+            data: emailData,
+          });
         }
       }
     }

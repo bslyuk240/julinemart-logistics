@@ -13,6 +13,7 @@
 
 import crypto from 'crypto';
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
+import { sendTransactionalEmail } from './services/emailNotifications.js';
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
@@ -54,7 +55,7 @@ export async function handler(event) {
   try {
     switch (eventType) {
       case 'charge.success': {
-        const { error } = await adminClient
+        const { data: updatedOrder, error } = await adminClient
           .from('orders')
           .update({
             payment_status: 'paid',
@@ -62,20 +63,38 @@ export async function handler(event) {
             payment_method: data.channel || 'paystack',
             paid_at: data.paid_at || new Date().toISOString(),
             updated_at: new Date().toISOString(),
-            metadata: adminClient.rpc ? undefined : undefined, // keep existing metadata
           })
           .eq('payment_reference', reference)
-          .eq('payment_status', 'pending'); // idempotent — won't double-update
+          .eq('payment_status', 'pending') // idempotent — won't double-update
+          .select('id, order_number, customer_name, customer_email, total_amount')
+          .maybeSingle();
 
         if (error) {
           console.error('paystack-webhook: failed to update order', reference, error.message);
-          // Return 200 anyway so Paystack doesn't retry — we'll investigate via webhook_errors
           await adminClient.from('webhook_errors').insert({
             source: 'paystack',
             event_type: eventType,
             payload,
             error_message: error.message,
           }).catch(() => {});
+        }
+
+        // Send order confirmation email — dedup handles the case where
+        // verify-payment already sent it from the browser flow
+        if (updatedOrder?.customer_email) {
+          const portalUrl = process.env.CUSTOMER_PORTAL_URL || 'https://julinemart.com';
+          sendTransactionalEmail({
+            templateName: 'Order Confirmation',
+            to: updatedOrder.customer_email,
+            orderId: updatedOrder.id,
+            data: {
+              customerName: updatedOrder.customer_name || 'Customer',
+              orderNumber: updatedOrder.order_number ?? updatedOrder.id,
+              orderDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+              totalAmount: Number(updatedOrder.total_amount || 0).toLocaleString(),
+              trackingUrl: `${portalUrl}/orders/${updatedOrder.order_number ?? updatedOrder.id}`,
+            },
+          });
         }
         break;
       }

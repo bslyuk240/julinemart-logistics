@@ -6,17 +6,19 @@ import { api } from '../lib/api';
 const fmt = (n: number) => `₦${Number(n || 0).toLocaleString()}`;
 
 const STATUS_BADGE: Record<string, string> = {
-  publish:   'bg-green-100 text-green-700',
-  published: 'bg-green-100 text-green-700',
-  draft:     'bg-yellow-100 text-yellow-700',
-  trash:     'bg-red-100 text-red-700',
+  publish:        'bg-green-100 text-green-700',
+  published:      'bg-green-100 text-green-700',
+  draft:          'bg-yellow-100 text-yellow-700',
+  pending_review: 'bg-orange-100 text-orange-700',
+  trash:          'bg-red-100 text-red-700',
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  publish:   'Live',
-  published: 'Live',
-  draft:     'Draft',
-  trash:     'Trash',
+  publish:        'Live',
+  published:      'Live',
+  draft:          'Draft',
+  pending_review: 'In Review',
+  trash:          'Trash',
 };
 
 export default function Products() {
@@ -44,15 +46,25 @@ export default function Products() {
           {data?.total != null && (
             <span className="text-sm text-gray-500">{data.total} total</span>
           )}
+          {/* Desktop add button */}
           <button
             onClick={() => navigate('/products/add')}
-            className="flex items-center gap-1.5 bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
+            className="hidden lg:flex items-center gap-1.5 bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
           >
             <Plus className="w-4 h-4" />
             Add Product
           </button>
         </div>
       </div>
+
+      {/* Mobile FAB */}
+      <button
+        onClick={() => navigate('/products/add')}
+        className="fixed bottom-20 right-4 z-50 lg:hidden w-14 h-14 bg-primary-600 hover:bg-primary-700 active:scale-95 text-white rounded-full shadow-xl flex items-center justify-center transition-all"
+        aria-label="Add product"
+      >
+        <Plus className="w-7 h-7" />
+      </button>
 
       {/* Search + filter */}
       <div className="flex gap-2">

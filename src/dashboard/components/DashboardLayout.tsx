@@ -26,7 +26,8 @@ import {
   LayoutGrid,
   DatabaseZap,
   Plus,
-  Store
+  Store,
+  Wallet
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
 import { BrandLogo } from '../../shared/BrandLogo';
@@ -75,6 +76,7 @@ const navigation: NavItem[] = [
   { name: 'Users', href: '/admin/users', icon: Users, roles: ['admin'] },
   { name: 'Shipping Discounts', href: '/admin/discounts', icon: Percent, roles: ['admin'] },
   { name: 'Vendors', href: '/admin/vendors', icon: Store, roles: ['admin'] },
+  { name: 'Vendor Payouts', href: '/admin/vendor-withdrawals', icon: Wallet, roles: ['admin'] },
   { name: 'Vouchers', href: '/admin/vouchers', icon: Ticket, roles: ['admin'] },
   { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },
   { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },

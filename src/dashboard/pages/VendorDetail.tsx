@@ -355,15 +355,15 @@ export default function VendorDetail() {
             <EditableField label="Store Name"      value={vendor.store_name}    onSave={v => saveField('store_name', v)} />
             <EditableField label="Email"            value={vendor.email}         onSave={v => saveField('email', v)} type="email" />
             <EditableField label="Phone"            value={vendor.phone}         onSave={v => saveField('phone', v)} type="tel" />
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Commission Rate</p>
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-bold text-purple-600">{vendor.commission_rate}%</p>
-                <Link to="/admin/settings" className="text-xs text-gray-400 hover:text-purple-600 flex items-center gap-0.5">
-                  <ExternalLink className="w-3 h-3" /> change in settings
-                </Link>
-              </div>
-            </div>
+            <EditableField
+              label="Commission Rate (%)"
+              value={String(vendor.commission_rate ?? 0)}
+              type="number"
+              onSave={async v => {
+                await saveField('commission_rate', v);
+                setVendor(prev => prev ? { ...prev, commission_rate: Number(v) } : prev);
+              }}
+            />
             <EditableField label="Description"     value={vendor.description}   onSave={v => saveField('description', v)} />
           </div>
         </div>

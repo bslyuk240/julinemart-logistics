@@ -78,7 +78,7 @@ export async function handler(event) {
       name: name?.trim(),
       slug: finalSlug,
       description, short_description,
-      status: ['draft', 'pending_review'].includes(status) ? status : 'pending_review',
+      status: ['draft', 'pending_review', 'publish', 'published'].includes(status) ? status : 'pending_review',
       type,
       regular_price: type === 'simple' && regular_price ? Number(regular_price) : null,
       sale_price: type === 'simple' && sale_price ? Number(sale_price) : null,

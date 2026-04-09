@@ -63,7 +63,7 @@ export async function handler(event) {
       woo_id:       p.woo_product_id,
       name:         p.name,
       sku:          p.sku,
-      price:        Number(p.sale_price || p.regular_price || 0),
+      price:        Number(wp?.price || p.sale_price || p.regular_price || 0),
       regular_price: Number(p.regular_price || 0),
       sale_price:   p.sale_price ? Number(p.sale_price) : null,
       stock_status: p.stock_status,

@@ -28,15 +28,33 @@ export async function handler(event) {
         couriers(name, code),
         hubs(name, city, state),
         orders(id, order_number, overall_status, customer_name, customer_email,
-               shipping_address, created_at),
-        order_items(id, product_name, product_sku, unit_price, quantity, subtotal)
+               shipping_address, created_at)
       `)
       .eq('id', qs.id)
       .eq('vendor_id', vendor.id)
       .single();
 
     if (soErr || !so) return { statusCode: 404, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Order not found' }) };
-    return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify({ success: true, data: so }) };
+
+    // Fetch order_items separately via orders.id (avoids sub_orders FK dependency)
+    const orderId = so.orders?.id;
+    let items = [];
+    if (orderId) {
+      const { data: itemsData } = await adminClient
+        .from('order_items')
+        .select('id, product_name, product_sku, unit_price, quantity, subtotal')
+        .eq('order_id', orderId);
+      items = itemsData || [];
+    }
+
+    const gross = items.reduce((s, i) => s + Number(i.subtotal), 0);
+    const vendorAmount = gross * (1 - Number(vendor.commission_rate || 0) / 100);
+
+    return {
+      statusCode: 200,
+      headers: corsHeaders(origin),
+      body: JSON.stringify({ success: true, data: { ...so, order_items: items, vendor_amount: vendorAmount } }),
+    };
   }
 
   // ── List sub_orders for this vendor ──────────────────────────────────────

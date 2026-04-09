@@ -60,6 +60,19 @@ export const handler = async (event) => {
     return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'Vendor has no email address on record' }) };
   }
 
+  // Guard against placeholder emails generated during WooCommerce migration
+  const placeholderDomains = ['@wcfm.local', '@placeholder.', '@example.com', '@localhost'];
+  if (placeholderDomains.some(d => vendor.email.toLowerCase().includes(d))) {
+    return {
+      statusCode: 400,
+      headers: cors,
+      body: JSON.stringify({
+        error: `Cannot send invite — "${vendor.email}" is a placeholder email. Please update this vendor's real email address first.`,
+        placeholder: true,
+      }),
+    };
+  }
+
   // If already linked, just resend invite
   if (vendor.user_id) {
     // Resend magic link

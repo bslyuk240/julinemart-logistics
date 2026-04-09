@@ -5,39 +5,51 @@
 -- ============================================================
 
 -- ────────────────────────────────────────────────────────────
--- 1.  All WCFM vendor IDs + their WP user data
---     (this confirms which WP user IDs map to which stores)
+-- 0.  First: discover what vendor plugin tables exist
+--     Run this to know which plugin is active (WCFM or Dokan)
+-- ────────────────────────────────────────────────────────────
+SHOW TABLES LIKE 'wqpm_%vendor%';
+SHOW TABLES LIKE 'wqpm_dokan%';
+SHOW TABLES LIKE 'wqpm_wcfm%';
+
+
+-- ────────────────────────────────────────────────────────────
+-- 1.  All vendor IDs + their WP user data
+--     Works regardless of WCFM or Dokan — reads from usermeta
+--     (wqpm_wcfm_marketplace_vendors table does NOT exist;
+--      all vendor metadata lives in wqpm_usermeta)
 -- ────────────────────────────────────────────────────────────
 SELECT
-    u.ID                     AS wp_user_id,
+    u.ID                      AS wp_user_id,
     u.user_login,
     u.user_email,
     u.display_name,
     u.user_registered,
-    um_sn.meta_value          AS store_name,
-    um_ph.meta_value          AS store_phone,
-    um_addr.meta_value        AS store_address,
-    um_city.meta_value        AS store_city,
-    um_state.meta_value       AS store_state,
-    um_country.meta_value     AS store_country,
-    um_logo.meta_value        AS store_logo_id,  -- attachment post ID, resolve separately
-    um_banner.meta_value      AS store_banner_id
+    um_ph.meta_value           AS store_phone,
+    um_addr.meta_value         AS store_address,
+    um_city.meta_value         AS store_city,
+    um_state.meta_value        AS store_state,
+    um_country.meta_value      AS store_country,
+    um_logo.meta_value         AS store_logo_id,
+    um_banner.meta_value       AS store_banner_id,
+    um_sname.meta_value        AS store_name_meta
 FROM wqpm_users u
--- Only pull users who are vendors (have the wcfm_vendor capability)
+-- vendors have either wcfm_vendor OR seller capability
 JOIN wqpm_usermeta cap
     ON cap.user_id = u.ID
     AND cap.meta_key = 'wqpm_capabilities'
-    AND cap.meta_value LIKE '%wcfm_vendor%'
-LEFT JOIN wqpm_wcfm_marketplace_vendors vm
-    ON vm.vendor_id = u.ID   -- join WCFM's own vendor table if exists
-LEFT JOIN wqpm_usermeta um_sn     ON um_sn.user_id     = u.ID AND um_sn.meta_key     = 'wcfmmp_profile_settings'
+    AND (
+        cap.meta_value LIKE '%wcfm_vendor%'
+        OR cap.meta_value LIKE '%seller%'
+    )
+LEFT JOIN wqpm_usermeta um_sname  ON um_sname.user_id  = u.ID AND um_sname.meta_key  = 'store_name'
 LEFT JOIN wqpm_usermeta um_ph     ON um_ph.user_id     = u.ID AND um_ph.meta_key     = 'store_phone'
 LEFT JOIN wqpm_usermeta um_addr   ON um_addr.user_id   = u.ID AND um_addr.meta_key   = 'store_address1'
 LEFT JOIN wqpm_usermeta um_city   ON um_city.user_id   = u.ID AND um_city.meta_key   = 'store_city'
 LEFT JOIN wqpm_usermeta um_state  ON um_state.user_id  = u.ID AND um_state.meta_key  = 'store_state'
 LEFT JOIN wqpm_usermeta um_country ON um_country.user_id = u.ID AND um_country.meta_key = 'store_country'
-LEFT JOIN wqpm_usermeta um_logo   ON um_logo.user_id   = u.ID AND um_logo.meta_key   = '_wcfmmp_profile_logo'
-LEFT JOIN wqpm_usermeta um_banner ON um_banner.user_id = u.ID AND um_banner.meta_key = '_wcfmmp_profile_banner'
+LEFT JOIN wqpm_usermeta um_logo   ON um_logo.user_id   = u.ID AND um_logo.meta_key   IN ('_wcfmmp_profile_logo', 'dokan_profile_settings')
+LEFT JOIN wqpm_usermeta um_banner ON um_banner.user_id = u.ID AND um_banner.meta_key IN ('_wcfmmp_profile_banner', 'dokan_profile_settings')
 ORDER BY u.ID;
 
 
@@ -56,21 +68,23 @@ FROM wqpm_users u
 JOIN wqpm_usermeta cap
     ON cap.user_id = u.ID
     AND cap.meta_key = 'wqpm_capabilities'
-    AND cap.meta_value LIKE '%wcfm_vendor%'
+    AND (cap.meta_value LIKE '%wcfm_vendor%' OR cap.meta_value LIKE '%seller%')
 JOIN wqpm_usermeta um
     ON um.user_id = u.ID
     AND um.meta_key IN (
         'wcfmmp_profile_settings',
         '_wcfmmp_profile_logo',
         '_wcfmmp_profile_banner',
+        'dokan_profile_settings',  -- Dokan equivalent
+        'store_name',
         'store_phone',
         'store_address1',
         'store_city',
         'store_state',
         'store_postcode',
         'store_country',
-        'ppp_title',              -- store slug / shop name
-        'wcfm_commission'         -- per-vendor commission override
+        'ppp_title',
+        'wcfm_commission'
     )
 ORDER BY u.ID, um.meta_key;
 

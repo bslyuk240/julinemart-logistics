@@ -73,7 +73,7 @@ export const handler = async (event) => {
     };
   }
 
-  const vendorPortalUrl = (process.env.VENDOR_PORTAL_URL || 'https://vendors-julinemart.netlify.app').replace(/\/+$/, '');
+  const vendorPortalUrl = (process.env.VENDOR_PORTAL_URL || 'https://vendors.julinemart.com').replace(/\/+$/, '');
   const redirectTo = `${vendorPortalUrl}/set-password`;
 
   // If already linked, resend a password-reset link so they can set/reset their password

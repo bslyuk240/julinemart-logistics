@@ -99,8 +99,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Stats grid — 2 col on all mobile */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* Stats grid — 2 col on mobile, 4 col on desktop */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="Net Earnings"    value={fmt(earnings?.net_earnings)}  sub={`Gross: ${fmt(earnings?.gross_sales)}`} icon={TrendingUp}  color="bg-primary-600" />
         <StatCard label="Total Orders"    value={total_orders ?? '—'}          sub={`${pending_orders ?? 0} pending`}       icon={ShoppingBag} color="bg-orange-500" />
         <StatCard label="Products"        value={total_products ?? '—'}        sub="Published"                               icon={Package}     color="bg-purple-500" />
@@ -160,22 +160,52 @@ export default function Dashboard() {
           </Link>
         </div>
         {recent_orders?.length ? (
-          <div className="divide-y divide-gray-50">
-            {recent_orders.map((o: any) => (
-              <div key={o.order_id} className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors">
-                <div className="min-w-0">
-                  <p className="font-mono text-xs text-gray-500">#{o.order_number || o.order_id?.slice(0, 8)}</p>
-                  <p className="text-sm font-medium text-gray-900 truncate">{o.customer || '—'}</p>
+          <>
+            {/* Mobile: card list */}
+            <div className="divide-y divide-gray-50 lg:hidden">
+              {recent_orders.map((o: any) => (
+                <div key={o.order_id} className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors">
+                  <div className="min-w-0">
+                    <p className="font-mono text-xs text-gray-500">#{o.order_number || o.order_id?.slice(0, 8)}</p>
+                    <p className="text-sm font-medium text-gray-900 truncate">{o.customer || '—'}</p>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0 ml-3">
+                    <span className={`badge ${STATUS_COLORS[o.status] || 'bg-gray-100 text-gray-600'}`}>
+                      {o.status?.replace(/_/g, ' ')}
+                    </span>
+                    <p className="text-sm font-bold text-gray-900">{fmt(o.amount * (1 - (earnings?.commission_rate || 0) / 100))}</p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3 flex-shrink-0 ml-3">
-                  <span className={`badge ${STATUS_COLORS[o.status] || 'bg-gray-100 text-gray-600'}`}>
-                    {o.status?.replace(/_/g, ' ')}
-                  </span>
-                  <p className="text-sm font-bold text-gray-900">{fmt(o.amount * (1 - (earnings?.commission_rate || 0) / 100))}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            {/* Desktop: table */}
+            <table className="hidden lg:table w-full text-sm">
+              <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+                <tr>
+                  <th className="px-4 py-3 text-left">Order</th>
+                  <th className="px-4 py-3 text-left">Customer</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-right">Gross</th>
+                  <th className="px-4 py-3 text-right">Your Payout</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {recent_orders.map((o: any) => (
+                  <tr key={o.order_id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">#{o.order_number || o.order_id?.slice(0, 8)}</td>
+                    <td className="px-4 py-3 text-gray-900 font-medium">{o.customer || '—'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`badge ${STATUS_COLORS[o.status] || 'bg-gray-100 text-gray-600'}`}>
+                        {o.status?.replace(/_/g, ' ')}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-700">{fmt(o.amount)}</td>
+                    <td className="px-4 py-3 text-right font-bold text-gray-900">{fmt(o.amount * (1 - (earnings?.commission_rate || 0) / 100))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         ) : (
           <p className="text-gray-400 text-sm text-center py-8">No orders yet</p>
         )}

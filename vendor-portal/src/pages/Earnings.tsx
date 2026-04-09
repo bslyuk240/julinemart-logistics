@@ -105,8 +105,8 @@ export default function Earnings() {
             </div>
           </div>
 
-          {/* Period stats — 2 col on mobile */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Period stats — 2 col on mobile, 4 col on desktop */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {[
               { label: 'Gross Sales',  value: fmt(s.gross_sales),          sub: null },
               { label: 'Commission',   value: `- ${fmt(s.platform_commission)}`, sub: `${data?.commission_rate}% fee` },
@@ -137,12 +137,11 @@ export default function Earnings() {
           {data?.top_products?.length > 0 && (
             <div className="card">
               <h2 className="font-semibold text-gray-900 mb-4 text-sm">Top Products by Revenue</h2>
-              <div className="space-y-3">
+              {/* Mobile */}
+              <div className="space-y-3 lg:hidden">
                 {data.top_products.map((p: any, i: number) => (
                   <div key={p.sku || i} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
-                    <span className="w-7 h-7 rounded-full bg-primary-100 text-primary-700 text-xs font-bold flex items-center justify-center flex-shrink-0">
-                      {i + 1}
-                    </span>
+                    <span className="w-7 h-7 rounded-full bg-primary-100 text-primary-700 text-xs font-bold flex items-center justify-center flex-shrink-0">{i + 1}</span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">{p.name}</p>
                       {p.sku && <p className="text-xs text-gray-400">{p.sku} · {p.qty} sold</p>}
@@ -154,6 +153,31 @@ export default function Earnings() {
                   </div>
                 ))}
               </div>
+              {/* Desktop table */}
+              <table className="hidden lg:table w-full text-sm">
+                <thead className="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-100">
+                  <tr>
+                    <th className="pb-2 text-left">#</th>
+                    <th className="pb-2 text-left">Product</th>
+                    <th className="pb-2 text-left">SKU</th>
+                    <th className="pb-2 text-right">Qty Sold</th>
+                    <th className="pb-2 text-right">Gross</th>
+                    <th className="pb-2 text-right">Net Earnings</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {data.top_products.map((p: any, i: number) => (
+                    <tr key={p.sku || i} className="hover:bg-gray-50">
+                      <td className="py-3 pr-3 text-gray-400 font-medium">{i + 1}</td>
+                      <td className="py-3 pr-3 font-medium text-gray-900">{p.name}</td>
+                      <td className="py-3 pr-3 text-gray-400 font-mono text-xs">{p.sku || '—'}</td>
+                      <td className="py-3 text-right text-gray-700">{p.qty}</td>
+                      <td className="py-3 text-right text-gray-700">{fmt(p.gross)}</td>
+                      <td className="py-3 text-right font-bold text-green-600">{fmt(p.net)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 

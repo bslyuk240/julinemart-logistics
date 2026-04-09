@@ -34,7 +34,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="space-y-4 max-w-lg">
+    <div className="space-y-4">
       <h1 className="text-xl font-bold text-gray-900">Settings</h1>
 
       {error && (
@@ -43,125 +43,134 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Store info — read-only */}
-      <div className="card">
-        <div className="flex items-center gap-2 mb-4">
-          <Store className="w-5 h-5 text-primary-600" />
-          <h2 className="font-semibold text-gray-900">Store Information</h2>
-        </div>
-        <div className="space-y-3">
-          {[
-            { label: 'Store Name',      value: vendor?.store_name },
-            { label: 'Email',           value: vendor?.email },
-            { label: 'Commission Rate', value: vendor?.commission_rate != null ? `${vendor.commission_rate}%` : undefined, color: 'text-primary-600' },
-            { label: 'City',            value: vendor?.city },
-            { label: 'State',           value: vendor?.state },
-          ].map(f => (
-            <div key={f.label} className="flex justify-between items-start py-2 border-b border-gray-50 last:border-0 gap-4">
-              <span className="text-sm text-gray-500 flex-shrink-0">{f.label}</span>
-              <span className={`text-sm font-semibold text-right break-all ${f.color || 'text-gray-900'}`}>{f.value || '—'}</span>
+      <div className="lg:grid lg:grid-cols-5 lg:gap-6 lg:items-start space-y-4 lg:space-y-0">
+        {/* Left col: store info (read-only) */}
+        <div className="lg:col-span-2">
+          <div className="card">
+            <div className="flex items-center gap-2 mb-4">
+              <Store className="w-5 h-5 text-primary-600" />
+              <h2 className="font-semibold text-gray-900">Store Information</h2>
             </div>
-          ))}
+            <div className="space-y-3">
+              {[
+                { label: 'Store Name',      value: vendor?.store_name },
+                { label: 'Email',           value: vendor?.email },
+                { label: 'Commission Rate', value: vendor?.commission_rate != null ? `${vendor.commission_rate}%` : undefined, color: 'text-primary-600' },
+                { label: 'Phone',           value: (vendor as any)?.phone },
+                { label: 'City',            value: vendor?.city },
+                { label: 'State',           value: vendor?.state },
+                { label: 'Address',         value: (vendor as any)?.address },
+              ].map(f => (
+                <div key={f.label} className="flex justify-between items-start py-3 border-b border-gray-50 last:border-0 gap-4">
+                  <span className="text-sm text-gray-500 flex-shrink-0">{f.label}</span>
+                  <span className={`text-sm font-semibold text-right break-all ${f.color || 'text-gray-900'}`}>{f.value || '—'}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-3">Contact JulineMart support to update store name, email, or commission rate.</p>
+          </div>
         </div>
-        <p className="text-xs text-gray-400 mt-3">Contact JulineMart support to update store name, email, or commission rate.</p>
+
+        {/* Right col: editable forms */}
+        <div className="lg:col-span-3 space-y-4">
+          {/* Store profile — editable */}
+          <form onSubmit={(e: FormEvent) => { e.preventDefault(); save('store', storeForm); }} className="card">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <SettingsIcon className="w-5 h-5 text-primary-600" />
+                <h2 className="font-semibold text-gray-900">Store Profile</h2>
+              </div>
+              {success === 'store' && (
+                <span className="text-sm text-green-600 flex items-center gap-1">
+                  <CheckCircle className="w-4 h-4" /> Saved
+                </span>
+              )}
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Store Description</label>
+                <textarea
+                  className="input"
+                  rows={3}
+                  value={storeForm.description}
+                  onChange={e => setStoreForm(p => ({ ...p, description: e.target.value }))}
+                  placeholder="Tell customers about your store…"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Logo URL</label>
+                <input
+                  className="input"
+                  value={storeForm.logo_url}
+                  onChange={e => setStoreForm(p => ({ ...p, logo_url: e.target.value }))}
+                  placeholder="https://…"
+                />
+                {storeForm.logo_url && (
+                  <img
+                    src={storeForm.logo_url}
+                    alt=""
+                    className="mt-2 w-16 h-16 rounded-full object-cover border"
+                    onError={e => (e.currentTarget.style.display = 'none')}
+                  />
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Banner URL</label>
+                <input
+                  className="input"
+                  value={storeForm.banner_url}
+                  onChange={e => setStoreForm(p => ({ ...p, banner_url: e.target.value }))}
+                  placeholder="https://…"
+                />
+                {storeForm.banner_url && (
+                  <img
+                    src={storeForm.banner_url}
+                    alt=""
+                    className="mt-2 w-full h-24 object-cover rounded-xl border"
+                    onError={e => (e.currentTarget.style.display = 'none')}
+                  />
+                )}
+              </div>
+            </div>
+            <button type="submit" disabled={saving === 'store'} className="btn-primary w-full mt-5">
+              {saving === 'store' ? 'Saving…' : 'Save Profile'}
+            </button>
+          </form>
+
+          {/* Bank details — editable */}
+          <form onSubmit={(e: FormEvent) => { e.preventDefault(); save('bank', bankForm); }} className="card">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-primary-600" />
+                <h2 className="font-semibold text-gray-900">Bank Details</h2>
+              </div>
+              {success === 'bank' && (
+                <span className="text-sm text-green-600 flex items-center gap-1">
+                  <CheckCircle className="w-4 h-4" /> Saved
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-500 mb-4">Used for withdrawal payments. Ensure details are correct.</p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Bank Name</label>
+                <input className="input" value={bankForm.bank_name} onChange={e => setBankForm(p => ({ ...p, bank_name: e.target.value }))} placeholder="e.g. First Bank Nigeria" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Account Number</label>
+                <input className="input" inputMode="numeric" value={bankForm.bank_account_number} onChange={e => setBankForm(p => ({ ...p, bank_account_number: e.target.value }))} placeholder="10-digit NUBAN" maxLength={10} />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Account Name</label>
+                <input className="input" value={bankForm.bank_account_name} onChange={e => setBankForm(p => ({ ...p, bank_account_name: e.target.value }))} placeholder="Full name as registered" />
+              </div>
+            </div>
+            <button type="submit" disabled={saving === 'bank'} className="btn-primary w-full mt-5">
+              {saving === 'bank' ? 'Saving…' : 'Save Bank Details'}
+            </button>
+          </form>
+        </div>
       </div>
-
-      {/* Store profile — editable */}
-      <form onSubmit={(e: FormEvent) => { e.preventDefault(); save('store', storeForm); }} className="card">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <SettingsIcon className="w-5 h-5 text-primary-600" />
-            <h2 className="font-semibold text-gray-900">Store Profile</h2>
-          </div>
-          {success === 'store' && (
-            <span className="text-sm text-green-600 flex items-center gap-1">
-              <CheckCircle className="w-4 h-4" /> Saved
-            </span>
-          )}
-        </div>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Store Description</label>
-            <textarea
-              className="input"
-              rows={3}
-              value={storeForm.description}
-              onChange={e => setStoreForm(p => ({ ...p, description: e.target.value }))}
-              placeholder="Tell customers about your store…"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Logo URL</label>
-            <input
-              className="input"
-              value={storeForm.logo_url}
-              onChange={e => setStoreForm(p => ({ ...p, logo_url: e.target.value }))}
-              placeholder="https://…"
-            />
-            {storeForm.logo_url && (
-              <img
-                src={storeForm.logo_url}
-                alt=""
-                className="mt-2 w-16 h-16 rounded-full object-cover border"
-                onError={e => (e.currentTarget.style.display = 'none')}
-              />
-            )}
-          </div>
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Banner URL</label>
-            <input
-              className="input"
-              value={storeForm.banner_url}
-              onChange={e => setStoreForm(p => ({ ...p, banner_url: e.target.value }))}
-              placeholder="https://…"
-            />
-            {storeForm.banner_url && (
-              <img
-                src={storeForm.banner_url}
-                alt=""
-                className="mt-2 w-full h-24 object-cover rounded-xl border"
-                onError={e => (e.currentTarget.style.display = 'none')}
-              />
-            )}
-          </div>
-        </div>
-        <button type="submit" disabled={saving === 'store'} className="btn-primary w-full mt-5">
-          {saving === 'store' ? 'Saving…' : 'Save Profile'}
-        </button>
-      </form>
-
-      {/* Bank details — editable */}
-      <form onSubmit={(e: FormEvent) => { e.preventDefault(); save('bank', bankForm); }} className="card">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <CreditCard className="w-5 h-5 text-primary-600" />
-            <h2 className="font-semibold text-gray-900">Bank Details</h2>
-          </div>
-          {success === 'bank' && (
-            <span className="text-sm text-green-600 flex items-center gap-1">
-              <CheckCircle className="w-4 h-4" /> Saved
-            </span>
-          )}
-        </div>
-        <p className="text-xs text-gray-500 mb-4">Used for withdrawal payments. Ensure details are correct.</p>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Bank Name</label>
-            <input className="input" value={bankForm.bank_name} onChange={e => setBankForm(p => ({ ...p, bank_name: e.target.value }))} placeholder="e.g. First Bank Nigeria" />
-          </div>
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Account Number</label>
-            <input className="input" inputMode="numeric" value={bankForm.bank_account_number} onChange={e => setBankForm(p => ({ ...p, bank_account_number: e.target.value }))} placeholder="10-digit NUBAN" maxLength={10} />
-          </div>
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Account Name</label>
-            <input className="input" value={bankForm.bank_account_name} onChange={e => setBankForm(p => ({ ...p, bank_account_name: e.target.value }))} placeholder="Full name as registered" />
-          </div>
-        </div>
-        <button type="submit" disabled={saving === 'bank'} className="btn-primary w-full mt-5">
-          {saving === 'bank' ? 'Saving…' : 'Save Bank Details'}
-        </button>
-      </form>
     </div>
   );
 }

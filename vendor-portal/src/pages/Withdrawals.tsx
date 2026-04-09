@@ -67,27 +67,106 @@ export default function Withdrawals() {
         <h1 className="text-xl font-bold text-gray-900">Withdrawals</h1>
       </div>
 
-      {/* Balance card */}
-      <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-5 text-white">
-        <p className="text-green-100 text-xs font-medium mb-1">Available Balance</p>
-        <p className="text-3xl font-bold">{fmt(balance)}</p>
-        <p className="text-green-200 text-xs mt-2 leading-relaxed">After platform commission · Voucher discounts absorbed by JulineMart</p>
-        <button
-          onClick={() => setShowForm(true)}
-          className="mt-4 w-full bg-white text-green-700 font-semibold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-green-50 transition-colors active:scale-[0.99]"
-        >
-          <Plus className="w-4 h-4" />
-          Request Withdrawal
-        </button>
+      <div className="lg:grid lg:grid-cols-3 lg:gap-6 lg:items-start space-y-4 lg:space-y-0">
+        {/* Left: balance card */}
+        <div className="lg:sticky lg:top-8 space-y-4">
+          <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-2xl p-5 text-white">
+            <p className="text-green-100 text-xs font-medium mb-1">Available Balance</p>
+            <p className="text-3xl font-bold">{fmt(balance)}</p>
+            <p className="text-green-200 text-xs mt-2 leading-relaxed">After platform commission · Voucher discounts absorbed by JulineMart</p>
+            <button
+              onClick={() => setShowForm(true)}
+              className="mt-4 w-full bg-white text-green-700 font-semibold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-green-50 transition-colors active:scale-[0.99]"
+            >
+              <Plus className="w-4 h-4" />
+              Request Withdrawal
+            </button>
+          </div>
+
+          {/* Bank info summary */}
+          {(vendor?.bank_name || vendor?.bank_account_number) && (
+            <div className="card p-4">
+              <p className="text-xs text-gray-500 font-medium mb-2 uppercase tracking-wide">Withdrawal Account</p>
+              <p className="text-sm font-semibold text-gray-900">{vendor.bank_name || '—'}</p>
+              <p className="text-xs text-gray-500 font-mono mt-0.5">{vendor.bank_account_number}</p>
+              <p className="text-xs text-gray-500">{vendor.bank_account_name}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Right: history */}
+        <div className="lg:col-span-2">
+          {error && (
+            <div className="card flex items-center gap-3 text-red-600 mb-4">
+              <AlertCircle className="w-5 h-5 flex-shrink-0" /> {error}
+            </div>
+          )}
+          {loading ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : withdrawals.length ? (
+            <div className="card p-0 overflow-hidden">
+              <div className="px-5 py-3 border-b border-gray-100">
+                <h2 className="text-sm font-semibold text-gray-700">Withdrawal History</h2>
+              </div>
+              {/* Mobile cards */}
+              <div className="divide-y divide-gray-50 lg:hidden">
+                {withdrawals.map(w => (
+                  <div key={w.id} className="p-4 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`badge ${STATUS_BADGE[w.status] || 'bg-gray-100 text-gray-600'}`}>{w.status}</span>
+                        <span className="text-xs text-gray-400">{new Date(w.created_at).toLocaleDateString('en-GB')}</span>
+                      </div>
+                      <p className="text-sm text-gray-700">{w.bank_name}</p>
+                      <p className="text-xs text-gray-400">{w.bank_account_number} · {w.bank_account_name}</p>
+                      {w.rejection_reason && <p className="text-xs text-red-500 mt-1">{w.rejection_reason}</p>}
+                      {w.payment_reference && <p className="text-xs text-gray-400 font-mono mt-1">Ref: {w.payment_reference}</p>}
+                    </div>
+                    <p className="text-lg font-bold text-gray-900 flex-shrink-0">{fmt(w.amount)}</p>
+                  </div>
+                ))}
+              </div>
+              {/* Desktop table */}
+              <table className="hidden lg:table w-full text-sm">
+                <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+                  <tr>
+                    <th className="px-5 py-3 text-left">Date</th>
+                    <th className="px-5 py-3 text-left">Bank</th>
+                    <th className="px-5 py-3 text-left">Account</th>
+                    <th className="px-5 py-3 text-left">Status</th>
+                    <th className="px-5 py-3 text-right">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {withdrawals.map(w => (
+                    <tr key={w.id} className="hover:bg-gray-50">
+                      <td className="px-5 py-3 text-xs text-gray-500">{new Date(w.created_at).toLocaleDateString('en-GB')}</td>
+                      <td className="px-5 py-3 text-gray-900">{w.bank_name}</td>
+                      <td className="px-5 py-3 text-xs text-gray-500 font-mono">{w.bank_account_number}<br/><span className="not-italic font-sans text-gray-400">{w.bank_account_name}</span></td>
+                      <td className="px-5 py-3">
+                        <span className={`badge ${STATUS_BADGE[w.status] || 'bg-gray-100 text-gray-600'}`}>{w.status}</span>
+                        {w.rejection_reason && <p className="text-xs text-red-500 mt-0.5">{w.rejection_reason}</p>}
+                        {w.payment_reference && <p className="text-xs text-gray-400 font-mono mt-0.5">Ref: {w.payment_reference}</p>}
+                      </td>
+                      <td className="px-5 py-3 text-right font-bold text-gray-900">{fmt(w.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="card text-center py-16 text-gray-400">
+              <Wallet className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="font-medium">No withdrawals yet</p>
+              <p className="text-sm mt-1">Your requests will appear here</p>
+            </div>
+          )}
+        </div>
       </div>
 
-      {error && (
-        <div className="card flex items-center gap-3 text-red-600">
-          <AlertCircle className="w-5 h-5 flex-shrink-0" /> {error}
-        </div>
-      )}
-
-      {/* Request form — full-screen on mobile, modal on desktop */}
+      {/* Request form modal */}
       {showForm && (
         <div className="fixed inset-0 z-50 lg:flex lg:items-center lg:justify-center lg:p-4 lg:bg-black/40">
           <div className="bg-white lg:rounded-2xl lg:shadow-2xl w-full h-full lg:h-auto lg:max-w-md flex flex-col">
@@ -134,38 +213,6 @@ export default function Withdrawals() {
               </div>
             </form>
           </div>
-        </div>
-      )}
-
-      {/* Withdrawal history — card list */}
-      {loading ? (
-        <div className="flex items-center justify-center h-32">
-          <div className="w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin" />
-        </div>
-      ) : withdrawals.length ? (
-        <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">History</h2>
-          {withdrawals.map(w => (
-            <div key={w.id} className="card p-4 flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`badge ${STATUS_BADGE[w.status] || 'bg-gray-100 text-gray-600'}`}>{w.status}</span>
-                  <span className="text-xs text-gray-400">{new Date(w.created_at).toLocaleDateString('en-GB')}</span>
-                </div>
-                <p className="text-sm text-gray-700">{w.bank_name}</p>
-                <p className="text-xs text-gray-400">{w.bank_account_number} · {w.bank_account_name}</p>
-                {w.rejection_reason && <p className="text-xs text-red-500 mt-1">{w.rejection_reason}</p>}
-                {w.payment_reference && <p className="text-xs text-gray-400 font-mono mt-1">Ref: {w.payment_reference}</p>}
-              </div>
-              <p className="text-lg font-bold text-gray-900 flex-shrink-0">{fmt(w.amount)}</p>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="card text-center py-16 text-gray-400">
-          <Wallet className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="font-medium">No withdrawals yet</p>
-          <p className="text-sm mt-1">Your requests will appear here</p>
         </div>
       )}
     </div>

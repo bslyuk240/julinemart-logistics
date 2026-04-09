@@ -77,8 +77,8 @@ export default function Orders() {
         </div>
       ) : (
         <>
-          {/* Order card list — no table on any screen */}
-          <div className="space-y-3">
+          {/* Mobile: card list */}
+          <div className="space-y-3 lg:hidden">
             {(data?.orders || []).map((o: any) => (
               <button
                 key={o.id}
@@ -107,6 +107,42 @@ export default function Orders() {
               </button>
             ))}
           </div>
+
+          {/* Desktop: table */}
+          {(data?.orders || []).length > 0 && (
+            <div className="hidden lg:block card p-0 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+                  <tr>
+                    <th className="px-5 py-3 text-left">Order #</th>
+                    <th className="px-5 py-3 text-left">Customer</th>
+                    <th className="px-5 py-3 text-left">Status</th>
+                    <th className="px-5 py-3 text-left">Date</th>
+                    <th className="px-5 py-3 text-right">Gross</th>
+                    <th className="px-5 py-3 text-right">Your Payout</th>
+                    <th className="px-5 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {(data?.orders || []).map((o: any) => (
+                    <tr key={o.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => openDetail(o.id)}>
+                      <td className="px-5 py-3 font-mono text-xs text-gray-500">#{o.order_number || o.id?.slice(0, 8)}</td>
+                      <td className="px-5 py-3 font-medium text-gray-900">{o.customer || '—'}</td>
+                      <td className="px-5 py-3">
+                        <span className={`badge ${STATUS_BADGE[o.status] || 'bg-gray-100 text-gray-600'}`}>
+                          {o.status?.replace(/_/g, ' ')}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-gray-500 text-xs">{new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+                      <td className="px-5 py-3 text-right text-gray-700">{fmt(o.gross_amount)}</td>
+                      <td className="px-5 py-3 text-right font-bold text-gray-900">{fmt(o.vendor_amount)}</td>
+                      <td className="px-5 py-3 text-right"><ChevronRight className="w-4 h-4 text-gray-400 ml-auto" /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {!data?.orders?.length && (
             <div className="card text-center py-16 text-gray-400">

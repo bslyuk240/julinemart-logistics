@@ -80,23 +80,25 @@ export function VendorsPage() {
 
   const loadVendors = useCallback(async () => {
     setVendorsLoading(true);
-    const { data } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await (supabase as any)
       .from('vendors')
       .select('id, store_name, email, phone, commission_rate, is_active, user_id, created_at')
       .order('store_name');
-    setVendors(data || []);
+    setVendors((data as Vendor[]) || []);
     setVendorsLoading(false);
   }, []);
 
   const loadApps = useCallback(async () => {
     setAppsLoading(true);
-    let q = supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q = (supabase as any)
       .from('vendor_applications')
       .select('*')
       .order('created_at', { ascending: false });
     if (appFilter !== 'all') q = q.eq('status', appFilter);
     const { data } = await q;
-    setApps(data || []);
+    setApps((data as Application[]) || []);
     setAppsLoading(false);
   }, [appFilter]);
 

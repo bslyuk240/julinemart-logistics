@@ -13,9 +13,9 @@ export default function Settings() {
   });
 
   const [bankForm, setBankForm] = useState({
-    bank_name:            vendor?.bank_name            || '',
-    bank_account_number:  vendor?.bank_account_number  || '',
-    bank_account_name:    vendor?.bank_account_name    || '',
+    bank_name:           vendor?.bank_name           || '',
+    bank_account_number: vendor?.bank_account_number || '',
+    bank_account_name:   vendor?.bank_account_name   || '',
   });
 
   const [saving, setSaving]   = useState<string | null>(null);
@@ -34,8 +34,8 @@ export default function Settings() {
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+    <div className="space-y-4 max-w-lg">
+      <h1 className="text-xl font-bold text-gray-900">Settings</h1>
 
       {error && (
         <div className="card flex items-center gap-3 text-red-600 bg-red-50 border-red-100">
@@ -43,79 +43,123 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Store info (read-only) */}
+      {/* Store info — read-only */}
       <div className="card">
         <div className="flex items-center gap-2 mb-4">
           <Store className="w-5 h-5 text-primary-600" />
           <h2 className="font-semibold text-gray-900">Store Information</h2>
         </div>
-        <div className="grid grid-cols-2 gap-4 text-sm mb-4">
-          <div><p className="text-gray-500 mb-0.5">Store Name</p><p className="font-medium">{vendor?.store_name}</p></div>
-          <div><p className="text-gray-500 mb-0.5">Store Slug</p><p className="font-medium">{vendor?.store_slug}</p></div>
-          <div><p className="text-gray-500 mb-0.5">Email</p><p className="font-medium">{vendor?.email}</p></div>
-          <div><p className="text-gray-500 mb-0.5">Commission Rate</p><p className="font-medium text-primary-600">{vendor?.commission_rate}%</p></div>
-          <div><p className="text-gray-500 mb-0.5">City</p><p className="font-medium">{vendor?.city || '—'}</p></div>
-          <div><p className="text-gray-500 mb-0.5">State</p><p className="font-medium">{vendor?.state || '—'}</p></div>
+        <div className="space-y-3">
+          {[
+            { label: 'Store Name',      value: vendor?.store_name },
+            { label: 'Email',           value: vendor?.email },
+            { label: 'Commission Rate', value: vendor?.commission_rate != null ? `${vendor.commission_rate}%` : undefined, color: 'text-primary-600' },
+            { label: 'City',            value: vendor?.city },
+            { label: 'State',           value: vendor?.state },
+          ].map(f => (
+            <div key={f.label} className="flex justify-between items-start py-2 border-b border-gray-50 last:border-0 gap-4">
+              <span className="text-sm text-gray-500 flex-shrink-0">{f.label}</span>
+              <span className={`text-sm font-semibold text-right break-all ${f.color || 'text-gray-900'}`}>{f.value || '—'}</span>
+            </div>
+          ))}
         </div>
-        <p className="text-xs text-gray-400">Contact JulineMart support to update store name, email, or commission rate.</p>
+        <p className="text-xs text-gray-400 mt-3">Contact JulineMart support to update store name, email, or commission rate.</p>
       </div>
 
-      {/* Store profile (editable) */}
-      <form onSubmit={e => { e.preventDefault(); save('store', storeForm); }} className="card">
+      {/* Store profile — editable */}
+      <form onSubmit={(e: FormEvent) => { e.preventDefault(); save('store', storeForm); }} className="card">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <SettingsIcon className="w-5 h-5 text-primary-600" />
             <h2 className="font-semibold text-gray-900">Store Profile</h2>
           </div>
-          {success === 'store' && <span className="text-sm text-green-600 flex items-center gap-1"><CheckCircle className="w-4 h-4" />Saved</span>}
+          {success === 'store' && (
+            <span className="text-sm text-green-600 flex items-center gap-1">
+              <CheckCircle className="w-4 h-4" /> Saved
+            </span>
+          )}
         </div>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Store Description</label>
-            <textarea className="input" rows={3} value={storeForm.description} onChange={e => setStoreForm(p => ({ ...p, description: e.target.value }))} placeholder="Tell customers about your store..." />
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Store Description</label>
+            <textarea
+              className="input"
+              rows={3}
+              value={storeForm.description}
+              onChange={e => setStoreForm(p => ({ ...p, description: e.target.value }))}
+              placeholder="Tell customers about your store…"
+            />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Logo URL</label>
-            <input className="input" value={storeForm.logo_url} onChange={e => setStoreForm(p => ({ ...p, logo_url: e.target.value }))} placeholder="https://..." />
-            {storeForm.logo_url && <img src={storeForm.logo_url} alt="" className="mt-2 w-16 h-16 rounded-full object-cover border" onError={e => (e.currentTarget.style.display = 'none')} />}
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Logo URL</label>
+            <input
+              className="input"
+              value={storeForm.logo_url}
+              onChange={e => setStoreForm(p => ({ ...p, logo_url: e.target.value }))}
+              placeholder="https://…"
+            />
+            {storeForm.logo_url && (
+              <img
+                src={storeForm.logo_url}
+                alt=""
+                className="mt-2 w-16 h-16 rounded-full object-cover border"
+                onError={e => (e.currentTarget.style.display = 'none')}
+              />
+            )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Banner URL</label>
-            <input className="input" value={storeForm.banner_url} onChange={e => setStoreForm(p => ({ ...p, banner_url: e.target.value }))} placeholder="https://..." />
-            {storeForm.banner_url && <img src={storeForm.banner_url} alt="" className="mt-2 w-full h-24 object-cover rounded-lg border" onError={e => (e.currentTarget.style.display = 'none')} />}
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Banner URL</label>
+            <input
+              className="input"
+              value={storeForm.banner_url}
+              onChange={e => setStoreForm(p => ({ ...p, banner_url: e.target.value }))}
+              placeholder="https://…"
+            />
+            {storeForm.banner_url && (
+              <img
+                src={storeForm.banner_url}
+                alt=""
+                className="mt-2 w-full h-24 object-cover rounded-xl border"
+                onError={e => (e.currentTarget.style.display = 'none')}
+              />
+            )}
           </div>
         </div>
-        <button type="submit" disabled={saving === 'store'} className="btn-primary mt-4 text-sm">
-          {saving === 'store' ? 'Saving...' : 'Save Profile'}
+        <button type="submit" disabled={saving === 'store'} className="btn-primary w-full mt-5">
+          {saving === 'store' ? 'Saving…' : 'Save Profile'}
         </button>
       </form>
 
-      {/* Bank details (editable) */}
-      <form onSubmit={e => { e.preventDefault(); save('bank', bankForm); }} className="card">
+      {/* Bank details — editable */}
+      <form onSubmit={(e: FormEvent) => { e.preventDefault(); save('bank', bankForm); }} className="card">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <CreditCard className="w-5 h-5 text-primary-600" />
             <h2 className="font-semibold text-gray-900">Bank Details</h2>
           </div>
-          {success === 'bank' && <span className="text-sm text-green-600 flex items-center gap-1"><CheckCircle className="w-4 h-4" />Saved</span>}
+          {success === 'bank' && (
+            <span className="text-sm text-green-600 flex items-center gap-1">
+              <CheckCircle className="w-4 h-4" /> Saved
+            </span>
+          )}
         </div>
-        <p className="text-xs text-gray-500 mb-4">Used for withdrawal requests. Make sure details are correct.</p>
+        <p className="text-xs text-gray-500 mb-4">Used for withdrawal payments. Ensure details are correct.</p>
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Bank Name</label>
             <input className="input" value={bankForm.bank_name} onChange={e => setBankForm(p => ({ ...p, bank_name: e.target.value }))} placeholder="e.g. First Bank Nigeria" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Account Number</label>
-            <input className="input" value={bankForm.bank_account_number} onChange={e => setBankForm(p => ({ ...p, bank_account_number: e.target.value }))} placeholder="10-digit NUBAN" maxLength={10} />
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Account Number</label>
+            <input className="input" inputMode="numeric" value={bankForm.bank_account_number} onChange={e => setBankForm(p => ({ ...p, bank_account_number: e.target.value }))} placeholder="10-digit NUBAN" maxLength={10} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Account Name</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1.5">Account Name</label>
             <input className="input" value={bankForm.bank_account_name} onChange={e => setBankForm(p => ({ ...p, bank_account_name: e.target.value }))} placeholder="Full name as registered" />
           </div>
         </div>
-        <button type="submit" disabled={saving === 'bank'} className="btn-primary mt-4 text-sm">
-          {saving === 'bank' ? 'Saving...' : 'Save Bank Details'}
+        <button type="submit" disabled={saving === 'bank'} className="btn-primary w-full mt-5">
+          {saving === 'bank' ? 'Saving…' : 'Save Bank Details'}
         </button>
       </form>
     </div>

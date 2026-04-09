@@ -1,4 +1,0 @@
-[submodule "pwa"]
-	path = pwa
-	url = https://github.com/bslyuk240/julinemart-pwa.git
-	branch = dev-lab

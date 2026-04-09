@@ -171,19 +171,20 @@ export default function Register() {
   // ─── Success screen ─────────────────────────────────────────────────────────
   if (submitted) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-lg p-10 max-w-md w-full text-center">
+      <div className="min-h-screen bg-gradient-to-br from-primary-50 to-white flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-10 max-w-md w-full text-center">
+          <img src="/logo.png" alt="JulineMart" className="h-9 object-contain mx-auto mb-6" />
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Application Submitted!</h2>
-          <p className="text-gray-500 mb-6">
+          <p className="text-gray-500 mb-6 text-sm leading-relaxed">
             Thank you, <strong>{form.full_name}</strong>! Your application for <strong>{form.store_name}</strong> has been received.
             Our team will review your details and reach out to <strong>{form.email}</strong> within 2–3 business days.
           </p>
-          <Link to="/login" className="text-purple-600 hover:underline text-sm font-medium">
+          <Link to="/login" className="btn-primary inline-block px-8 py-2.5 text-sm">
             Back to Login
           </Link>
         </div>
@@ -193,26 +194,21 @@ export default function Register() {
 
   // ─── Form ────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-white flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-lg w-full max-w-xl">
+    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-white flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-card border border-gray-100 w-full max-w-xl">
         {/* Header */}
-        <div className="px-8 pt-8 pb-4">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 bg-purple-600 rounded-xl flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-gray-900">Become a JulineMart Vendor</h1>
-              <p className="text-xs text-gray-500">Sell to thousands of customers across Nigeria</p>
-            </div>
+        <div className="brand-gradient px-8 pt-7 pb-6 rounded-t-2xl">
+          <img src="/logo.png" alt="JulineMart" className="h-8 object-contain mb-4 brightness-0 invert" />
+          <div>
+            <h1 className="text-xl font-bold text-white">Become a JulineMart Vendor</h1>
+            <p className="text-primary-200 text-xs mt-0.5">Sell to thousands of customers across Nigeria</p>
+          </div>
           </div>
 
           {/* Progress bar */}
           <div className="flex gap-2 mb-1">
             {([1,2,3,4] as Step[]).map(s => (
-              <div key={s} className={`flex-1 h-1.5 rounded-full transition-colors ${s <= step ? 'bg-purple-600' : 'bg-gray-200'}`} />
+              <div key={s} className={`flex-1 h-1.5 rounded-full transition-colors ${s <= step ? 'bg-white' : 'bg-white/30'}`} />
             ))}
           </div>
           <div className="flex justify-between text-xs text-gray-400 mb-6">
@@ -366,14 +362,14 @@ export default function Register() {
             )}
 
             {step < 4 ? (
-              <button onClick={next} className="px-6 py-2.5 text-sm font-medium bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition">
+              <button onClick={next} className="btn-primary px-6 py-2.5 text-sm">
                 Next →
               </button>
             ) : (
               <button
                 onClick={handleSubmit}
                 disabled={submitting}
-                className="px-6 py-2.5 text-sm font-medium bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition disabled:opacity-60 flex items-center gap-2"
+                className="btn-primary px-6 py-2.5 text-sm flex items-center gap-2"
               >
                 {submitting ? (
                   <>

@@ -3,6 +3,9 @@
   'https://www.julinemart.com',
   'https://julinemart-pwa.netlify.app',
   'https://dev-lab--julinemart-pwa.netlify.app',
+  'https://vendors.julinemart.com',
+  'https://vendors-julinemart.netlify.app',
+  'https://jlo.julinemart.com',
 ];
 
 function getCorsHeaders(origin) {

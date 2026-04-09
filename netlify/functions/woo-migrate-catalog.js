@@ -235,9 +235,9 @@ async function syncProducts(adminClient, page, wooStatus = 'publish') {
 
     // For draft products, WC read-only API keys return empty results.
     // Prefer WP Application Password if provided (full admin access, works for all statuses).
-    // Set WP_ADMIN_USER + WP_ADMIN_APP_PASSWORD in Netlify env vars.
-    const wpUser    = process.env.WP_ADMIN_USER || '';
-    const wpAppPass = process.env.WP_ADMIN_APP_PASSWORD || '';
+    // Uses WP_MEDIA_USERNAME + WORDPRESS_APP_PASSWORD env vars (already set in Netlify).
+    const wpUser    = process.env.WP_MEDIA_USERNAME || process.env.WP_ADMIN_USER || '';
+    const wpAppPass = process.env.WORDPRESS_APP_PASSWORD || process.env.WP_ADMIN_APP_PASSWORD || '';
     const auth = (wpUser && wpAppPass && wooStatus !== 'publish')
       ? `Basic ${Buffer.from(`${wpUser}:${wpAppPass}`).toString('base64')}`
       : `Basic ${Buffer.from(`${ck}:${cs}`).toString('base64')}`;

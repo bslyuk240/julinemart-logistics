@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Store, Mail, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, Eye, Send, AlertTriangle, Pencil, X, Check } from 'lucide-react';
+import { Store, Mail, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, Eye, Send, AlertTriangle, Pencil, X, Check, RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -85,6 +85,8 @@ export function VendorsPage() {
   const [emailDraft, setEmailDraft] = useState('');
   const [savingEmail, setSavingEmail] = useState(false);
   const [emailMsg, setEmailMsg] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   // Applications
   const [apps, setApps] = useState<Application[]>([]);
@@ -121,6 +123,20 @@ export function VendorsPage() {
 
   useEffect(() => { loadVendors(); }, [loadVendors]);
   useEffect(() => { loadApps(); }, [loadApps]);
+
+  // ── Sync vendor profiles from WCFM ────────────────────────────────────────
+  async function handleSyncProfiles() {
+    setSyncing(true);
+    setSyncResult(null);
+    const res = await callApi('vendor-sync-profiles', {});
+    if (res.success) {
+      setSyncResult(`Done — ${res.updated} updated, ${res.skipped} skipped, ${res.errored} errors`);
+      loadVendors();
+    } else {
+      setSyncResult('Error: ' + (res.error || 'Unknown'));
+    }
+    setSyncing(false);
+  }
 
   // ── Invite existing vendor ─────────────────────────────────────────────────
   async function handleInvite(vendorId: string) {
@@ -205,9 +221,25 @@ export function VendorsPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex items-center gap-3 mb-6">
-        <Store className="w-6 h-6 text-purple-600" />
-        <h1 className="text-2xl font-bold text-gray-900">Vendors</h1>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <Store className="w-6 h-6 text-purple-600" />
+          <h1 className="text-2xl font-bold text-gray-900">Vendors</h1>
+        </div>
+        <div className="flex items-center gap-3">
+          {syncResult && (
+            <span className="text-sm text-gray-500">{syncResult}</span>
+          )}
+          <button
+            onClick={handleSyncProfiles}
+            disabled={syncing}
+            className="inline-flex items-center gap-2 text-sm bg-white border border-gray-300 hover:border-purple-400 text-gray-700 hover:text-purple-700 px-4 py-2 rounded-lg disabled:opacity-50 transition"
+            title="Pull phone, address, description and logo for all vendors from WCFM"
+          >
+            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing profiles…' : 'Sync from WCFM'}
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}

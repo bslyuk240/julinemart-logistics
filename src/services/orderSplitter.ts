@@ -84,7 +84,8 @@ export async function createOrderWithSubOrders(mainOrder: MainOrder) {
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert({
-        order_number: mainOrder.woocommerceOrderId,
+        order_number: Number(mainOrder.woocommerceOrderId),
+        woocommerce_order_id: mainOrder.woocommerceOrderId,
         customer_name: mainOrder.customerName,
         customer_email: mainOrder.customerEmail,
         customer_phone: mainOrder.customerPhone,

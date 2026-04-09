@@ -7,11 +7,12 @@ import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateVendor } from './services/vendorAuth.js';
 
 export async function handler(event) {
-  if (event.httpMethod === 'OPTIONS') return preflightResponse();
-  if (event.httpMethod !== 'GET') return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
+  const origin = event.headers?.origin || event.headers?.Origin || '';
+  if (event.httpMethod === 'OPTIONS') return preflightResponse(origin);
+  if (event.httpMethod !== 'GET') return { statusCode: 405, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
 
   const { vendor, adminClient, error } = await authenticateVendor(event);
-  if (error) return { statusCode: 401, headers: corsHeaders(), body: JSON.stringify({ success: false, error }) };
+  if (error) return { statusCode: 401, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error }) };
 
   const qs     = event.queryStringParameters || {};
   const page   = Math.max(1, parseInt(qs.page || '1', 10));
@@ -34,8 +35,8 @@ export async function handler(event) {
       .eq('vendor_id', vendor.id)
       .single();
 
-    if (soErr || !so) return { statusCode: 404, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Order not found' }) };
-    return { statusCode: 200, headers: corsHeaders(), body: JSON.stringify({ success: true, data: so }) };
+    if (soErr || !so) return { statusCode: 404, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Order not found' }) };
+    return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify({ success: true, data: so }) };
   }
 
   // ── List sub_orders for this vendor ──────────────────────────────────────
@@ -53,7 +54,7 @@ export async function handler(event) {
   if (status) query = query.eq('status', status);
 
   const { data: subOrders, count, error: qErr } = await query;
-  if (qErr) return { statusCode: 500, headers: corsHeaders(), body: JSON.stringify({ success: false, error: qErr.message }) };
+  if (qErr) return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: qErr.message }) };
 
   const orders = (subOrders || []).map(so => ({
     id:           so.id,
@@ -71,7 +72,7 @@ export async function handler(event) {
 
   return {
     statusCode: 200,
-    headers: corsHeaders(),
+    headers: corsHeaders(origin),
     body: JSON.stringify({
       success: true,
       data: { orders, total: count || 0, page, per_page: limit, total_pages: Math.ceil((count || 0) / limit) },

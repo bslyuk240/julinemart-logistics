@@ -17,10 +17,11 @@ function extractId(path) {
 }
 
 export async function handler(event) {
-  if (event.httpMethod === 'OPTIONS') return preflightResponse();
+  const origin = event.headers?.origin || event.headers?.Origin || '';
+  if (event.httpMethod === 'OPTIONS') return preflightResponse(origin);
 
   const { vendor, adminClient, error } = await authenticateVendor(event);
-  if (error) return { statusCode: 401, headers: corsHeaders(), body: JSON.stringify({ success: false, error }) };
+  if (error) return { statusCode: 401, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error }) };
 
   const id = extractId(event.path);
 
@@ -33,15 +34,15 @@ export async function handler(event) {
       .order('created_at', { ascending: false })
       .limit(50);
 
-    if (qErr) return { statusCode: 500, headers: corsHeaders(), body: JSON.stringify({ success: false, error: qErr.message }) };
-    return { statusCode: 200, headers: corsHeaders(), body: JSON.stringify({ success: true, data }) };
+    if (qErr) return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: qErr.message }) };
+    return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify({ success: true, data }) };
   }
 
   // ── POST — vendor requests withdrawal ───────────────────────────────────
   if (event.httpMethod === 'POST') {
     const body = event.body ? JSON.parse(event.body) : {};
     const amount = Number(body.amount);
-    if (!amount || amount <= 0) return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'amount is required and must be > 0' }) };
+    if (!amount || amount <= 0) return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'amount is required and must be > 0' }) };
 
     // Check available balance
     const { data: summary } = await adminClient
@@ -54,7 +55,7 @@ export async function handler(event) {
     if (amount > available) {
       return {
         statusCode: 400,
-        headers: corsHeaders(),
+        headers: corsHeaders(origin),
         body: JSON.stringify({ success: false, error: `Insufficient balance. Available: ₦${available.toLocaleString()}` }),
       };
     }
@@ -73,8 +74,8 @@ export async function handler(event) {
       .select()
       .single();
 
-    if (insErr) return { statusCode: 500, headers: corsHeaders(), body: JSON.stringify({ success: false, error: insErr.message }) };
-    return { statusCode: 201, headers: corsHeaders(), body: JSON.stringify({ success: true, data }) };
+    if (insErr) return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: insErr.message }) };
+    return { statusCode: 201, headers: corsHeaders(origin), body: JSON.stringify({ success: true, data }) };
   }
 
   // ── PUT — admin approves / rejects / marks paid ──────────────────────────
@@ -87,7 +88,7 @@ export async function handler(event) {
     if (action === 'approve') {
       updates.status = 'approved';
     } else if (action === 'reject') {
-      if (!rejection_reason) return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'rejection_reason required' }) };
+      if (!rejection_reason) return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'rejection_reason required' }) };
       updates = { ...updates, status: 'rejected', rejection_reason };
     } else if (action === 'paid') {
       updates = {
@@ -98,7 +99,7 @@ export async function handler(event) {
         notes: notes || null,
       };
     } else {
-      return { statusCode: 400, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'action must be approve | reject | paid' }) };
+      return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'action must be approve | reject | paid' }) };
     }
 
     const { data, error: updErr } = await getAdminClient()
@@ -108,9 +109,9 @@ export async function handler(event) {
       .select()
       .single();
 
-    if (updErr) return { statusCode: 500, headers: corsHeaders(), body: JSON.stringify({ success: false, error: updErr.message }) };
-    return { statusCode: 200, headers: corsHeaders(), body: JSON.stringify({ success: true, data }) };
+    if (updErr) return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: updErr.message }) };
+    return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify({ success: true, data }) };
   }
 
-  return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
+  return { statusCode: 405, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
 }

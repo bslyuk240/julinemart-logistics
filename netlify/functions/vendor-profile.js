@@ -6,16 +6,17 @@ import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateVendor, getAdminClient } from './services/vendorAuth.js';
 
 export async function handler(event) {
-  if (event.httpMethod === 'OPTIONS') return preflightResponse();
+  const origin = event.headers?.origin || event.headers?.Origin || '';
+  if (event.httpMethod === 'OPTIONS') return preflightResponse(origin);
 
   const { vendor, userId, adminClient, error } = await authenticateVendor(event);
-  if (error) return { statusCode: 401, headers: corsHeaders(), body: JSON.stringify({ success: false, error }) };
+  if (error) return { statusCode: 401, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error }) };
 
   // ── GET ──────────────────────────────────────────────────────────────────
   if (event.httpMethod === 'GET') {
     return {
       statusCode: 200,
-      headers: corsHeaders(),
+      headers: corsHeaders(origin),
       body: JSON.stringify({ success: true, data: vendor }),
     };
   }
@@ -36,9 +37,9 @@ export async function handler(event) {
       .select()
       .single();
 
-    if (updateErr) return { statusCode: 500, headers: corsHeaders(), body: JSON.stringify({ success: false, error: updateErr.message }) };
-    return { statusCode: 200, headers: corsHeaders(), body: JSON.stringify({ success: true, data }) };
+    if (updateErr) return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: updateErr.message }) };
+    return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify({ success: true, data }) };
   }
 
-  return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
+  return { statusCode: 405, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
 }

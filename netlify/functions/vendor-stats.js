@@ -6,11 +6,12 @@ import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateVendor } from './services/vendorAuth.js';
 
 export async function handler(event) {
-  if (event.httpMethod === 'OPTIONS') return preflightResponse();
-  if (event.httpMethod !== 'GET') return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
+  const origin = event.headers?.origin || event.headers?.Origin || '';
+  if (event.httpMethod === 'OPTIONS') return preflightResponse(origin);
+  if (event.httpMethod !== 'GET') return { statusCode: 405, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
 
   const { vendor, adminClient, error } = await authenticateVendor(event);
-  if (error) return { statusCode: 401, headers: corsHeaders(), body: JSON.stringify({ success: false, error }) };
+  if (error) return { statusCode: 401, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error }) };
 
   const [earningsRes, withdrawalsRes, pendingOrdersRes, recentOrdersRes, productsRes] = await Promise.all([
     // Earnings summary
@@ -58,7 +59,7 @@ export async function handler(event) {
 
   return {
     statusCode: 200,
-    headers: corsHeaders(),
+    headers: corsHeaders(origin),
     body: JSON.stringify({
       success: true,
       data: {

@@ -25,11 +25,12 @@ async function fetchWooProducts(ids) {
 }
 
 export async function handler(event) {
-  if (event.httpMethod === 'OPTIONS') return preflightResponse();
-  if (event.httpMethod !== 'GET') return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
+  const origin = event.headers?.origin || event.headers?.Origin || '';
+  if (event.httpMethod === 'OPTIONS') return preflightResponse(origin);
+  if (event.httpMethod !== 'GET') return { statusCode: 405, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
 
   const { vendor, adminClient, error } = await authenticateVendor(event);
-  if (error) return { statusCode: 401, headers: corsHeaders(), body: JSON.stringify({ success: false, error }) };
+  if (error) return { statusCode: 401, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error }) };
 
   const qs     = event.queryStringParameters || {};
   const page   = Math.max(1, parseInt(qs.page || '1', 10));
@@ -48,7 +49,7 @@ export async function handler(event) {
   if (search) query = query.ilike('name', `%${search}%`);
 
   const { data: sbProducts, count, error: qErr } = await query;
-  if (qErr) return { statusCode: 500, headers: corsHeaders(), body: JSON.stringify({ success: false, error: qErr.message }) };
+  if (qErr) return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: qErr.message }) };
 
   // Enrich with WC images
   const wooIds = (sbProducts || []).map(p => p.woo_product_id).filter(Boolean);
@@ -76,7 +77,7 @@ export async function handler(event) {
 
   return {
     statusCode: 200,
-    headers: corsHeaders(),
+    headers: corsHeaders(origin),
     body: JSON.stringify({
       success: true,
       data: { products, total: count || 0, page, per_page: limit, total_pages: Math.ceil((count || 0) / limit) },

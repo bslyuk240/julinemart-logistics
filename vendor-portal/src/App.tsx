@@ -9,6 +9,7 @@ import Orders from './pages/Orders';
 import Earnings from './pages/Earnings';
 import Withdrawals from './pages/Withdrawals';
 import Settings from './pages/Settings';
+import SetPassword from './pages/SetPassword';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, vendor, loading } = useAuth();
@@ -32,8 +33,9 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/login"    element={<Login />} />
-      <Route path="/register" element={<Register />} />
+      <Route path="/login"        element={<Login />} />
+      <Route path="/register"     element={<Register />} />
+      <Route path="/set-password" element={<SetPassword />} />
       <Route path="/*" element={
         <PrivateRoute>
           <Layout>

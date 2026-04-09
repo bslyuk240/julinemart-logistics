@@ -145,81 +145,74 @@ export const handler = async (event) => {
   }
 
   const wpAuth = `Basic ${Buffer.from(`${wpUser}:${wpAppPass}`).toString('base64')}`;
-  const results = [];
 
-  for (const vendor of vendors) {
-    const wpId = vendor.woocommerce_vendor_id;
-    if (!wpId) continue;
+  // Process all vendors in parallel to avoid timeout
+  const results = await Promise.all(
+    vendors.map(async (vendor) => {
+      const wpId = vendor.woocommerce_vendor_id;
+      if (!wpId) return null;
 
-    try {
-      // Fetch WP customer record (includes all user meta)
-      const res = await fetch(`${wpBase}/wp-json/wc/v3/customers/${wpId}`, {
-        headers: { Authorization: wpAuth },
-      });
+      try {
+        const res = await fetch(`${wpBase}/wp-json/wc/v3/customers/${wpId}`, {
+          headers: { Authorization: wpAuth },
+        });
 
-      if (!res.ok) {
-        results.push({ wpId, status: 'skip', reason: `WC API ${res.status}` });
-        continue;
+        if (!res.ok) return { wpId, status: 'skip', reason: `WC API ${res.status}` };
+
+        const customer = await res.json();
+        const meta = {};
+        for (const m of (customer.meta_data || [])) {
+          meta[m.key] = m.value;
+        }
+
+        const profileRaw = meta['wcfmmp_profile_settings'] || '';
+        const profile = typeof profileRaw === 'string' && profileRaw.startsWith('a:')
+          ? phpUnserialize(profileRaw)
+          : (typeof profileRaw === 'object' ? profileRaw : {});
+
+        const phone       = profile['mobile']  || profile['phone']  || meta['store_phone']  || customer.billing?.phone  || null;
+        const address     = profile['address'] || meta['store_address1'] || customer.billing?.address_1 || null;
+        const city        = profile['city']    || meta['store_city']    || customer.billing?.city  || null;
+        const state       = profile['state']   || meta['store_state']   || customer.billing?.state || null;
+        const description = meta['_store_description'] || profile['shop_description'] || null;
+
+        const logoId   = profile['logo']   || meta['_wcfmmp_profile_logo']   || null;
+        const bannerId = profile['banner'] || meta['_wcfmmp_profile_banner'] || null;
+        const [logo_url, banner_url] = await Promise.all([
+          logoId   ? resolveAttachmentUrl(logoId)   : Promise.resolve(null),
+          bannerId ? resolveAttachmentUrl(bannerId)  : Promise.resolve(null),
+        ]);
+
+        const update = {};
+        if (phone)       update.phone       = phone;
+        if (address)     update.address     = address;
+        if (city)        update.city        = city;
+        if (state)       update.state       = state;
+        if (description) update.description = description.replace(/<[^>]*>/g, '').trim() || null;
+        if (logo_url)    update.logo_url    = logo_url;
+        if (banner_url)  update.banner_url  = banner_url;
+
+        if (Object.keys(update).length === 0) {
+          return { wpId, store: vendor.store_name, status: 'no_data' };
+        }
+
+        const { error: upErr } = await adminClient
+          .from('vendors')
+          .update(update)
+          .eq('id', vendor.id);
+
+        return {
+          wpId,
+          store: vendor.store_name,
+          status: upErr ? 'error' : 'updated',
+          fields: Object.keys(update),
+          error: upErr?.message,
+        };
+      } catch (e) {
+        return { wpId, store: vendor.store_name, status: 'error', error: e.message };
       }
-
-      const customer = await res.json();
-      const meta = {};
-      for (const m of (customer.meta_data || [])) {
-        meta[m.key] = m.value;
-      }
-
-      // Parse WCFM profile settings blob
-      const profileRaw = meta['wcfmmp_profile_settings'] || '';
-      const profile = typeof profileRaw === 'string' && profileRaw.startsWith('a:')
-        ? phpUnserialize(profileRaw)
-        : (typeof profileRaw === 'object' ? profileRaw : {});
-
-      // Extract fields — WCFM uses these keys inside the blob
-      const phone       = profile['mobile']  || profile['phone']  || meta['store_phone']  || customer.billing?.phone  || null;
-      const address     = profile['address'] || meta['store_address1'] || customer.billing?.address_1 || null;
-      const city        = profile['city']    || meta['store_city']    || customer.billing?.city  || null;
-      const state       = profile['state']   || meta['store_state']   || customer.billing?.state || null;
-      const description = meta['_store_description'] || profile['shop_description'] || null;
-
-      // Resolve logo/banner attachment IDs → URLs
-      const logoId   = profile['logo']   || meta['_wcfmmp_profile_logo']   || null;
-      const bannerId = profile['banner'] || meta['_wcfmmp_profile_banner'] || null;
-      const [logo_url, banner_url] = await Promise.all([
-        logoId   ? resolveAttachmentUrl(logoId)   : Promise.resolve(null),
-        bannerId ? resolveAttachmentUrl(bannerId)  : Promise.resolve(null),
-      ]);
-
-      // Build update payload — only set fields that have real values
-      const update = {};
-      if (phone)       update.phone       = phone;
-      if (address)     update.address     = address;
-      if (city)        update.city        = city;
-      if (state)       update.state       = state;
-      if (description) update.description = description.replace(/<[^>]*>/g, '').trim() || null;
-      if (logo_url)    update.logo_url    = logo_url;
-      if (banner_url)  update.banner_url  = banner_url;
-
-      if (Object.keys(update).length === 0) {
-        results.push({ wpId, store: vendor.store_name, status: 'no_data' });
-        continue;
-      }
-
-      const { error: upErr } = await adminClient
-        .from('vendors')
-        .update(update)
-        .eq('id', vendor.id);
-
-      results.push({
-        wpId,
-        store: vendor.store_name,
-        status: upErr ? 'error' : 'updated',
-        fields: Object.keys(update),
-        error: upErr?.message,
-      });
-    } catch (e) {
-      results.push({ wpId, store: vendor.store_name, status: 'error', error: e.message });
-    }
-  }
+    })
+  ).then(r => r.filter(Boolean));
 
   const updated  = results.filter(r => r.status === 'updated').length;
   const skipped  = results.filter(r => r.status === 'skip' || r.status === 'no_data').length;

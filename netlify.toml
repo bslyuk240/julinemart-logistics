@@ -152,6 +152,12 @@
 [functions."paystack-webhook"]
   timeout = 10
 
+[functions."vendor-sync-profiles"]
+  timeout = 26
+
+[functions."vendor-invite"]
+  timeout = 15
+
 [functions."verify-payment"]
   timeout = 15
 

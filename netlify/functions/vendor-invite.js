@@ -73,12 +73,15 @@ export const handler = async (event) => {
     };
   }
 
-  // If already linked, just resend invite
+  const vendorPortalUrl = (process.env.VENDOR_PORTAL_URL || 'https://vendors-julinemart.netlify.app').replace(/\/+$/, '');
+  const redirectTo = `${vendorPortalUrl}/set-password`;
+
+  // If already linked, resend a password-reset link so they can set/reset their password
   if (vendor.user_id) {
-    // Resend magic link
-    const { error: magicErr } = await adminClient.auth.admin.generateLink({
-      type: 'magiclink',
+    const { data: resetLink, error: magicErr } = await adminClient.auth.admin.generateLink({
+      type: 'recovery',
       email: vendor.email,
+      options: { redirectTo },
     });
     if (magicErr) {
       return { statusCode: 500, headers: cors, body: JSON.stringify({ error: magicErr.message }) };
@@ -86,12 +89,11 @@ export const handler = async (event) => {
     return {
       statusCode: 200,
       headers: { ...cors, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ success: true, message: 'Invite resent to ' + vendor.email }),
+      body: JSON.stringify({ success: true, message: 'Password setup link resent to ' + vendor.email }),
     };
   }
 
   // Create auth user via invite (sends email with password-setup link)
-  const redirectTo = `${process.env.VENDOR_PORTAL_URL || 'https://vendors.julinemart.com'}/setup`;
   const { data: invited, error: invErr } = await adminClient.auth.admin.inviteUserByEmail(vendor.email, {
     redirectTo,
     data: { vendor_id: vendor.id, store_name: vendor.store_name },

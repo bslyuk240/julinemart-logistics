@@ -43,6 +43,7 @@ import WhatsAppChatView from './dashboard/pages/WhatsAppChatView';
 import WhatsAppSupportPage from './dashboard/pages/WhatsAppSupport';
 import { VouchersPage } from './dashboard/pages/Vouchers';
 import { VendorsPage } from './dashboard/pages/Vendors';
+import VendorDetail from './dashboard/pages/VendorDetail';
 import { UnauthorizedPage } from './shared/UnauthorizedPage';
 
 // Routes accessible by both admin and agent
@@ -80,6 +81,7 @@ const adminOnlyRoutes = [
   { path: 'activity-logs', element: <ActivityLogsPage /> },
   { path: 'vouchers', element: <VouchersPage /> },
   { path: 'vendors', element: <VendorsPage /> },
+  { path: 'vendors/:id', element: <VendorDetail /> },
   { path: 'notifications', element: <NotificationsPage /> },
   { path: 'notifications/new', element: <NotificationsNewPage /> },
   { path: 'notifications/:id', element: <NotificationDetailsPage /> },

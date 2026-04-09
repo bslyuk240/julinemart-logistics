@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Store, Mail, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, Eye, Send, AlertTriangle, Pencil, X, Check, RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
@@ -72,6 +73,7 @@ async function callApi(path: string, body: object) {
 type Tab = 'vendors' | 'applications';
 
 export function VendorsPage() {
+  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('vendors');
 
   // Vendors
@@ -346,7 +348,14 @@ export function VendorsPage() {
                     const placeholder = isPlaceholderEmail(v.email);
                     return (
                       <tr key={v.id} className={`hover:bg-gray-50 ${placeholder ? 'bg-amber-50/40' : ''}`}>
-                        <td className="px-4 py-3 font-medium text-gray-900">{v.store_name}</td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => navigate(`/admin/vendors/${v.id}`)}
+                            className="font-medium text-gray-900 hover:text-purple-700 hover:underline text-left"
+                          >
+                            {v.store_name}
+                          </button>
+                        </td>
 
                         {/* Email cell with inline edit */}
                         <td className="px-4 py-3">

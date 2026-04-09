@@ -15,6 +15,8 @@ const serviceKey   = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABA
 const wpBase       = (process.env.WOO_BASE_URL || process.env.WOOCOMMERCE_URL || '').replace(/\/+$/, '');
 const wpUser       = process.env.WP_MEDIA_USERNAME  || '';
 const wpAppPass    = process.env.WORDPRESS_APP_PASSWORD || '';
+const wcKey        = process.env.WOO_CONSUMER_KEY || process.env.WOOCOMMERCE_CONSUMER_KEY || '';
+const wcSecret     = process.env.WOO_CONSUMER_SECRET || process.env.WOOCOMMERCE_CONSUMER_SECRET || '';
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -144,7 +146,10 @@ export const handler = async (event) => {
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: 'Could not load vendors' }) };
   }
 
-  const wpAuth = `Basic ${Buffer.from(`${wpUser}:${wpAppPass}`).toString('base64')}`;
+  // WC REST API (/wc/v3/*) requires consumer key:secret, NOT WP App Password
+  const wcAuth   = `Basic ${Buffer.from(`${wcKey}:${wcSecret}`).toString('base64')}`;
+  // WP REST API (/wp/v2/*) uses WP Application Password (for media attachment lookups)
+  const wpAuth   = `Basic ${Buffer.from(`${wpUser}:${wpAppPass}`).toString('base64')}`;
 
   // Process all vendors in parallel to avoid timeout
   const results = await Promise.all(
@@ -154,7 +159,7 @@ export const handler = async (event) => {
 
       try {
         const res = await fetch(`${wpBase}/wp-json/wc/v3/customers/${wpId}`, {
-          headers: { Authorization: wpAuth },
+          headers: { Authorization: wcAuth },
         });
 
         if (!res.ok) return { wpId, status: 'skip', reason: `WC API ${res.status}` };

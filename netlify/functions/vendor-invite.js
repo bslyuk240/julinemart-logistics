@@ -81,7 +81,7 @@ export const handler = async (event) => {
     const { data: resetLink, error: magicErr } = await adminClient.auth.admin.generateLink({
       type: 'recovery',
       email: vendor.email,
-      options: { redirectTo },
+      redirectTo,
     });
     if (magicErr) {
       return { statusCode: 500, headers: cors, body: JSON.stringify({ error: magicErr.message }) };

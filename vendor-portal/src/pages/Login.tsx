@@ -1,5 +1,5 @@
 import { useState, FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Store } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -80,12 +80,20 @@ export default function Login() {
             </button>
           </form>
 
-          <p className="text-center text-xs text-gray-500 mt-4">
-            Don't have access? Contact{' '}
-            <a href="mailto:support@julinemart.com" className="text-primary-600 hover:underline">
-              JulineMart Support
-            </a>
-          </p>
+          <div className="mt-5 pt-4 border-t border-gray-100 text-center space-y-2">
+            <p className="text-sm text-gray-600">
+              Want to sell on JulineMart?{' '}
+              <Link to="/register" className="text-primary-600 font-medium hover:underline">
+                Apply to become a vendor →
+              </Link>
+            </p>
+            <p className="text-xs text-gray-400">
+              Already applied?{' '}
+              <a href="mailto:support@julinemart.com" className="text-primary-600 hover:underline">
+                Contact support
+              </a>
+            </p>
+          </div>
         </div>
       </div>
     </div>

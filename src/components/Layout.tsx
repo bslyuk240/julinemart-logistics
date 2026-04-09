@@ -40,18 +40,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Brand header */}
         <div className="brand-gradient px-5 py-4">
           <div className="flex items-center gap-2.5 mb-3">
-            <img src="/logo.png" alt="JulineMart" className="h-7 object-contain" />
+            <img src="/logo.png" alt="JulineMart" className="h-7 object-contain brightness-0 invert" />
           </div>
           <p className="text-primary-100 text-xs font-medium mb-3">Vendor Portal</p>
           <div className="bg-white/10 rounded-xl px-3 py-2.5 flex items-center gap-3">
             {vendor?.logo_url
-              ? <img src={vendor.logo_url} alt="" className="w-9 h-9 rounded-full object-cover ring-2 ring-white/30" />
-              : (
-                <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center ring-2 ring-white/30">
-                  <Store className="w-4 h-4 text-white" />
-                </div>
-              )
+              ? <img src={vendor.logo_url} alt="" className="w-9 h-9 rounded-full object-cover ring-2 ring-white/30"
+                  onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.removeAttribute('style'); }} />
+              : null
             }
+            <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center ring-2 ring-white/30"
+                 style={vendor?.logo_url ? { display: 'none' } : undefined}>
+              <Store className="w-4 h-4 text-white" />
+            </div>
             <div className="min-w-0">
               <p className="font-semibold text-white truncate text-sm leading-tight">{vendor?.store_name || 'Your Store'}</p>
               <p className="text-primary-200 text-xs truncate leading-tight">{vendor?.email}</p>
@@ -113,9 +114,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <header className="lg:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white border-b border-gray-100 shadow-sm">
           <div className="flex items-center gap-2.5">
             {vendor?.logo_url
-              ? <img src={vendor.logo_url} alt="" className="w-8 h-8 rounded-full object-cover" />
-              : <div className="w-8 h-8 rounded-full brand-gradient flex items-center justify-center"><Store className="w-4 h-4 text-white" /></div>
+              ? <img src={vendor.logo_url} alt="" className="w-8 h-8 rounded-full object-cover"
+                  onError={e => { e.currentTarget.style.display = 'none'; (e.currentTarget.nextElementSibling as HTMLElement)?.style.removeProperty('display'); }} />
+              : null
             }
+            <div className="w-8 h-8 rounded-full brand-gradient flex items-center justify-center"
+                 style={vendor?.logo_url ? { display: 'none' } : undefined}>
+              <Store className="w-4 h-4 text-white" />
+            </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-900 truncate leading-tight max-w-[160px]">{vendor?.store_name || 'Your Store'}</p>
               {vendor?.commission_rate != null && (

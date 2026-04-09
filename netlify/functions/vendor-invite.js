@@ -76,20 +76,18 @@ export const handler = async (event) => {
   const vendorPortalUrl = (process.env.VENDOR_PORTAL_URL || 'https://vendors.julinemart.com').replace(/\/+$/, '');
   const redirectTo = `${vendorPortalUrl}/set-password`;
 
-  // If already linked, resend a password-reset link so they can set/reset their password
+  // If already linked, send a password-reset email so they can set/change their password.
+  // NOTE: generateLink() only creates a URL — it does NOT send an email.
+  // resetPasswordForEmail() actually sends the email AND honours the custom redirectTo.
   if (vendor.user_id) {
-    const { data: resetLink, error: magicErr } = await adminClient.auth.admin.generateLink({
-      type: 'recovery',
-      email: vendor.email,
-      redirectTo,
-    });
-    if (magicErr) {
-      return { statusCode: 500, headers: cors, body: JSON.stringify({ error: magicErr.message }) };
+    const { error: resetErr } = await adminClient.auth.resetPasswordForEmail(vendor.email, { redirectTo });
+    if (resetErr) {
+      return { statusCode: 500, headers: cors, body: JSON.stringify({ error: resetErr.message }) };
     }
     return {
       statusCode: 200,
       headers: { ...cors, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ success: true, message: 'Password setup link resent to ' + vendor.email }),
+      body: JSON.stringify({ success: true, message: 'Password setup email sent to ' + vendor.email }),
     };
   }
 

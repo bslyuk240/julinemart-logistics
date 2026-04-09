@@ -199,19 +199,15 @@ export default function Register() {
         {/* Header */}
         <div className="brand-gradient px-8 pt-7 pb-6 rounded-t-2xl">
           <img src="/logo.png" alt="JulineMart" className="h-8 object-contain mb-4 brightness-0 invert" />
-          <div>
-            <h1 className="text-xl font-bold text-white">Become a JulineMart Vendor</h1>
-            <p className="text-primary-200 text-xs mt-0.5">Sell to thousands of customers across Nigeria</p>
-          </div>
-          </div>
-
+          <h1 className="text-xl font-bold text-white">Become a JulineMart Vendor</h1>
+          <p className="text-primary-200 text-xs mt-0.5 mb-5">Sell to thousands of customers across Nigeria</p>
           {/* Progress bar */}
           <div className="flex gap-2 mb-1">
             {([1,2,3,4] as Step[]).map(s => (
               <div key={s} className={`flex-1 h-1.5 rounded-full transition-colors ${s <= step ? 'bg-white' : 'bg-white/30'}`} />
             ))}
           </div>
-          <div className="flex justify-between text-xs text-gray-400 mb-6">
+          <div className="flex justify-between text-xs text-primary-200 mt-1">
             <span>Personal</span><span>Business</span><span>Bank</span><span>Documents</span>
           </div>
         </div>

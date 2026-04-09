@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Package, Search, AlertCircle } from 'lucide-react';
+import { Package, Search, AlertCircle, Plus, Pencil } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 
 const fmt = (n: number) => `₦${Number(n || 0).toLocaleString()}`;
@@ -19,6 +20,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function Products() {
+  const navigate = useNavigate();
   const [data, setData]       = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
@@ -38,9 +40,18 @@ export default function Products() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-900">My Products</h1>
-        {data?.total != null && (
-          <span className="text-sm text-gray-500">{data.total} total</span>
-        )}
+        <div className="flex items-center gap-3">
+          {data?.total != null && (
+            <span className="text-sm text-gray-500">{data.total} total</span>
+          )}
+          <button
+            onClick={() => navigate('/products/add')}
+            className="flex items-center gap-1.5 bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Add Product
+          </button>
+        </div>
       </div>
 
       {/* Search + filter */}
@@ -80,7 +91,7 @@ export default function Products() {
           {/* 2-col grid on mobile, 3-col on md, 4-col on xl */}
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
             {(data?.products || []).map((p: any) => (
-              <div key={p.id} className="card p-0 overflow-hidden hover:shadow-md active:scale-[0.98] transition-all">
+              <div key={p.id} className="card p-0 overflow-hidden hover:shadow-md active:scale-[0.98] transition-all relative">
                 {p.image
                   ? <img src={p.image} alt={p.name} className="w-full h-32 object-cover" />
                   : <div className="w-full h-32 bg-gray-100 flex items-center justify-center"><Package className="w-10 h-10 text-gray-300" /></div>
@@ -101,6 +112,15 @@ export default function Products() {
                         : 'Out of stock'}
                     </span>
                   </div>
+                  {p.id && (
+                    <button
+                      onClick={() => navigate(`/products/edit/${p.id}`)}
+                      className="mt-2 w-full flex items-center justify-center gap-1.5 text-[11px] font-medium text-primary-600 hover:text-primary-700 border border-primary-200 hover:border-primary-400 rounded-lg py-1.5 transition-colors"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      Edit
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

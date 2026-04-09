@@ -52,6 +52,20 @@ export const api = {
     return request<any>(`vendor-earnings${qs}`);
   },
 
+  getProductMeta: (type: 'categories' | 'tags') =>
+    request<unknown[]>(`vendor-product-meta?type=${type}`),
+
+  upsertProduct: (body: object, id?: string) => {
+    const qs = id ? `?id=${id}` : '';
+    return request<unknown>(`vendor-product-upsert${qs}`, {
+      method: id ? 'PUT' : 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  deleteProduct: (id: string) =>
+    request<unknown>(`vendor-product-upsert?id=${id}`, { method: 'DELETE' }),
+
   getWithdrawals:     ()             => request<any[]>('vendor-withdrawals'),
   requestWithdrawal:  (body: object) => request<any>('vendor-withdrawals', { method: 'POST', body: JSON.stringify(body) }),
   updateWithdrawal:   (id: string, body: object) =>

@@ -62,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchUserProfile = async (userId: string) => {
+  const fetchUserProfile = async (userId: string): Promise<'vendor' | void> => {
     try {
       let { data, error }: any = await supabase
         .from('users')
@@ -70,8 +70,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq('id', userId)
         .single();
 
-      // If no row found, try to bootstrap a profile for the authenticated user
+      // If no row found, check whether this is a vendor before bootstrapping
       if (error && (error as any).code === 'PGRST116') {
+        // Vendor accounts are in the vendors table — they must not access JLO
+        const { data: vendorCheck } = await supabase
+          .from('vendors')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (vendorCheck) {
+          await supabase.auth.signOut();
+          setUser(null);
+          return 'vendor';
+        }
+
+        // Not a vendor — bootstrap as agent (legitimate staff with no profile yet)
         const { data: authData } = await supabase.auth.getUser();
         const email = authData.user?.email || null;
         const insert = await supabase.from('users').insert({
@@ -112,7 +126,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Fetch user profile after successful sign in
       if (data.user) {
-        await fetchUserProfile(data.user.id);
+        const result = await fetchUserProfile(data.user.id);
+        if (result === 'vendor') {
+          return {
+            error: {
+              message: 'This email is registered as a vendor account. Please sign in at vendors.julinemart.com instead.',
+            },
+          };
+        }
       }
 
       return { error: null };

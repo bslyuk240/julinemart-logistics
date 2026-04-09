@@ -38,6 +38,7 @@ export async function handler(event) {
          vendors!vendor_id ( id, store_name, store_slug, woocommerce_vendor_id ),
          hubs!hub_id ( id, name, code ),
          product_images ( id, src, alt, position, is_thumbnail, variation_id ),
+         product_variations ( id, regular_price, sale_price, is_active, attributes ),
          product_category_map ( categories ( id, name, slug ) ),
          product_tag_map ( tags ( id, name, slug ) )`,
         { count: 'exact' }
@@ -85,8 +86,20 @@ export async function handler(event) {
     }
 
     // Vendor filter — by Supabase UUID or by WooCommerce vendor ID
+    // If vendor_id looks like an integer (not a UUID), treat it as woo_vendor_id
     if (q.vendor_id) {
-      query = query.eq('vendor_id', q.vendor_id);
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(q.vendor_id);
+      if (isUUID) {
+        query = query.eq('vendor_id', q.vendor_id);
+      } else {
+        const { data: vendor } = await adminClient
+          .from('vendors')
+          .select('id')
+          .eq('woocommerce_vendor_id', q.vendor_id)
+          .maybeSingle();
+        if (!vendor) return jsonResponse(200, { success: true, data: [], meta: { page, per_page: perPage, total: 0, total_pages: 0 } });
+        query = query.eq('vendor_id', vendor.id);
+      }
     } else if (q.woo_vendor_id) {
       const { data: vendor } = await adminClient
         .from('vendors')
@@ -132,6 +145,13 @@ export async function handler(event) {
 }
 
 function normalizeProduct(p) {
+  const activeVars = (p.product_variations || []).filter(v => v.is_active !== false);
+  const varPrices  = activeVars
+    .map(v => Number(v.sale_price || v.regular_price || 0))
+    .filter(n => n > 0);
+  const minVarPrice = varPrices.length > 0 ? Math.min(...varPrices) : 0;
+  const maxVarPrice = varPrices.length > 0 ? Math.max(...varPrices) : 0;
+
   return {
     ...p,
     vendor: p.vendors || null,
@@ -139,12 +159,18 @@ function normalizeProduct(p) {
     images: (p.product_images || [])
       .filter((img) => !img.variation_id)
       .sort((a, b) => a.position - b.position),
+    variations: activeVars,
+    // Computed price fields for convenience
+    price:     Number(p.sale_price || p.regular_price || minVarPrice || 0),
+    min_price: minVarPrice,
+    max_price: maxVarPrice,
     categories: (p.product_category_map || []).map((r) => r.categories).filter(Boolean),
     tags: (p.product_tag_map || []).map((r) => r.tags).filter(Boolean),
     // Remove raw relation keys
     vendors: undefined,
     hubs: undefined,
     product_images: undefined,
+    product_variations: undefined,
     product_category_map: undefined,
     product_tag_map: undefined,
   };

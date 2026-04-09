@@ -12,7 +12,9 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl  = process.env.VITE_SUPABASE_URL  || process.env.SUPABASE_URL  || '';
 const serviceKey   = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
-const wpBase       = (process.env.WOO_BASE_URL || process.env.WOOCOMMERCE_URL || '').replace(/\/+$/, '');
+// Strip any /wp-json/... path suffix — env var may include it already
+const wpBase       = (process.env.WOO_BASE_URL || process.env.WOOCOMMERCE_URL || '')
+  .replace(/\/wp-json.*$/, '').replace(/\/+$/, '');
 const wpUser       = process.env.WP_MEDIA_USERNAME  || '';
 const wpAppPass    = process.env.WORDPRESS_APP_PASSWORD || '';
 const wcKey        = process.env.WOO_CONSUMER_KEY || process.env.WOOCOMMERCE_CONSUMER_KEY || '';

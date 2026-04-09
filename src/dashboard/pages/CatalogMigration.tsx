@@ -14,6 +14,7 @@ import { supabase } from '../contexts/AuthContext';
 
 type Phase = 'taxonomy' | 'products' | 'variations';
 type RunStatus = 'idle' | 'running' | 'done' | 'error';
+type WooStatus = 'publish' | 'draft';
 
 interface PhaseResult {
   phase: Phase;
@@ -46,10 +47,10 @@ async function getAuthHeader(): Promise<string> {
   return `Bearer ${data.session?.access_token || ''}`;
 }
 
-async function runPhase(phase: Phase, page: number): Promise<PhaseResult> {
+async function runPhase(phase: Phase, page: number, wooStatus: WooStatus = 'publish'): Promise<PhaseResult> {
   const auth = await getAuthHeader();
   const base = window.location.origin;
-  const url = `${base}/.netlify/functions/woo-migrate-catalog?phase=${phase}&page=${page}`;
+  const url = `${base}/.netlify/functions/woo-migrate-catalog?phase=${phase}&page=${page}&woo_status=${wooStatus}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { Authorization: auth, 'Content-Type': 'application/json' },
@@ -79,6 +80,13 @@ export default function CatalogMigration() {
   const [checkpoint, setCheckpoint] = useState({ taxDone: false, productPage: 0, varPage: 0 });
   const abortRef = useRef(false);
   const logEndRef = useRef<HTMLDivElement>(null);
+
+  // Draft migration state (products only — no taxonomy/variations needed)
+  const [draftStatus, setDraftStatus] = useState<RunStatus>('idle');
+  const [draftLogs, setDraftLogs] = useState<Log[]>([]);
+  const [draftPage, setDraftPage] = useState(0);
+  const draftAbortRef = useRef(false);
+  const draftLogEndRef = useRef<HTMLDivElement>(null);
 
   const addLog = useCallback((level: Log['level'], text: string) => {
     setLogs((prev) => [...prev, { ts: now(), level, text }]);
@@ -204,6 +212,44 @@ export default function CatalogMigration() {
     setCheckpoint({ taxDone: false, productPage: 0, varPage: 0 });
   };
 
+  // ── Draft migration runner ────────────────────────────────────────────────────
+  const addDraftLog = useCallback((level: Log['level'], text: string) => {
+    setDraftLogs((prev) => [...prev, { ts: now(), level, text }]);
+    setTimeout(() => draftLogEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+  }, []);
+
+  const runDraftMigration = useCallback(async (resume = false) => {
+    draftAbortRef.current = false;
+    if (!resume) { setDraftLogs([]); setDraftPage(0); }
+    setDraftStatus('running');
+    const startPage = resume ? draftPage + 1 : 1;
+    addDraftLog('info', `▶ Importing WooCommerce DRAFT products (starting page ${startPage})...`);
+    addDraftLog('info', 'Drafts will appear in Supabase with status = "draft" — not visible to customers until published.');
+
+    let page = startPage;
+    let total = 0;
+    try {
+      while (true) {
+        if (draftAbortRef.current) { addDraftLog('warn', 'Aborted.'); setDraftStatus('idle'); return; }
+        addDraftLog('info', `  Page ${page}...`);
+        const result = await runPhase('products', page, 'draft');
+        if (!result.success) throw new Error(result.errors?.[0] || `Page ${page} failed`);
+        total += result.processed || 0;
+        setDraftPage(page);
+        addDraftLog('success', `  ✓ Page ${page}: ${result.processed} draft products imported`);
+        if (result.errors?.length) result.errors.forEach((e) => addDraftLog('warn', `    ⚠ ${e}`));
+        if (!result.has_more) break;
+        page++;
+        await delay(INTER_PAGE_DELAY_MS);
+      }
+      addDraftLog('success', `🎉 Done — ${total} draft products imported. Review and publish from the Products page.`);
+      setDraftStatus('done');
+    } catch (e: any) {
+      addDraftLog('error', `✗ ${e.message || String(e)}`);
+      setDraftStatus('error');
+    }
+  }, [addDraftLog, draftPage]);
+
   const isRunning = status === 'running';
   const phaseLabel: Record<Phase | '', string> = {
     '': '',
@@ -289,6 +335,70 @@ export default function CatalogMigration() {
           <div ref={logEndRef} />
         </div>
       )}
+
+      {/* ── Draft Products Section ─────────────────────────────────────── */}
+      <div style={{ marginTop: 36 }}>
+        <div style={styles.header}>
+          <div>
+            <h2 style={{ ...styles.title, fontSize: 18 }}>Import Draft Products (CJ)</h2>
+            <p style={styles.subtitle}>
+              Imports products currently set as <strong>draft</strong> in WooCommerce into Supabase.
+              These are typically CJ-sourced products awaiting review. They land as <code>draft</code> in Supabase and are invisible to customers until you publish them.
+            </p>
+          </div>
+          <StatusBadge status={draftStatus} />
+        </div>
+
+        <div style={styles.infoCard}>
+          <strong style={{ fontSize: 13 }}>How it works:</strong>
+          <ul style={{ margin: '8px 0 0', paddingLeft: 20, fontSize: 13, lineHeight: 1.7 }}>
+            <li>Pulls only <code>status=draft</code> products from WooCommerce</li>
+            <li>Assigns vendor based on SKU prefix (e.g. CJ-sourced products get the correct vendor)</li>
+            <li>Does <strong>not</strong> overwrite already-published products</li>
+            <li>After import, review and publish each product from the Products page</li>
+          </ul>
+        </div>
+
+        <div style={styles.controls}>
+          {!draftStatus.includes('running') && draftStatus !== 'done' && (
+            <button onClick={() => runDraftMigration(false)} style={styles.primaryBtn}>
+              ▶ Import Drafts
+            </button>
+          )}
+          {draftStatus === 'error' && (
+            <button onClick={() => runDraftMigration(true)} style={{ ...styles.primaryBtn, background: '#d97706' }}>
+              ↺ Resume
+            </button>
+          )}
+          {draftStatus === 'running' && (
+            <>
+              <div style={styles.progressPill}>
+                <span style={styles.spinner} />
+                Importing draft products — page {draftPage}
+              </div>
+              <button onClick={() => { draftAbortRef.current = true; }} style={styles.dangerBtn}>■ Stop</button>
+            </>
+          )}
+          {draftStatus === 'done' && (
+            <>
+              <div style={{ ...styles.progressPill, background: '#d1fae5', color: '#065f46' }}>✓ Import complete</div>
+              <button onClick={() => { setDraftStatus('idle'); setDraftLogs([]); setDraftPage(0); }} style={styles.secondaryBtn}>Run Again</button>
+            </>
+          )}
+        </div>
+
+        {draftLogs.length > 0 && (
+          <div style={styles.logWindow}>
+            {draftLogs.map((log, i) => (
+              <div key={i} style={{ ...styles.logLine, color: logColor(log.level) }}>
+                <span style={styles.logTs}>{log.ts}</span>
+                <span>{log.text}</span>
+              </div>
+            ))}
+            <div ref={draftLogEndRef} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

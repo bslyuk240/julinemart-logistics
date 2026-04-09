@@ -198,7 +198,7 @@ async function syncTaxonomy(adminClient) {
 
 // ─── phase: products ──────────────────────────────────────────────────────────
 
-async function syncProducts(adminClient, page) {
+async function syncProducts(adminClient, page, wooStatus = 'publish') {
   const errors = [];
 
   // Pre-fetch lookup maps from Supabase (all parallel)
@@ -233,7 +233,7 @@ async function syncProducts(adminClient, page) {
     const cs = process.env.WOO_CONSUMER_SECRET || process.env.WOOCOMMERCE_CONSUMER_SECRET || '';
     const base = rawBase.includes('/wp-json/') ? rawBase.replace(/\/+$/, '') : `${rawBase.replace(/\/+$/, '')}/wp-json/wc/v3`;
     const auth = `Basic ${Buffer.from(`${ck}:${cs}`).toString('base64')}`;
-    const url = `${base}/products?status=publish&per_page=${PER_PAGE}&page=${page}&orderby=id&order=asc&_fields=${fields}`;
+    const url = `${base}/products?status=${wooStatus}&per_page=${PER_PAGE}&page=${page}&orderby=id&order=asc&_fields=${fields}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 25000);
     try {
@@ -727,8 +727,9 @@ export async function handler(event) {
   const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
   if (auth.errorResponse) return auth.errorResponse;
 
-  const phase = event.queryStringParameters?.phase || 'taxonomy';
-  const page = Math.max(Number(event.queryStringParameters?.page || 1), 1);
+  const phase     = event.queryStringParameters?.phase     || 'taxonomy';
+  const page      = Math.max(Number(event.queryStringParameters?.page || 1), 1);
+  const wooStatus = event.queryStringParameters?.woo_status || 'publish'; // 'publish' | 'draft' | 'any'
 
   let migrationClient;
   try {
@@ -744,7 +745,7 @@ export async function handler(event) {
     }
 
     if (phase === 'products') {
-      const result = await syncProducts(migrationClient, page);
+      const result = await syncProducts(migrationClient, page, wooStatus);
       return jsonResponse(200, result);
     }
 

@@ -87,6 +87,8 @@ export function VendorsPage() {
   const [emailMsg, setEmailMsg] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [syncDetails, setSyncDetails] = useState<any[] | null>(null);
+  const [showSyncDebug, setShowSyncDebug] = useState(false);
 
   // Applications
   const [apps, setApps] = useState<Application[]>([]);
@@ -128,12 +130,17 @@ export function VendorsPage() {
   async function handleSyncProfiles() {
     setSyncing(true);
     setSyncResult(null);
+    setSyncDetails(null);
+    setShowSyncDebug(false);
     const res = await callApi('vendor-sync-profiles', {});
     if (res.success) {
       setSyncResult(`Done — ${res.updated} updated, ${res.skipped} skipped, ${res.errored} errors`);
+      setSyncDetails(res.results || []);
       loadVendors();
     } else {
       setSyncResult('Error: ' + (res.error || 'Unknown'));
+      setSyncDetails(res.debug ? [{ debug: res.debug }] : null);
+      setShowSyncDebug(true);
     }
     setSyncing(false);
   }
@@ -226,19 +233,42 @@ export function VendorsPage() {
           <Store className="w-6 h-6 text-purple-600" />
           <h1 className="text-2xl font-bold text-gray-900">Vendors</h1>
         </div>
-        <div className="flex items-center gap-3">
-          {syncResult && (
-            <span className="text-sm text-gray-500">{syncResult}</span>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-3">
+            {syncResult && (
+              <span className="text-sm text-gray-500">{syncResult}</span>
+            )}
+            {syncDetails && syncDetails.length > 0 && (
+              <button
+                onClick={() => setShowSyncDebug(v => !v)}
+                className="text-xs text-purple-600 underline"
+              >
+                {showSyncDebug ? 'Hide' : 'Details'}
+              </button>
+            )}
+            <button
+              onClick={handleSyncProfiles}
+              disabled={syncing}
+              className="inline-flex items-center gap-2 text-sm bg-white border border-gray-300 hover:border-purple-400 text-gray-700 hover:text-purple-700 px-4 py-2 rounded-lg disabled:opacity-50 transition"
+              title="Pull phone, address, description and logo for all vendors from WCFM"
+            >
+              <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Syncing profiles…' : 'Sync from WCFM'}
+            </button>
+          </div>
+          {showSyncDebug && syncDetails && (
+            <div className="w-full max-w-2xl bg-gray-900 text-green-300 text-xs rounded-lg p-3 font-mono overflow-auto max-h-64 mt-1">
+              {syncDetails.map((r: any, i: number) => (
+                <div key={i} className={`mb-1 ${r.status === 'error' ? 'text-red-400' : r.status === 'updated' ? 'text-green-400' : 'text-yellow-300'}`}>
+                  [{r.status?.toUpperCase() || 'INFO'}] WP#{r.wpId} {r.store || ''}
+                  {r.reason ? ` — ${r.reason}` : ''}
+                  {r.fields ? ` ✓ ${r.fields.join(', ')}` : ''}
+                  {r.error ? ` ✗ ${r.error}` : ''}
+                  {r.debug ? ` | url: ${r.debug.url} | body: ${r.debug.body}` : ''}
+                </div>
+              ))}
+            </div>
           )}
-          <button
-            onClick={handleSyncProfiles}
-            disabled={syncing}
-            className="inline-flex items-center gap-2 text-sm bg-white border border-gray-300 hover:border-purple-400 text-gray-700 hover:text-purple-700 px-4 py-2 rounded-lg disabled:opacity-50 transition"
-            title="Pull phone, address, description and logo for all vendors from WCFM"
-          >
-            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
-            {syncing ? 'Syncing profiles…' : 'Sync from WCFM'}
-          </button>
         </div>
       </div>
 

@@ -138,6 +138,26 @@ export const handler = async (event) => {
     return { statusCode: 403, headers: cors, body: JSON.stringify({ error: 'Forbidden' }) };
   }
 
+  // Config check — logged server-side, helps diagnose missing env vars
+  console.log('[sync] config check:', {
+    wpBase: wpBase || '(MISSING)',
+    wcKeySet: !!wcKey,
+    wcSecretSet: !!wcSecret,
+    wpUserSet: !!wpUser,
+    wpAppPassSet: !!wpAppPass,
+  });
+
+  if (!wpBase || !wcKey || !wcSecret) {
+    return {
+      statusCode: 500,
+      headers: { ...cors, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        error: 'Missing WooCommerce config',
+        debug: { wpBase: wpBase || '(MISSING)', wcKeySet: !!wcKey, wcSecretSet: !!wcSecret },
+      }),
+    };
+  }
+
   // Fetch all vendors from Supabase
   const { data: vendors, error: vErr } = await adminClient
     .from('vendors')
@@ -158,11 +178,18 @@ export const handler = async (event) => {
       if (!wpId) return null;
 
       try {
-        const res = await fetch(`${wpBase}/wp-json/wc/v3/customers/${wpId}`, {
-          headers: { Authorization: wcAuth },
-        });
+        const wcUrl = `${wpBase}/wp-json/wc/v3/customers/${wpId}`;
+        const res = await fetch(wcUrl, { headers: { Authorization: wcAuth } });
 
-        if (!res.ok) return { wpId, status: 'skip', reason: `WC API ${res.status}` };
+        if (!res.ok) {
+          let body = '';
+          try { body = await res.text(); } catch {}
+          return {
+            wpId, store: vendor.store_name, status: 'skip',
+            reason: `HTTP ${res.status}`,
+            debug: { url: wcUrl, status: res.status, body: body.slice(0, 300) },
+          };
+        }
 
         const customer = await res.json();
         const meta = {};

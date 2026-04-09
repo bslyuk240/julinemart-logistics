@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Store, Mail, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, Eye, Send } from 'lucide-react';
+import { Store, Mail, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, Eye, Send, AlertTriangle, Pencil, X, Check } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -39,6 +39,17 @@ interface Application {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function isPlaceholderEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
+  const lower = email.toLowerCase();
+  return (
+    lower.includes('@wcfm.local') ||
+    lower.includes('@placeholder') ||
+    lower.includes('@localhost') ||
+    lower.includes('@example.com')
+  );
+}
+
 async function getToken() {
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token || '';
@@ -68,6 +79,12 @@ export function VendorsPage() {
   const [vendorsLoading, setVendorsLoading] = useState(true);
   const [inviting, setInviting] = useState<string | null>(null);
   const [inviteMsg, setInviteMsg] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
+
+  // Inline email edit
+  const [editingEmail, setEditingEmail] = useState<string | null>(null); // vendor id
+  const [emailDraft, setEmailDraft] = useState('');
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [emailMsg, setEmailMsg] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
 
   // Applications
   const [apps, setApps] = useState<Application[]>([]);
@@ -110,9 +127,49 @@ export function VendorsPage() {
     setInviting(vendorId);
     setInviteMsg(null);
     const res = await callApi('vendor-invite', { vendor_id: vendorId });
-    setInviteMsg({ id: vendorId, msg: res.message || res.error, ok: !!res.success });
+    setInviteMsg({
+      id: vendorId,
+      msg: res.message || res.error || 'Unknown error',
+      ok: !!res.success,
+    });
     setInviting(null);
     if (res.success) loadVendors();
+  }
+
+  // ── Inline email update ────────────────────────────────────────────────────
+  function startEditEmail(v: Vendor) {
+    setEditingEmail(v.id);
+    setEmailDraft(isPlaceholderEmail(v.email) ? '' : (v.email || ''));
+    setEmailMsg(null);
+    setInviteMsg(null);
+  }
+
+  function cancelEditEmail() {
+    setEditingEmail(null);
+    setEmailDraft('');
+  }
+
+  async function saveEmail(vendorId: string) {
+    const trimmed = emailDraft.trim();
+    if (!trimmed || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setEmailMsg({ id: vendorId, msg: 'Enter a valid email address', ok: false });
+      return;
+    }
+    setSavingEmail(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any)
+      .from('vendors')
+      .update({ email: trimmed })
+      .eq('id', vendorId);
+    setSavingEmail(false);
+    if (error) {
+      setEmailMsg({ id: vendorId, msg: error.message, ok: false });
+    } else {
+      setVendors(prev => prev.map(v => v.id === vendorId ? { ...v, email: trimmed } : v));
+      setEmailMsg({ id: vendorId, msg: 'Email updated', ok: true });
+      setEditingEmail(null);
+      setEmailDraft('');
+    }
   }
 
   // ── Approve application ────────────────────────────────────────────────────
@@ -144,6 +201,7 @@ export function VendorsPage() {
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   const pendingCount = apps.filter(a => a.status === 'pending').length;
+  const placeholderCount = vendors.filter(v => isPlaceholderEmail(v.email)).length;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -164,7 +222,16 @@ export function VendorsPage() {
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            {t === 'vendors' ? 'Active Vendors' : (
+            {t === 'vendors' ? (
+              <span className="flex items-center gap-2">
+                Active Vendors
+                {placeholderCount > 0 && (
+                  <span className="bg-amber-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none" title="Vendors with placeholder emails">
+                    {placeholderCount}
+                  </span>
+                )}
+              </span>
+            ) : (
               <span className="flex items-center gap-2">
                 Applications
                 {pendingCount > 0 && (
@@ -181,6 +248,16 @@ export function VendorsPage() {
       {/* ── VENDORS TAB ── */}
       {tab === 'vendors' && (
         <div>
+          {placeholderCount > 0 && (
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 text-sm text-amber-800">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
+              <span>
+                <strong>{placeholderCount} vendor{placeholderCount > 1 ? 's' : ''}</strong> still have placeholder emails from the WooCommerce migration.
+                Click the <Pencil className="w-3 h-3 inline" /> icon to update their real email before sending an invite.
+              </span>
+            </div>
+          )}
+
           <p className="text-sm text-gray-500 mb-4">
             Click <strong>Send Invite</strong> to create a vendor portal account and send a setup email.
             Vendors with a linked account show a green badge.
@@ -203,51 +280,129 @@ export function VendorsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {vendors.map(v => (
-                    <tr key={v.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium text-gray-900">{v.store_name}</td>
-                      <td className="px-4 py-3 text-gray-600">{v.email || '—'}</td>
-                      <td className="px-4 py-3 text-gray-600">{v.phone || '—'}</td>
-                      <td className="px-4 py-3 text-center">{v.commission_rate}%</td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
-                          v.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                        }`}>
-                          {v.is_active ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {v.user_id ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-green-600">
-                            <CheckCircle className="w-3.5 h-3.5" /> Linked
+                  {vendors.map(v => {
+                    const placeholder = isPlaceholderEmail(v.email);
+                    return (
+                      <tr key={v.id} className={`hover:bg-gray-50 ${placeholder ? 'bg-amber-50/40' : ''}`}>
+                        <td className="px-4 py-3 font-medium text-gray-900">{v.store_name}</td>
+
+                        {/* Email cell with inline edit */}
+                        <td className="px-4 py-3">
+                          {editingEmail === v.id ? (
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-1">
+                                <input
+                                  type="email"
+                                  value={emailDraft}
+                                  onChange={e => setEmailDraft(e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Enter') saveEmail(v.id); if (e.key === 'Escape') cancelEditEmail(); }}
+                                  placeholder="Enter real email"
+                                  autoFocus
+                                  className="border border-purple-300 rounded px-2 py-1 text-xs w-44 focus:ring-2 focus:ring-purple-300 outline-none"
+                                />
+                                <button
+                                  onClick={() => saveEmail(v.id)}
+                                  disabled={savingEmail}
+                                  className="p-1 bg-green-600 hover:bg-green-700 text-white rounded disabled:opacity-50"
+                                  title="Save"
+                                >
+                                  <Check className="w-3 h-3" />
+                                </button>
+                                <button
+                                  onClick={cancelEditEmail}
+                                  className="p-1 bg-gray-200 hover:bg-gray-300 text-gray-600 rounded"
+                                  title="Cancel"
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                              {emailMsg?.id === v.id && (
+                                <p className={`text-xs ${emailMsg.ok ? 'text-green-600' : 'text-red-500'}`}>
+                                  {emailMsg.msg}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 group">
+                              {placeholder ? (
+                                <span className="flex items-center gap-1 text-amber-600 text-xs font-medium">
+                                  <AlertTriangle className="w-3 h-3" />
+                                  Placeholder
+                                </span>
+                              ) : (
+                                <span className="text-gray-600 text-xs">{v.email || '—'}</span>
+                              )}
+                              <button
+                                onClick={() => startEditEmail(v)}
+                                className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-purple-600 transition-opacity"
+                                title={placeholder ? 'Update real email' : 'Edit email'}
+                              >
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                              {emailMsg?.id === v.id && !editingEmail && (
+                                <span className={`text-xs ml-1 ${emailMsg.ok ? 'text-green-600' : 'text-red-500'}`}>
+                                  {emailMsg.msg}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3 text-gray-600 text-xs">{v.phone || '—'}</td>
+                        <td className="px-4 py-3 text-center">{v.commission_rate}%</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
+                            v.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {v.is_active ? 'Active' : 'Inactive'}
                           </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-xs text-gray-400">
-                            <XCircle className="w-3.5 h-3.5" /> Not linked
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {inviteMsg?.id === v.id && (
-                          <p className={`text-xs mb-1 ${inviteMsg.ok ? 'text-green-600' : 'text-red-500'}`}>
-                            {inviteMsg.msg}
-                          </p>
-                        )}
-                        {v.email ? (
-                          <button
-                            onClick={() => handleInvite(v.id)}
-                            disabled={inviting === v.id}
-                            className="inline-flex items-center gap-1.5 text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg disabled:opacity-50 transition"
-                          >
-                            <Send className="w-3 h-3" />
-                            {inviting === v.id ? 'Sending…' : v.user_id ? 'Resend Invite' : 'Send Invite'}
-                          </button>
-                        ) : (
-                          <span className="text-xs text-gray-400">No email</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {v.user_id ? (
+                            <span className="inline-flex items-center gap-1 text-xs text-green-600">
+                              <CheckCircle className="w-3.5 h-3.5" /> Linked
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs text-gray-400">
+                              <XCircle className="w-3.5 h-3.5" /> Not linked
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {inviteMsg?.id === v.id && (
+                            <p className={`text-xs mb-1 ${inviteMsg.ok ? 'text-green-600' : 'text-red-500'}`}>
+                              {inviteMsg.msg}
+                            </p>
+                          )}
+                          {placeholder ? (
+                            <button
+                              onClick={() => startEditEmail(v)}
+                              className="inline-flex items-center gap-1.5 text-xs bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg transition"
+                            >
+                              <Pencil className="w-3 h-3" />
+                              Update Email
+                            </button>
+                          ) : v.email ? (
+                            <button
+                              onClick={() => handleInvite(v.id)}
+                              disabled={inviting === v.id}
+                              className="inline-flex items-center gap-1.5 text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg disabled:opacity-50 transition"
+                            >
+                              <Send className="w-3 h-3" />
+                              {inviting === v.id ? 'Sending…' : v.user_id ? 'Resend Invite' : 'Send Invite'}
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => startEditEmail(v)}
+                              className="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-purple-600 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-purple-300 transition"
+                            >
+                              <Mail className="w-3 h-3" /> Add Email
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               {vendors.length === 0 && (

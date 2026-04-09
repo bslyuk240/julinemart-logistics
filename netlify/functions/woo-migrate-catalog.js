@@ -232,20 +232,35 @@ async function syncProducts(adminClient, page, wooStatus = 'publish') {
     const ck = process.env.WOO_CONSUMER_KEY || process.env.WOOCOMMERCE_CONSUMER_KEY || '';
     const cs = process.env.WOO_CONSUMER_SECRET || process.env.WOOCOMMERCE_CONSUMER_SECRET || '';
     const base = rawBase.includes('/wp-json/') ? rawBase.replace(/\/+$/, '') : `${rawBase.replace(/\/+$/, '')}/wp-json/wc/v3`;
-    const auth = `Basic ${Buffer.from(`${ck}:${cs}`).toString('base64')}`;
+
+    // For draft products, WC read-only API keys return empty results.
+    // Prefer WP Application Password if provided (full admin access, works for all statuses).
+    // Set WP_ADMIN_USER + WP_ADMIN_APP_PASSWORD in Netlify env vars.
+    const wpUser    = process.env.WP_ADMIN_USER || '';
+    const wpAppPass = process.env.WP_ADMIN_APP_PASSWORD || '';
+    const auth = (wpUser && wpAppPass && wooStatus !== 'publish')
+      ? `Basic ${Buffer.from(`${wpUser}:${wpAppPass}`).toString('base64')}`
+      : `Basic ${Buffer.from(`${ck}:${cs}`).toString('base64')}`;
+
     const url = `${base}/products?status=${wooStatus}&per_page=${PER_PAGE}&page=${page}&orderby=id&order=asc&_fields=${fields}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 25000);
     try {
       const res = await fetch(url, { signal: controller.signal, headers: { Authorization: auth, 'Content-Type': 'application/json' } });
       const text = await res.text();
-      if (!res.ok) throw new Error(`WC ${res.status}: ${text.slice(0, 120)}`);
+      if (!res.ok) {
+        // Helpful hint if auth likely failed for drafts
+        const hint = (res.status === 401 || res.status === 403) && wooStatus !== 'publish'
+          ? ' — Draft products require a Read/Write WC API key or set WP_ADMIN_USER + WP_ADMIN_APP_PASSWORD env vars'
+          : '';
+        throw new Error(`WC ${res.status}: ${text.slice(0, 120)}${hint}`);
+      }
       wcProducts = JSON.parse(text);
     } finally {
       clearTimeout(timer);
     }
   } catch (wcErr) {
-    const msg = wcErr.name === 'AbortError' ? 'WC products request timed out (25s)' : wcErr.message?.slice(0, 120);
+    const msg = wcErr.name === 'AbortError' ? 'WC products request timed out (25s)' : wcErr.message?.slice(0, 200);
     return { success: false, error: msg, page, has_more: false };
   }
 

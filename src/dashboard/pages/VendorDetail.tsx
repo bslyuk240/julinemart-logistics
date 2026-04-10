@@ -38,6 +38,7 @@ interface SubOrder {
   allocated_shipping_fee: number;
   created_at: string;
   main_order: {
+    id: string;
     order_number: number;
     customer_name: string;
     overall_status: string;
@@ -171,7 +172,7 @@ export default function VendorDetail() {
       (supabase as any).from('vendors').select('*').eq('id', id).single(),
       (supabase as any)
         .from('sub_orders')
-        .select('id, status, subtotal, allocated_shipping_fee, created_at, main_order:orders(order_number, customer_name, overall_status)')
+        .select('id, status, subtotal, allocated_shipping_fee, created_at, main_order:orders(id, order_number, customer_name, overall_status)')
         .eq('vendor_id', id)
         .order('created_at', { ascending: false })
         .limit(50),
@@ -482,7 +483,7 @@ export default function VendorDetail() {
                     </td>
                     <td className="px-4 py-3">
                       <Link
-                        to={`/admin/orders/${o.id}`}
+                        to={`/admin/orders/${o.main_order?.id || o.id}`}
                         className="text-xs text-purple-600 hover:underline flex items-center gap-0.5"
                       >
                         <ExternalLink className="w-3 h-3" />

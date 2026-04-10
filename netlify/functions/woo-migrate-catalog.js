@@ -458,7 +458,7 @@ async function syncProducts(adminClient, page, wooStatus = 'publish') {
 
 // ─── phase: variations ────────────────────────────────────────────────────────
 
-async function syncVariations(adminClient, page) {
+async function syncVariations(adminClient, page, statusFilter = null) {
   const errors = [];
 
   // Load vendor + hub maps
@@ -469,15 +469,17 @@ async function syncVariations(adminClient, page) {
   const vendorMap = new Map((vendorRes.data || []).map((v) => [String(v.woocommerce_vendor_id), v.id]));
   const hubSet = new Set((hubRes.data || []).map((h) => h.id));
 
-  // Page through variable products in Supabase
+  // Page through variable products in Supabase (optionally filter by status)
   const offset = (page - 1) * VAR_PER_PAGE;
-  const { data: variableProducts, error: vpErr, count } = await adminClient
+  let varQuery = adminClient
     .from('products')
     .select('id, woo_product_id', { count: 'exact' })
     .eq('type', 'variable')
     .not('woo_product_id', 'is', null)
     .order('woo_product_id', { ascending: true })
     .range(offset, offset + VAR_PER_PAGE - 1);
+  if (statusFilter) varQuery = varQuery.eq('status', statusFilter);
+  const { data: variableProducts, error: vpErr, count } = await varQuery;
 
   if (vpErr) return { success: false, error: vpErr.message, page };
 
@@ -491,8 +493,14 @@ async function syncVariations(adminClient, page) {
       const rawBase = process.env.WOO_BASE_URL || process.env.WOOCOMMERCE_URL || '';
       const ck = process.env.WOO_CONSUMER_KEY || process.env.WOOCOMMERCE_CONSUMER_KEY || '';
       const cs = process.env.WOO_CONSUMER_SECRET || process.env.WOOCOMMERCE_CONSUMER_SECRET || '';
+      const wpUser    = process.env.WP_MEDIA_USERNAME || process.env.WP_ADMIN_USER || '';
+      const wpAppPass = process.env.WORDPRESS_APP_PASSWORD || process.env.WP_ADMIN_APP_PASSWORD || '';
       const normalised = rawBase.includes('/wp-json/') ? rawBase.replace(/\/+$/, '') : `${rawBase.replace(/\/+$/, '')}/wp-json/wc/v3`;
-      const header = `Basic ${Buffer.from(`${ck}:${cs}`).toString('base64')}`;
+      // Prefer WP app password — it has access to draft product variations; WC
+      // consumer keys may return empty arrays for drafts with some key scopes.
+      const header = (wpUser && wpAppPass)
+        ? `Basic ${Buffer.from(`${wpUser}:${wpAppPass}`).toString('base64')}`
+        : `Basic ${Buffer.from(`${ck}:${cs}`).toString('base64')}`;
       return { baseUrl: normalised, authHeader: header };
     })();
     const url = `${base}/products/${wooProductId}/variations?per_page=100&_fields=id,sku,regular_price,sale_price,stock_quantity,stock_status,manage_stock,attributes,image,meta_data`;
@@ -809,7 +817,9 @@ export async function handler(event) {
     }
 
     if (phase === 'variations') {
-      const result = await syncVariations(migrationClient, page);
+      // woo_status=draft → only process draft variable products (for draft import runner)
+      const statusFilter = wooStatus === 'draft' ? 'draft' : null;
+      const result = await syncVariations(migrationClient, page, statusFilter);
       return jsonResponse(200, result);
     }
 

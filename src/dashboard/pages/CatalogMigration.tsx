@@ -234,6 +234,7 @@ export default function CatalogMigration() {
     let page = startPage;
     let total = 0;
     try {
+      // ── Phase 1: Draft products ────────────────────────────────────────────
       while (true) {
         if (draftAbortRef.current) { addDraftLog('warn', 'Aborted.'); setDraftStatus('idle'); return; }
         addDraftLog('info', `  Page ${page}...`);
@@ -258,6 +259,28 @@ export default function CatalogMigration() {
         page++;
         await delay(INTER_PAGE_DELAY_MS);
       }
+      addDraftLog('success', `✓ ${total} draft products imported.`);
+
+      // ── Phase 2: Variations for draft variable products ────────────────────
+      addDraftLog('info', '▶ Syncing variations for draft variable products...');
+      let varPage = 1;
+      let varTotal = 0;
+      let varTotalPages = 1;
+      while (true) {
+        if (draftAbortRef.current) { addDraftLog('warn', 'Aborted.'); setDraftStatus('idle'); return; }
+        addDraftLog('info', `  Variations page ${varPage}${varTotalPages > 1 ? `/${varTotalPages}` : ''}...`);
+        const varResult = await runPhase('variations', varPage, 'draft');
+        if (!varResult.success) throw new Error(varResult.error || varResult.errors?.[0] || `Variations page ${varPage} failed`);
+        if (varResult.total_pages) varTotalPages = varResult.total_pages;
+        varTotal += varResult.processed || 0;
+        addDraftLog('success', `  ✓ Variations page ${varPage}: ${varResult.processed} variable products processed`);
+        if (varResult.errors?.length) varResult.errors.forEach((e) => addDraftLog('warn', `    ⚠ ${e}`));
+        if (!varResult.has_more) break;
+        varPage++;
+        await delay(VAR_INTER_PAGE_DELAY_MS);
+      }
+      addDraftLog('success', `✓ Variations done — ${varTotal} variable products with prices synced.`);
+
       addDraftLog('success', `🎉 Done — ${total} draft products imported. Review and publish from the Products page.`);
       setDraftStatus('done');
     } catch (e: any) {

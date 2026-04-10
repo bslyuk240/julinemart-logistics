@@ -52,7 +52,7 @@ interface FormState {
   slug: string;
   short_description: string;
   description: string;
-  status: 'draft' | 'pending_review';
+  status: 'draft' | 'published';
   type: 'simple' | 'variable';
   regular_price: string;
   sale_price: string;
@@ -101,7 +101,7 @@ const INITIAL_FORM: FormState = {
   slug: '',
   short_description: '',
   description: '',
-  status: 'pending_review',
+  status: 'published',
   type: 'simple',
   regular_price: '',
   sale_price: '',
@@ -194,7 +194,7 @@ export default function AddProduct() {
           slug: prod.slug || '',
           short_description: prod.short_description || '',
           description: prod.description || '',
-          status: (prod.status === 'draft' ? 'draft' : 'pending_review') as 'draft' | 'pending_review',
+          status: (prod.status === 'draft' ? 'draft' : 'published') as 'draft' | 'published',
           type: (prod.type === 'variable' ? 'variable' : 'simple') as 'simple' | 'variable',
           regular_price: prod.regular_price != null ? String(prod.regular_price) : '',
           sale_price: prod.sale_price != null ? String(prod.sale_price) : '',
@@ -346,7 +346,7 @@ export default function AddProduct() {
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
-  const handleSubmit = async (submitStatus: 'draft' | 'pending_review') => {
+  const handleSubmit = async (submitStatus: 'draft' | 'published') => {
     if (!form.name.trim()) { alert('Product name is required.'); return; }
     if (!form.slug.trim()) { alert('Slug is required.'); return; }
     if (form.type === 'variable' && !variations.length) {
@@ -1036,16 +1036,10 @@ export default function AddProduct() {
 
           {/* Submit buttons (desktop) */}
           <div className="card space-y-3">
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
-              <p className="text-xs text-amber-700 font-medium">Review required</p>
-              <p className="text-xs text-amber-600 mt-0.5">
-                Your product will be reviewed by JulineMart before going live.
-              </p>
-            </div>
             <button
               type="button"
               disabled={saving}
-              onClick={() => handleSubmit('pending_review')}
+              onClick={() => handleSubmit('published')}
               className="w-full btn-primary"
             >
               {saving ? (
@@ -1054,7 +1048,7 @@ export default function AddProduct() {
                   Saving…
                 </span>
               ) : (
-                isEdit ? 'Resubmit for Review' : 'Submit for Review'
+                isEdit ? 'Update Product' : 'Publish Product'
               )}
             </button>
             <button
@@ -1082,7 +1076,7 @@ export default function AddProduct() {
         <button
           type="button"
           disabled={saving}
-          onClick={() => handleSubmit('pending_review')}
+          onClick={() => handleSubmit('published')}
           className="flex-[2] btn-primary"
         >
           {saving ? (
@@ -1091,7 +1085,7 @@ export default function AddProduct() {
               Saving…
             </span>
           ) : (
-            isEdit ? 'Resubmit for Review' : 'Submit for Review'
+            isEdit ? 'Update Product' : 'Publish Product'
           )}
         </button>
       </div>

@@ -198,7 +198,7 @@ export default function Register() {
       <div className="bg-white rounded-2xl shadow-card border border-gray-100 w-full max-w-xl">
         {/* Header */}
         <div className="brand-gradient px-8 pt-7 pb-6 rounded-t-2xl">
-          <img src="/logo.png" alt="JulineMart" className="h-8 object-contain mb-4 brightness-0 invert" />
+          <img src="/logo.png" alt="JulineMart" className="h-14 w-14 object-contain mb-4 drop-shadow-sm" />
           <h1 className="text-xl font-bold text-white">Become a JulineMart Vendor</h1>
           <p className="text-primary-200 text-xs mt-0.5 mb-5">Sell to thousands of customers across Nigeria</p>
           {/* Progress bar */}

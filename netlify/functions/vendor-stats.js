@@ -37,11 +37,16 @@ export async function handler(event) {
       .order('created_at', { ascending: false })
       .limit(5),
 
-    // Product count — match both 'publish' (WC) and 'published' (Supabase)
-    adminClient.from('products')
-      .select('id', { count: 'exact', head: true })
-      .eq('vendor_id', vendor.id)
-      .in('status', ['publish', 'published']),
+    // Product count — match both 'publish'/'published' and fall back to woo_vendor_id
+    // (migrated products may have vendor_id=null if vendorMap lookup failed during import)
+    (() => {
+      const q = adminClient.from('products')
+        .select('id', { count: 'exact', head: true })
+        .in('status', ['publish', 'published']);
+      return vendor.woocommerce_vendor_id
+        ? q.or(`vendor_id.eq.${vendor.id},sourcing_meta->>wc_vendor_id.eq.${vendor.woocommerce_vendor_id}`)
+        : q.eq('vendor_id', vendor.id);
+    })(),
   ]);
 
   const earnings = earningsRes.data || {};

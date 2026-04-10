@@ -358,6 +358,21 @@ async function syncProducts(adminClient, page, wooStatus = 'publish') {
     secondaryByWooId.set(p.id, { images, catIds, tagIds, attrRows });
   }
 
+  // ── Deduplicate slugs against existing rows (avoids products_slug_key violation) ──
+  const incomingSlugs = productRows.map(r => r.slug);
+  const { data: existingSlugRows } = await adminClient
+    .from('products')
+    .select('slug, woo_product_id')
+    .in('slug', incomingSlugs);
+  const existingSlugMap = new Map((existingSlugRows || []).map(r => [r.slug, r.woo_product_id]));
+  for (const row of productRows) {
+    const ownerWooId = existingSlugMap.get(row.slug);
+    // If slug is taken by a DIFFERENT product, make it unique
+    if (ownerWooId != null && ownerWooId !== row.woo_product_id) {
+      row.slug = `${row.slug}-${row.woo_product_id}`;
+    }
+  }
+
   // ── Batch upsert all products in one call ────────────────────────────────────
   const { data: upserted, error: prodErr } = await adminClient
     .from('products')

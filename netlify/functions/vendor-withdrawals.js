@@ -21,10 +21,37 @@ export async function handler(event) {
   const origin = event.headers?.origin || event.headers?.Origin || '';
   if (event.httpMethod === 'OPTIONS') return preflightResponse(origin);
 
+  const id = extractId(event.path);
+
+  // ── PUT — admin only, skip vendor auth ───────────────────────────────────
+  if (event.httpMethod === 'PUT' && id) {
+    const adminAuth = await requireAdmin(event, ['admin', 'manager', 'staff']);
+    if (adminAuth.errorResponse) return adminAuth.errorResponse;
+
+    const body = event.body ? JSON.parse(event.body) : {};
+    const { action, payment_reference, rejection_reason, notes, payment_date } = body;
+
+    let updates = { updated_at: new Date().toISOString() };
+
+    if (action === 'approve') {
+      updates.status = 'approved';
+    } else if (action === 'reject') {
+      if (!rejection_reason) return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'rejection_reason required' }) };
+      updates = { ...updates, status: 'rejected', rejection_reason };
+    } else if (action === 'paid') {
+      updates = { ...updates, status: 'paid', payment_reference: payment_reference || null, payment_date: payment_date || new Date().toISOString(), notes: notes || null };
+    } else {
+      return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'action must be approve | reject | paid' }) };
+    }
+
+    const { data, error: updErr } = await getAdminClient().from('vendor_withdrawals').update(updates).eq('id', id).select().single();
+    if (updErr) return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: updErr.message }) };
+    return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify({ success: true, data }) };
+  }
+
+  // GET / POST — vendor auth required
   const { vendor, adminClient, error } = await authenticateVendor(event);
   if (error) return { statusCode: 401, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error }) };
-
-  const id = extractId(event.path);
 
   // ── GET list ─────────────────────────────────────────────────────────────
   if (event.httpMethod === 'GET') {
@@ -77,45 +104,6 @@ export async function handler(event) {
 
     if (insErr) return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: insErr.message }) };
     return { statusCode: 201, headers: corsHeaders(origin), body: JSON.stringify({ success: true, data }) };
-  }
-
-  // ── PUT — admin approves / rejects / marks paid ──────────────────────────
-  if (event.httpMethod === 'PUT' && id) {
-    // Admin action — re-authenticate as admin (not vendor)
-    const adminAuth = await requireAdmin(event, ['admin', 'manager', 'staff']);
-    if (adminAuth.errorResponse) return adminAuth.errorResponse;
-
-    const body = event.body ? JSON.parse(event.body) : {};
-    const { action, payment_reference, rejection_reason, notes, payment_date } = body;
-
-    let updates = { updated_at: new Date().toISOString() };
-
-    if (action === 'approve') {
-      updates.status = 'approved';
-    } else if (action === 'reject') {
-      if (!rejection_reason) return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'rejection_reason required' }) };
-      updates = { ...updates, status: 'rejected', rejection_reason };
-    } else if (action === 'paid') {
-      updates = {
-        ...updates,
-        status: 'paid',
-        payment_reference: payment_reference || null,
-        payment_date: payment_date || new Date().toISOString(),
-        notes: notes || null,
-      };
-    } else {
-      return { statusCode: 400, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'action must be approve | reject | paid' }) };
-    }
-
-    const { data, error: updErr } = await getAdminClient()
-      .from('vendor_withdrawals')
-      .update(updates)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (updErr) return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: updErr.message }) };
-    return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify({ success: true, data }) };
   }
 
   return { statusCode: 405, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };

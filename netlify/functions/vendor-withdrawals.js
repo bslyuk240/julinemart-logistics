@@ -8,6 +8,7 @@
  */
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateVendor, getAdminClient } from './services/vendorAuth.js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
 
 // Extract :id from path  /api/vendor-withdrawals/uuid
 function extractId(path) {
@@ -80,6 +81,10 @@ export async function handler(event) {
 
   // ── PUT — admin approves / rejects / marks paid ──────────────────────────
   if (event.httpMethod === 'PUT' && id) {
+    // Admin action — re-authenticate as admin (not vendor)
+    const adminAuth = await requireAdmin(event, ['admin', 'manager', 'staff']);
+    if (adminAuth.errorResponse) return adminAuth.errorResponse;
+
     const body = event.body ? JSON.parse(event.body) : {};
     const { action, payment_reference, rejection_reason, notes, payment_date } = body;
 

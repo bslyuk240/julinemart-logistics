@@ -358,19 +358,37 @@ async function syncProducts(adminClient, page, wooStatus = 'publish') {
     secondaryByWooId.set(p.id, { images, catIds, tagIds, attrRows });
   }
 
-  // ── Deduplicate slugs against existing rows (avoids products_slug_key violation) ──
+  // ── Deduplicate slugs (DB conflicts + within-batch duplicates) ──────────────
+  // Fetch all slugs that already exist in the DB for this batch (including
+  // tentative renamed slugs in case a previous import already suffixed them)
   const incomingSlugs = productRows.map(r => r.slug);
+  const tentativeSuffixedSlugs = productRows.map(r => `${r.slug}-${r.woo_product_id}`);
+  const slugsToCheck = [...new Set([...incomingSlugs, ...tentativeSuffixedSlugs])];
+
   const { data: existingSlugRows } = await adminClient
     .from('products')
     .select('slug, woo_product_id')
-    .in('slug', incomingSlugs);
+    .in('slug', slugsToCheck);
   const existingSlugMap = new Map((existingSlugRows || []).map(r => [r.slug, r.woo_product_id]));
+
+  // Track slugs used within this batch to catch intra-batch duplicates
+  const batchSlugsSeen = new Map(); // slug → woo_product_id first claimant
+
+  const slugDebug = [];
   for (const row of productRows) {
-    const ownerWooId = existingSlugMap.get(row.slug);
-    // If slug is taken by a DIFFERENT product, make it unique
-    if (ownerWooId != null && ownerWooId !== row.woo_product_id) {
+    const originalSlug = row.slug;
+    const dbOwner = existingSlugMap.get(row.slug);
+    const batchOwner = batchSlugsSeen.get(row.slug);
+
+    const conflictDb    = dbOwner    != null && dbOwner    !== row.woo_product_id;
+    const conflictBatch = batchOwner != null && batchOwner !== row.woo_product_id;
+
+    if (conflictDb || conflictBatch) {
+      const reason = conflictDb ? `db_owner=${dbOwner}` : `batch_owner=${batchOwner}`;
       row.slug = `${row.slug}-${row.woo_product_id}`;
+      slugDebug.push(`woo_id=${row.woo_product_id}: slug "${originalSlug}" → "${row.slug}" (${reason})`);
     }
+    batchSlugsSeen.set(row.slug, row.woo_product_id);
   }
 
   // ── Batch upsert all products in one call ────────────────────────────────────
@@ -379,7 +397,18 @@ async function syncProducts(adminClient, page, wooStatus = 'publish') {
     .upsert(productRows, { onConflict: 'woo_product_id' })
     .select('id, woo_product_id');
 
-  if (prodErr) return { success: false, error: prodErr.message, page, has_more: false };
+  if (prodErr) {
+    return {
+      success: false,
+      error: prodErr.message,
+      page,
+      has_more: false,
+      debug: {
+        batch_slugs: productRows.map(r => ({ woo_id: r.woo_product_id, slug: r.slug })),
+        slug_renames: slugDebug,
+      },
+    };
+  }
 
   const uuidMap = new Map((upserted || []).map((r) => [r.woo_product_id, r.id]));
   const allUuids = (upserted || []).map((r) => r.id);

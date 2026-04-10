@@ -29,6 +29,10 @@ interface PhaseResult {
   success: boolean;
   message?: string;
   error?: string;
+  debug?: {
+    batch_slugs?: { woo_id: number; slug: string }[];
+    slug_renames?: string[];
+  };
 }
 
 interface Log {
@@ -234,10 +238,21 @@ export default function CatalogMigration() {
         if (draftAbortRef.current) { addDraftLog('warn', 'Aborted.'); setDraftStatus('idle'); return; }
         addDraftLog('info', `  Page ${page}...`);
         const result = await runPhase('products', page, 'draft');
-        if (!result.success) throw new Error(result.error || result.errors?.[0] || `Page ${page} failed`);
+        if (!result.success) {
+          if (result.debug?.slug_renames?.length) {
+            addDraftLog('warn', `  Slug renames this page: ${result.debug.slug_renames.join(' | ')}`);
+          }
+          if (result.debug?.batch_slugs?.length) {
+            addDraftLog('warn', `  Batch slugs: ${result.debug.batch_slugs.map(s => `${s.woo_id}:${s.slug}`).join(', ')}`);
+          }
+          throw new Error(result.error || result.errors?.[0] || `Page ${page} failed`);
+        }
         total += result.processed || 0;
         setDraftPage(page);
         addDraftLog('success', `  ✓ Page ${page}: ${result.processed} draft products imported`);
+        if (result.debug?.slug_renames?.length) {
+          result.debug.slug_renames.forEach((r) => addDraftLog('warn', `    ↷ slug rename: ${r}`));
+        }
         if (result.errors?.length) result.errors.forEach((e) => addDraftLog('warn', `    ⚠ ${e}`));
         if (!result.has_more) break;
         page++;

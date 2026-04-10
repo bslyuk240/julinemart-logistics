@@ -24,17 +24,18 @@ export async function handler(event) {
     const { data: so, error: soErr } = await adminClient
       .from('sub_orders')
       .select(`
-        id, status, tracking_number, courier_waybill, created_at, updated_at,
+        id, vendor_id, status, tracking_number, courier_waybill, subtotal, created_at, updated_at,
         couriers(name, code),
         hubs(name, city, state),
         orders(id, order_number, overall_status, customer_name, customer_email,
                shipping_address, created_at)
       `)
       .eq('id', qs.id)
-      .eq('vendor_id', vendor.id)
       .single();
 
     if (soErr || !so) return { statusCode: 404, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Order not found' }) };
+    // Ownership check: vendor_id must match (or be unset — legacy orders without vendor_id populated)
+    if (so.vendor_id && so.vendor_id !== vendor.id) return { statusCode: 403, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Forbidden' }) };
 
     // Fetch order_items separately via orders.id (avoids sub_orders FK dependency)
     const orderId = so.orders?.id;
@@ -47,7 +48,7 @@ export async function handler(event) {
       items = itemsData || [];
     }
 
-    const gross = items.reduce((s, i) => s + Number(i.subtotal), 0);
+    const gross = Number(so.subtotal || items.reduce((s, i) => s + Number(i.subtotal), 0));
     const vendorAmount = gross * (1 - Number(vendor.commission_rate || 0) / 100);
 
     return {

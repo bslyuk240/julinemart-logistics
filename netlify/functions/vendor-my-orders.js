@@ -28,12 +28,12 @@ export async function handler(event) {
         couriers(name, code),
         hubs(name, city, state),
         orders(id, order_number, overall_status, customer_name, customer_email,
-               shipping_address, created_at)
+               delivery_address, created_at)
       `)
       .eq('id', qs.id)
       .single();
 
-    if (soErr || !so) return { statusCode: 404, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Order not found', debug: { id: qs.id, vendor_id: vendor.id, soErr: soErr?.message } }) };
+    if (soErr || !so) return { statusCode: 404, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Order not found' }) };
     // Ownership check: vendor_id must match (or be unset — legacy orders without vendor_id populated)
     if (so.vendor_id && so.vendor_id !== vendor.id) return { statusCode: 403, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Forbidden' }) };
 

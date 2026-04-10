@@ -246,13 +246,13 @@ export default function Orders() {
                 </div>
 
                 {/* Delivery address */}
-                {selected.orders?.shipping_address && (
+                {selected.orders?.delivery_address && (
                   <div>
                     <p className="text-sm font-semibold text-gray-700 mb-1">Delivery Address</p>
                     <p className="text-sm text-gray-600 bg-gray-50 rounded-xl p-3">
-                      {typeof selected.orders.shipping_address === 'string'
-                        ? selected.orders.shipping_address
-                        : JSON.stringify(selected.orders.shipping_address)}
+                      {typeof selected.orders.delivery_address === 'string'
+                        ? selected.orders.delivery_address
+                        : JSON.stringify(selected.orders.delivery_address)}
                     </p>
                   </div>
                 )}

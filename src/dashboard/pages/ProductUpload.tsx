@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronDown, ChevronUp, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronUp, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
@@ -472,16 +472,26 @@ export default function ProductUpload() {
   return (
     <div className="max-w-4xl mx-auto">
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {editId ? 'Edit Product' : 'Add New Product'}
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Products are saved directly to the catalog. Drafts are not visible on the storefront.
-          </p>
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-3">
+          <button
+            type="button"
+            onClick={() => navigate('/admin/products/moderation')}
+            className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-600 shadow-sm transition hover:border-gray-300 hover:text-gray-900 hover:bg-gray-50"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Products
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">
+              {editId ? 'Edit Product' : 'Add New Product'}
+            </h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Products are saved directly to the catalog. Drafts are not visible on the storefront.
+            </p>
+          </div>
         </div>
-        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+        <span className={`self-start px-3 py-1 rounded-full text-xs font-semibold ${
           form.status === 'published' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
         }`}>
           {form.status === 'published' ? 'Published' : 'Draft'}

@@ -233,7 +233,7 @@ export default function CatalogMigration() {
         if (draftAbortRef.current) { addDraftLog('warn', 'Aborted.'); setDraftStatus('idle'); return; }
         addDraftLog('info', `  Page ${page}...`);
         const result = await runPhase('products', page, 'draft');
-        if (!result.success) throw new Error(result.errors?.[0] || `Page ${page} failed`);
+        if (!result.success) throw new Error(result.error || result.errors?.[0] || `Page ${page} failed`);
         total += result.processed || 0;
         setDraftPage(page);
         addDraftLog('success', `  ✓ Page ${page}: ${result.processed} draft products imported`);

@@ -28,6 +28,7 @@ interface PhaseResult {
   total_pages?: number;
   success: boolean;
   message?: string;
+  error?: string;
 }
 
 interface Log {

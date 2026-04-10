@@ -61,9 +61,8 @@ export async function handler(event) {
   let query = adminClient
     .from('sub_orders')
     .select(`
-      id, status, tracking_number, created_at,
-      orders(id, order_number, overall_status, customer_name, created_at, total_amount),
-      order_items(subtotal)
+      id, status, tracking_number, created_at, subtotal,
+      orders(id, order_number, overall_status, customer_name, created_at, total_amount)
     `, { count: 'exact' })
     .eq('vendor_id', vendor.id)
     .order('created_at', { ascending: false })
@@ -81,10 +80,8 @@ export async function handler(event) {
     status:       so.status,
     tracking:     so.tracking_number,
     customer:     so.orders?.customer_name,
-    // Sum order_items for this sub_order
-    vendor_amount: (so.order_items || []).reduce((s, i) => s + Number(i.subtotal), 0)
-      * (1 - Number(vendor.commission_rate || 0) / 100),
-    gross_amount: (so.order_items || []).reduce((s, i) => s + Number(i.subtotal), 0),
+    gross_amount:  Number(so.subtotal || 0),
+    vendor_amount: Number(so.subtotal || 0) * (1 - Number(vendor.commission_rate || 0) / 100),
     created_at:   so.created_at,
   }));
 

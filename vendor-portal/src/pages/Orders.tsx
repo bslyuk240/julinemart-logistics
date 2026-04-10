@@ -27,6 +27,7 @@ export default function Orders() {
 
   useEffect(() => {
     setLoading(true);
+    setError('');
     api.getOrders({ page: String(page), ...(statusFilter && { status: statusFilter }) })
       .then(setData)
       .catch(e => setError(e.message))
@@ -35,6 +36,7 @@ export default function Orders() {
 
   const openDetail = async (id: string) => {
     setDetailLoading(true);
+    setError('');
     try {
       const detail = await api.getOrder(id);
       setSelected(detail);

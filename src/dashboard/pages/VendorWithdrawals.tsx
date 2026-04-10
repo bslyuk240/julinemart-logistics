@@ -34,13 +34,13 @@ const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
 
 const API = import.meta.env.VITE_API_URL || '';
 
-async function callApi(path: string, method: string, body: object) {
+async function callApi(path: string, method: string, body?: object) {
   const { data } = await supabase.auth.getSession();
   const token = data.session?.access_token || '';
   const res = await fetch(`${API}/.netlify/functions/${path}`, {
     method,
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify(body),
+    ...(method !== 'GET' && body ? { body: JSON.stringify(body) } : {}),
   });
   return res.json();
 }
@@ -63,13 +63,8 @@ export default function VendorWithdrawals() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await (supabase as any)
-      .from('vendor_withdrawals')
-      .select('*, vendor:vendors(store_name, email)')
-      .order('created_at', { ascending: false })
-      .limit(200);
-
-    if (!error) setWithdrawals(data || []);
+    const res = await callApi('vendor-withdrawals-admin', 'GET', {});
+    if (res.success) setWithdrawals(res.data || []);
     setLoading(false);
   }, []);
 

@@ -33,7 +33,7 @@ export async function handler(event) {
       .eq('id', qs.id)
       .single();
 
-    if (soErr || !so) return { statusCode: 404, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Order not found' }) };
+    if (soErr || !so) return { statusCode: 404, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Order not found', debug: { id: qs.id, vendor_id: vendor.id, soErr: soErr?.message } }) };
     // Ownership check: vendor_id must match (or be unset — legacy orders without vendor_id populated)
     if (so.vendor_id && so.vendor_id !== vendor.id) return { statusCode: 403, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Forbidden' }) };
 

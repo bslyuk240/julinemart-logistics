@@ -37,11 +37,11 @@ export async function handler(event) {
       .order('created_at', { ascending: false })
       .limit(5),
 
-    // Product count
+    // Product count — match both 'publish' (WC) and 'published' (Supabase)
     adminClient.from('products')
       .select('id', { count: 'exact', head: true })
       .eq('vendor_id', vendor.id)
-      .eq('status', 'publish'),
+      .in('status', ['publish', 'published']),
   ]);
 
   const earnings = earningsRes.data || {};

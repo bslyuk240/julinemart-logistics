@@ -41,7 +41,7 @@ export async function handler(event) {
     adminClient.from('products')
       .select('id', { count: 'exact', head: true })
       .eq('vendor_id', vendor.id)
-      .in('status', ['publish', 'published']),
+      .eq('status', 'published'),
   ]);
 
   const earnings = earningsRes.data || {};
@@ -55,7 +55,7 @@ export async function handler(event) {
       .from('products')
       .select('id', { count: 'exact', head: true })
       .is('vendor_id', null)
-      .in('status', ['publish', 'published'])
+      .eq('status', 'published')
       .filter('sourcing_meta->>wc_vendor_id', 'eq', String(vendor.woocommerce_vendor_id));
     migratedProductCount = wooCount || 0;
   }

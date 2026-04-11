@@ -5,12 +5,7 @@
  * Looks up an order by order_number (or legacy woocommerce_order_id) + customer email.
  */
 
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
+import { adminClient } from './services/global-sourcing-utils.js';
 
 const corsHeaders = {
   'Content-Type': 'application/json',
@@ -26,6 +21,10 @@ export async function handler(event) {
   }
 
   const { orderNumber, email } = event.queryStringParameters || {};
+
+  if (!adminClient) {
+    return { statusCode: 503, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'Database not configured' }) };
+  }
 
   if (!orderNumber || !email) {
     return {
@@ -50,7 +49,7 @@ export async function handler(event) {
   `;
 
   // 1. Try matching by order_number (new Supabase-native orders)
-  let { data: order, error } = await supabase
+  let { data: order, error } = await adminClient
     .from('orders')
     .select(`
       id, order_number, customer_name, customer_email, customer_phone,
@@ -65,7 +64,7 @@ export async function handler(event) {
 
   // 2. Fallback: legacy woocommerce_order_id
   if (!order) {
-    const res2 = await supabase
+    const res2 = await adminClient
       .from('orders')
       .select(`
         id, order_number, customer_name, customer_email, customer_phone,

@@ -171,6 +171,24 @@ export async function handler(event) {
       return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };
     }
 
+    // /api/email/test-connection  (verify SMTP credentials without sending)
+    if (next === 'test-connection') {
+      if (event.httpMethod !== 'POST') {
+        return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };
+      }
+      try {
+        const { transportConfig, from } = await getRuntimeEmailConfig();
+        if (!from) {
+          return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Email sender not configured' }) };
+        }
+        const transporter = nodemailer.createTransport(transportConfig);
+        await transporter.verify();
+        return { statusCode: 200, headers, body: JSON.stringify({ success: true, message: 'Connection successful', from }) };
+      } catch (err) {
+        return { statusCode: 200, headers, body: JSON.stringify({ success: false, error: err?.message || 'Connection failed' }) };
+      }
+    }
+
     // /api/email/test
     if (next === 'test') {
       if (event.httpMethod !== 'POST') {

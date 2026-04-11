@@ -5,7 +5,9 @@ import {
   ArrowLeft, Phone, Mail, Home, AlertCircle, ExternalLink
 } from 'lucide-react';
 import { BrandLogo } from '../../shared/BrandLogo';
-import { callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
+
+// Relative — same domain as the JLO portal (Netlify)
+const JLO_BASE = '';
 
 interface Order {
   id: string;
@@ -88,26 +90,21 @@ export function OrderTrackingPage() {
 
   const fetchOrder = useCallback(async () => {
     try {
-      const data = await callSupabaseFunctionWithQuery(
-        'track-order',
-        {
-          orderNumber: orderNumber ?? '',
-          email: email ?? '',
-        },
-        { method: 'GET' }
-      );
+      const qs = new URLSearchParams({ orderNumber: orderNumber ?? '', email: email ?? '' });
+      const res = await fetch(`${JLO_BASE}/.netlify/functions/track-order?${qs}`);
+      const data = await res.json();
 
       if (data.success) {
-      setOrder(data.data);
-    } else {
-      setError(data.error || 'Order not found');
+        setOrder(data.data);
+      } else {
+        setError(data.error || 'Order not found');
+      }
+    } catch (err) {
+      setError('Failed to fetch order information');
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    setError('Failed to fetch order information');
-  } finally {
-    setLoading(false);
-  }
-}, [orderNumber, email]);
+  }, [orderNumber, email]);
 
   useEffect(() => {
     if (orderNumber && email) {

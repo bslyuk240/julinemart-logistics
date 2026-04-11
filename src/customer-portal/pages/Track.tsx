@@ -11,6 +11,7 @@ const JLO_BASE = '';
 
 interface Order {
   id: string;
+  order_number?: number | string;
   woocommerce_order_id: string;
   customer_name: string;
   customer_email: string;
@@ -244,7 +245,7 @@ export function OrderTrackingPage() {
           <div className="flex items-start justify-between mb-4">
             <div>
               <h2 className="text-3xl font-bold text-gray-900 mb-2">
-                Order #{order.woocommerce_order_id}
+                Order #{order.order_number || order.woocommerce_order_id}
               </h2>
               <p className="text-gray-600">
                 Placed on {new Date(order.created_at).toLocaleDateString('en-US', {

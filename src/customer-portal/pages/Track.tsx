@@ -12,7 +12,7 @@ const JLO_BASE = '';
 interface Order {
   id: string;
   order_number?: number | string;
-  woocommerce_order_id: string;
+  woocommerce_order_id?: string | null;
   customer_name: string;
   customer_email: string;
   customer_phone: string;
@@ -80,6 +80,7 @@ export function OrderTrackingPage() {
 
   const orderNumber = searchParams.get('order');
   const email = searchParams.get('email');
+  const displayOrderNumber = order?.order_number ?? order?.woocommerce_order_id ?? orderNumber ?? routeOrderId ?? '';
  
   useEffect(() => {
     if (routeOrderId && !orderNumber) {
@@ -245,7 +246,7 @@ export function OrderTrackingPage() {
           <div className="flex items-start justify-between mb-4">
             <div>
               <h2 className="text-3xl font-bold text-gray-900 mb-2">
-                Order #{order.order_number || order.woocommerce_order_id}
+                Order #{displayOrderNumber}
               </h2>
               <p className="text-gray-600">
                 Placed on {new Date(order.created_at).toLocaleDateString('en-US', {

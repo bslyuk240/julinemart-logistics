@@ -79,7 +79,10 @@ export async function handler(event) {
     body.record?.id ||
     (body.type === 'INSERT' && body.record?.id ? body.record.id : null);
 
+  console.log('[notify-order-confirmation] payload keys:', Object.keys(body), 'orderId:', orderId);
+
   if (!orderId) {
+    console.error('[notify-order-confirmation] missing order id; body sample:', JSON.stringify(body).slice(0, 500));
     return jsonResponse(400, { success: false, error: 'Missing order id (expected order_id or Supabase webhook record.id)' });
   }
 
@@ -101,6 +104,7 @@ export async function handler(event) {
 
   const meta = order.metadata && typeof order.metadata === 'object' ? order.metadata : {};
   if (meta.order_confirmation_handler === 'netlify_create_order') {
+    console.log('[notify-order-confirmation] skip: create-order already owns confirmation', orderId);
     return jsonResponse(200, {
       success: true,
       skipped: true,
@@ -131,6 +135,8 @@ export async function handler(event) {
     subtotal: Number(row.subtotal),
   }));
 
+  console.log('[notify-order-confirmation] sending mail', orderId, 'items:', resolvedItems.length);
+
   await sendOrderEmails(adminClient, {
     orderId: order.id,
     orderNumber: order.order_number,
@@ -146,6 +152,8 @@ export async function handler(event) {
     totalAmount: Number(order.total_amount),
     resolvedItems,
   });
+
+  console.log('[notify-order-confirmation] sendOrderEmails finished', orderId);
 
   return jsonResponse(200, {
     success: true,

@@ -147,7 +147,7 @@
   timeout = 10
 
 [functions."create-order"]
-  timeout = 20
+  timeout = 30
 
 [functions."notify-order-confirmation"]
   timeout = 30

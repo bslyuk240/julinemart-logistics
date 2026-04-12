@@ -355,22 +355,27 @@ export async function handler(event) {
         .eq('id', voucherRow.id);
     }
 
-    // ── Send order confirmation emails (non-blocking) ─────────────────────
-    sendOrderEmails(adminClient, {
-      orderId,
-      orderNumber,
-      customer_name,
-      customer_email,
-      customer_phone,
-      delivery_address,
-      delivery_city,
-      delivery_state,
-      subtotal,
-      discountAmount,
-      shippingFee,
-      totalAmount,
-      resolvedItems,
-    }).catch((e) => console.error('sendOrderEmails (async):', e?.message || e));
+    // ── Send order confirmation emails (await — Netlify terminates the function when the handler
+    // returns; fire-and-forget promises are often cut off before SMTP + email_logs complete.)
+    try {
+      await sendOrderEmails(adminClient, {
+        orderId,
+        orderNumber,
+        customer_name,
+        customer_email,
+        customer_phone,
+        delivery_address,
+        delivery_city,
+        delivery_state,
+        subtotal,
+        discountAmount,
+        shippingFee,
+        totalAmount,
+        resolvedItems,
+      });
+    } catch (e) {
+      console.error('sendOrderEmails:', e?.message || e);
+    }
 
     return jsonResponse(201, {
       success: true,

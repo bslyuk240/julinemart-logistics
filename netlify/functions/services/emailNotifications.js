@@ -19,7 +19,7 @@
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 import { decryptEmailConfigSecrets } from '../../../shared/emailSecretsCrypto.js';
-import { parseSmtpPort } from '../../../shared/smtpPort.js';
+import { buildCustomSmtpTransportOptions } from '../../../shared/smtpTransport.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
@@ -79,20 +79,9 @@ async function getTransport() {
             auth: { user: 'apikey', pass: cfg.sendgrid_api_key },
           };
           break;
-        case 'smtp': {
-          const port = parseSmtpPort(cfg.smtp_port);
-          const secure = port === 465;
-          const host = cfg.smtp_host;
-          transportConfig = {
-            host,
-            port,
-            secure,
-            auth: { user: cfg.smtp_user, pass: cfg.smtp_password },
-            ...(!secure ? { requireTLS: true } : {}),
-            ...(host ? { tls: { servername: host } } : {}),
-          };
+        case 'smtp':
+          transportConfig = buildCustomSmtpTransportOptions(cfg);
           break;
-        }
         default:
           transportConfig = buildEnvTransport();
       }

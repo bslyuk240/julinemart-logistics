@@ -8,7 +8,7 @@ import {
   pickEmailConfigForDatabase,
   sanitizeEmailConfigForClient,
 } from '../../../shared/emailSecretsCrypto.js';
-import { parseSmtpPort } from '../../../shared/smtpPort.js';
+import { buildCustomSmtpTransportOptions } from '../../../shared/smtpTransport.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -191,23 +191,9 @@ export async function testEmailConnectionHandler(req: AuthRequest, res: Response
         };
         break;
 
-      case 'smtp': {
-        const port = parseSmtpPort(config.smtp_port);
-        const secure = port === 465;
-        const host = config.smtp_host;
-        transportConfig = {
-          host,
-          port,
-          secure,
-          auth: {
-            user: config.smtp_user,
-            pass: config.smtp_password,
-          },
-          ...(!secure ? { requireTLS: true } : {}),
-          ...(host ? { tls: { servername: host } } : {}),
-        };
+      case 'smtp':
+        transportConfig = buildCustomSmtpTransportOptions(config as Record<string, unknown>);
         break;
-      }
 
       default:
         return res.status(400).json({

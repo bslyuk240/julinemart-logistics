@@ -3,7 +3,7 @@ import SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { emailTemplates } from './emailTemplates.js';
 import { createClient } from '@supabase/supabase-js';
 import { decryptEmailConfigSecrets } from '../../../shared/emailSecretsCrypto.js';
-import { parseSmtpPort } from '../../../shared/smtpPort.js';
+import { buildCustomSmtpTransportOptions } from '../../../shared/smtpTransport.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -111,22 +111,8 @@ function buildTransportConfigFromDb(config: DbEmailConfig): SMTPTransport.Option
           pass: config.sendgrid_api_key || undefined,
         },
       };
-    case 'smtp': {
-      const port = parseSmtpPort(config.smtp_port);
-      const secure = port === 465;
-      const host = config.smtp_host || undefined;
-      return {
-        host,
-        port,
-        secure,
-        auth: {
-          user: config.smtp_user || undefined,
-          pass: config.smtp_password || undefined,
-        },
-        ...(!secure ? { requireTLS: true } : {}),
-        ...(host ? { tls: { servername: host } } : {}),
-      };
-    }
+    case 'smtp':
+      return buildCustomSmtpTransportOptions(config as Record<string, unknown>);
     default:
       return getEnvEmailConfig();
   }

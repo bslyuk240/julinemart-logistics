@@ -7,7 +7,7 @@ import {
   pickEmailConfigForDatabase,
   sanitizeEmailConfigForClient,
 } from '../../shared/emailSecretsCrypto.js';
-import { parseSmtpPort } from '../../shared/smtpPort.js';
+import { buildCustomSmtpTransportOptions } from '../../shared/smtpTransport.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -76,25 +76,8 @@ const buildTransportConfigFromDb = (config) => {
           pass: config.sendgrid_api_key || undefined
         }
       };
-    case 'smtp': {
-      const port = parseSmtpPort(config.smtp_port);
-      const secure = port === 465;
-      const host = config.smtp_host || undefined;
-      const base = {
-        host,
-        port,
-        secure,
-        auth: {
-          user: config.smtp_user || undefined,
-          pass: config.smtp_password || undefined
-        },
-        ...(host ? { tls: { servername: host } } : {})
-      };
-      if (!secure) {
-        base.requireTLS = true;
-      }
-      return base;
-    }
+    case 'smtp':
+      return buildCustomSmtpTransportOptions(config);
     default:
       return EMAIL_CONFIG.gmail;
   }

@@ -19,7 +19,7 @@
 import nodemailer from 'nodemailer';
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
 import { decryptEmailConfigSecrets } from '../../shared/emailSecretsCrypto.js';
-import { parseSmtpPort } from '../../shared/smtpPort.js';
+import { buildCustomSmtpTransportOptions } from '../../shared/smtpTransport.js';
 
 async function sendOrderEmails(supabase, { orderNumber, customer_name, customer_email, customer_phone, delivery_address, delivery_city, delivery_state, subtotal, discountAmount, shippingFee, totalAmount, resolvedItems }) {
   try {
@@ -36,17 +36,7 @@ async function sendOrderEmails(supabase, { orderNumber, customer_name, customer_
       transportConfig = { host: 'smtp.sendgrid.net', port: 587, auth: { user: 'apikey', pass: cfg.sendgrid_api_key } };
       from = cfg.email_from;
     } else {
-      const port = parseSmtpPort(cfg.smtp_port);
-      const secure = port === 465;
-      const host = cfg.smtp_host;
-      transportConfig = {
-        host,
-        port,
-        secure,
-        auth: { user: cfg.smtp_user, pass: cfg.smtp_password },
-        ...(!secure ? { requireTLS: true } : {}),
-        ...(host ? { tls: { servername: host } } : {}),
-      };
+      transportConfig = buildCustomSmtpTransportOptions(cfg);
       from = cfg.email_from || cfg.smtp_user;
     }
     if (!from) return;

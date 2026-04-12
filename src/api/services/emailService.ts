@@ -110,16 +110,20 @@ function buildTransportConfigFromDb(config: DbEmailConfig): SMTPTransport.Option
           pass: config.sendgrid_api_key || undefined,
         },
       };
-    case 'smtp':
+    case 'smtp': {
+      const port = config.smtp_port || 587;
+      const secure = port === 465;
       return {
         host: config.smtp_host || undefined,
-        port: config.smtp_port || 587,
-        secure: config.smtp_port === 465,
+        port,
+        secure,
         auth: {
           user: config.smtp_user || undefined,
           pass: config.smtp_password || undefined,
         },
+        ...(!secure ? { requireTLS: true } : {}),
       };
+    }
     default:
       return getEnvEmailConfig();
   }

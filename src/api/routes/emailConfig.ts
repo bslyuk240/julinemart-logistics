@@ -190,17 +190,21 @@ export async function testEmailConnectionHandler(req: AuthRequest, res: Response
         };
         break;
 
-      case 'smtp':
+      case 'smtp': {
+        const port = config.smtp_port || 587;
+        const secure = port === 465;
         transportConfig = {
           host: config.smtp_host,
-          port: config.smtp_port,
-          secure: config.smtp_port === 465,
+          port,
+          secure,
           auth: {
             user: config.smtp_user,
             pass: config.smtp_password,
           },
+          ...(!secure ? { requireTLS: true } : {}),
         };
         break;
+      }
 
       default:
         return res.status(400).json({

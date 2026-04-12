@@ -75,16 +75,23 @@ const buildTransportConfigFromDb = (config) => {
           pass: config.sendgrid_api_key || undefined
         }
       };
-    case 'smtp':
-      return {
+    case 'smtp': {
+      const port = config.smtp_port || 587;
+      const secure = port === 465;
+      const base = {
         host: config.smtp_host || undefined,
-        port: config.smtp_port || 587,
-        secure: config.smtp_port === 465,
+        port,
+        secure,
         auth: {
           user: config.smtp_user || undefined,
           pass: config.smtp_password || undefined
         }
       };
+      if (!secure) {
+        base.requireTLS = true;
+      }
+      return base;
+    }
     default:
       return EMAIL_CONFIG.gmail;
   }
@@ -206,21 +213,54 @@ export async function handler(event) {
       return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };
     }
 
-    // /api/email/test-connection  (verify SMTP credentials without sending)
+    // /api/email/test-connection — same as Express: merge POST body with DB secrets, then verify (not DB-only).
     if (next === 'test-connection') {
       if (event.httpMethod !== 'POST') {
         return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };
       }
       try {
-        const { transportConfig, from } = await getRuntimeEmailConfig();
-        if (!from) {
-          return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Email sender not configured' }) };
+        const payload = JSON.parse(event.body || '{}');
+        delete payload.secrets_configured;
+        delete payload.email_secrets_encryption_active;
+
+        const { data: existingRow } = await supabase
+          .from('email_config')
+          .select('*')
+          .limit(1)
+          .maybeSingle();
+
+        const secretFields = ['gmail_password', 'sendgrid_api_key', 'smtp_password'];
+        const merged = { ...payload };
+        for (const field of secretFields) {
+          const v = merged[field];
+          const empty = v == null || String(v).trim() === '';
+          if (empty && existingRow?.[field]) {
+            merged[field] = existingRow[field];
+          }
         }
+        const config = decryptEmailConfigSecrets(merged);
+        if (!config?.provider) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ success: false, error: 'Missing email provider (save settings first)' })
+          };
+        }
+
+        const transportConfig = buildTransportConfigFromDb(config);
         const transporter = nodemailer.createTransport(transportConfig);
         await transporter.verify();
-        return { statusCode: 200, headers, body: JSON.stringify({ success: true, message: 'Connection successful', from }) };
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ success: true, message: 'Connection successful' })
+        };
       } catch (err) {
-        return { statusCode: 200, headers, body: JSON.stringify({ success: false, error: err?.message || 'Connection failed' }) };
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ success: false, error: err?.message || 'Connection failed' })
+        };
       }
     }
 

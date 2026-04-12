@@ -28,12 +28,35 @@ const ALGO = 'aes-256-gcm';
 const IV_LEN = 12;
 const TAG_LEN = 16;
 
+/**
+ * Normalize env value: trim, strip wrapping quotes, remove accidental newlines/spaces in pasted keys.
+ * @param {string} raw
+ */
+export function normalizeEncryptionKeyInput(raw) {
+  if (raw == null) return '';
+  let s = String(raw).trim();
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  s = s.replace(/[\r\n]/g, '');
+  return s.trim();
+}
+
 export function getEncryptionKeyBuffer() {
-  const raw = (process.env.EMAIL_SECRETS_ENCRYPTION_KEY || '').trim();
+  const env =
+    typeof process !== 'undefined' && process.env
+      ? process.env.EMAIL_SECRETS_ENCRYPTION_KEY ||
+        process.env['EMAIL_SECRETS_ENCRYPTION_KEY']
+      : '';
+  const raw = normalizeEncryptionKeyInput(env || '');
   if (!raw) return null;
   if (/^[0-9a-fA-F]{64}$/.test(raw)) return Buffer.from(raw, 'hex');
   try {
-    const b = Buffer.from(raw, 'base64');
+    const compact = raw.replace(/\s/g, '');
+    const b = Buffer.from(compact, 'base64');
     if (b.length === 32) return b;
   } catch {
     /* ignore */
@@ -42,6 +65,16 @@ export function getEncryptionKeyBuffer() {
     '[emailSecrets] EMAIL_SECRETS_ENCRYPTION_KEY must be 32 bytes as base64 or 64 hex characters'
   );
   return null;
+}
+
+/** True if the env var is non-empty (may still be wrong length). */
+export function isEncryptionKeyEnvPresent() {
+  const env =
+    typeof process !== 'undefined' && process.env
+      ? process.env.EMAIL_SECRETS_ENCRYPTION_KEY ||
+        process.env['EMAIL_SECRETS_ENCRYPTION_KEY']
+      : '';
+  return normalizeEncryptionKeyInput(env || '').length > 0;
 }
 
 /** @param {string | null | undefined} plaintext */
@@ -145,5 +178,7 @@ export function sanitizeEmailConfigForClient(config) {
     },
     /** True when EMAIL_SECRETS_ENCRYPTION_KEY is valid in this process (check Network response if DB stays plaintext). */
     email_secrets_encryption_active: getEncryptionKeyBuffer() !== null,
+    /** True when the env var is set (even if length/format invalid — redeploy after fixing Netlify env). */
+    email_secrets_key_env_present: isEncryptionKeyEnvPresent(),
   };
 }

@@ -35,7 +35,15 @@ async function sendOrderEmails(supabase, { orderNumber, customer_name, customer_
       transportConfig = { host: 'smtp.sendgrid.net', port: 587, auth: { user: 'apikey', pass: cfg.sendgrid_api_key } };
       from = cfg.email_from;
     } else {
-      transportConfig = { host: cfg.smtp_host, port: cfg.smtp_port || 587, secure: cfg.smtp_port === 465, auth: { user: cfg.smtp_user, pass: cfg.smtp_password } };
+      const port = cfg.smtp_port || 587;
+      const secure = port === 465;
+      transportConfig = {
+        host: cfg.smtp_host,
+        port,
+        secure,
+        auth: { user: cfg.smtp_user, pass: cfg.smtp_password },
+        ...(!secure ? { requireTLS: true } : {}),
+      };
       from = cfg.email_from || cfg.smtp_user;
     }
     if (!from) return;

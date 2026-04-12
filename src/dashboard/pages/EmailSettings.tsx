@@ -25,6 +25,8 @@ interface EmailConfig {
   };
   /** Server sees a valid EMAIL_SECRETS_ENCRYPTION_KEY — if false, DB will store secrets in plaintext */
   email_secrets_encryption_active?: boolean;
+  /** Env var is non-empty but may be wrong length (see banner) */
+  email_secrets_key_env_present?: boolean;
 }
 
 interface EmailTemplate {
@@ -406,20 +408,38 @@ export function EmailSettingsPage() {
           <div className="card">
             <h2 className="text-xl font-bold mb-4">General Settings</h2>
             <div className="space-y-4">
-              {config.email_secrets_encryption_active === false && (
-                <div
-                  className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
-                  role="status"
-                >
-                  <strong>Encryption key not loaded on this API.</strong> Secrets are being saved as plain text. For
-                  local dev, put <code className="text-xs bg-white/80 px-1 rounded">EMAIL_SECRETS_ENCRYPTION_KEY</code>{' '}
-                  in <code className="text-xs bg-white/80 px-1 rounded">.env</code> or{' '}
-                  <code className="text-xs bg-white/80 px-1 rounded">.env.local</code> and restart{' '}
-                  <code className="text-xs bg-white/80 px-1 rounded">npm run api:dev</code>. On Netlify, add the same
-                  variable under Site settings → Environment variables and redeploy. The key must decode to exactly 32
-                  bytes (base64 or 64 hex chars).
-                </div>
-              )}
+              {config.email_secrets_encryption_active !== true &&
+                config.email_secrets_key_env_present === true && (
+                  <div
+                    className="rounded-lg border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-950"
+                    role="status"
+                  >
+                    <strong>Encryption key env is set but not valid.</strong> Netlify sees{' '}
+                    <code className="text-xs bg-white/80 px-1 rounded">EMAIL_SECRETS_ENCRYPTION_KEY</code>, but it must
+                    decode to <strong>exactly 32 bytes</strong>. Generate one with{' '}
+                    <code className="text-xs bg-white/80 px-1 rounded">openssl rand -hex 32</code> (paste the 64 hex
+                    characters) or{' '}
+                    <code className="text-xs bg-white/80 px-1 rounded">
+                      node -e &quot;console.log(require(&apos;crypto&apos;).randomBytes(32).toString(&apos;base64&apos;))&quot;
+                    </code>
+                    . Update the value in Netlify, then <strong>redeploy</strong> the site.
+                  </div>
+                )}
+              {config.email_secrets_encryption_active !== true &&
+                config.email_secrets_key_env_present !== true && (
+                  <div
+                    className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+                    role="status"
+                  >
+                    <strong>Encryption key not loaded on this API.</strong> Secrets are saved as plain text until the
+                    key works. For local dev, put{' '}
+                    <code className="text-xs bg-white/80 px-1 rounded">EMAIL_SECRETS_ENCRYPTION_KEY</code> in{' '}
+                    <code className="text-xs bg-white/80 px-1 rounded">.env</code> or{' '}
+                    <code className="text-xs bg-white/80 px-1 rounded">.env.local</code> and restart{' '}
+                    <code className="text-xs bg-white/80 px-1 rounded">npm run api:dev</code>. On Netlify, add the same
+                    variable under Site settings → Environment variables and redeploy.
+                  </div>
+                )}
               {config.email_secrets_encryption_active === true && (
                 <p className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
                   At-rest encryption is active on this server (new saves will store <code className="text-xs">enc:v1:</code>{' '}

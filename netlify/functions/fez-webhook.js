@@ -2,6 +2,7 @@
 // Receives automatic status updates from Fez when order status changes
 
 import { createClient } from '@supabase/supabase-js';
+import { sendApiCourierStatusCustomerEmail } from '../../shared/riderAssignedEmail.js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
 import {
   buildOrderDeepLink,
@@ -9,7 +10,6 @@ import {
   extractOrderReference,
   sendPushToCustomer,
 } from './services/pushNotifications.js';
-import { sendTransactionalEmail } from './services/emailNotifications.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
@@ -26,16 +26,16 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
-// Map Fez status to JLO status
+// Map Fez status to JLO status (align with fez-fetch-tracking.js)
 function mapFezStatus(fezStatus) {
   const statusMap = {
     'Pending Pick-Up': 'pending_pickup',
     'Picked-Up': 'picked_up',
-    'Dispatched': 'in_transit',
-    'Out for Delivery': 'in_transit',
-    'Delivered': 'delivered',
-    'Cancelled': 'cancelled',
-    'Returned': 'returned',
+    Dispatched: 'in_transit',
+    'Out for Delivery': 'out_for_delivery',
+    Delivered: 'delivered',
+    Cancelled: 'cancelled',
+    Returned: 'returned',
   };
 
   return statusMap[fezStatus] || 'processing';
@@ -86,7 +86,9 @@ exports.handler = async (event) => {
     // Find sub-order by tracking number
     const { data: subOrders, error: findError } = await supabase
       .from('sub_orders')
-      .select('*, orders(id, order_number, overall_status, woocommerce_order_id, customer_name, customer_email, metadata)')
+      .select(
+        '*, orders(id, order_number, overall_status, woocommerce_order_id, customer_name, customer_email, customer_phone, delivery_city, delivery_state, delivery_address, metadata)',
+      )
       .eq('tracking_number', orderNo);
 
     if (findError) {
@@ -159,6 +161,18 @@ exports.handler = async (event) => {
             ...(deepLink ? { deepLink } : {}),
           },
         };
+      } else if (jloStatus === 'out_for_delivery') {
+        pushInput = {
+          title: 'Out for delivery',
+          message: `Your order ${orderRef} is out for delivery.`,
+          type: 'order_update',
+          data: {
+            status: jloStatus,
+            orderReference: String(orderRef),
+            trackingNumber: orderNo,
+            ...(deepLink ? { deepLink } : {}),
+          },
+        };
       } else if (jloStatus === 'delivered') {
         pushInput = {
           title: 'Order delivered',
@@ -180,32 +194,36 @@ exports.handler = async (event) => {
         }
       }
 
-      // Send email notification on key status transitions
       const order = subOrder.orders;
       if (order?.customer_email) {
-        const portalUrl = process.env.CUSTOMER_PORTAL_URL || 'https://julinemart.com';
-        const orderRef = order.order_number ?? order.id;
-        const emailData = {
-          customerName: order.customer_name || 'Customer',
-          orderNumber: orderRef,
-          trackingNumber: orderNo,
-          trackingUrl: `${portalUrl}/orders/${orderRef}`,
-        };
-
-        const templateMap = {
-          in_transit: 'Order Shipped',
-          out_for_delivery: 'Out for Delivery',
-          delivered: 'Order Delivered',
-        };
-
-        const templateName = templateMap[jloStatus];
-        if (templateName) {
-          sendTransactionalEmail({
-            templateName,
-            to: order.customer_email,
+        let courierDisplay = 'Fez Delivery';
+        if (subOrder.courier_id) {
+          const { data: cRow } = await supabase
+            .from('couriers')
+            .select('name')
+            .eq('id', subOrder.courier_id)
+            .maybeSingle();
+          if (cRow?.name) courierDisplay = cRow.name;
+        }
+        const fezTrackUrl =
+          subOrder.courier_tracking_url ||
+          `https://web.fezdelivery.co/track-delivery?tracking=${encodeURIComponent(String(orderNo))}`;
+        try {
+          await sendApiCourierStatusCustomerEmail(supabase, {
+            jloStatus,
             orderId: order.id,
-            data: emailData,
+            orderNumber: order.order_number ?? order.id,
+            customer_name: order.customer_name,
+            customer_email: order.customer_email,
+            tracking_number: orderNo,
+            courier_tracking_url: fezTrackUrl,
+            courier_display_name: courierDisplay,
+            delivery_city: order.delivery_city,
+            delivery_state: order.delivery_state,
+            raw_status_hint: orderStatus || statusDescription,
           });
+        } catch (mailErr) {
+          console.error('sendApiCourierStatusCustomerEmail (fez-webhook):', mailErr?.message || mailErr);
         }
       }
     }

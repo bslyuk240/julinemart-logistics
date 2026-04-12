@@ -3,6 +3,8 @@
 // Netlify compatible – Pure JavaScript
 
 import { createClient } from '@supabase/supabase-js';
+import { sendApiCourierStatusCustomerEmail } from '../../shared/riderAssignedEmail.js';
+import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey =
@@ -201,7 +203,9 @@ export async function handler(event) {
       trackingNumber
     );
 
+    const previousStatus = subOrder.status;
     const jloStatus = mapFezStatus(trackingData.order.orderStatus);
+    const fezLabel = trackingData.order?.orderStatus || '';
 
     await supabase
       .from('sub_orders')
@@ -210,6 +214,54 @@ export async function handler(event) {
         last_tracking_update: new Date().toISOString(),
       })
       .eq('id', subOrderId);
+
+    if (previousStatus !== jloStatus && subOrder.main_order_id) {
+      try {
+        await refreshOverallOrderStatus(supabase, subOrder.main_order_id);
+      } catch (e) {
+        console.warn('refreshOverallOrderStatus (fez-fetch-tracking):', e?.message || e);
+      }
+
+      const { data: orderRow } = await supabase
+        .from('orders')
+        .select(
+          'id, order_number, customer_name, customer_email, delivery_city, delivery_state',
+        )
+        .eq('id', subOrder.main_order_id)
+        .maybeSingle();
+
+      if (orderRow?.customer_email) {
+        let courierDisplay = 'Fez Delivery';
+        if (subOrder.courier_id) {
+          const { data: cRow } = await supabase
+            .from('couriers')
+            .select('name')
+            .eq('id', subOrder.courier_id)
+            .maybeSingle();
+          if (cRow?.name) courierDisplay = cRow.name;
+        }
+        const fezTrackUrl =
+          subOrder.courier_tracking_url ||
+          `https://web.fezdelivery.co/track-delivery?tracking=${encodeURIComponent(String(trackingNumber))}`;
+        try {
+          await sendApiCourierStatusCustomerEmail(supabase, {
+            jloStatus,
+            orderId: orderRow.id,
+            orderNumber: orderRow.order_number ?? orderRow.id,
+            customer_name: orderRow.customer_name,
+            customer_email: orderRow.customer_email,
+            tracking_number: trackingNumber,
+            courier_tracking_url: fezTrackUrl,
+            courier_display_name: courierDisplay,
+            delivery_city: orderRow.delivery_city,
+            delivery_state: orderRow.delivery_state,
+            raw_status_hint: fezLabel,
+          });
+        } catch (mailErr) {
+          console.error('sendApiCourierStatusCustomerEmail (fez-fetch-tracking):', mailErr?.message || mailErr);
+        }
+      }
+    }
 
     return {
       statusCode: 200,

@@ -1,5 +1,5 @@
 /**
- * Customer emails for local delivery: rider assigned, out for delivery, delivered.
+ * Customer emails for delivery: local rider steps + API courier (Fez, etc.) status updates.
  * Uses email_config + SMTP (same path as order confirmation).
  */
 import nodemailer from 'nodemailer';
@@ -255,4 +255,155 @@ function escapeHtml(s) {
 
 function encodeTel(phone) {
   return String(phone || '').replace(/[^\d+]/g, '');
+}
+
+/** Sub-order statuses we notify customers about for API / Fez couriers */
+const API_COURIER_EMAILED_STATUSES = new Set([
+  'assigned',
+  'pending_pickup',
+  'picked_up',
+  'in_transit',
+  'out_for_delivery',
+  'delivered',
+  'cancelled',
+  'returned',
+]);
+
+const API_STATUS_SUBJECT = {
+  assigned: 'Shipping booked — tracking ready',
+  pending_pickup: 'Awaiting courier pickup',
+  picked_up: 'Picked up by courier',
+  in_transit: 'In transit',
+  out_for_delivery: 'Out for delivery',
+  delivered: 'Delivered',
+  cancelled: 'Shipment update (cancelled)',
+  returned: 'Shipment update (returned)',
+};
+
+const API_STATUS_HEADLINE = {
+  assigned: 'Your shipment is booked',
+  pending_pickup: 'Awaiting pickup',
+  picked_up: 'Picked up',
+  in_transit: 'On the way',
+  out_for_delivery: 'Almost there',
+  delivered: 'Delivered',
+  cancelled: 'Shipment cancelled',
+  returned: 'Return update',
+};
+
+/**
+ * Customer email when an API courier (e.g. Fez) updates shipment status or tracking is created.
+ *
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {object} p
+ * @param {string} p.jloStatus — sub_orders.status value
+ * @param {string} [p.orderId]
+ * @param {string} p.orderNumber
+ * @param {string} p.customer_name
+ * @param {string} p.customer_email
+ * @param {string} [p.tracking_number]
+ * @param {string} [p.courier_tracking_url]
+ * @param {string} [p.courier_display_name] — e.g. "Fez Delivery"
+ * @param {string} [p.delivery_city]
+ * @param {string} [p.delivery_state]
+ * @param {string} [p.raw_status_hint] — provider’s label for the body
+ */
+export async function sendApiCourierStatusCustomerEmail(supabase, p) {
+  const jlo = p.jloStatus;
+  if (!jlo || !API_COURIER_EMAILED_STATUSES.has(jlo)) return;
+
+  const to = (p.customer_email && String(p.customer_email).trim()) || '';
+  const orderNum = String(p.orderNumber ?? '');
+  const subjectSuffix = API_STATUS_SUBJECT[jlo] || 'Delivery update';
+  const subject = `Order #${orderNum} — ${subjectSuffix}`;
+
+  try {
+    if (!to) {
+      await logOrderEmail(supabase, {
+        orderId: p.orderId,
+        recipient: '(no customer email)',
+        subject,
+        status: 'failed',
+        errorMessage: 'No customer_email on order.',
+      });
+      return;
+    }
+
+    const mt = await loadMailTransport(supabase);
+    if ('error' in mt) {
+      await logOrderEmail(supabase, { orderId: p.orderId, recipient: to, subject, status: 'failed', errorMessage: mt.error });
+      return;
+    }
+
+    const trackBase = customerTrackUrl();
+    const courierName = (p.courier_display_name && String(p.courier_display_name).trim()) || 'Your courier';
+    const area =
+      [p.delivery_city, p.delivery_state].filter(Boolean).join(', ') || 'your delivery address';
+    const headline = API_STATUS_HEADLINE[jlo] || 'Delivery update';
+
+    const trackingBlock =
+      p.tracking_number && String(p.tracking_number).trim()
+        ? `<div style="padding:18px;background:#f3f4f6;border-radius:10px;margin:16px 0;border:1px solid #e5e7eb">
+      <p style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#6b7280">Tracking number</p>
+      <p style="margin:0;font-size:18px;font-weight:700;color:#6b21a8;word-break:break-all">${escapeHtml(String(p.tracking_number))}</p>
+    </div>`
+        : '';
+
+    const rawTrackUrl = p.courier_tracking_url && String(p.courier_tracking_url).trim();
+    let safeTrackHref = '';
+    if (rawTrackUrl && /^https?:\/\//i.test(rawTrackUrl)) {
+      safeTrackHref = rawTrackUrl.replace(/"/g, '');
+    }
+    const courierTrackLink = safeTrackHref
+      ? `<p style="margin:16px 0 0"><a href="${safeTrackHref}" style="display:inline-block;padding:12px 20px;background:#6b21a8;color:#fff;text-decoration:none;border-radius:8px;font-weight:600">Track with ${escapeHtml(courierName)}</a></p>`
+      : '';
+
+    const hintLine = p.raw_status_hint
+      ? `<p style="margin:12px 0 0;font-size:13px;color:#666">Courier status: ${escapeHtml(String(p.raw_status_hint))}</p>`
+      : '';
+
+    const bodyByStatus = {
+      assigned: `Your order has been handed to <strong>${escapeHtml(courierName)}</strong>. Use the tracking number below or the link to follow your package.`,
+      pending_pickup: `Your package is scheduled for pickup by <strong>${escapeHtml(courierName)}</strong>.`,
+      picked_up: `<strong>${escapeHtml(courierName)}</strong> has collected your package.`,
+      in_transit: `Your package is <strong>in transit</strong> with ${escapeHtml(courierName)}.`,
+      out_for_delivery: `Your package is <strong>out for delivery</strong> with ${escapeHtml(courierName)}.`,
+      delivered: `Your order has been <strong>delivered</strong>. We hope you enjoy your purchase!`,
+      cancelled: `Your shipment with ${escapeHtml(courierName)} was <strong>cancelled</strong>. Contact JulineMart support if you need help.`,
+      returned: `There is a <strong>return</strong> update on your shipment with ${escapeHtml(courierName)}. Check your order page for details.`,
+    };
+
+    const lead = bodyByStatus[jlo] || `Your delivery status was updated (${escapeHtml(jlo)}).`;
+
+    const html = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+  <div style="background:#6b21a8;color:#fff;padding:28px;text-align:center">
+    <h1 style="margin:0;font-size:22px">${headline}</h1>
+    <p style="margin:10px 0 0;opacity:.9;font-size:15px">Order #${escapeHtml(orderNum)}</p>
+    <p style="margin:8px 0 0;font-size:13px;opacity:.85">${escapeHtml(courierName)}</p>
+  </div>
+  <div style="padding:28px;background:#fff;color:#333">
+    <p style="margin:0 0 16px">Hi ${escapeHtml(p.customer_name || 'there')},</p>
+    <p style="margin:0 0 16px;line-height:1.55">${lead}</p>
+    ${trackingBlock}
+    ${courierTrackLink}
+    ${hintLine}
+    <p style="margin:20px 0 0;font-size:14px;color:#555"><strong>Delivery area:</strong> ${escapeHtml(area)}</p>
+    <p style="margin:18px 0 0;font-size:14px;line-height:1.5">Your JulineMart order hub: <a href="${trackBase}" style="color:#6b21a8">${trackBase.replace(/^https?:\/\//, '')}</a></p>
+  </div>
+  <div style="background:#f3f4f6;padding:14px;text-align:center;font-size:12px;color:#666">JulineMart</div>
+</div>`;
+
+    await mt.transporter.sendMail({ from: mt.from, to, subject, html });
+    await logOrderEmail(supabase, { orderId: p.orderId, recipient: to, subject, status: 'sent' });
+  } catch (err) {
+    console.error('[sendApiCourierStatusCustomerEmail]', err?.message || err);
+    await logOrderEmail(supabase, {
+      orderId: p.orderId,
+      recipient: to || p.customer_email || '',
+      subject,
+      status: 'failed',
+      errorMessage: err?.message || String(err),
+    });
+  }
 }

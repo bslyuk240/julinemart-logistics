@@ -2,6 +2,7 @@
 // With automatic retry on first failure
 
 import { createClient } from '@supabase/supabase-js';
+import { sendApiCourierStatusCustomerEmail } from '../../shared/riderAssignedEmail.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -460,6 +461,26 @@ exports.handler = async (event) => {
         previous_tracking: force ? subOrder.tracking_number : null
       }
     });
+
+    if (subOrder.orders?.customer_email) {
+      try {
+        await sendApiCourierStatusCustomerEmail(supabase, {
+          jloStatus: 'assigned',
+          orderId: subOrder.orders.id,
+          orderNumber: subOrder.orders.order_number ?? subOrder.orders.id,
+          customer_name: subOrder.orders.customer_name,
+          customer_email: subOrder.orders.customer_email,
+          tracking_number: orderId,
+          courier_tracking_url: trackingUrl,
+          courier_display_name: 'Fez Delivery',
+          delivery_city: subOrder.orders.delivery_city,
+          delivery_state: subOrder.orders.delivery_state,
+          raw_status_hint: 'Shipment created on Fez',
+        });
+      } catch (mailErr) {
+        console.error('sendApiCourierStatusCustomerEmail (fez-create-shipment):', mailErr?.message || mailErr);
+      }
+    }
 
     console.log("✅ SHIPMENT CREATED SUCCESSFULLY:", { orderId, trackingId, trackingUrl });
 

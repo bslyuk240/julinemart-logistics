@@ -55,9 +55,29 @@ async function sendOrderEmails(
   },
 ) {
   try {
-    const { data: rawCfg } = await supabase.from('email_config').select('*').single();
+    const { data: rawCfg, error: cfgErr } = await supabase
+      .from('email_config')
+      .select('*')
+      .limit(1)
+      .maybeSingle();
+    if (cfgErr) {
+      console.error('email_config load failed:', cfgErr.message);
+    }
     const cfg = rawCfg ? decryptEmailConfigSecrets(rawCfg) : null;
-    if (!cfg?.email_enabled) return;
+
+    const customerSubject = `Order #${orderNumber} Confirmed - JulineMart`;
+
+    if (!cfg?.email_enabled) {
+      await logOrderEmail(supabase, {
+        orderId,
+        recipient: customer_email,
+        subject: customerSubject,
+        status: 'failed',
+        errorMessage:
+          'Email notifications are turned off in Email Settings (email_enabled is false).',
+      });
+      return;
+    }
 
     let transportConfig;
     let from;
@@ -71,7 +91,16 @@ async function sendOrderEmails(
       transportConfig = buildCustomSmtpTransportOptions(cfg);
       from = cfg.email_from || cfg.smtp_user;
     }
-    if (!from) return;
+    if (!from) {
+      await logOrderEmail(supabase, {
+        orderId,
+        recipient: customer_email,
+        subject: customerSubject,
+        status: 'failed',
+        errorMessage: 'From address is not configured (set Email From / provider user in Email Settings).',
+      });
+      return;
+    }
 
     const transporter = nodemailer.createTransport(transportConfig);
     const fmt = (n) => `₦${Number(n).toLocaleString()}`;
@@ -110,7 +139,23 @@ async function sendOrderEmails(
   </div>
 </div>`;
 
-    await transporter.sendMail({ from, to: customer_email, subject: `Order #${orderNumber} Confirmed - JulineMart`, html: customerHtml });
+    try {
+      await transporter.sendMail({ from, to: customer_email, subject: customerSubject, html: customerHtml });
+      await logOrderEmail(supabase, {
+        orderId,
+        recipient: customer_email,
+        subject: customerSubject,
+        status: 'sent',
+      });
+    } catch (err) {
+      await logOrderEmail(supabase, {
+        orderId,
+        recipient: customer_email,
+        subject: customerSubject,
+        status: 'failed',
+        errorMessage: err?.message || String(err),
+      });
+    }
 
     // Vendor notifications — group items by vendor
     const vendorItemMap = new Map();
@@ -523,7 +568,7 @@ export async function handler(event) {
       shippingFee,
       totalAmount,
       resolvedItems,
-    }).catch(() => {});
+    }).catch((e) => console.error('sendOrderEmails (async):', e?.message || e));
 
     return jsonResponse(201, {
       success: true,

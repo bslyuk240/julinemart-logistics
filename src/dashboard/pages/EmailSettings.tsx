@@ -131,7 +131,8 @@ export function EmailSettingsPage() {
         notification.success('Connection Successful', 'Email provider is properly configured');
       } else {
         setConnectionStatus('error');
-        notification.error('Connection Failed', data.error);
+        const detail = [data.error, data.hint].filter(Boolean).join('\n\n');
+        notification.error('Connection Failed', detail || data.error);
       }
     } catch (error) {
       setConnectionStatus('error');

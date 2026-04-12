@@ -19,6 +19,7 @@
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 import { decryptEmailConfigSecrets } from '../../../shared/emailSecretsCrypto.js';
+import { parseSmtpPort } from '../../../shared/smtpPort.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
@@ -79,14 +80,16 @@ async function getTransport() {
           };
           break;
         case 'smtp': {
-          const port = cfg.smtp_port || 587;
+          const port = parseSmtpPort(cfg.smtp_port);
           const secure = port === 465;
+          const host = cfg.smtp_host;
           transportConfig = {
-            host: cfg.smtp_host,
+            host,
             port,
             secure,
             auth: { user: cfg.smtp_user, pass: cfg.smtp_password },
             ...(!secure ? { requireTLS: true } : {}),
+            ...(host ? { tls: { servername: host } } : {}),
           };
           break;
         }

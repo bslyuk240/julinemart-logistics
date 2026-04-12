@@ -7,6 +7,7 @@ import {
   pickEmailConfigForDatabase,
   sanitizeEmailConfigForClient,
 } from '../../shared/emailSecretsCrypto.js';
+import { parseSmtpPort } from '../../shared/smtpPort.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -76,16 +77,18 @@ const buildTransportConfigFromDb = (config) => {
         }
       };
     case 'smtp': {
-      const port = config.smtp_port || 587;
+      const port = parseSmtpPort(config.smtp_port);
       const secure = port === 465;
+      const host = config.smtp_host || undefined;
       const base = {
-        host: config.smtp_host || undefined,
+        host,
         port,
         secure,
         auth: {
           user: config.smtp_user || undefined,
           pass: config.smtp_password || undefined
-        }
+        },
+        ...(host ? { tls: { servername: host } } : {})
       };
       if (!secure) {
         base.requireTLS = true;
@@ -256,10 +259,16 @@ export async function handler(event) {
           body: JSON.stringify({ success: true, message: 'Connection successful' })
         };
       } catch (err) {
+        const msg = err?.message || 'Connection failed';
+        let hint;
+        if (/535|Invalid login|Authentication credentials invalid|auth/i.test(msg)) {
+          hint =
+            'The server rejected the username or password. In IONOS: confirm the mailbox password, use the full email as SMTP username, and try port 465 with SSL if 587 keeps failing. Re-type the SMTP password in the form (or Save) so the app sends the current password.';
+        }
         return {
           statusCode: 200,
           headers,
-          body: JSON.stringify({ success: false, error: err?.message || 'Connection failed' })
+          body: JSON.stringify({ success: false, error: msg, ...(hint ? { hint } : {}) })
         };
       }
     }

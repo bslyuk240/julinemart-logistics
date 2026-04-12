@@ -2,6 +2,9 @@ import { serve } from "https://deno.land/std@0.203.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders(req) });
@@ -9,34 +12,63 @@ serve(async (req) => {
 
   try {
     const url = new URL(req.url);
-    const orderNumber = url.searchParams.get("orderId");
+    const raw =
+      url.searchParams.get("order_id")?.trim() ||
+      url.searchParams.get("orderId")?.trim();
 
-    if (!orderNumber) {
+    if (!raw) {
       return new Response(
-        JSON.stringify({ success: false, error: "orderId is required" }),
-        { status: 400, headers: corsHeaders(req) }
+        JSON.stringify({
+          success: false,
+          error: "order_id (Supabase UUID) or orderId (WooCommerce id) is required",
+        }),
+        { status: 400, headers: corsHeaders(req) },
       );
     }
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
     /* -------------------------------------------
-       STEP 1: Resolve Woo order → internal UUID
+       STEP 1: Resolve → internal orders.id (uuid)
+       - order_id=<uuid>  — direct (dashboard / JLO)
+       - orderId=<wc>     — legacy WooCommerce order id
     -------------------------------------------- */
-    const { data: order, error: orderError } = await supabase
-      .from("orders")
-      .select("id")
-      .eq("woocommerce_order_id", orderNumber)
-      .maybeSingle();
+    let orderInternalId: string;
 
-    if (!order || orderError) {
-      return new Response(
-        JSON.stringify({ success: true, data: [] }),
-        { status: 200, headers: corsHeaders(req) }
-      );
+    if (UUID_RE.test(raw)) {
+      const { data: row, error: idErr } = await supabase
+        .from("orders")
+        .select("id")
+        .eq("id", raw)
+        .maybeSingle();
+
+      if (idErr) {
+        console.error("[get-order-returns] id lookup:", idErr);
+      }
+      if (!row?.id) {
+        return new Response(
+          JSON.stringify({ success: true, data: [] }),
+          { status: 200, headers: corsHeaders(req) },
+        );
+      }
+      orderInternalId = row.id;
+    } else {
+      const { data: order, error: orderError } = await supabase
+        .from("orders")
+        .select("id")
+        .eq("woocommerce_order_id", raw)
+        .maybeSingle();
+
+      if (orderError || !order?.id) {
+        return new Response(
+          JSON.stringify({ success: true, data: [] }),
+          { status: 200, headers: corsHeaders(req) },
+        );
+      }
+      orderInternalId = order.id;
     }
 
     /* -------------------------------------------
@@ -45,16 +77,16 @@ serve(async (req) => {
     const { data: requests, error: requestError } = await supabase
       .from("return_requests")
       .select("id")
-      .eq("order_id", order.id);
+      .eq("order_id", orderInternalId);
 
     if (requestError || !requests?.length) {
       return new Response(
         JSON.stringify({ success: true, data: [] }),
-        { status: 200, headers: corsHeaders(req) }
+        { status: 200, headers: corsHeaders(req) },
       );
     }
 
-    const requestIds = requests.map(r => r.id);
+    const requestIds = requests.map((r) => r.id);
 
     /* -------------------------------------------
        STEP 3: Fetch return shipments
@@ -81,15 +113,16 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({ success: true, data: shipments || [] }),
-      { status: 200, headers: corsHeaders(req) }
+      { status: 200, headers: corsHeaders(req) },
     );
-  } catch (err) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     return new Response(
       JSON.stringify({
         success: false,
-        error: err.message
+        error: message,
       }),
-      { status: 500, headers: corsHeaders(req) }
+      { status: 500, headers: corsHeaders(req) },
     );
   }
 });

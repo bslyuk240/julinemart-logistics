@@ -149,6 +149,9 @@
 [functions."create-order"]
   timeout = 20
 
+[functions."notify-order-confirmation"]
+  timeout = 30
+
 [functions."paystack-webhook"]
   timeout = 10
 

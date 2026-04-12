@@ -20,80 +20,118 @@ export async function logOrderEmail(supabase, { orderId, recipient, subject, sta
   }
 }
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Normalize sub_orders.items (JSONB may arrive as array, string, or wrapped object). */
+function parseSubOrderItemsJson(raw) {
+  let v = raw;
+  if (typeof v === 'string') {
+    try {
+      v = JSON.parse(v);
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(v)) return v;
+  if (v && typeof v === 'object') {
+    const inner = v.items || v.lineItems || v.line_items;
+    if (Array.isArray(inner)) return inner;
+  }
+  return [];
+}
+
 /**
  * Line items grouped by vendor for "new order" vendor emails.
  *
- * Vendor portal (`vendor-my-orders`) lists by **sub_orders.vendor_id**. If we built the map from
- * **order_items.vendor_id** first, a mismatch (null/wrong on order_items, correct on sub_orders)
- * meant vendors saw orders in the portal but never got email. So: **sub_orders first** when any
- * sub_order has vendor_id; otherwise order_items; then resolvedItems.
+ * Uses **sub_orders** first (same as vendor portal), then fills gaps from **order_items** so a
+ * webhook race or partial sub_order row still gets vendor mail. Falls back to **resolvedItems**.
  */
-async function buildVendorItemMap(supabase, orderId, resolvedItems) {
+async function buildVendorItemMapOnce(supabase, orderId, resolvedItems) {
   const map = new Map();
 
   const push = (vendorId, row) => {
-    if (!vendorId) return;
-    if (!map.has(vendorId)) map.set(vendorId, []);
-    map.get(vendorId).push(row);
+    if (vendorId == null || vendorId === '') return;
+    const key = String(vendorId);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(row);
   };
 
-  if (orderId) {
-    const { data: subs, error: soErr } = await supabase
-      .from('sub_orders')
-      .select('vendor_id, items, subtotal')
-      .eq('main_order_id', orderId);
-    if (soErr) {
-      console.error('[sendOrderEmails] sub_orders:', soErr.message);
+  if (!orderId) {
+    for (const item of resolvedItems || []) {
+      if (!item.vendor_id) continue;
+      push(item.vendor_id, item);
     }
+    return map;
+  }
 
-    const hasSubVendor = (subs || []).some((so) => so.vendor_id);
+  const [{ data: subs, error: soErr }, { data: oiRows, error: oiErr }] = await Promise.all([
+    supabase.from('sub_orders').select('vendor_id, items, subtotal').eq('main_order_id', orderId),
+    supabase
+      .from('order_items')
+      .select('product_name, vendor_id, quantity, subtotal, variation_details')
+      .eq('order_id', orderId),
+  ]);
 
-    if (hasSubVendor) {
-      for (const so of subs || []) {
-        const vid = so.vendor_id;
-        if (!vid) continue;
-        const rawItems = Array.isArray(so.items) ? so.items : [];
-        if (rawItems.length > 0) {
-          for (const it of rawItems) {
-            const name = it.name || it.productName || 'Item';
-            const qty = it.quantity ?? 1;
-            const sub = Number(it.total ?? it.subtotal ?? 0);
-            push(vid, {
-              product_name: name,
-              quantity: qty,
-              subtotal: sub,
-              vendor_id: vid,
-              variation_details: { attributes: [] },
-            });
-          }
-        } else {
+  if (soErr) console.error('[sendOrderEmails] sub_orders:', soErr.message);
+  if (oiErr) console.error('[sendOrderEmails] order_items:', oiErr.message);
+
+  const hasSubVendor = (subs || []).some((so) => so.vendor_id != null && so.vendor_id !== '');
+
+  if (hasSubVendor) {
+    for (const so of subs || []) {
+      const vid = so.vendor_id;
+      if (vid == null || vid === '') continue;
+      const rawItems = parseSubOrderItemsJson(so.items);
+      if (rawItems.length > 0) {
+        for (const it of rawItems) {
+          const name = it.name || it.productName || 'Item';
+          const qty = it.quantity ?? 1;
+          const sub = Number(it.total ?? it.subtotal ?? 0);
           push(vid, {
-            product_name: 'New order — open Vendor Portal for line items',
-            quantity: 1,
-            subtotal: Number(so.subtotal || 0),
+            product_name: name,
+            quantity: qty,
+            subtotal: sub,
             vendor_id: vid,
             variation_details: { attributes: [] },
           });
         }
-      }
-    } else {
-      const { data: rows, error: oiErr } = await supabase
-        .from('order_items')
-        .select('product_name, vendor_id, quantity, subtotal, variation_details')
-        .eq('order_id', orderId);
-      if (oiErr) {
-        console.error('[sendOrderEmails] order_items:', oiErr.message);
-      }
-      for (const row of rows || []) {
-        if (!row.vendor_id) continue;
-        push(row.vendor_id, {
-          product_name: row.product_name,
-          quantity: row.quantity,
-          subtotal: Number(row.subtotal),
-          vendor_id: row.vendor_id,
-          variation_details: row.variation_details || { attributes: [] },
+      } else {
+        push(vid, {
+          product_name: 'New order — open Vendor Portal for line items',
+          quantity: 1,
+          subtotal: Number(so.subtotal || 0),
+          vendor_id: vid,
+          variation_details: { attributes: [] },
         });
       }
+    }
+  } else {
+    for (const row of oiRows || []) {
+      if (!row.vendor_id) continue;
+      push(row.vendor_id, {
+        product_name: row.product_name,
+        quantity: row.quantity,
+        subtotal: Number(row.subtotal),
+        vendor_id: row.vendor_id,
+        variation_details: row.variation_details || { attributes: [] },
+      });
+    }
+  }
+
+  // Augment: any vendor on order_items missing from map (sub_orders lag, or vendor only on lines)
+  for (const row of oiRows || []) {
+    if (!row.vendor_id) continue;
+    const key = String(row.vendor_id);
+    if (!map.has(key)) {
+      push(row.vendor_id, {
+        product_name: row.product_name,
+        quantity: row.quantity,
+        subtotal: Number(row.subtotal),
+        vendor_id: row.vendor_id,
+        variation_details: row.variation_details || { attributes: [] },
+      });
     }
   }
 
@@ -102,6 +140,20 @@ async function buildVendorItemMap(supabase, orderId, resolvedItems) {
       if (!item.vendor_id) continue;
       push(item.vendor_id, item);
     }
+  }
+
+  return map;
+}
+
+async function buildVendorItemMap(supabase, orderId, resolvedItems) {
+  let map = await buildVendorItemMapOnce(supabase, orderId, resolvedItems);
+  if (map.size === 0 && orderId) {
+    await sleep(350);
+    map = await buildVendorItemMapOnce(supabase, orderId, resolvedItems);
+  }
+  if (map.size === 0 && orderId) {
+    await sleep(500);
+    map = await buildVendorItemMapOnce(supabase, orderId, resolvedItems);
   }
 
   if (map.size === 0) {
@@ -183,7 +235,9 @@ export async function sendOrderEmails(
     const transporter = nodemailer.createTransport(transportConfig);
     const fmt = (n) => `₦${Number(n).toLocaleString()}`;
 
-    const itemRows = resolvedItems.map((i) =>
+    const safeItems = Array.isArray(resolvedItems) ? resolvedItems : [];
+
+    const itemRows = safeItems.map((i) =>
       `<tr><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3">${i.product_name}${i.variation_details?.attributes?.length ? ' (' + i.variation_details.attributes.map(a => `${a.name}: ${a.option}`).join(', ') + ')' : ''}</td><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3;text-align:center">${i.quantity}</td><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3;text-align:right">${fmt(i.subtotal)}</td></tr>`
     ).join('');
 
@@ -235,15 +289,33 @@ export async function sendOrderEmails(
       });
     }
 
-    const vendorItemMap = await buildVendorItemMap(supabase, orderId, resolvedItems);
+    const vendorItemMap = await buildVendorItemMap(supabase, orderId, safeItems);
 
     if (vendorItemMap.size > 0) {
       const vendorIds = [...vendorItemMap.keys()];
-      const { data: vendors } = await supabase
+      const { data: vendors, error: vendorsErr } = await supabase
         .from('vendors')
         .select('id, email, store_name, display_name, user_id')
         .in('id', vendorIds);
-      for (const vendor of (vendors || [])) {
+      if (vendorsErr) {
+        console.error('[sendOrderEmails] vendors lookup:', vendorsErr.message);
+      }
+      const vendorById = new Map((vendors || []).map((v) => [String(v.id), v]));
+
+      for (const vid of vendorIds) {
+        const vendor = vendorById.get(String(vid));
+        const vendorSubject = `New Order #${orderNumber} - Action Required`;
+        if (!vendor) {
+          await logOrderEmail(supabase, {
+            orderId,
+            recipient: '(no vendor row)',
+            subject: vendorSubject,
+            status: 'failed',
+            errorMessage: `No vendors row for id ${vid}. sub_orders/order_items reference an id that does not exist.`,
+          });
+          continue;
+        }
+
         let toEmail = (vendor.email && String(vendor.email).trim()) || '';
         if (!toEmail && vendor.user_id) {
           try {
@@ -255,9 +327,18 @@ export async function sendOrderEmails(
             /* non-fatal */
           }
         }
-        if (!toEmail) continue;
+        if (!toEmail) {
+          await logOrderEmail(supabase, {
+            orderId,
+            recipient: '(no email)',
+            subject: vendorSubject,
+            status: 'failed',
+            errorMessage: `Vendor ${vendor.id} has no vendors.email and auth user email could not be loaded.`,
+          });
+          continue;
+        }
 
-        const vItems = vendorItemMap.get(vendor.id) || [];
+        const vItems = vendorItemMap.get(String(vid)) || [];
         const vRows = vItems.map((i) =>
           `<tr><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3">${i.product_name}</td><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3;text-align:center">${i.quantity}</td><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3;text-align:right">${fmt(i.subtotal)}</td></tr>`
         ).join('');
@@ -281,7 +362,6 @@ export async function sendOrderEmails(
     <p style="margin-top:20px">Log in to <a href="https://jlo.julinemart.com" style="color:#6b21a8">JLO Portal</a> to process this order.</p>
   </div>
 </div>`;
-        const vendorSubject = `New Order #${orderNumber} - Action Required`;
         try {
           await transporter.sendMail({ from, to: toEmail, subject: vendorSubject, html: vendorHtml });
           await logOrderEmail(supabase, {

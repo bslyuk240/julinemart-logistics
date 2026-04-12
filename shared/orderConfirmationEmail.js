@@ -70,7 +70,7 @@ async function buildVendorItemMapOnce(supabase, orderId, resolvedItems) {
     supabase.from('sub_orders').select('vendor_id, items, subtotal').eq('main_order_id', orderId),
     supabase
       .from('order_items')
-      .select('product_name, vendor_id, quantity, subtotal, variation_details')
+      .select('product_id, product_name, vendor_id, quantity, subtotal, variation_details')
       .eq('order_id', orderId),
   ]);
 
@@ -89,11 +89,13 @@ async function buildVendorItemMapOnce(supabase, orderId, resolvedItems) {
           const name = it.name || it.productName || 'Item';
           const qty = it.quantity ?? 1;
           const sub = Number(it.total ?? it.subtotal ?? 0);
+          const productId = it.productId || it.product_id || null;
           push(vid, {
             product_name: name,
             quantity: qty,
             subtotal: sub,
             vendor_id: vid,
+            product_id: productId,
             variation_details: { attributes: [] },
           });
         }
@@ -103,6 +105,7 @@ async function buildVendorItemMapOnce(supabase, orderId, resolvedItems) {
           quantity: 1,
           subtotal: Number(so.subtotal || 0),
           vendor_id: vid,
+          product_id: null,
           variation_details: { attributes: [] },
         });
       }
@@ -111,6 +114,7 @@ async function buildVendorItemMapOnce(supabase, orderId, resolvedItems) {
     for (const row of oiRows || []) {
       if (!row.vendor_id) continue;
       push(row.vendor_id, {
+        product_id: row.product_id,
         product_name: row.product_name,
         quantity: row.quantity,
         subtotal: Number(row.subtotal),
@@ -126,6 +130,7 @@ async function buildVendorItemMapOnce(supabase, orderId, resolvedItems) {
     const key = String(row.vendor_id);
     if (!map.has(key)) {
       push(row.vendor_id, {
+        product_id: row.product_id,
         product_name: row.product_name,
         quantity: row.quantity,
         subtotal: Number(row.subtotal),
@@ -145,6 +150,101 @@ async function buildVendorItemMapOnce(supabase, orderId, resolvedItems) {
   return map;
 }
 
+/**
+ * Orders often carry a stale sub_orders.vendor_id / order_items.vendor_id with no matching vendors row
+ * (migration, duplicate vendor records). Products still point at the live vendors.id — remap lines using
+ * product_id → products.vendor_id when the order's vendor id is orphaned.
+ */
+async function remapOrphanVendorIdsToProductVendors(supabase, orderId, map) {
+  if (!orderId || map.size === 0) return map;
+
+  const keys = [...map.keys()];
+  const { data: vendorRows } = await supabase.from('vendors').select('id').in('id', keys);
+  const validKeys = new Set((vendorRows || []).map((v) => String(v.id)));
+  const orphanKeys = keys.filter((k) => !validKeys.has(String(k)));
+  if (orphanKeys.length === 0) return map;
+
+  const { data: oiAll } = await supabase
+    .from('order_items')
+    .select('product_id, product_name')
+    .eq('order_id', orderId);
+
+  const nameToPid = new Map();
+  for (const r of oiAll || []) {
+    if (r.product_id && r.product_name) {
+      nameToPid.set(String(r.product_name).trim().toLowerCase(), r.product_id);
+    }
+  }
+
+  const productIdSet = new Set();
+  for (const r of oiAll || []) {
+    if (r.product_id) productIdSet.add(String(r.product_id));
+  }
+  for (const ok of orphanKeys) {
+    for (const line of map.get(ok) || []) {
+      if (line.product_id) productIdSet.add(String(line.product_id));
+    }
+  }
+
+  const productIds = [...productIdSet];
+  const { data: products } = productIds.length
+    ? await supabase.from('products').select('id, vendor_id').in('id', productIds)
+    : { data: [] };
+
+  const pidToVendor = new Map(
+    (products || []).filter((p) => p.vendor_id).map((p) => [String(p.id), p.vendor_id]),
+  );
+
+  const candVids = [...new Set([...pidToVendor.values()].map(String))];
+  const { data: vendorsExist } = candVids.length
+    ? await supabase.from('vendors').select('id').in('id', candVids)
+    : { data: [] };
+  const vendorExists = new Set((vendorsExist || []).map((v) => String(v.id)));
+
+  for (const orphanKey of orphanKeys) {
+    const lines = map.get(orphanKey);
+    if (!lines?.length) continue;
+    map.delete(orphanKey);
+
+    const buckets = new Map();
+    const stillBad = [];
+
+    for (const line of lines) {
+      let pid = line.product_id || null;
+      if (!pid && line.product_name) {
+        pid = nameToPid.get(String(line.product_name).trim().toLowerCase()) || null;
+      }
+      const vidFromProduct = pid ? pidToVendor.get(String(pid)) : null;
+      if (vidFromProduct && vendorExists.has(String(vidFromProduct))) {
+        const k = String(vidFromProduct);
+        if (!buckets.has(k)) buckets.set(k, []);
+        buckets.get(k).push({
+          ...line,
+          vendor_id: vidFromProduct,
+          product_id: pid || line.product_id,
+        });
+      } else {
+        stillBad.push(line);
+      }
+    }
+
+    for (const [vid, ls] of buckets) {
+      if (!map.has(vid)) map.set(vid, []);
+      map.get(vid).push(...ls);
+    }
+    if (stillBad.length) map.set(orphanKey, stillBad);
+  }
+
+  if (orphanKeys.some((k) => map.has(k))) {
+    console.warn(
+      '[sendOrderEmails] Some order lines still reference vendor ids with no vendors row after product remap. ' +
+        'Fix products.vendor_id / sub_orders.vendor_id in the database.',
+    );
+  }
+
+  return map;
+}
+
 async function buildVendorItemMap(supabase, orderId, resolvedItems) {
   let map = await buildVendorItemMapOnce(supabase, orderId, resolvedItems);
   if (map.size === 0 && orderId) {
@@ -154,6 +254,10 @@ async function buildVendorItemMap(supabase, orderId, resolvedItems) {
   if (map.size === 0 && orderId) {
     await sleep(500);
     map = await buildVendorItemMapOnce(supabase, orderId, resolvedItems);
+  }
+
+  if (orderId && map.size > 0) {
+    await remapOrphanVendorIdsToProductVendors(supabase, orderId, map);
   }
 
   if (map.size === 0) {

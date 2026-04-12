@@ -404,18 +404,39 @@ export async function sendOrderEmails(
       if (vendorsErr) {
         console.error('[sendOrderEmails] vendors lookup:', vendorsErr.message);
       }
-      const vendorById = new Map((vendors || []).map((v) => [String(v.id), v]));
+      const vendorRows = vendors || [];
+      const vendorById = new Map(vendorRows.map((v) => [String(v.id), v]));
+      /** True when PostgREST returned no rows for all ids — often wrong API key (anon = RLS) not missing data. */
+      const vendorsBulkEmpty =
+        vendorIds.length > 0 && vendorRows.length === 0 && !vendorsErr;
+      if (vendorsBulkEmpty) {
+        console.error(
+          '[sendOrderEmails] vendors.in(id) returned 0 rows for',
+          vendorIds.length,
+          'id(s). If those UUIDs exist in public.vendors, the Supabase client is likely not using the service_role key (anon key is subject to RLS). Set SUPABASE_SERVICE_ROLE_KEY on Netlify to the service_role secret from Dashboard → Settings → API.',
+          { vendorIds },
+        );
+      }
 
       for (const vid of vendorIds) {
         const vendor = vendorById.get(String(vid));
         const vendorSubject = `New Order #${orderNumber} - Action Required`;
         if (!vendor) {
+          let detail = '';
+          if (vendorsErr) {
+            detail = `Vendors query failed: ${vendorsErr.message}`;
+          } else if (vendorsBulkEmpty) {
+            detail =
+              `No vendors row returned for id ${vid}. Bulk SELECT returned 0 rows — if this UUID exists in public.vendors, Netlify must use SUPABASE_SERVICE_ROLE_KEY (service_role secret from Dashboard → API); the anon key is subject to RLS.`;
+          } else {
+            detail = `No vendors row for id ${vid} (orphan reference or partial lookup miss).`;
+          }
           await logOrderEmail(supabase, {
             orderId,
             recipient: '(no vendor row)',
             subject: vendorSubject,
             status: 'failed',
-            errorMessage: `No vendors row for id ${vid}. sub_orders/order_items reference an id that does not exist.`,
+            errorMessage: detail,
           });
           continue;
         }

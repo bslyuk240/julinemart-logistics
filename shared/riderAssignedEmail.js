@@ -151,7 +151,7 @@ export async function sendLocalRiderAssignedEmail(supabase, params) {
  */
 export async function sendLocalDeliveryStatusEmail(supabase, params) {
   const {
-    phase,
+    phase: phaseRaw,
     orderId,
     orderNumber,
     customer_name,
@@ -163,11 +163,12 @@ export async function sendLocalDeliveryStatusEmail(supabase, params) {
     delivery_state,
   } = params;
 
+  const phase = String(phaseRaw || '').trim().toLowerCase();
   const to = (customer_email && String(customer_email).trim()) || '';
   const subject =
     phase === 'delivered'
-      ? `Order #${orderNumber} — Delivered`
-      : `Order #${orderNumber} — On the way (local delivery)`;
+      ? `JulineMart: Order #${orderNumber} delivered (local rider)`
+      : `JulineMart: Order #${orderNumber} out for delivery (local rider)`;
 
   try {
     if (!to) {
@@ -203,12 +204,31 @@ export async function sendLocalDeliveryStatusEmail(supabase, params) {
     </div>`
         : '';
 
-    const headTitle = phase === 'delivered' ? 'Delivered ✓' : 'On the way 🚚';
-    const headSub = phase === 'delivered' ? 'Your order has arrived' : 'Your order is out for delivery';
+    const headTitle = phase === 'delivered' ? 'Delivered' : 'Out for delivery';
+    const headSub = phase === 'delivered' ? 'Your order has arrived' : 'Your order is on the way';
     const bodyLead =
       phase === 'delivered'
         ? `Your order has been marked <strong>delivered</strong>. We hope you enjoy your purchase!`
         : `Your package is <strong>out for delivery</strong> with our local rider.`;
+
+    const textLines = [
+      `Hi ${customer_name || 'there'},`,
+      '',
+      phase === 'delivered'
+        ? 'Your JulineMart order has been marked delivered. Thank you for shopping with us.'
+        : 'Your JulineMart package is out for delivery with your local rider.',
+      '',
+      `Order: #${orderNumber}`,
+      `Tracking: ${tracking_number || '—'}`,
+      rider_name ? `Rider: ${rider_name}` : '',
+      rider_phone ? `Rider phone: ${rider_phone}` : '',
+      `Area: ${area}`,
+      '',
+      `Track or view your order: ${trackBase}`,
+      '',
+      '— JulineMart',
+    ].filter(Boolean);
+    const text = textLines.join('\n');
 
     const html = `
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
@@ -231,7 +251,16 @@ export async function sendLocalDeliveryStatusEmail(supabase, params) {
   <div style="background:#f3f4f6;padding:14px;text-align:center;font-size:12px;color:#666">JulineMart</div>
 </div>`;
 
-    await mt.transporter.sendMail({ from: mt.from, to, subject, html });
+    await mt.transporter.sendMail({
+      from: mt.from,
+      to,
+      subject,
+      text,
+      html,
+      headers: {
+        'X-Entity-Ref-ID': orderId ? String(orderId) : 'local-delivery',
+      },
+    });
     await logOrderEmail(supabase, { orderId, recipient: to, subject, status: 'sent' });
   } catch (err) {
     console.error('[sendLocalDeliveryStatusEmail]', err?.message || err);

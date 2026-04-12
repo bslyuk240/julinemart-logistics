@@ -438,6 +438,12 @@ export async function sendOrderEmails(
     const vendorItemMap = await buildVendorItemMap(supabase, orderId, safeItems);
 
     if (vendorItemMap.size > 0) {
+      const vendorPortalBase = (process.env.VENDOR_PORTAL_URL || 'https://vendors.julinemart.com').replace(
+        /\/+$/,
+        '',
+      );
+      const vendorOrdersUrl = `${vendorPortalBase}/orders`;
+
       const vendorIds = [...vendorItemMap.keys()];
       const { vendorById, batchErr: vendorsErr, allMissingAfterFallback: vendorsBulkEmpty } =
         await fetchVendorRowsForEmail(supabase, vendorIds);
@@ -514,10 +520,10 @@ export async function sendOrderEmails(
       <tbody>${vRows}</tbody>
     </table>
     <div style="padding:16px;background:#fef9c3;border-radius:8px;margin-top:16px">
-      <p style="margin:0;font-weight:bold">Delivery to: ${delivery_city}, ${delivery_state}</p>
-      <p style="margin:4px 0 0;font-size:13px;color:#555">Please pack items and mark ready-to-ship on the JLO portal.</p>
+      <p style="margin:0;font-weight:bold">Customer delivery area: ${delivery_city}, ${delivery_state}</p>
+      <p style="margin:4px 0 0;font-size:13px;color:#555">Prepare and pack these items for your hub. Full delivery details are in your vendor portal.</p>
     </div>
-    <p style="margin-top:20px">Log in to <a href="https://jlo.julinemart.com" style="color:#6b21a8">JLO Portal</a> to process this order.</p>
+    <p style="margin-top:20px">Open <a href="${vendorOrdersUrl}" style="color:#6b21a8;font-weight:600">your vendor portal (Orders)</a> to view this order and fulfil it.</p>
   </div>
 </div>`;
         try {

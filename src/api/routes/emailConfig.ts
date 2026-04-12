@@ -5,6 +5,7 @@ import nodemailer from 'nodemailer';
 import {
   decryptEmailConfigSecrets,
   encryptEmailConfigSecretsForStorage,
+  getSmtpDecryptFailureMessage,
   pickEmailConfigForDatabase,
   sanitizeEmailConfigForClient,
 } from '../../../shared/emailSecretsCrypto.js';
@@ -166,6 +167,28 @@ export async function testEmailConnectionHandler(req: AuthRequest, res: Response
       smtp_user?: string;
       smtp_password?: string;
     };
+
+    const decryptErr = getSmtpDecryptFailureMessage(merged, config as Record<string, unknown>);
+    if (decryptErr) {
+      return res.status(400).json({
+        success: false,
+        error: decryptErr,
+        code: 'SMTP_DECRYPT_FAILED',
+      });
+    }
+
+    if (config.provider === 'smtp') {
+      const u = normalizeSmtpAuthUser(config.smtp_user);
+      const p = normalizeSmtpAuthPass(config.smtp_password);
+      if (!u || !p) {
+        return res.status(400).json({
+          success: false,
+          error:
+            'SMTP username or password is missing after loading settings. Enter the mailbox password and save, then test again.',
+          code: 'SMTP_AUTH_INCOMPLETE',
+        });
+      }
+    }
 
     let transportConfig: any;
 

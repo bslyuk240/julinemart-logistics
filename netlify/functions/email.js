@@ -4,10 +4,15 @@ import { createClient } from '@supabase/supabase-js';
 import {
   decryptEmailConfigSecrets,
   encryptEmailConfigSecretsForStorage,
+  getSmtpDecryptFailureMessage,
   pickEmailConfigForDatabase,
   sanitizeEmailConfigForClient,
 } from '../../shared/emailSecretsCrypto.js';
-import { buildCustomSmtpTransportOptions } from '../../shared/smtpTransport.js';
+import {
+  buildCustomSmtpTransportOptions,
+  normalizeSmtpAuthPass,
+  normalizeSmtpAuthUser,
+} from '../../shared/smtpTransport.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -225,6 +230,37 @@ export async function handler(event) {
           }
         }
         const config = decryptEmailConfigSecrets(merged);
+
+        const decryptErr = getSmtpDecryptFailureMessage(merged, config);
+        if (decryptErr) {
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({
+              success: false,
+              error: decryptErr,
+              code: 'SMTP_DECRYPT_FAILED',
+            }),
+          };
+        }
+
+        if (config?.provider === 'smtp') {
+          const u = normalizeSmtpAuthUser(config.smtp_user);
+          const p = normalizeSmtpAuthPass(config.smtp_password);
+          if (!u || !p) {
+            return {
+              statusCode: 200,
+              headers,
+              body: JSON.stringify({
+                success: false,
+                error:
+                  'SMTP username or password is missing after loading settings. Type the mailbox password in the SMTP Password field (it is hidden after save), then Save Configuration, or Save after editing.',
+                code: 'SMTP_AUTH_INCOMPLETE',
+              }),
+            };
+          }
+        }
+
         if (!config?.provider) {
           return {
             statusCode: 400,

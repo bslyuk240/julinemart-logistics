@@ -13,6 +13,10 @@ export function decryptSecretFromStorage(
 export function decryptEmailConfigSecrets<T extends Record<string, unknown> | null>(
   config: T
 ): T;
+export function getSmtpDecryptFailureMessage(
+  mergedBeforeDecrypt: Record<string, unknown>,
+  decrypted: Record<string, unknown>
+): string | null;
 export function encryptEmailConfigSecretsForStorage(
   config: Record<string, unknown>
 ): Record<string, unknown>;

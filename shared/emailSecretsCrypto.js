@@ -125,6 +125,28 @@ export function decryptEmailConfigSecrets(config) {
   };
 }
 
+/**
+ * If DB holds enc:v1:… but decryption yields empty (wrong key, missing key at runtime, or corrupt blob),
+ * SMTP would get no password → 535 "invalid credentials". Call this after decryptEmailConfigSecrets.
+ *
+ * @param {Record<string, unknown>} mergedBeforeDecrypt — row/merge with DB ciphertext still in smtp_password
+ * @param {Record<string, unknown>} decrypted — output of decryptEmailConfigSecrets(merged)
+ * @returns {string | null} user-facing error, or null if OK
+ */
+export function getSmtpDecryptFailureMessage(mergedBeforeDecrypt, decrypted) {
+  const stored = mergedBeforeDecrypt?.smtp_password;
+  const looksEncrypted =
+    typeof stored === 'string' && stored.startsWith(ENC_PREFIX);
+  if (!looksEncrypted) return null;
+  const after = decrypted?.smtp_password;
+  const ok = after != null && String(after).trim().length > 0;
+  if (ok) return null;
+  return (
+    'Saved SMTP password could not be decrypted. Usually the Netlify EMAIL_SECRETS_ENCRYPTION_KEY does not match the key used when this password was saved, or the stored value is corrupted. ' +
+    'Re-enter the SMTP password in this page, click Save Configuration, then Test connection again.'
+  );
+}
+
 /** @param {Record<string, unknown>} config */
 export function encryptEmailConfigSecretsForStorage(config) {
   if (!config) return config;

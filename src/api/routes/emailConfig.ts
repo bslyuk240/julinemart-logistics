@@ -5,6 +5,7 @@ import nodemailer from 'nodemailer';
 import {
   decryptEmailConfigSecrets,
   encryptEmailConfigSecretsForStorage,
+  pickEmailConfigForDatabase,
   sanitizeEmailConfigForClient,
 } from '../../../shared/emailSecretsCrypto.js';
 
@@ -63,7 +64,11 @@ export async function saveEmailConfigHandler(req: AuthRequest, res: Response) {
   try {
     const incoming = req.body as Record<string, unknown>;
 
-    const { data: existingRow } = await supabase.from('email_config').select('*').maybeSingle();
+    const { data: existingRow } = await supabase
+      .from('email_config')
+      .select('*')
+      .limit(1)
+      .maybeSingle();
 
     const secretFields = ['gmail_password', 'sendgrid_api_key', 'smtp_password'] as const;
     const merged: Record<string, unknown> = { ...incoming };
@@ -76,13 +81,14 @@ export async function saveEmailConfigHandler(req: AuthRequest, res: Response) {
     }
 
     const toStore = encryptEmailConfigSecretsForStorage(merged);
+    const row = pickEmailConfigForDatabase(toStore);
 
     let result;
     if (existingRow?.id) {
       result = await supabase
         .from('email_config')
         .update({
-          ...toStore,
+          ...row,
           updated_at: new Date().toISOString(),
           updated_by: req.user!.id,
         })
@@ -93,7 +99,7 @@ export async function saveEmailConfigHandler(req: AuthRequest, res: Response) {
       result = await supabase
         .from('email_config')
         .insert({
-          ...toStore,
+          ...row,
           created_by: req.user!.id,
           updated_by: req.user!.id,
         })
@@ -121,9 +127,11 @@ export async function saveEmailConfigHandler(req: AuthRequest, res: Response) {
     });
   } catch (error) {
     console.error('Save email config error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to save email configuration';
     return res.status(500).json({
       success: false,
       error: 'Failed to save email configuration',
+      detail: message,
     });
   }
 }
@@ -133,7 +141,11 @@ export async function testEmailConnectionHandler(req: AuthRequest, res: Response
   try {
     const body = req.body as Record<string, unknown>;
 
-    const { data: existingRow } = await supabase.from('email_config').select('*').maybeSingle();
+    const { data: existingRow } = await supabase
+      .from('email_config')
+      .select('*')
+      .limit(1)
+      .maybeSingle();
     const secretFields = ['gmail_password', 'sendgrid_api_key', 'smtp_password'] as const;
     const merged: Record<string, unknown> = { ...body };
     for (const field of secretFields) {

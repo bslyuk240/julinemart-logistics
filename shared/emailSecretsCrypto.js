@@ -9,6 +9,21 @@ import crypto from 'crypto';
 
 export const ENC_PREFIX = 'enc:v1:';
 
+/** Columns on public.email_config — strip API-only fields before insert/update (PostgREST 500 on unknown keys). */
+export const EMAIL_CONFIG_DB_FIELDS = [
+  'provider',
+  'gmail_user',
+  'gmail_password',
+  'sendgrid_api_key',
+  'smtp_host',
+  'smtp_port',
+  'smtp_user',
+  'smtp_password',
+  'email_from',
+  'email_enabled',
+  'portal_url',
+];
+
 const ALGO = 'aes-256-gcm';
 const IV_LEN = 12;
 const TAG_LEN = 16;
@@ -87,6 +102,25 @@ export function encryptEmailConfigSecretsForStorage(config) {
     sendgrid_api_key: encryptSecretForStorage(config.sendgrid_api_key),
     smtp_password: encryptSecretForStorage(config.smtp_password),
   };
+}
+
+/**
+ * Keep only real DB columns (drops secrets_configured, email_secrets_encryption_active, id, etc.).
+ * @param {Record<string, unknown>} row
+ */
+export function pickEmailConfigForDatabase(row) {
+  if (!row || typeof row !== 'object') return {};
+  const out = {};
+  for (const k of EMAIL_CONFIG_DB_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(row, k) && row[k] !== undefined) {
+      out[k] = row[k];
+    }
+  }
+  if (out.smtp_port != null && typeof out.smtp_port === 'string') {
+    const n = parseInt(String(out.smtp_port), 10);
+    out.smtp_port = Number.isFinite(n) ? n : 587;
+  }
+  return out;
 }
 
 /**

@@ -1,4 +1,6 @@
 export const ENC_PREFIX: string;
+export const EMAIL_CONFIG_DB_FIELDS: readonly string[];
+export function pickEmailConfigForDatabase(row: Record<string, unknown>): Record<string, unknown>;
 export function getEncryptionKeyBuffer(): Buffer | null;
 export function encryptSecretForStorage(
   plaintext: string | null | undefined

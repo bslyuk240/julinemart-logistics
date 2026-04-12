@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import {
   decryptEmailConfigSecrets,
   encryptEmailConfigSecretsForStorage,
+  pickEmailConfigForDatabase,
   sanitizeEmailConfigForClient,
 } from '../../shared/emailSecretsCrypto.js';
 
@@ -95,8 +96,12 @@ const buildTransportConfigFromEnv = () => {
 };
 
 const getRuntimeEmailConfig = async () => {
-  const { data, error } = await supabase.from('email_config').select('*').single();
-  if (error && error.code !== 'PGRST116') {
+  const { data, error } = await supabase
+    .from('email_config')
+    .select('*')
+    .limit(1)
+    .maybeSingle();
+  if (error) {
     throw error;
   }
 
@@ -163,7 +168,14 @@ export async function handler(event) {
 
       if (event.httpMethod === 'POST') {
         const payload = JSON.parse(event.body || '{}');
-        const { data: existingRow } = await supabase.from('email_config').select('*').maybeSingle();
+        const { data: existingRow, error: existingErr } = await supabase
+          .from('email_config')
+          .select('*')
+          .limit(1)
+          .maybeSingle();
+        if (existingErr) {
+          throw existingErr;
+        }
         const secretFields = ['gmail_password', 'sendgrid_api_key', 'smtp_password'];
         const merged = { ...payload };
         for (const field of secretFields) {
@@ -174,16 +186,17 @@ export async function handler(event) {
           }
         }
         const toStore = encryptEmailConfigSecretsForStorage(merged);
+        const row = pickEmailConfigForDatabase(toStore);
         let result;
         if (existingRow?.id) {
           result = await supabase
             .from('email_config')
-            .update({ ...toStore, updated_at: new Date().toISOString() })
+            .update({ ...row, updated_at: new Date().toISOString() })
             .eq('id', existingRow.id)
             .select()
             .single();
         } else {
-          result = await supabase.from('email_config').insert({ ...toStore }).select().single();
+          result = await supabase.from('email_config').insert({ ...row }).select().single();
         }
         if (result.error) throw result.error;
         const safe = sanitizeEmailConfigForClient(result.data);

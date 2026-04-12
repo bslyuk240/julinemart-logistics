@@ -22,7 +22,11 @@ export async function logOrderEmail(supabase, { orderId, recipient, subject, sta
 
 /**
  * Line items grouped by vendor for "new order" vendor emails.
- * Uses DB rows first (order_items, then sub_orders JSON items), then resolvedItems.
+ *
+ * Vendor portal (`vendor-my-orders`) lists by **sub_orders.vendor_id**. If we built the map from
+ * **order_items.vendor_id** first, a mismatch (null/wrong on order_items, correct on sub_orders)
+ * meant vendors saw orders in the portal but never got email. So: **sub_orders first** when any
+ * sub_order has vendor_id; otherwise order_items; then resolvedItems.
  */
 async function buildVendorItemMap(supabase, orderId, resolvedItems) {
   const map = new Map();
@@ -34,46 +38,60 @@ async function buildVendorItemMap(supabase, orderId, resolvedItems) {
   };
 
   if (orderId) {
-    const { data: rows, error: oiErr } = await supabase
-      .from('order_items')
-      .select('product_name, vendor_id, quantity, subtotal, variation_details')
-      .eq('order_id', orderId);
-    if (oiErr) {
-      console.error('[sendOrderEmails] order_items:', oiErr.message);
-    }
-    for (const row of rows || []) {
-      push(row.vendor_id, {
-        product_name: row.product_name,
-        quantity: row.quantity,
-        subtotal: Number(row.subtotal),
-        vendor_id: row.vendor_id,
-        variation_details: row.variation_details || { attributes: [] },
-      });
-    }
-  }
-
-  if (map.size === 0 && orderId) {
     const { data: subs, error: soErr } = await supabase
       .from('sub_orders')
-      .select('vendor_id, items')
+      .select('vendor_id, items, subtotal')
       .eq('main_order_id', orderId);
     if (soErr) {
       console.error('[sendOrderEmails] sub_orders:', soErr.message);
     }
-    for (const so of subs || []) {
-      const vid = so.vendor_id;
-      if (!vid) continue;
-      const rawItems = Array.isArray(so.items) ? so.items : [];
-      for (const it of rawItems) {
-        const name = it.name || it.productName || 'Item';
-        const qty = it.quantity ?? 1;
-        const sub = Number(it.total ?? it.subtotal ?? 0);
-        push(vid, {
-          product_name: name,
-          quantity: qty,
-          subtotal: sub,
-          vendor_id: vid,
-          variation_details: { attributes: [] },
+
+    const hasSubVendor = (subs || []).some((so) => so.vendor_id);
+
+    if (hasSubVendor) {
+      for (const so of subs || []) {
+        const vid = so.vendor_id;
+        if (!vid) continue;
+        const rawItems = Array.isArray(so.items) ? so.items : [];
+        if (rawItems.length > 0) {
+          for (const it of rawItems) {
+            const name = it.name || it.productName || 'Item';
+            const qty = it.quantity ?? 1;
+            const sub = Number(it.total ?? it.subtotal ?? 0);
+            push(vid, {
+              product_name: name,
+              quantity: qty,
+              subtotal: sub,
+              vendor_id: vid,
+              variation_details: { attributes: [] },
+            });
+          }
+        } else {
+          push(vid, {
+            product_name: 'New order — open Vendor Portal for line items',
+            quantity: 1,
+            subtotal: Number(so.subtotal || 0),
+            vendor_id: vid,
+            variation_details: { attributes: [] },
+          });
+        }
+      }
+    } else {
+      const { data: rows, error: oiErr } = await supabase
+        .from('order_items')
+        .select('product_name, vendor_id, quantity, subtotal, variation_details')
+        .eq('order_id', orderId);
+      if (oiErr) {
+        console.error('[sendOrderEmails] order_items:', oiErr.message);
+      }
+      for (const row of rows || []) {
+        if (!row.vendor_id) continue;
+        push(row.vendor_id, {
+          product_name: row.product_name,
+          quantity: row.quantity,
+          subtotal: Number(row.subtotal),
+          vendor_id: row.vendor_id,
+          variation_details: row.variation_details || { attributes: [] },
         });
       }
     }
@@ -88,8 +106,8 @@ async function buildVendorItemMap(supabase, orderId, resolvedItems) {
 
   if (map.size === 0) {
     console.warn(
-      '[sendOrderEmails] No vendor_id on order_items / sub_orders / resolvedItems — vendor emails skipped. ' +
-        'Link products (or sub_orders) to a vendor and set vendors.email.',
+      '[sendOrderEmails] No vendor on sub_orders / order_items / resolvedItems — vendor emails skipped. ' +
+        'Ensure sub_orders.vendor_id is set and vendors.email is populated.',
     );
   }
 
@@ -221,9 +239,24 @@ export async function sendOrderEmails(
 
     if (vendorItemMap.size > 0) {
       const vendorIds = [...vendorItemMap.keys()];
-      const { data: vendors } = await supabase.from('vendors').select('id, email, store_name, display_name').in('id', vendorIds);
+      const { data: vendors } = await supabase
+        .from('vendors')
+        .select('id, email, store_name, display_name, user_id')
+        .in('id', vendorIds);
       for (const vendor of (vendors || [])) {
-        if (!vendor.email) continue;
+        let toEmail = (vendor.email && String(vendor.email).trim()) || '';
+        if (!toEmail && vendor.user_id) {
+          try {
+            const { data: authData, error: authErr } = await supabase.auth.admin.getUserById(vendor.user_id);
+            if (!authErr && authData?.user?.email) {
+              toEmail = String(authData.user.email).trim();
+            }
+          } catch (_e) {
+            /* non-fatal */
+          }
+        }
+        if (!toEmail) continue;
+
         const vItems = vendorItemMap.get(vendor.id) || [];
         const vRows = vItems.map((i) =>
           `<tr><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3">${i.product_name}</td><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3;text-align:center">${i.quantity}</td><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3;text-align:right">${fmt(i.subtotal)}</td></tr>`
@@ -250,17 +283,17 @@ export async function sendOrderEmails(
 </div>`;
         const vendorSubject = `New Order #${orderNumber} - Action Required`;
         try {
-          await transporter.sendMail({ from, to: vendor.email, subject: vendorSubject, html: vendorHtml });
+          await transporter.sendMail({ from, to: toEmail, subject: vendorSubject, html: vendorHtml });
           await logOrderEmail(supabase, {
             orderId,
-            recipient: vendor.email,
+            recipient: toEmail,
             subject: vendorSubject,
             status: 'sent',
           });
         } catch (err) {
           await logOrderEmail(supabase, {
             orderId,
-            recipient: vendor.email,
+            recipient: toEmail,
             subject: vendorSubject,
             status: 'failed',
             errorMessage: err?.message || String(err),

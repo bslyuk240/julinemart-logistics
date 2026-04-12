@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { sendLocalRiderAssignedEmail } from '../../shared/riderAssignedEmail.js';
 import {
   buildOrderDeepLink,
   extractCustomerIdFromOrder,
@@ -170,13 +171,15 @@ exports.handler = async (event) => {
     if (existingSubOrder.main_order_id) {
       const { data: orderRecord, error: orderError } = await supabase
         .from('orders')
-        .select('*')
+        .select(
+          'id, order_number, customer_name, customer_email, delivery_city, delivery_state, metadata',
+        )
         .eq('id', existingSubOrder.main_order_id)
         .maybeSingle();
 
       if (orderError) {
         console.warn('Failed to load order for push notification:', orderError.message);
-      } else {
+      } else if (orderRecord) {
         const customerId = extractCustomerIdFromOrder(orderRecord);
         const orderRef = extractOrderReference(orderRecord) || existingSubOrder.main_order_id;
         const deepLink = buildOrderDeepLink(orderRef);
@@ -194,6 +197,23 @@ exports.handler = async (event) => {
 
         if (!pushResult.success && !pushResult.skipped) {
           console.warn('Assign rider push failed:', pushResult);
+        }
+
+        try {
+          await sendLocalRiderAssignedEmail(supabase, {
+            orderId: existingSubOrder.main_order_id,
+            orderNumber: orderRecord.order_number ?? orderRef,
+            customer_name: orderRecord.customer_name,
+            customer_email: orderRecord.customer_email,
+            tracking_number: updatedSubOrder.tracking_number || nextTrackingNumber,
+            rider_name,
+            rider_phone,
+            rider_vehicle: rider_vehicle || undefined,
+            delivery_city: orderRecord.delivery_city,
+            delivery_state: orderRecord.delivery_state,
+          });
+        } catch (mailErr) {
+          console.error('sendLocalRiderAssignedEmail:', mailErr?.message || mailErr);
         }
       }
     }

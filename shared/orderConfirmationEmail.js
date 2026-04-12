@@ -20,6 +20,82 @@ export async function logOrderEmail(supabase, { orderId, recipient, subject, sta
   }
 }
 
+/**
+ * Line items grouped by vendor for "new order" vendor emails.
+ * Uses DB rows first (order_items, then sub_orders JSON items), then resolvedItems.
+ */
+async function buildVendorItemMap(supabase, orderId, resolvedItems) {
+  const map = new Map();
+
+  const push = (vendorId, row) => {
+    if (!vendorId) return;
+    if (!map.has(vendorId)) map.set(vendorId, []);
+    map.get(vendorId).push(row);
+  };
+
+  if (orderId) {
+    const { data: rows, error: oiErr } = await supabase
+      .from('order_items')
+      .select('product_name, vendor_id, quantity, subtotal, variation_details')
+      .eq('order_id', orderId);
+    if (oiErr) {
+      console.error('[sendOrderEmails] order_items:', oiErr.message);
+    }
+    for (const row of rows || []) {
+      push(row.vendor_id, {
+        product_name: row.product_name,
+        quantity: row.quantity,
+        subtotal: Number(row.subtotal),
+        vendor_id: row.vendor_id,
+        variation_details: row.variation_details || { attributes: [] },
+      });
+    }
+  }
+
+  if (map.size === 0 && orderId) {
+    const { data: subs, error: soErr } = await supabase
+      .from('sub_orders')
+      .select('vendor_id, items')
+      .eq('main_order_id', orderId);
+    if (soErr) {
+      console.error('[sendOrderEmails] sub_orders:', soErr.message);
+    }
+    for (const so of subs || []) {
+      const vid = so.vendor_id;
+      if (!vid) continue;
+      const rawItems = Array.isArray(so.items) ? so.items : [];
+      for (const it of rawItems) {
+        const name = it.name || it.productName || 'Item';
+        const qty = it.quantity ?? 1;
+        const sub = Number(it.total ?? it.subtotal ?? 0);
+        push(vid, {
+          product_name: name,
+          quantity: qty,
+          subtotal: sub,
+          vendor_id: vid,
+          variation_details: { attributes: [] },
+        });
+      }
+    }
+  }
+
+  if (map.size === 0) {
+    for (const item of resolvedItems || []) {
+      if (!item.vendor_id) continue;
+      push(item.vendor_id, item);
+    }
+  }
+
+  if (map.size === 0) {
+    console.warn(
+      '[sendOrderEmails] No vendor_id on order_items / sub_orders / resolvedItems — vendor emails skipped. ' +
+        'Link products (or sub_orders) to a vendor and set vendors.email.',
+    );
+  }
+
+  return map;
+}
+
 export async function sendOrderEmails(
   supabase,
   {
@@ -141,12 +217,7 @@ export async function sendOrderEmails(
       });
     }
 
-    const vendorItemMap = new Map();
-    for (const item of resolvedItems) {
-      if (!item.vendor_id) continue;
-      if (!vendorItemMap.has(item.vendor_id)) vendorItemMap.set(item.vendor_id, []);
-      vendorItemMap.get(item.vendor_id).push(item);
-    }
+    const vendorItemMap = await buildVendorItemMap(supabase, orderId, resolvedItems);
 
     if (vendorItemMap.size > 0) {
       const vendorIds = [...vendorItemMap.keys()];

@@ -270,6 +270,48 @@ async function buildVendorItemMap(supabase, orderId, resolvedItems) {
   return map;
 }
 
+/** Columns that exist on all vendor rows (avoid optional columns that break PostgREST in some DBs). */
+const VENDOR_EMAIL_SELECT = 'id, email, store_name, user_id';
+
+/**
+ * Load vendor rows for notification. Batch `.in()` first; then per-id `.eq()` for any miss
+ * (PostgREST batch edge cases, or partial failures).
+ */
+async function fetchVendorRowsForEmail(supabase, vendorIds) {
+  const ids = [...new Set(vendorIds.map(String))];
+  if (ids.length === 0) {
+    return { vendorById: new Map(), batchErr: null, allMissingAfterFallback: false };
+  }
+
+  const { data: batch, error: batchErr } = await supabase
+    .from('vendors')
+    .select(VENDOR_EMAIL_SELECT)
+    .in('id', ids);
+
+  if (batchErr) {
+    console.error('[sendOrderEmails] vendors batch lookup:', batchErr.message);
+  }
+
+  const vendorById = new Map((batch || []).map((v) => [String(v.id), v]));
+  const missing = ids.filter((id) => !vendorById.has(id));
+
+  for (const vid of missing) {
+    const { data: one, error: oneErr } = await supabase
+      .from('vendors')
+      .select(VENDOR_EMAIL_SELECT)
+      .eq('id', vid)
+      .maybeSingle();
+    if (oneErr) {
+      console.error('[sendOrderEmails] vendors id lookup', vid, oneErr.message);
+    } else if (one) {
+      vendorById.set(String(vid), one);
+    }
+  }
+
+  const allMissingAfterFallback = ids.length > 0 && vendorById.size === 0 && !batchErr;
+  return { vendorById, batchErr, allMissingAfterFallback };
+}
+
 export async function sendOrderEmails(
   supabase,
   {
@@ -397,23 +439,14 @@ export async function sendOrderEmails(
 
     if (vendorItemMap.size > 0) {
       const vendorIds = [...vendorItemMap.keys()];
-      const { data: vendors, error: vendorsErr } = await supabase
-        .from('vendors')
-        .select('id, email, store_name, display_name, user_id')
-        .in('id', vendorIds);
-      if (vendorsErr) {
-        console.error('[sendOrderEmails] vendors lookup:', vendorsErr.message);
-      }
-      const vendorRows = vendors || [];
-      const vendorById = new Map(vendorRows.map((v) => [String(v.id), v]));
-      /** True when PostgREST returned no rows for all ids — often wrong API key (anon = RLS) not missing data. */
-      const vendorsBulkEmpty =
-        vendorIds.length > 0 && vendorRows.length === 0 && !vendorsErr;
+      const { vendorById, batchErr: vendorsErr, allMissingAfterFallback: vendorsBulkEmpty } =
+        await fetchVendorRowsForEmail(supabase, vendorIds);
+
       if (vendorsBulkEmpty) {
         console.error(
-          '[sendOrderEmails] vendors.in(id) returned 0 rows for',
+          '[sendOrderEmails] vendors lookup returned 0 rows after batch + per-id fallback for',
           vendorIds.length,
-          'id(s). If those UUIDs exist in public.vendors, the Supabase client is likely not using the service_role key (anon key is subject to RLS). Set SUPABASE_SERVICE_ROLE_KEY on Netlify to the service_role secret from Dashboard → Settings → API.',
+          'id(s). Confirm Netlify SUPABASE_URL matches the same project as this key; service_role bypasses RLS. Wrong anon key or wrong project URL also yields empty reads.',
           { vendorIds },
         );
       }
@@ -427,7 +460,7 @@ export async function sendOrderEmails(
             detail = `Vendors query failed: ${vendorsErr.message}`;
           } else if (vendorsBulkEmpty) {
             detail =
-              `No vendors row returned for id ${vid}. Bulk SELECT returned 0 rows — if this UUID exists in public.vendors, Netlify must use SUPABASE_SERVICE_ROLE_KEY (service_role secret from Dashboard → API); the anon key is subject to RLS.`;
+              `No vendors row returned for id ${vid} after batch and per-id SELECT. If the row exists in Studio, verify Netlify SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are from the same Supabase project.`;
           } else {
             detail = `No vendors row for id ${vid} (orphan reference or partial lookup miss).`;
           }
@@ -474,7 +507,7 @@ export async function sendOrderEmails(
     <p style="margin:8px 0 0;opacity:.85">Order #${orderNumber}</p>
   </div>
   <div style="padding:30px;background:#fff">
-    <p>Hi ${vendor.store_name || vendor.display_name || 'Vendor'},</p>
+    <p>Hi ${vendor.store_name || 'Vendor'},</p>
     <p>You have a new order from JulineMart. Please prepare the following items:</p>
     <table style="width:100%;border-collapse:collapse;margin:20px 0">
       <thead><tr style="background:#f9f9f9"><th style="padding:8px 12px;text-align:left">Item</th><th style="padding:8px 12px;text-align:center">Qty</th><th style="padding:8px 12px;text-align:right">Total</th></tr></thead>

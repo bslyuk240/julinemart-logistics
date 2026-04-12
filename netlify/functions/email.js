@@ -135,8 +135,12 @@ export async function handler(event) {
     // /api/email/config
     if (next === 'config') {
       if (event.httpMethod === 'GET') {
-        const { data, error } = await supabase.from('email_config').select('*').single();
-        if (error && error.code !== 'PGRST116') {
+        const { data, error } = await supabase
+          .from('email_config')
+          .select('*')
+          .limit(1)
+          .maybeSingle();
+        if (error) {
           throw error;
         }
         const defaults = {
@@ -315,6 +319,11 @@ export async function handler(event) {
     return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Not Found' }) };
   } catch (e) {
     console.error('Email function error:', e);
-    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Email API error' }) };
+    const detail = e && (e.message || String(e));
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ success: false, error: 'Email API error', detail }),
+    };
   }
 }

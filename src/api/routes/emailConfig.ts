@@ -15,12 +15,14 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 // Get email configuration
 export async function getEmailConfigHandler(req: AuthRequest, res: Response) {
   try {
+    // .limit(1).maybeSingle() avoids 500s when 0 rows (PGRST116) or duplicate rows (.single() fails)
     const { data, error } = await supabase
       .from('email_config')
       .select('*')
-      .single();
+      .limit(1)
+      .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') { // Not found is OK
+    if (error) {
       throw error;
     }
 
@@ -47,9 +49,11 @@ export async function getEmailConfigHandler(req: AuthRequest, res: Response) {
     });
   } catch (error) {
     console.error('Get email config error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch email configuration';
     return res.status(500).json({
       success: false,
       error: 'Failed to fetch email configuration',
+      detail: message,
     });
   }
 }

@@ -119,7 +119,7 @@
 
 [functions]
   node_bundler = "esbuild"
-  included_files = ["netlify/functions/services/**"]
+  included_files = ["netlify/functions/services/**", "shared/**"]
   external_node_modules = ["pdfkit"]
 
 [functions."product-moderation-list"]

@@ -16,7 +16,58 @@ import {
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
+
+/** @returns {Promise<{ ok: true } | { error: { statusCode: number; headers: object; body: string } }>} */
+async function requireAdminBearer(event) {
+  const authHeader = event.headers?.authorization || event.headers?.Authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return {
+      error: {
+        statusCode: 401,
+        headers,
+        body: JSON.stringify({ success: false, error: 'unauthorized', message: 'Missing bearer token' }),
+      },
+    };
+  }
+  if (!SUPABASE_URL || !ANON_KEY) {
+    return {
+      error: {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ success: false, error: 'Server misconfigured', message: 'Missing anon key' }),
+      },
+    };
+  }
+  const token = authHeader.slice('Bearer '.length);
+  const authClient = createClient(SUPABASE_URL, ANON_KEY);
+  const { data: authData, error: authError } = await authClient.auth.getUser(token);
+  if (authError || !authData?.user) {
+    return {
+      error: {
+        statusCode: 401,
+        headers,
+        body: JSON.stringify({ success: false, error: 'unauthorized', message: 'Invalid or expired token' }),
+      },
+    };
+  }
+  const { data: profile } = await supabase
+    .from('users')
+    .select('id, role, is_active')
+    .eq('id', authData.user.id)
+    .maybeSingle();
+  if (!profile?.is_active || profile.role !== 'admin') {
+    return {
+      error: {
+        statusCode: 403,
+        headers,
+        body: JSON.stringify({ success: false, error: 'forbidden', message: 'Admin only' }),
+      },
+    };
+  }
+  return { ok: true };
+}
 
 const headers = {
   'Content-Type': 'application/json',
@@ -290,6 +341,42 @@ export async function handler(event) {
           body: JSON.stringify({ success: false, error: msg, ...(hint ? { hint } : {}) })
         };
       }
+    }
+
+    // GET /api/email/logs — recent email_logs (admin JWT)
+    if (next === 'logs') {
+      if (event.httpMethod !== 'GET') {
+        return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };
+      }
+      const gate = await requireAdminBearer(event);
+      if (gate.error) return gate.error;
+
+      const params = event.queryStringParameters || {};
+      const limit = Math.min(200, Math.max(1, parseInt(params.limit || '100', 10)));
+      const offset = Math.max(0, parseInt(params.offset || '0', 10));
+
+      const { data, error, count } = await supabase
+        .from('email_logs')
+        .select(
+          'id, order_id, recipient, subject, status, error_message, sent_at, created_at, orders(order_number)',
+          { count: 'exact' },
+        )
+        .order('sent_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      if (error) throw error;
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          data: data || [],
+          total: count ?? null,
+          limit,
+          offset,
+        }),
+      };
     }
 
     // /api/email/test

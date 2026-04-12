@@ -21,7 +21,39 @@ import { headers, jsonResponse, adminClient } from './services/global-sourcing-u
 import { decryptEmailConfigSecrets } from '../../shared/emailSecretsCrypto.js';
 import { buildCustomSmtpTransportOptions } from '../../shared/smtpTransport.js';
 
-async function sendOrderEmails(supabase, { orderNumber, customer_name, customer_email, customer_phone, delivery_address, delivery_city, delivery_state, subtotal, discountAmount, shippingFee, totalAmount, resolvedItems }) {
+async function logOrderEmail(supabase, { orderId, recipient, subject, status, errorMessage }) {
+  try {
+    await supabase.from('email_logs').insert({
+      order_id: orderId || null,
+      recipient,
+      subject,
+      status,
+      error_message: errorMessage || null,
+      sent_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error('email_logs insert failed:', e?.message || e);
+  }
+}
+
+async function sendOrderEmails(
+  supabase,
+  {
+    orderId,
+    orderNumber,
+    customer_name,
+    customer_email,
+    customer_phone,
+    delivery_address,
+    delivery_city,
+    delivery_state,
+    subtotal,
+    discountAmount,
+    shippingFee,
+    totalAmount,
+    resolvedItems,
+  },
+) {
   try {
     const { data: rawCfg } = await supabase.from('email_config').select('*').single();
     const cfg = rawCfg ? decryptEmailConfigSecrets(rawCfg) : null;
@@ -117,7 +149,24 @@ async function sendOrderEmails(supabase, { orderNumber, customer_name, customer_
     <p style="margin-top:20px">Log in to <a href="https://jlo.julinemart.com" style="color:#6b21a8">JLO Portal</a> to process this order.</p>
   </div>
 </div>`;
-        await transporter.sendMail({ from, to: vendor.email, subject: `New Order #${orderNumber} - Action Required`, html: vendorHtml });
+        const vendorSubject = `New Order #${orderNumber} - Action Required`;
+        try {
+          await transporter.sendMail({ from, to: vendor.email, subject: vendorSubject, html: vendorHtml });
+          await logOrderEmail(supabase, {
+            orderId,
+            recipient: vendor.email,
+            subject: vendorSubject,
+            status: 'sent',
+          });
+        } catch (err) {
+          await logOrderEmail(supabase, {
+            orderId,
+            recipient: vendor.email,
+            subject: vendorSubject,
+            status: 'failed',
+            errorMessage: err?.message || String(err),
+          });
+        }
       }
     }
   } catch (err) {
@@ -461,6 +510,7 @@ export async function handler(event) {
 
     // ── Send order confirmation emails (non-blocking) ─────────────────────
     sendOrderEmails(adminClient, {
+      orderId,
       orderNumber,
       customer_name,
       customer_email,

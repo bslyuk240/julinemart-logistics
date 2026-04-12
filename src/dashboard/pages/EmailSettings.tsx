@@ -1,9 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
-import { 
-  Mail, Save, TestTube, Settings, Eye, Code, 
-  CheckCircle, XCircle, AlertCircle, Send
+import { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  Mail,
+  Save,
+  TestTube,
+  Settings,
+  Eye,
+  Code,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  Send,
+  ScrollText,
+  RefreshCw,
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
+import { useAuth } from '../contexts/AuthContext';
 
 interface EmailConfig {
   provider: 'gmail' | 'sendgrid' | 'smtp';
@@ -40,9 +51,22 @@ interface EmailTemplate {
   last_updated: string;
 }
 
+interface EmailLogRow {
+  id: string;
+  order_id: string | null;
+  recipient: string;
+  subject: string;
+  status: 'sent' | 'failed';
+  error_message: string | null;
+  sent_at: string;
+  created_at?: string;
+  orders?: { order_number: string | number } | null;
+}
+
 export function EmailSettingsPage() {
   const notification = useNotification();
-  const [activeTab, setActiveTab] = useState<'config' | 'templates' | 'test'>('config');
+  const { session } = useAuth();
+  const [activeTab, setActiveTab] = useState<'config' | 'templates' | 'test' | 'logs'>('config');
   const [config, setConfig] = useState<EmailConfig>({
     provider: 'gmail',
     gmail_user: '',
@@ -63,11 +87,49 @@ export function EmailSettingsPage() {
   const [testTemplateId, setTestTemplateId] = useState('');
   const [testTemplateData, setTestTemplateData] = useState('');
   const [connectionStatus, setConnectionStatus] = useState<'unknown' | 'connected' | 'error'>('unknown');
+  const [emailLogs, setEmailLogs] = useState<EmailLogRow[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState<string | null>(null);
+  const [logsTotal, setLogsTotal] = useState<number | null>(null);
 
   useEffect(() => {
     fetchConfig();
     fetchTemplates();
   }, []);
+
+  const fetchEmailLogs = useCallback(async () => {
+    if (!session?.access_token) {
+      setLogsError('Sign in to view email logs.');
+      return;
+    }
+    setLogsLoading(true);
+    setLogsError(null);
+    try {
+      const response = await fetch('/api/email/logs?limit=100', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const json = await response.json();
+      if (!response.ok || !json.success) {
+        setLogsError(json.detail || json.error || 'Failed to load logs');
+        setEmailLogs([]);
+        setLogsTotal(null);
+        return;
+      }
+      setEmailLogs(json.data || []);
+      setLogsTotal(typeof json.total === 'number' ? json.total : null);
+    } catch {
+      setLogsError('Failed to load logs');
+      setEmailLogs([]);
+    } finally {
+      setLogsLoading(false);
+    }
+  }, [session?.access_token]);
+
+  useEffect(() => {
+    if (activeTab === 'logs') {
+      void fetchEmailLogs();
+    }
+  }, [activeTab, fetchEmailLogs]);
 
   const fetchConfig = async () => {
     try {
@@ -187,6 +249,7 @@ export function EmailSettingsPage() {
     { id: 'config', label: 'Configuration', icon: Settings },
     { id: 'templates', label: 'Email Templates', icon: Mail },
     { id: 'test', label: 'Test & Verify', icon: TestTube },
+    { id: 'logs', label: 'Logs', icon: ScrollText },
   ];
 
   return (
@@ -661,6 +724,109 @@ export function EmailSettingsPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rows from email_logs (transactional + storefront order mail) */}
+      {activeTab === 'logs' && (
+        <div className="space-y-4">
+          <div className="card">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+              <div>
+                <h2 className="text-xl font-bold">Email send log</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  Recent attempts recorded when the app sends mail via your configured provider. &quot;Sent&quot; means the
+                  SMTP server accepted the message; inbox placement is not tracked here. Failed rows include the error
+                  returned by the provider or transport.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => fetchEmailLogs()}
+                disabled={logsLoading || !session?.access_token}
+                className="btn-secondary inline-flex items-center gap-2 self-start"
+              >
+                <RefreshCw className={`w-4 h-4 ${logsLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+            </div>
+
+            {logsError && (
+              <div className="mb-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <span>{logsError}</span>
+              </div>
+            )}
+
+            {logsLoading && emailLogs.length === 0 && !logsError ? (
+              <p className="text-gray-600 text-sm">Loading…</p>
+            ) : emailLogs.length === 0 && !logsLoading ? (
+              <p className="text-gray-600 text-sm">No log entries yet.</p>
+            ) : (
+              <>
+                {logsTotal != null && (
+                  <p className="text-xs text-gray-500 mb-2">Showing up to 100 of {logsTotal} total</p>
+                )}
+                <div className="overflow-x-auto -mx-4 sm:mx-0">
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200 text-left text-gray-600">
+                        <th className="pb-2 pr-4 font-medium whitespace-nowrap">Time</th>
+                        <th className="pb-2 pr-4 font-medium">Status</th>
+                        <th className="pb-2 pr-4 font-medium">Recipient</th>
+                        <th className="pb-2 pr-4 font-medium min-w-[12rem]">Subject</th>
+                        <th className="pb-2 pr-4 font-medium">Order</th>
+                        <th className="pb-2 font-medium min-w-[10rem]">Error</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {emailLogs.map((row) => {
+                        const orderNum = row.orders?.order_number;
+                        const orderHref = row.order_id ? `/admin/orders/${row.order_id}` : undefined;
+                        return (
+                          <tr key={row.id} className="align-top">
+                            <td className="py-2 pr-4 whitespace-nowrap text-gray-700">
+                              {row.sent_at
+                                ? new Date(row.sent_at).toLocaleString(undefined, {
+                                    dateStyle: 'short',
+                                    timeStyle: 'short',
+                                  })
+                                : '—'}
+                            </td>
+                            <td className="py-2 pr-4">
+                              {row.status === 'sent' ? (
+                                <span className="inline-flex items-center gap-1 text-green-700">
+                                  <CheckCircle className="w-4 h-4" /> Sent
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-red-700">
+                                  <XCircle className="w-4 h-4" /> Failed
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2 pr-4 break-all max-w-[14rem]">{row.recipient}</td>
+                            <td className="py-2 pr-4 text-gray-800">{row.subject}</td>
+                            <td className="py-2 pr-4 whitespace-nowrap">
+                              {orderHref ? (
+                                <a href={orderHref} className="text-primary-600 hover:underline">
+                                  {orderNum != null ? `#${orderNum}` : 'View order'}
+                                </a>
+                              ) : (
+                                '—'
+                              )}
+                            </td>
+                            <td className="py-2 text-red-700 break-words max-w-md">
+                              {row.error_message || '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

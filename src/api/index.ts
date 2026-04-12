@@ -47,7 +47,8 @@ import {
   getEmailTemplatesHandler,
   getEmailTemplateHandler,
   updateEmailTemplateHandler,
-  previewEmailTemplateHandler
+  previewEmailTemplateHandler,
+  getEmailLogsHandler,
 } from './routes/emailConfig.js';
 import {
   getInfluencersHandler,
@@ -288,6 +289,7 @@ console.log('🌐 Public tracking routes registered');
 app.get('/api/email/config', getEmailConfigHandler);
 app.post('/api/email/config', saveEmailConfigHandler);
 app.post('/api/email/test-connection', testEmailConnectionHandler);
+app.get('/api/email/logs', authenticate, requireRole('admin'), getEmailLogsHandler);
 app.get('/api/email/templates', getEmailTemplatesHandler);
 app.get('/api/email/templates/:id', getEmailTemplateHandler);
 app.put('/api/email/templates/:id', updateEmailTemplateHandler);

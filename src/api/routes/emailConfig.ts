@@ -386,3 +386,38 @@ export async function previewEmailTemplateHandler(req: AuthRequest, res: Respons
     });
   }
 }
+
+/** Recent rows from `email_logs` (transactional + order-placement sends). Admin only. */
+export async function getEmailLogsHandler(req: AuthRequest, res: Response) {
+  try {
+    const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? '100'), 10)));
+    const offset = Math.max(0, parseInt(String(req.query.offset ?? '0'), 10));
+
+    const { data, error, count } = await supabase
+      .from('email_logs')
+      .select(
+        'id, order_id, recipient, subject, status, error_message, sent_at, created_at, orders(order_number)',
+        { count: 'exact' },
+      )
+      .order('sent_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      success: true,
+      data: data ?? [],
+      total: count ?? null,
+      limit,
+      offset,
+    });
+  } catch (error) {
+    console.error('Get email logs error:', error);
+    const message = error instanceof Error ? error.message : 'Failed to fetch email logs';
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch email logs',
+      detail: message,
+    });
+  }
+}

@@ -9,7 +9,11 @@ import {
   pickEmailConfigForDatabase,
   sanitizeEmailConfigForClient,
 } from '../../../shared/emailSecretsCrypto.js';
-import { buildCustomSmtpTransportOptions } from '../../../shared/smtpTransport.js';
+import {
+  buildCustomSmtpTransportOptions,
+  normalizeSmtpAuthPass,
+  normalizeSmtpAuthUser,
+} from '../../../shared/smtpTransport.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';

@@ -2,6 +2,7 @@
 // Added comprehensive logging and error handling for refreshOverallOrderStatus
 
 import { createClient } from '@supabase/supabase-js';
+import { sendLocalDeliveryStatusEmail } from '../../shared/riderAssignedEmail.js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
 import {
   buildOrderDeepLink,
@@ -184,13 +185,21 @@ exports.handler = async (event) => {
     if (subOrder.status !== status && subOrder.main_order_id) {
       const { data: orderRecord, error: orderError } = await supabase
         .from('orders')
-        .select('*')
+        .select(
+          'id, order_number, customer_name, customer_email, delivery_city, delivery_state, metadata',
+        )
         .eq('id', subOrder.main_order_id)
+        .maybeSingle();
+
+      const { data: subDetails } = await supabase
+        .from('sub_orders')
+        .select('tracking_number, rider_name, rider_phone')
+        .eq('id', sub_order_id)
         .maybeSingle();
 
       if (orderError) {
         console.warn('Failed to load order for local-status push:', orderError.message);
-      } else {
+      } else if (orderRecord) {
         const customerId = extractCustomerIdFromOrder(orderRecord);
         const orderRef = extractOrderReference(orderRecord) || subOrder.main_order_id;
         const deepLink = buildOrderDeepLink(orderRef);
@@ -218,6 +227,23 @@ exports.handler = async (event) => {
         const pushResult = await sendPushToCustomer(customerId, pushInput);
         if (!pushResult.success && !pushResult.skipped) {
           console.warn('Local-status push failed:', pushResult);
+        }
+
+        try {
+          await sendLocalDeliveryStatusEmail(supabase, {
+            phase: status,
+            orderId: subOrder.main_order_id,
+            orderNumber: orderRecord.order_number ?? orderRef,
+            customer_name: orderRecord.customer_name,
+            customer_email: orderRecord.customer_email,
+            tracking_number: subDetails?.tracking_number || '',
+            rider_name: subDetails?.rider_name || '',
+            rider_phone: subDetails?.rider_phone || '',
+            delivery_city: orderRecord.delivery_city,
+            delivery_state: orderRecord.delivery_state,
+          });
+        } catch (mailErr) {
+          console.error('sendLocalDeliveryStatusEmail:', mailErr?.message || mailErr);
         }
       }
     }

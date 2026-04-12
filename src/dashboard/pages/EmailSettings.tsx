@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Mail, Save, TestTube, Settings, Eye, Code, 
   CheckCircle, XCircle, AlertCircle, Send
@@ -17,6 +17,14 @@ interface EmailConfig {
   email_from: string;
   email_enabled: boolean;
   portal_url: string;
+  /** Present when loaded from API — passwords are never returned; leave fields blank to keep existing secrets */
+  secrets_configured?: {
+    gmail_password: boolean;
+    sendgrid_api_key: boolean;
+    smtp_password: boolean;
+  };
+  /** Server sees a valid EMAIL_SECRETS_ENCRYPTION_KEY — if false, DB will store secrets in plaintext */
+  email_secrets_encryption_active?: boolean;
 }
 
 interface EmailTemplate {
@@ -398,6 +406,26 @@ export function EmailSettingsPage() {
           <div className="card">
             <h2 className="text-xl font-bold mb-4">General Settings</h2>
             <div className="space-y-4">
+              {config.email_secrets_encryption_active === false && (
+                <div
+                  className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+                  role="status"
+                >
+                  <strong>Encryption key not loaded on this API.</strong> Secrets are being saved as plain text. For
+                  local dev, put <code className="text-xs bg-white/80 px-1 rounded">EMAIL_SECRETS_ENCRYPTION_KEY</code>{' '}
+                  in <code className="text-xs bg-white/80 px-1 rounded">.env</code> or{' '}
+                  <code className="text-xs bg-white/80 px-1 rounded">.env.local</code> and restart{' '}
+                  <code className="text-xs bg-white/80 px-1 rounded">npm run api:dev</code>. On Netlify, add the same
+                  variable under Site settings → Environment variables and redeploy. The key must decode to exactly 32
+                  bytes (base64 or 64 hex chars).
+                </div>
+              )}
+              {config.email_secrets_encryption_active === true && (
+                <p className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                  At-rest encryption is active on this server (new saves will store <code className="text-xs">enc:v1:</code>{' '}
+                  ciphertext in the database).
+                </p>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   From Email Address *
@@ -442,6 +470,12 @@ export function EmailSettingsPage() {
                   Enable Email Notifications
                 </label>
               </div>
+              <p className="text-xs text-gray-500">
+                Provider passwords and API keys are encrypted at rest when{' '}
+                <code className="text-xs bg-gray-100 px-1 rounded">EMAIL_SECRETS_ENCRYPTION_KEY</code> is set on the
+                server. Password fields load empty for security — leave them blank to keep the current value, or enter a
+                new secret to replace it.
+              </p>
             </div>
           </div>
 

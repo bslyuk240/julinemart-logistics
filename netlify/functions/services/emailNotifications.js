@@ -18,6 +18,7 @@
 
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
+import { decryptEmailConfigSecrets } from '../../../shared/emailSecretsCrypto.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
@@ -55,10 +56,12 @@ function buildEnvTransport() {
  */
 async function getTransport() {
   try {
-    const { data: cfg } = await supabase.from('email_config').select('*').single();
+    const { data: rawCfg } = await supabase.from('email_config').select('*').single();
 
-    if (cfg) {
-      if (cfg.email_enabled === false) return null; // admin disabled emails
+    if (rawCfg) {
+      if (rawCfg.email_enabled === false) return null; // admin disabled emails
+
+      const cfg = decryptEmailConfigSecrets(rawCfg);
 
       let transportConfig;
       switch (cfg.provider) {

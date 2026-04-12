@@ -1,6 +1,11 @@
 // Netlify Function: /api/email/*
 import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
+import {
+  decryptEmailConfigSecrets,
+  encryptEmailConfigSecretsForStorage,
+  sanitizeEmailConfigForClient,
+} from '../../shared/emailSecretsCrypto.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -95,7 +100,7 @@ const getRuntimeEmailConfig = async () => {
     throw error;
   }
 
-  const config = data || null;
+  const config = data ? decryptEmailConfigSecrets(data) : null;
   const transportConfig = config ? buildTransportConfigFromDb(config) : buildTransportConfigFromEnv();
   const from =
     (config && (config.email_from || config.gmail_user || config.smtp_user)) ||
@@ -134,7 +139,7 @@ export async function handler(event) {
         if (error && error.code !== 'PGRST116') {
           throw error;
         }
-        const config = data || {
+        const defaults = {
           provider: 'gmail',
           gmail_user: '',
           gmail_password: '',
@@ -147,25 +152,38 @@ export async function handler(event) {
           email_enabled: false,
           portal_url: 'http://localhost:3002'
         };
-        return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: config }) };
+        const config = data || defaults;
+        const safe = sanitizeEmailConfigForClient(config);
+        return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: safe }) };
       }
 
       if (event.httpMethod === 'POST') {
         const payload = JSON.parse(event.body || '{}');
-        const { data: existing } = await supabase.from('email_config').select('id').single();
+        const { data: existingRow } = await supabase.from('email_config').select('*').maybeSingle();
+        const secretFields = ['gmail_password', 'sendgrid_api_key', 'smtp_password'];
+        const merged = { ...payload };
+        for (const field of secretFields) {
+          const v = merged[field];
+          const empty = v == null || String(v).trim() === '';
+          if (empty && existingRow?.[field]) {
+            merged[field] = existingRow[field];
+          }
+        }
+        const toStore = encryptEmailConfigSecretsForStorage(merged);
         let result;
-        if (existing) {
+        if (existingRow?.id) {
           result = await supabase
             .from('email_config')
-            .update({ ...payload, updated_at: new Date().toISOString() })
-            .eq('id', existing.id)
+            .update({ ...toStore, updated_at: new Date().toISOString() })
+            .eq('id', existingRow.id)
             .select()
             .single();
         } else {
-          result = await supabase.from('email_config').insert({ ...payload }).select().single();
+          result = await supabase.from('email_config').insert({ ...toStore }).select().single();
         }
         if (result.error) throw result.error;
-        return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: result.data }) };
+        const safe = sanitizeEmailConfigForClient(result.data);
+        return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: safe }) };
       }
 
       return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };

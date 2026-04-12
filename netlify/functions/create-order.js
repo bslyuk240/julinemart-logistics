@@ -18,10 +18,12 @@
 
 import nodemailer from 'nodemailer';
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
+import { decryptEmailConfigSecrets } from '../../shared/emailSecretsCrypto.js';
 
 async function sendOrderEmails(supabase, { orderNumber, customer_name, customer_email, customer_phone, delivery_address, delivery_city, delivery_state, subtotal, discountAmount, shippingFee, totalAmount, resolvedItems }) {
   try {
-    const { data: cfg } = await supabase.from('email_config').select('*').single();
+    const { data: rawCfg } = await supabase.from('email_config').select('*').single();
+    const cfg = rawCfg ? decryptEmailConfigSecrets(rawCfg) : null;
     if (!cfg?.email_enabled) return;
 
     let transportConfig;

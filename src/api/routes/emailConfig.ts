@@ -1,7 +1,12 @@
-﻿import { Response } from 'express';
+import { Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import type { AuthRequest } from '../middleware/auth.js';
 import nodemailer from 'nodemailer';
+import {
+  decryptEmailConfigSecrets,
+  encryptEmailConfigSecretsForStorage,
+  sanitizeEmailConfigForClient,
+} from '../../../shared/emailSecretsCrypto.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -34,9 +39,11 @@ export async function getEmailConfigHandler(req: AuthRequest, res: Response) {
       portal_url: 'http://localhost:3002',
     };
 
+    const safe = sanitizeEmailConfigForClient(config as Record<string, unknown>);
+
     return res.status(200).json({
       success: true,
-      data: config,
+      data: safe,
     });
   } catch (error) {
     console.error('Get email config error:', error);
@@ -50,33 +57,39 @@ export async function getEmailConfigHandler(req: AuthRequest, res: Response) {
 // Save email configuration
 export async function saveEmailConfigHandler(req: AuthRequest, res: Response) {
   try {
-    const config = req.body;
+    const incoming = req.body as Record<string, unknown>;
 
-    // Check if config exists
-    const { data: existing } = await supabase
-      .from('email_config')
-      .select('id')
-      .single();
+    const { data: existingRow } = await supabase.from('email_config').select('*').maybeSingle();
+
+    const secretFields = ['gmail_password', 'sendgrid_api_key', 'smtp_password'] as const;
+    const merged: Record<string, unknown> = { ...incoming };
+    for (const field of secretFields) {
+      const v = merged[field];
+      const empty = v == null || String(v).trim() === '';
+      if (empty && existingRow?.[field]) {
+        merged[field] = (existingRow as Record<string, unknown>)[field];
+      }
+    }
+
+    const toStore = encryptEmailConfigSecretsForStorage(merged);
 
     let result;
-    if (existing) {
-      // Update existing
+    if (existingRow?.id) {
       result = await supabase
         .from('email_config')
         .update({
-          ...config,
+          ...toStore,
           updated_at: new Date().toISOString(),
           updated_by: req.user!.id,
         })
-        .eq('id', existing.id)
+        .eq('id', existingRow.id)
         .select()
         .single();
     } else {
-      // Insert new
       result = await supabase
         .from('email_config')
         .insert({
-          ...config,
+          ...toStore,
           created_by: req.user!.id,
           updated_by: req.user!.id,
         })
@@ -92,12 +105,14 @@ export async function saveEmailConfigHandler(req: AuthRequest, res: Response) {
       action: 'update_email_config',
       entity_type: 'email_config',
       entity_id: result.data.id,
-      details: { provider: config.provider },
+      details: { provider: incoming.provider },
     });
+
+    const safe = sanitizeEmailConfigForClient(result.data as Record<string, unknown>);
 
     return res.status(200).json({
       success: true,
-      data: result.data,
+      data: safe,
       message: 'Email configuration saved successfully',
     });
   } catch (error) {
@@ -112,7 +127,28 @@ export async function saveEmailConfigHandler(req: AuthRequest, res: Response) {
 // Test email connection
 export async function testEmailConnectionHandler(req: AuthRequest, res: Response) {
   try {
-    const config = req.body;
+    const body = req.body as Record<string, unknown>;
+
+    const { data: existingRow } = await supabase.from('email_config').select('*').maybeSingle();
+    const secretFields = ['gmail_password', 'sendgrid_api_key', 'smtp_password'] as const;
+    const merged: Record<string, unknown> = { ...body };
+    for (const field of secretFields) {
+      const v = merged[field];
+      const empty = v == null || String(v).trim() === '';
+      if (empty && existingRow?.[field as keyof typeof existingRow]) {
+        merged[field] = existingRow[field as keyof typeof existingRow];
+      }
+    }
+    const config = decryptEmailConfigSecrets(merged) as {
+      provider: string;
+      gmail_user?: string;
+      gmail_password?: string;
+      sendgrid_api_key?: string;
+      smtp_host?: string;
+      smtp_port?: number;
+      smtp_user?: string;
+      smtp_password?: string;
+    };
 
     let transportConfig: any;
 

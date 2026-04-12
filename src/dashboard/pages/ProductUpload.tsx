@@ -269,7 +269,12 @@ export default function ProductUpload() {
         setVariations(
           (p.variations || []).map((v: any) => ({
             id: v.id,
-            attributes: Array.isArray(v.attributes) ? v.attributes : [],
+            // Normalize variation attributes to {name, value} for the editor.
+            // Supabase may return [{name, value}] (import format) or
+            // [{name, option}] (WC-mapped format from catalog-product).
+            attributes: Array.isArray(v.attributes)
+              ? v.attributes.map((a: any) => ({ name: a.name ?? '', value: a.value ?? a.option ?? '' }))
+              : [],
             sku: v.sku || '',
             regular_price: v.regular_price != null ? String(v.regular_price) : '',
             sale_price: v.sale_price != null ? String(v.sale_price) : '',

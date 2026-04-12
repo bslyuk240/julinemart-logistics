@@ -1,4 +1,8 @@
-﻿import 'dotenv/config';
+// Load .env then .env.local (override) so local secrets match Vite — `dotenv/config` alone only reads `.env`.
+import dotenv from 'dotenv';
+dotenv.config();
+dotenv.config({ path: '.env.local', override: true });
+
 import express, { Request, Response, NextFunction } from 'express';
 import { calcShippingHandler, getZoneHandler } from './routes/shipping.js';
 import { getOrdersHandler, getOrderByIdHandler, createOrderHandler, updateOrderStatusHandler, deleteOrderHandler } from './routes/orders.js';

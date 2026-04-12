@@ -1,7 +1,8 @@
-﻿import nodemailer from 'nodemailer';
+import nodemailer from 'nodemailer';
 import SMTPTransport from 'nodemailer/lib/smtp-transport';
 import { emailTemplates } from './emailTemplates.js';
 import { createClient } from '@supabase/supabase-js';
+import { decryptEmailConfigSecrets } from '../../../shared/emailSecretsCrypto.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -83,7 +84,7 @@ async function loadDbEmailConfig(): Promise<DbEmailConfig | null> {
       return null;
     }
 
-    return data as DbEmailConfig;
+    return decryptEmailConfigSecrets(data as Record<string, unknown>) as DbEmailConfig;
   } catch (error) {
     console.error('Failed to load email config:', error);
     return null;

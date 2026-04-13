@@ -57,6 +57,28 @@ interface EarningSummary {
 const fmt = (n: number | null | undefined) =>
   `₦${Number(n || 0).toLocaleString()}`;
 
+/** WCFM/Woo often stores `vendors.address` as a JSON string; show readable lines in the UI. */
+function formatJsonAddressToPlain(raw: string | null | undefined): string | null {
+  if (raw == null || !String(raw).trim()) return null;
+  const t = String(raw).trim();
+  if (!t.startsWith('{')) return null;
+  try {
+    const o = JSON.parse(t) as Record<string, unknown>;
+    const street1 = String(o.street_1 ?? '').trim();
+    const street2 = String(o.street_2 ?? '').trim();
+    const city = String(o.city ?? '').trim();
+    const state = String(o.state ?? '').trim();
+    const zip = String(o.zip ?? '').trim();
+    const country = String(o.country ?? '').trim();
+    const line1 = [street1, street2].filter(Boolean).join(', ');
+    const line2 = [city, state, zip].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    const lines = [line1, line2, country].filter(Boolean);
+    return lines.length ? lines.join('\n') : null;
+  } catch {
+    return null;
+  }
+}
+
 async function getToken() {
   const { data } = await supabase.auth.getSession();
   return data.session?.access_token || '';
@@ -77,17 +99,36 @@ async function callApi(path: string, body: object) {
 // ─── Editable field component ─────────────────────────────────────────────────
 
 function EditableField({
-  label, value, onSave, type = 'text', mono = false,
+  label,
+  value,
+  onSave,
+  type = 'text',
+  mono = false,
+  displayValue,
+  multiline = false,
 }: {
   label: string;
   value: string | null | undefined;
   onSave: (v: string) => Promise<void>;
   type?: string;
   mono?: boolean;
+  /** When set, shown in read mode instead of raw `value` (e.g. formatted address). */
+  displayValue?: string | null;
+  /** Use textarea when editing; pre-line for read mode. */
+  multiline?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || '');
   const [saving, setSaving] = useState(false);
+
+  const readShown =
+    displayValue != null && String(displayValue).trim() !== ''
+      ? displayValue
+      : value;
+  const editSeed =
+    displayValue != null && String(displayValue).trim() !== ''
+      ? String(displayValue)
+      : value || '';
 
   const save = async () => {
     setSaving(true);
@@ -100,19 +141,43 @@ function EditableField({
     return (
       <div>
         <p className="text-xs text-gray-400 mb-1">{label}</p>
-        <div className="flex items-center gap-2">
-          <input
-            type={type}
-            value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
-            autoFocus
-            className="flex-1 border border-purple-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-purple-200 outline-none"
-          />
-          <button onClick={save} disabled={saving} className="p-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50">
+        <div className="flex items-start gap-2">
+          {multiline ? (
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={4}
+              autoFocus
+              className="flex-1 border border-purple-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-purple-200 outline-none resize-y min-h-[5rem]"
+            />
+          ) : (
+            <input
+              type={type}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') save();
+                if (e.key === 'Escape') setEditing(false);
+              }}
+              autoFocus
+              className="flex-1 border border-purple-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-purple-200 outline-none"
+            />
+          )}
+          <button
+            type="button"
+            onClick={save}
+            disabled={saving}
+            className="p-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg disabled:opacity-50 shrink-0 self-start"
+          >
             <Check className="w-3.5 h-3.5" />
           </button>
-          <button onClick={() => { setEditing(false); setDraft(value || ''); }} className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg">
+          <button
+            onClick={() => {
+              setEditing(false);
+              setDraft(editSeed);
+            }}
+            className="p-1.5 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-lg shrink-0"
+          >
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -123,13 +188,19 @@ function EditableField({
   return (
     <div className="group">
       <p className="text-xs text-gray-400 mb-0.5">{label}</p>
-      <div className="flex items-center gap-2">
-        <p className={`text-sm font-medium text-gray-800 ${mono ? 'font-mono' : ''}`}>
-          {value || <span className="text-gray-400 italic">Not set</span>}
+      <div className={`flex gap-2 ${multiline ? 'items-start' : 'items-center'}`}>
+        <p
+          className={`text-sm font-medium text-gray-800 flex-1 min-w-0 ${mono ? 'font-mono' : ''} ${multiline ? 'whitespace-pre-line' : ''}`}
+        >
+          {readShown ? readShown : <span className="text-gray-400 italic">Not set</span>}
         </p>
         <button
-          onClick={() => { setDraft(value || ''); setEditing(true); }}
-          className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-purple-600 transition-opacity"
+          type="button"
+          onClick={() => {
+            setDraft(editSeed);
+            setEditing(true);
+          }}
+          className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-purple-600 transition-opacity shrink-0"
         >
           <Edit2 className="w-3 h-3" />
         </button>
@@ -252,8 +323,10 @@ export default function VendorDetail() {
     <div className="p-6 text-center text-gray-400">Vendor not found.</div>
   );
 
+  const streetPlain = formatJsonAddressToPlain(vendor.address);
+
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="w-full max-w-none px-1 sm:px-0">
 
       {/* Back + header */}
       <div className="flex items-start justify-between mb-6">
@@ -376,7 +449,13 @@ export default function VendorDetail() {
             <h2 className="font-semibold text-gray-900">Address</h2>
           </div>
           <div className="space-y-4">
-            <EditableField label="Street Address"  value={vendor.address}       onSave={v => saveField('address', v)} />
+            <EditableField
+              label="Street Address"
+              value={vendor.address}
+              displayValue={streetPlain ?? undefined}
+              multiline={!!streetPlain || /\r?\n/.test(vendor.address || '')}
+              onSave={(v) => saveField('address', v)}
+            />
             <EditableField label="City"             value={vendor.city}          onSave={v => saveField('city', v)} />
             <EditableField label="State"            value={vendor.state}         onSave={v => saveField('state', v)} />
           </div>

@@ -229,7 +229,7 @@ export function VendorsPage() {
   const placeholderCount = vendors.filter(v => isPlaceholderEmail(v.email)).length;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="w-full max-w-none p-6">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Store className="w-6 h-6 text-purple-600" />

@@ -123,10 +123,8 @@ export function UsersPage() {
         fetchData();
       } else {
         const body = await response.json().catch(() => ({}));
-        notification.error(
-          'Remove failed',
-          body.error || body.hint || `Server returned ${response.status}`
-        );
+        const detail = [body.error, body.hint].filter(Boolean).join('\n\n');
+        notification.error('Remove failed', detail || `Server returned ${response.status}`);
       }
     } catch {
       notification.error('Error', 'An unexpected error occurred');

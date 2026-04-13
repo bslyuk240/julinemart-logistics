@@ -257,23 +257,111 @@ export async function handler(event) {
         };
       }
 
-      // Hard delete: removes auth.users; public.users cascades on FK. Frees email for a new invite/signup.
-      const { error: delErr } = await supabaseAdmin.auth.admin.deleteUser(id);
-      if (delErr) {
-        console.error('auth.admin.deleteUser failed:', delErr);
+      const { data: profile, error: profileErr } = await supabaseAdmin
+        .from('users')
+        .select('id')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (profileErr) {
+        console.error('users delete profile lookup:', profileErr);
+        throw profileErr;
+      }
+
+      if (!profile) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'Staff profile not found',
+            hint: 'There is no row in public.users for this id.'
+          })
+        };
+      }
+
+      const fkHint =
+        'Other tables still reference this user (for example courier_settlements.approved_by or paid_by). Clear or reassign those rows, then retry.';
+
+      const respondProfileDeleteError = (pubDelErr) => {
+        const pmsg = String(pubDelErr?.message || '');
+        const pubFk = /foreign key|violates|23503|referenced/i.test(pmsg);
         return {
           statusCode: 409,
           headers,
           body: JSON.stringify({
             success: false,
-            error: delErr.message || 'Could not delete user',
-            hint:
-              'Another table may still reference this staff profile (e.g. settlements). Clear or reassign those rows, then retry.'
+            error: pubFk
+              ? 'Cannot remove this staff profile while other records reference it.'
+              : pmsg || 'Could not remove staff profile',
+            hint: pubFk ? fkHint : undefined
+          })
+        };
+      };
+
+      // Hard delete: removes auth.users; public.users cascades when FK allows it.
+      const { error: delErr } = await supabaseAdmin.auth.admin.deleteUser(id);
+      if (!delErr) {
+        return { statusCode: 204, headers, body: '' };
+      }
+
+      console.error('auth.admin.deleteUser failed:', delErr);
+
+      const msg = String(delErr.message || '');
+      const looksLikeAuthMissing =
+        /user not found|no user found|does not exist|not_found/i.test(msg) ||
+        delErr.status === 404;
+
+      const { data: authLookup, error: getAuthErr } = await supabaseAdmin.auth.admin.getUserById(id);
+      const gmsg = String(getAuthErr?.message || '');
+      const authUserPresent = !getAuthErr && !!authLookup?.user;
+      const authVerifyFailed =
+        getAuthErr &&
+        !/user not found|not found|no user/i.test(gmsg) &&
+        getAuthErr.status !== 404;
+
+      if (authVerifyFailed) {
+        return {
+          statusCode: 502,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'Could not verify login account status',
+            hint: gmsg || 'Try again in a moment.'
           })
         };
       }
 
-      return { statusCode: 204, headers, body: '' };
+      if (looksLikeAuthMissing && !authUserPresent) {
+        const { error: pubDelErr } = await supabaseAdmin.from('users').delete().eq('id', id);
+        if (pubDelErr) return respondProfileDeleteError(pubDelErr);
+        return { statusCode: 204, headers, body: '' };
+      }
+
+      if (looksLikeAuthMissing && authUserPresent) {
+        return {
+          statusCode: 409,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'Could not delete login account',
+            hint: `${fkHint} If the problem persists, try again or check the Supabase Auth dashboard for this user.`
+          })
+        };
+      }
+
+      const isFkBlock = /foreign key|violates|23503|referenced/i.test(msg);
+      return {
+        statusCode: 409,
+        headers,
+        body: JSON.stringify({
+          success: false,
+          error: isFkBlock
+            ? 'Cannot delete account while other records still reference this staff profile.'
+            : msg || 'Could not delete user',
+          hint: isFkBlock ? fkHint : undefined
+        })
+      };
     }
 
     if (event.httpMethod === 'PUT' && id) {

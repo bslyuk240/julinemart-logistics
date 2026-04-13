@@ -118,6 +118,80 @@ function generateCombinations(varAttrs: VarAttr[]): { name: string; value: strin
   );
 }
 
+/** Minimal HTML entity decode for category names stored as `Baby &amp; Kids`. */
+function decodeBasicHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/gi, '"');
+}
+
+function skuCodeFromPrimarySegment(rawSeg: string, padSource: string, len = 3): string {
+  const alnum = rawSeg.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  let core = alnum.slice(0, len);
+  if (core.length < len) {
+    const pad = toSlug(padSource || 'x')
+      .replace(/[^a-z0-9]/gi, '')
+      .toUpperCase();
+    core = (core + pad).slice(0, len);
+  }
+  return core.padEnd(len, 'X').slice(0, len);
+}
+
+/**
+ * Category prefix: prefer the first word of the **name** (slugified).
+ * Child Woo slugs often repeat the parent (`electronics-electronics-3` → would wrongly be ELE for every subcategory).
+ */
+function categorySkuCode(name: string, slug: string, len = 3): string {
+  const clean = decodeBasicHtmlEntities(name || '');
+  const nameSeg = toSlug(clean).split('-').filter(Boolean)[0] || '';
+  const slugSeg = (slug || '').split('-').filter(Boolean)[0] || '';
+  const raw = nameSeg || slugSeg || 'x';
+  return skuCodeFromPrimarySegment(raw, clean || slug, len);
+}
+
+/** Vendor prefix: prefer **store_slug** first segment (stable store codes), then name. */
+function vendorSkuCode(slug: string, name: string, len = 3): string {
+  const slugSeg = (slug || '').split('-').filter(Boolean)[0] || '';
+  const nameSeg = toSlug(decodeBasicHtmlEntities(name || '')).split('-').filter(Boolean)[0] || '';
+  const raw = slugSeg || nameSeg || 'x';
+  return skuCodeFromPrimarySegment(raw, name || slug, len);
+}
+
+/** Selected categories in tree order (parent block, then children) for a stable “primary” category. */
+function orderedSelectedCategoryIds(allCategories: CatOption[], categoryIds: string[]): string[] {
+  const sel = new Set(categoryIds);
+  const out: string[] = [];
+  const tops = allCategories.filter((c) => !c.parent_id);
+  for (const t of tops) {
+    if (sel.has(t.id)) out.push(t.id);
+    for (const ch of allCategories.filter((c) => c.parent_id === t.id)) {
+      if (sel.has(ch.id)) out.push(ch.id);
+    }
+  }
+  return out;
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function maxNumericSuffixForPrefix(prefix: string, skuList: Iterable<string>): number {
+  const re = new RegExp(`^${escapeRegExp(prefix)}(\\d+)$`, 'i');
+  let max = 0;
+  for (const raw of skuList) {
+    const m = String(raw || '').trim().match(re);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  }
+  return max;
+}
+
+function formatSkuSeq(n: number, width = 3): string {
+  return String(Math.max(0, Math.floor(n))).padStart(width, '0');
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ProductUpload() {
@@ -198,6 +272,110 @@ export default function ProductUpload() {
     'Content-Type': 'application/json',
     ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
   }), [session]);
+
+  const [skuGenBusy, setSkuGenBusy] = useState(false);
+
+  const resolveSkuPrefix = (): { prefix: string } | null => {
+    if (!form.vendor_id) {
+      notification.error('Generate SKU', 'Select a vendor first.');
+      return null;
+    }
+    const ordered = orderedSelectedCategoryIds(allCategories, form.category_ids);
+    const primaryCatId = ordered[0];
+    if (!primaryCatId) {
+      notification.error(
+        'Generate SKU',
+        'Select at least one category. The first category in the list (top-to-bottom, parent then child) sets the category code.'
+      );
+      return null;
+    }
+    const cat = allCategories.find((c) => c.id === primaryCatId);
+    const ven = vendors.find((v) => v.id === form.vendor_id);
+    if (!cat || !ven) {
+      notification.error('Generate SKU', 'Could not resolve category or vendor.');
+      return null;
+    }
+    const catCode = categorySkuCode(cat.name, cat.slug);
+    const venCode = vendorSkuCode(ven.store_slug, ven.store_name);
+    return { prefix: `${catCode}-${venCode}-` };
+  };
+
+  const fetchSkuStringsMatchingPrefix = async (prefix: string): Promise<string[]> => {
+    const pattern = `${prefix}%`;
+    const [pr, vr] = await Promise.all([
+      supabase.from('products').select('sku').not('sku', 'is', null).ilike('sku', pattern),
+      supabase.from('product_variations').select('sku').not('sku', 'is', null).ilike('sku', pattern),
+    ]);
+    if (pr.error) throw pr.error;
+    if (vr.error) throw vr.error;
+    const out: string[] = [];
+    for (const r of pr.data || []) if (r.sku) out.push(r.sku);
+    for (const r of vr.data || []) if (r.sku) out.push(r.sku);
+    return out;
+  };
+
+  const handleGenerateSimpleSku = async () => {
+    const resolved = resolveSkuPrefix();
+    if (!resolved) return;
+    setSkuGenBusy(true);
+    try {
+      const dbSkus = await fetchSkuStringsMatchingPrefix(resolved.prefix);
+      const formSku = form.sku.trim() ? [form.sku.trim()] : [];
+      const next = maxNumericSuffixForPrefix(resolved.prefix, [...dbSkus, ...formSku]) + 1;
+      set('sku', `${resolved.prefix}${formatSkuSeq(next)}`);
+    } catch (e: unknown) {
+      notification.error('Generate SKU', e instanceof Error ? e.message : 'Could not load existing SKUs');
+    } finally {
+      setSkuGenBusy(false);
+    }
+  };
+
+  const handleGenerateVariationSku = async (idx: number) => {
+    const resolved = resolveSkuPrefix();
+    if (!resolved) return;
+    setSkuGenBusy(true);
+    try {
+      const dbSkus = await fetchSkuStringsMatchingPrefix(resolved.prefix);
+      const otherSkus = variations
+        .map((v, j) => (j === idx ? '' : v.sku))
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const next = maxNumericSuffixForPrefix(resolved.prefix, [...dbSkus, ...otherSkus]) + 1;
+      updateVariation(idx, 'sku', `${resolved.prefix}${formatSkuSeq(next)}`);
+    } catch (e: unknown) {
+      notification.error('Generate SKU', e instanceof Error ? e.message : 'Could not load existing SKUs');
+    } finally {
+      setSkuGenBusy(false);
+    }
+  };
+
+  const handleGenerateEmptyVariationSkus = async () => {
+    const resolved = resolveSkuPrefix();
+    if (!resolved) return;
+    const emptyIdx = variations.map((v, i) => (!v.sku.trim() ? i : -1)).filter((i) => i >= 0);
+    if (emptyIdx.length === 0) {
+      notification.error('Generate SKU', 'Every variation already has a SKU.');
+      return;
+    }
+    setSkuGenBusy(true);
+    try {
+      const dbSkus = await fetchSkuStringsMatchingPrefix(resolved.prefix);
+      const formSkus = variations.map((v) => v.sku.trim()).filter(Boolean);
+      let seq = maxNumericSuffixForPrefix(resolved.prefix, [...dbSkus, ...formSkus]) + 1;
+      setVariations((prev) => {
+        const nextRows = [...prev];
+        for (const i of emptyIdx) {
+          nextRows[i] = { ...nextRows[i], sku: `${resolved.prefix}${formatSkuSeq(seq)}` };
+          seq += 1;
+        }
+        return nextRows;
+      });
+    } catch (e: unknown) {
+      notification.error('Generate SKU', e instanceof Error ? e.message : 'Could not load existing SKUs');
+    } finally {
+      setSkuGenBusy(false);
+    }
+  };
 
   // ── Load meta ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -587,6 +765,100 @@ export default function ProductUpload() {
           </div>
         </section>
 
+        {/* ── Vendor & Hub (before pricing / variations so SKU generation has vendor) ─ */}
+        <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+          <h2 className="font-semibold text-gray-900">Vendor & Hub</h2>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Vendor *</label>
+              <select
+                value={form.vendor_id}
+                onChange={(e) => set('vendor_id', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">Select vendor...</option>
+                {vendors.map((v) => (
+                  <option key={v.id} value={v.id}>{v.store_name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Hub</label>
+              <select
+                value={form.hub_id}
+                onChange={(e) => set('hub_id', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="">No hub (ships from vendor)</option>
+                {hubs.map((h) => (
+                  <option key={h.id} value={h.id}>{h.name} ({h.code})</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-6">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox" checked={form.ships_from_abroad}
+                onChange={(e) => set('ships_from_abroad', e.target.checked)}
+                className="w-4 h-4 text-primary-600 rounded"
+              />
+              <span className="text-sm text-gray-700">Ships from abroad (international)</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox" checked={form.is_virtual}
+                onChange={(e) => set('is_virtual', e.target.checked)}
+                className="w-4 h-4 text-primary-600 rounded"
+              />
+              <span className="text-sm text-gray-700">Virtual product (no shipping)</span>
+            </label>
+          </div>
+        </section>
+
+        {/* ── Categories ──────────────────────────────────────────────── */}
+        <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
+          <h2 className="font-semibold text-gray-900">Categories</h2>
+          {allCategories.length === 0 ? (
+            <p className="text-sm text-gray-400">Loading categories...</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
+              {topCats.map((cat) => {
+                const children = allCategories.filter((c) => c.parent_id === cat.id);
+                return (
+                  <div key={cat.id}>
+                    <label className="flex items-center gap-2 cursor-pointer py-1">
+                      <input
+                        type="checkbox"
+                        checked={form.category_ids.includes(cat.id)}
+                        onChange={() => toggleCategory(cat.id)}
+                        className="w-4 h-4 text-primary-600 rounded"
+                      />
+                      <span className="text-sm font-medium text-gray-800">{cat.name}</span>
+                    </label>
+                    {children.map((child) => (
+                      <label key={child.id} className="flex items-center gap-2 cursor-pointer py-0.5 pl-5">
+                        <input
+                          type="checkbox"
+                          checked={form.category_ids.includes(child.id)}
+                          onChange={() => toggleCategory(child.id)}
+                          className="w-3.5 h-3.5 text-primary-600 rounded"
+                        />
+                        <span className="text-xs text-gray-600">{child.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {form.category_ids.length > 0 && (
+            <p className="text-xs text-primary-600">{form.category_ids.length} selected</p>
+          )}
+        </section>
+
         {/* ── Pricing & Stock (simple only) ───────────────────────────── */}
         {!isVariable ? (
           <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
@@ -619,9 +891,20 @@ export default function ProductUpload() {
                 <input
                   type="text" value={form.sku}
                   onChange={(e) => set('sku', e.target.value)}
-                  placeholder="e.g. CFH-SNK-001"
+                  placeholder="e.g. LAP-JUL-001"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 font-mono text-sm"
                 />
+                <button
+                  type="button"
+                  onClick={() => void handleGenerateSimpleSku()}
+                  disabled={skuGenBusy}
+                  className="mt-1.5 text-xs font-medium text-primary-600 hover:text-primary-800 disabled:opacity-50"
+                >
+                  {skuGenBusy ? 'Working…' : 'Generate SKU'}
+                </button>
+                <p className="text-[11px] text-gray-500 mt-1 leading-snug">
+                  Builds <span className="font-mono">CAT-VEN-###</span> from the first selected category (code from category <strong>name</strong>) and vendor (<strong>slug</strong> first), then picks the next unused number (checks all simple + variation SKUs).
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Stock Status</label>
@@ -729,13 +1012,21 @@ export default function ProductUpload() {
         {/* ── Variations table (variable only) ───────────────────────── */}
         {isVariable && variations.length > 0 && (
           <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <h2 className="font-semibold text-gray-900">
                 Variations
                 <span className="ml-2 text-xs font-normal text-gray-400">
                   {variations.length} variation{variations.length !== 1 ? 's' : ''}
                 </span>
               </h2>
+              <button
+                type="button"
+                onClick={() => void handleGenerateEmptyVariationSkus()}
+                disabled={skuGenBusy}
+                className="text-xs font-medium px-3 py-1.5 rounded-lg border border-primary-200 text-primary-700 bg-primary-50 hover:bg-primary-100 disabled:opacity-50 self-start"
+              >
+                {skuGenBusy ? 'Working…' : 'Fill SKUs on empty rows'}
+              </button>
             </div>
 
             <div className="overflow-x-auto">
@@ -799,14 +1090,24 @@ export default function ProductUpload() {
                           </label>
                         </div>
                       </td>
-                      <td className="py-2 pl-3">
-                        <input
-                          type="text"
-                          value={v.sku}
-                          onChange={(e) => updateVariation(i, 'sku', e.target.value)}
-                          placeholder="SKU"
-                          className="w-28 px-2 py-1.5 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
-                        />
+                      <td className="py-2 pl-3 align-top min-w-[7.5rem]">
+                        <div className="flex flex-col gap-1">
+                          <input
+                            type="text"
+                            value={v.sku}
+                            onChange={(e) => updateVariation(i, 'sku', e.target.value)}
+                            placeholder="SKU"
+                            className="w-full min-w-[6.5rem] px-2 py-1.5 border border-gray-200 rounded-md text-sm font-mono focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void handleGenerateVariationSku(i)}
+                            disabled={skuGenBusy}
+                            className="text-[10px] font-medium text-primary-600 hover:text-primary-800 text-left disabled:opacity-50"
+                          >
+                            {skuGenBusy ? '…' : 'Generate'}
+                          </button>
+                        </div>
                       </td>
                       <td className="py-2 pl-3">
                         <input
@@ -870,100 +1171,6 @@ export default function ProductUpload() {
             />
           </section>
         )}
-
-        {/* ── Vendor & Hub ────────────────────────────────────────────── */}
-        <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-          <h2 className="font-semibold text-gray-900">Vendor & Hub</h2>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Vendor *</label>
-              <select
-                value={form.vendor_id}
-                onChange={(e) => set('vendor_id', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-              >
-                <option value="">Select vendor...</option>
-                {vendors.map((v) => (
-                  <option key={v.id} value={v.id}>{v.store_name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Hub</label>
-              <select
-                value={form.hub_id}
-                onChange={(e) => set('hub_id', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-              >
-                <option value="">No hub (ships from vendor)</option>
-                {hubs.map((h) => (
-                  <option key={h.id} value={h.id}>{h.name} ({h.code})</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-6">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox" checked={form.ships_from_abroad}
-                onChange={(e) => set('ships_from_abroad', e.target.checked)}
-                className="w-4 h-4 text-primary-600 rounded"
-              />
-              <span className="text-sm text-gray-700">Ships from abroad (international)</span>
-            </label>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox" checked={form.is_virtual}
-                onChange={(e) => set('is_virtual', e.target.checked)}
-                className="w-4 h-4 text-primary-600 rounded"
-              />
-              <span className="text-sm text-gray-700">Virtual product (no shipping)</span>
-            </label>
-          </div>
-        </section>
-
-        {/* ── Categories ──────────────────────────────────────────────── */}
-        <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">
-          <h2 className="font-semibold text-gray-900">Categories</h2>
-          {allCategories.length === 0 ? (
-            <p className="text-sm text-gray-400">Loading categories...</p>
-          ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
-              {topCats.map((cat) => {
-                const children = allCategories.filter((c) => c.parent_id === cat.id);
-                return (
-                  <div key={cat.id}>
-                    <label className="flex items-center gap-2 cursor-pointer py-1">
-                      <input
-                        type="checkbox"
-                        checked={form.category_ids.includes(cat.id)}
-                        onChange={() => toggleCategory(cat.id)}
-                        className="w-4 h-4 text-primary-600 rounded"
-                      />
-                      <span className="text-sm font-medium text-gray-800">{cat.name}</span>
-                    </label>
-                    {children.map((child) => (
-                      <label key={child.id} className="flex items-center gap-2 cursor-pointer py-0.5 pl-5">
-                        <input
-                          type="checkbox"
-                          checked={form.category_ids.includes(child.id)}
-                          onChange={() => toggleCategory(child.id)}
-                          className="w-3.5 h-3.5 text-primary-600 rounded"
-                        />
-                        <span className="text-xs text-gray-600">{child.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {form.category_ids.length > 0 && (
-            <p className="text-xs text-primary-600">{form.category_ids.length} selected</p>
-          )}
-        </section>
 
         {/* ── Tags ────────────────────────────────────────────────────── */}
         <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-3">

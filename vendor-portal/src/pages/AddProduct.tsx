@@ -1084,34 +1084,30 @@ export default function AddProduct() {
                 {parents.map(parent => {
                   const children = childrenOf(parent.id);
                   return (
-                    <div key={parent.id}>
-                      {children.length > 0 ? (
-                        <>
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">{parent.name}</p>
-                          <div className="space-y-1.5 pl-2">
-                            {children.map(child => (
-                              <label key={child.id} className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  className="w-4 h-4 accent-primary-600"
-                                  checked={form.category_ids.includes(child.id)}
-                                  onChange={() => toggleCategory(child.id)}
-                                />
-                                <span className="text-sm text-gray-700">{child.name}</span>
-                              </label>
-                            ))}
-                          </div>
-                        </>
-                      ) : (
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            className="w-4 h-4 accent-primary-600"
-                            checked={form.category_ids.includes(parent.id)}
-                            onChange={() => toggleCategory(parent.id)}
-                          />
-                          <span className="text-sm font-medium text-gray-700">{parent.name}</span>
-                        </label>
+                    <div key={parent.id} className="space-y-1.5">
+                      <label className="flex items-center gap-2 cursor-pointer py-0.5">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 accent-primary-600"
+                          checked={form.category_ids.includes(parent.id)}
+                          onChange={() => toggleCategory(parent.id)}
+                        />
+                        <span className="text-sm font-medium text-gray-800">{parent.name}</span>
+                      </label>
+                      {children.length > 0 && (
+                        <div className="space-y-1.5 pl-5 border-l border-gray-100 ml-1">
+                          {children.map(child => (
+                            <label key={child.id} className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                className="w-3.5 h-3.5 accent-primary-600"
+                                checked={form.category_ids.includes(child.id)}
+                                onChange={() => toggleCategory(child.id)}
+                              />
+                              <span className="text-xs text-gray-600">{child.name}</span>
+                            </label>
+                          ))}
+                        </div>
                       )}
                     </div>
                   );

@@ -2,7 +2,8 @@
  * GET /api/catalog-products
  *
  * Serves the product catalog from Supabase.
- * Supports: page, per_page, category (slug), tag (slug), vendor_id, search, type, status
+ * Supports: page, per_page, category (slug), tag (slug), vendor_id, search, type, status,
+ * orderby (date|price|popularity|rating), order (asc|desc)
  *
  * Returns products with vendor, hub, images, categories, tags.
  */
@@ -15,6 +16,30 @@ import {
 
 const DEFAULT_PER_PAGE = 20;
 const MAX_PER_PAGE = 100;
+
+function emptyListMeta(page, perPage) {
+  return { page, per_page: perPage, total: 0, total_pages: 0 };
+}
+
+/** Match list ordering to Woo-style orderby (products table has no total_sales / average_rating yet). */
+function applyCatalogOrdering(query, orderbyRaw, orderRaw) {
+  const ob = String(orderbyRaw || 'date').toLowerCase();
+  const asc = String(orderRaw || 'desc').toLowerCase() === 'asc';
+
+  if (ob === 'price') {
+    return query
+      .order('regular_price', { ascending: asc, nullsFirst: false })
+      .order('sale_price', { ascending: asc, nullsFirst: false })
+      .order('created_at', { ascending: false });
+  }
+
+  if (ob === 'popularity' || ob === 'rating') {
+    // Columns not on products Row yet — keep deterministic fallback
+    return query.order('created_at', { ascending: false });
+  }
+
+  return query.order('created_at', { ascending: asc });
+}
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
@@ -49,7 +74,99 @@ export async function handler(event) {
   }
 
   try {
-    let query = adminClient
+    let productIdFilter = null;
+    let vendorIdResolved = null;
+
+    if (q.category) {
+      const categorySlug = decodeURIComponent(String(q.category).trim());
+      const { data: cat } = await adminClient
+        .from('categories')
+        .select('id')
+        .eq('slug', categorySlug)
+        .maybeSingle();
+      if (!cat) {
+        return jsonResponse(200, { success: true, data: [], meta: emptyListMeta(page, perPage) });
+      }
+      const ids = await allProductIdsForJunction('product_category_map', 'category_id', cat.id);
+      if (ids.length === 0) {
+        return jsonResponse(200, { success: true, data: [], meta: emptyListMeta(page, perPage) });
+      }
+      productIdFilter = ids;
+    }
+
+    if (q.tag) {
+      const tagSlug = decodeURIComponent(String(q.tag).trim());
+      const { data: tag } = await adminClient
+        .from('tags')
+        .select('id')
+        .eq('slug', tagSlug)
+        .maybeSingle();
+      if (!tag) {
+        return jsonResponse(200, { success: true, data: [], meta: emptyListMeta(page, perPage) });
+      }
+      const ids = await allProductIdsForJunction('product_tag_map', 'tag_id', tag.id);
+      if (ids.length === 0) {
+        return jsonResponse(200, { success: true, data: [], meta: emptyListMeta(page, perPage) });
+      }
+      if (productIdFilter) {
+        const set = new Set(ids);
+        productIdFilter = productIdFilter.filter((id) => set.has(id));
+      } else {
+        productIdFilter = ids;
+      }
+      if (productIdFilter.length === 0) {
+        return jsonResponse(200, { success: true, data: [], meta: emptyListMeta(page, perPage) });
+      }
+    }
+
+    if (q.vendor_id) {
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(q.vendor_id);
+      if (isUUID) {
+        vendorIdResolved = q.vendor_id;
+      } else {
+        const { data: vendor } = await adminClient
+          .from('vendors')
+          .select('id')
+          .eq('woocommerce_vendor_id', q.vendor_id)
+          .maybeSingle();
+        if (!vendor) {
+          return jsonResponse(200, { success: true, data: [], meta: emptyListMeta(page, perPage) });
+        }
+        vendorIdResolved = vendor.id;
+      }
+    } else if (q.woo_vendor_id) {
+      const { data: vendor } = await adminClient
+        .from('vendors')
+        .select('id')
+        .eq('woocommerce_vendor_id', q.woo_vendor_id)
+        .maybeSingle();
+      if (!vendor) {
+        return jsonResponse(200, { success: true, data: [], meta: emptyListMeta(page, perPage) });
+      }
+      vendorIdResolved = vendor.id;
+    }
+
+    function applyRowFilters(builder) {
+      let b = builder;
+      if (status !== 'all') b = b.eq('status', status);
+      if (productIdFilter?.length) b = b.in('id', productIdFilter);
+      if (vendorIdResolved) b = b.eq('vendor_id', vendorIdResolved);
+      if (q.type) b = b.eq('type', q.type);
+      if (q.search) b = b.ilike('name', `%${q.search}%`);
+      return b;
+    }
+
+    const { count: headCount, error: countErr } = await applyRowFilters(
+      adminClient.from('products').select('id', { count: 'exact', head: true })
+    );
+    if (countErr) {
+      return jsonResponse(500, { success: false, error: countErr.message });
+    }
+
+    const total = headCount ?? 0;
+    const totalPages = total > 0 ? Math.ceil(total / perPage) : 0;
+
+    let dataQuery = adminClient
       .from('products')
       .select(
         `id, woo_product_id, name, slug, short_description, status, type,
@@ -60,96 +177,25 @@ export async function handler(event) {
          product_images ( id, src, alt, position, is_thumbnail, variation_id ),
          product_variations ( id, regular_price, sale_price, is_active, attributes ),
          product_category_map ( categories ( id, name, slug ) ),
-         product_tag_map ( tags ( id, name, slug ) )`,
-        { count: 'exact' }
+         product_tag_map ( tags ( id, name, slug ) )`
       );
 
-    // 'all' skips the status filter — used by admin product list
-    if (status !== 'all') query = query.eq('status', status);
+    dataQuery = applyRowFilters(dataQuery);
+    dataQuery = applyCatalogOrdering(dataQuery, q.orderby, q.order);
+    dataQuery = dataQuery.range(offset, offset + perPage - 1);
 
-    // IMPORTANT: Apply category/tag/vendor/type/search filters BEFORE order/range.
-    // Chaining .range() before .in('id', …) breaks correct PostgREST filtering (wrong slice / wrong totals).
-
-    // Category filter by slug
-    if (q.category) {
-      const rawSlug = String(q.category).trim();
-      const categorySlug = decodeURIComponent(rawSlug);
-      const { data: cat } = await adminClient
-        .from('categories')
-        .select('id')
-        .eq('slug', categorySlug)
-        .maybeSingle();
-      if (!cat) return jsonResponse(200, { success: true, data: [], meta: { page, per_page: perPage, total: 0, total_pages: 0 } });
-      const ids = await allProductIdsForJunction('product_category_map', 'category_id', cat.id);
-      if (ids.length === 0) return jsonResponse(200, { success: true, data: [], meta: { page, per_page: perPage, total: 0, total_pages: 0 } });
-      query = query.in('id', ids);
-    }
-
-    // Tag filter by slug
-    if (q.tag) {
-      const tagSlug = decodeURIComponent(String(q.tag).trim());
-      const { data: tag } = await adminClient
-        .from('tags')
-        .select('id')
-        .eq('slug', tagSlug)
-        .maybeSingle();
-      if (!tag) return jsonResponse(200, { success: true, data: [], meta: { page, per_page: perPage, total: 0, total_pages: 0 } });
-      const ids = await allProductIdsForJunction('product_tag_map', 'tag_id', tag.id);
-      if (ids.length === 0) return jsonResponse(200, { success: true, data: [], meta: { page, per_page: perPage, total: 0, total_pages: 0 } });
-      query = query.in('id', ids);
-    }
-
-    // Vendor filter — by Supabase UUID or by WooCommerce vendor ID
-    // If vendor_id looks like an integer (not a UUID), treat it as woo_vendor_id
-    if (q.vendor_id) {
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(q.vendor_id);
-      if (isUUID) {
-        query = query.eq('vendor_id', q.vendor_id);
-      } else {
-        const { data: vendor } = await adminClient
-          .from('vendors')
-          .select('id')
-          .eq('woocommerce_vendor_id', q.vendor_id)
-          .maybeSingle();
-        if (!vendor) return jsonResponse(200, { success: true, data: [], meta: { page, per_page: perPage, total: 0, total_pages: 0 } });
-        query = query.eq('vendor_id', vendor.id);
-      }
-    } else if (q.woo_vendor_id) {
-      const { data: vendor } = await adminClient
-        .from('vendors')
-        .select('id')
-        .eq('woocommerce_vendor_id', q.woo_vendor_id)
-        .maybeSingle();
-      if (!vendor) return jsonResponse(200, { success: true, data: [], meta: { page, per_page: perPage, total: 0, total_pages: 0 } });
-      query = query.eq('vendor_id', vendor.id);
-    }
-
-    // Type filter
-    if (q.type) {
-      query = query.eq('type', q.type);
-    }
-
-    // Text search (name)
-    if (q.search) {
-      query = query.ilike('name', `%${q.search}%`);
-    }
-
-    query = query.order('created_at', { ascending: false }).range(offset, offset + perPage - 1);
-
-    const { data, error, count } = await query;
+    const { data, error } = await dataQuery;
 
     if (error) {
       return jsonResponse(500, { success: false, error: error.message });
     }
 
-    // Normalize nested relations
     const products = (data || []).map(normalizeProduct);
-    const totalPages = count ? Math.ceil(count / perPage) : 0;
 
     return jsonResponse(200, {
       success: true,
       data: products,
-      meta: { page, per_page: perPage, total: count || 0, total_pages: totalPages },
+      meta: { page, per_page: perPage, total, total_pages: totalPages },
     });
   } catch (error) {
     return jsonResponse(error?.statusCode || 500, {
@@ -161,10 +207,10 @@ export async function handler(event) {
 }
 
 function normalizeProduct(p) {
-  const activeVars = (p.product_variations || []).filter(v => v.is_active !== false);
-  const varPrices  = activeVars
-    .map(v => Number(v.sale_price || v.regular_price || 0))
-    .filter(n => n > 0);
+  const activeVars = (p.product_variations || []).filter((v) => v.is_active !== false);
+  const varPrices = activeVars
+    .map((v) => Number(v.sale_price || v.regular_price || 0))
+    .filter((n) => n > 0);
   const minVarPrice = varPrices.length > 0 ? Math.min(...varPrices) : 0;
   const maxVarPrice = varPrices.length > 0 ? Math.max(...varPrices) : 0;
 
@@ -177,7 +223,7 @@ function normalizeProduct(p) {
       .sort((a, b) => a.position - b.position),
     variations: activeVars,
     // Computed price fields for convenience
-    price:     Number(p.sale_price || p.regular_price || minVarPrice || 0),
+    price: Number(p.sale_price || p.regular_price || minVarPrice || 0),
     min_price: minVarPrice,
     max_price: maxVarPrice,
     categories: (p.product_category_map || []).map((r) => r.categories).filter(Boolean),

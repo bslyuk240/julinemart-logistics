@@ -7,6 +7,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import RichTextEditor from '../components/RichTextEditor';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,21 +96,6 @@ function generateCombinations(varAttrs: VarAttr[]): { name: string; value: strin
     );
   }
   return result;
-}
-
-/** Show HTML product copy as editable plain text (strips tags, keeps line breaks from br/p). */
-function htmlToPlainText(html: string): string {
-  if (!html || !html.trim()) return '';
-  try {
-    const div = document.createElement('div');
-    div.innerHTML = html
-      .replace(/<\/p>/gi, '\n\n')
-      .replace(/<br\s*\/?>/gi, '\n');
-    const text = div.textContent || div.innerText || '';
-    return text.replace(/\n{3,}/g, '\n\n').trim();
-  } catch {
-    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  }
 }
 
 function decodeBasicHtmlEntities(s: string): string {
@@ -259,8 +245,8 @@ export default function AddProduct() {
         setForm({
           name: prod.name || '',
           slug: prod.slug || '',
-          short_description: htmlToPlainText(String(prod.short_description || '')),
-          description: htmlToPlainText(String(prod.description || '')),
+          short_description: String(prod.short_description || ''),
+          description: String(prod.description || ''),
           status: (prod.status === 'draft' ? 'draft' : 'published') as 'draft' | 'published',
           type: (prod.type === 'variable' ? 'variable' : 'simple') as 'simple' | 'variable',
           regular_price: prod.regular_price != null ? String(prod.regular_price) : '',
@@ -672,26 +658,26 @@ export default function AddProduct() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Short Description</label>
-              <textarea
-                className="input resize-none"
-                rows={3}
-                placeholder="Brief plain-text summary shown in listings…"
+              <RichTextEditor
                 value={form.short_description}
-                onChange={e => setField('short_description', e.target.value)}
+                onChange={html => setField('short_description', html)}
+                placeholder="Brief summary shown on product cards"
+                minHeight="80px"
               />
-              <p className="text-xs text-gray-400 mt-1">Plain text only. Old HTML imports are shown without tags.</p>
+              <p className="text-xs text-gray-400 mt-1">Same rich text as admin (JLO). HTML is stored as-is.</p>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">Full Description</label>
-              <textarea
-                className="input resize-y"
-                rows={6}
-                placeholder="Detailed description in plain text (features, specifications)…"
+              <RichTextEditor
                 value={form.description}
-                onChange={e => setField('description', e.target.value)}
+                onChange={html => setField('description', html)}
+                placeholder="Full product description"
+                minHeight="200px"
               />
-              <p className="text-xs text-gray-400 mt-1">Plain text only. Saves without HTML tags.</p>
+              <p className="text-xs text-gray-400 mt-1">
+                Includes images and formatting from imports. Use the image button to add a picture by URL.
+              </p>
             </div>
           </div>
 

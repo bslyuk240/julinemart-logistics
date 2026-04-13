@@ -28,6 +28,26 @@ export async function handler(event) {
   const offset = (page - 1) * perPage;
   const status = q.status || 'published';
 
+  /** Collect all product_id values for a junction table (Supabase default page size can truncate). */
+  async function allProductIdsForJunction(table, fkColumn, fkValue) {
+    const pageSize = 1000;
+    const ids = [];
+    let from = 0;
+    for (;;) {
+      const { data: rows, error: mapErr } = await adminClient
+        .from(table)
+        .select('product_id')
+        .eq(fkColumn, fkValue)
+        .range(from, from + pageSize - 1);
+      if (mapErr) throw mapErr;
+      if (!rows?.length) break;
+      for (const r of rows) ids.push(r.product_id);
+      if (rows.length < pageSize) break;
+      from += pageSize;
+    }
+    return ids;
+  }
+
   try {
     let query = adminClient
       .from('products')
@@ -46,41 +66,35 @@ export async function handler(event) {
 
     // 'all' skips the status filter — used by admin product list
     if (status !== 'all') query = query.eq('status', status);
-    query = query
-      .order('created_at', { ascending: false })
-      .range(offset, offset + perPage - 1);
+
+    // IMPORTANT: Apply category/tag/vendor/type/search filters BEFORE order/range.
+    // Chaining .range() before .in('id', …) breaks correct PostgREST filtering (wrong slice / wrong totals).
 
     // Category filter by slug
     if (q.category) {
+      const rawSlug = String(q.category).trim();
+      const categorySlug = decodeURIComponent(rawSlug);
       const { data: cat } = await adminClient
         .from('categories')
         .select('id')
-        .eq('slug', q.category)
+        .eq('slug', categorySlug)
         .maybeSingle();
       if (!cat) return jsonResponse(200, { success: true, data: [], meta: { page, per_page: perPage, total: 0, total_pages: 0 } });
-      // Need product IDs in this category
-      const { data: catMap } = await adminClient
-        .from('product_category_map')
-        .select('product_id')
-        .eq('category_id', cat.id);
-      const ids = (catMap || []).map((r) => r.product_id);
+      const ids = await allProductIdsForJunction('product_category_map', 'category_id', cat.id);
       if (ids.length === 0) return jsonResponse(200, { success: true, data: [], meta: { page, per_page: perPage, total: 0, total_pages: 0 } });
       query = query.in('id', ids);
     }
 
     // Tag filter by slug
     if (q.tag) {
+      const tagSlug = decodeURIComponent(String(q.tag).trim());
       const { data: tag } = await adminClient
         .from('tags')
         .select('id')
-        .eq('slug', q.tag)
+        .eq('slug', tagSlug)
         .maybeSingle();
       if (!tag) return jsonResponse(200, { success: true, data: [], meta: { page, per_page: perPage, total: 0, total_pages: 0 } });
-      const { data: tagMap } = await adminClient
-        .from('product_tag_map')
-        .select('product_id')
-        .eq('tag_id', tag.id);
-      const ids = (tagMap || []).map((r) => r.product_id);
+      const ids = await allProductIdsForJunction('product_tag_map', 'tag_id', tag.id);
       if (ids.length === 0) return jsonResponse(200, { success: true, data: [], meta: { page, per_page: perPage, total: 0, total_pages: 0 } });
       query = query.in('id', ids);
     }
@@ -119,6 +133,8 @@ export async function handler(event) {
     if (q.search) {
       query = query.ilike('name', `%${q.search}%`);
     }
+
+    query = query.order('created_at', { ascending: false }).range(offset, offset + perPage - 1);
 
     const { data, error, count } = await query;
 

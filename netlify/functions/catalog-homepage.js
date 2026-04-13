@@ -14,7 +14,6 @@ import {
   parseJsonBody,
   requireAdmin,
   adminClient,
-  GLOBAL_SOURCING_ALLOWED_ROLES,
 } from './services/global-sourcing-utils.js';
 
 export async function handler(event) {
@@ -43,7 +42,7 @@ export async function handler(event) {
 
   // PUT — update content for a specific key (admin only)
   if (event.httpMethod === 'PUT') {
-    const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
+    const auth = await requireAdmin(event, ['admin']);
     if (auth.errorResponse) return auth.errorResponse;
 
     const key = event.queryStringParameters?.key;

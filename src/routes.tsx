@@ -91,7 +91,7 @@ const sharedRoutes = [
       </ProtectedRoute>
     ),
   },
-  { path: 'homepage-content', element: <ProtectedRoute allowedRoles={['admin', 'shop_manager']}><HomepageContent /></ProtectedRoute> },
+  { path: 'homepage-content', element: <ProtectedRoute allowedRoles={['admin']}><HomepageContent /></ProtectedRoute> },
   {
     path: 'catalog-migration',
     element: (

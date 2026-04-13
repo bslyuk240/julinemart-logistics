@@ -71,8 +71,8 @@ export async function handler(event) {
     seo_title,
     seo_description,
     images = [],       // [{ src, alt, position, is_thumbnail }]
-    category_ids = [], // uuid[]
-    tag_ids = [],      // uuid[]
+    category_ids, // uuid[] — only replace maps when 'category_ids' in body
+    tag_ids, // uuid[]
     // attributes: [{name, options: string[], is_variation}] — only processed when key present
     // variations: [{id?, attributes: [{name,value}], sku, regular_price, sale_price, stock_status, manage_stock, stock_quantity}]
   } = body;
@@ -159,24 +159,26 @@ export async function handler(event) {
         }
       })(),
 
-      // Categories
+      // Categories — must not run on partial PUT (e.g. { status } only); default [] would wipe maps
       (async () => {
-        if (!Array.isArray(category_ids)) return;
+        if (!('category_ids' in body)) return;
+        const ids = Array.isArray(category_ids) ? category_ids : [];
         await auth.adminClient.from('product_category_map').delete().eq('product_id', pid);
-        if (category_ids.length > 0) {
+        if (ids.length > 0) {
           await auth.adminClient.from('product_category_map').insert(
-            category_ids.map((cid) => ({ product_id: pid, category_id: cid }))
+            ids.map((cid) => ({ product_id: pid, category_id: cid }))
           );
         }
       })(),
 
-      // Tags
+      // Tags — same as categories
       (async () => {
-        if (!Array.isArray(tag_ids)) return;
+        if (!('tag_ids' in body)) return;
+        const ids = Array.isArray(tag_ids) ? tag_ids : [];
         await auth.adminClient.from('product_tag_map').delete().eq('product_id', pid);
-        if (tag_ids.length > 0) {
+        if (ids.length > 0) {
           await auth.adminClient.from('product_tag_map').insert(
-            tag_ids.map((tid) => ({ product_id: pid, tag_id: tid }))
+            ids.map((tid) => ({ product_id: pid, tag_id: tid }))
           );
         }
       })(),

@@ -151,8 +151,9 @@ export async function handler(event) {
         };
       }
 
-      // Create user in auth.users with role in user_metadata
-      // The handle_new_user trigger will automatically create the public.users entry
+      // Create user in auth.users with role in user_metadata.
+      // app_metadata is server-only: triggers that sync auth → public.customers should skip when
+      // public.is_jlo_staff_auth_creation(NEW.raw_app_meta_data) is true (see migration jlo_staff_skip_customers_helper).
       const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email,
         password,
@@ -160,6 +161,10 @@ export async function handler(event) {
         user_metadata: {
           full_name: full_name || '',
           role: finalRole
+        },
+        app_metadata: {
+          jlo_staff: true,
+          signup_source: 'jlo'
         }
       });
 
@@ -169,33 +174,49 @@ export async function handler(event) {
         throw new Error('Failed to resolve created user');
       }
 
-      // Wait a moment for the trigger to complete, then fetch the user
-      await new Promise(resolve => setTimeout(resolve, 500));
+      const userId = authData.user.id;
+      const selectCreated = () =>
+        supabaseAdmin
+          .from('users')
+          .select('id, email, full_name, role, is_active, created_at, updated_at')
+          .eq('id', userId)
+          .single();
 
-      // Fetch the user created by the trigger
-      const { data: user, error: fetchError } = await supabaseAdmin
-        .from('users')
-        .select('id, email, full_name, role, is_active, created_at, updated_at')
-        .eq('id', authData.user.id)
-        .single();
+      // Trigger handle_new_user may lag; retry briefly before upserting a profile row.
+      let user = null;
+      let fetchError = null;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, 400));
+        const res = await selectCreated();
+        user = res.data;
+        fetchError = res.error;
+        if (user && !fetchError) break;
+      }
 
-      if (fetchError) {
-        console.error('Error fetching created user:', fetchError);
-        // User was created in auth but trigger might have failed - return basic info
-        return {
-          statusCode: 201,
-          headers,
-          body: JSON.stringify({
-            success: true,
-            data: {
-              id: authData.user.id,
-              email: authData.user.email,
-              full_name: full_name || '',
-              role: finalRole,
-              is_active: true
-            }
-          })
-        };
+      if (!user || fetchError) {
+        console.error('User profile missing after auth create; upserting via service role:', fetchError);
+        const { error: upsertError } = await supabaseAdmin.from('users').upsert(
+          {
+            id: userId,
+            email,
+            full_name: full_name || null,
+            role: finalRole,
+            is_active: true
+          },
+          { onConflict: 'id' }
+        );
+        if (upsertError) {
+          console.error('Upsert public.users after create failed:', upsertError);
+          throw new Error(
+            upsertError.message ||
+              'Auth user was created but the staff profile row could not be written. Check DB role CHECK constraint and RLS.'
+          );
+        }
+        const res = await selectCreated();
+        user = res.data;
+        if (!user || res.error) {
+          throw new Error(res.error?.message || 'Profile row still missing after upsert');
+        }
       }
 
       return {

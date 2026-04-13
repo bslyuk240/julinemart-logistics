@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Users as UsersIcon, Plus, Edit, Trash2, Shield, Eye, EyeOff } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -342,8 +342,11 @@ function UserForm({ user, roles, onClose, onSave }: UserFormProps) {
         );
         onSave();
       } else {
-        const error = await response.json();
-        notification.error('Save Failed', error.message || 'Unable to save user');
+        const error = await response.json().catch(() => ({}));
+        notification.error(
+          'Save Failed',
+          error.error || error.message || 'Unable to save user'
+        );
       }
     } catch (error) {
       notification.error('Error', 'An unexpected error occurred');

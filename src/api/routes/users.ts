@@ -1,4 +1,4 @@
-﻿import { Response } from 'express';
+import { Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../../types/supabase';
 import { AuthRequest, logActivity } from '../middleware/auth.js';
@@ -7,7 +7,7 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-const allowedRoles = ['admin', 'agent'];
+const allowedRoles = ['admin', 'agent', 'shop_manager', 'vendor'];
 
 // Get all users
 export async function getUsersHandler(req: AuthRequest, res: Response) {
@@ -95,11 +95,21 @@ export async function createUserHandler(req: AuthRequest, res: Response) {
       });
     }
 
-    // Create user in Supabase Auth
+    const finalRole = role && allowedRoles.includes(role) ? role : 'agent';
+
+    // Create user in Supabase Auth (app_metadata: JLO-only; see is_jlo_staff_auth_creation migration)
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email,
       password,
-      email_confirm: true
+      email_confirm: true,
+      user_metadata: {
+        full_name: full_name || '',
+        role: finalRole
+      },
+      app_metadata: {
+        jlo_staff: true,
+        signup_source: 'jlo'
+      }
     });
 
     if (authError) throw authError;
@@ -111,7 +121,7 @@ export async function createUserHandler(req: AuthRequest, res: Response) {
         id: authData.user.id,
         email,
         full_name: full_name || null,
-        role: role && allowedRoles.includes(role) ? role : 'agent',
+        role: finalRole,
         is_active: true
       })
       .select()

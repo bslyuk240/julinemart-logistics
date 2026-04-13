@@ -55,6 +55,13 @@ export const api = {
   getProductMeta: (type: 'categories' | 'tags') =>
     request<unknown[]>(`vendor-product-meta?type=${type}`),
 
+  /** Next CAT-VEN-### style SKU — same DB-wide sequence as JLO admin (service-backed). */
+  suggestNextSku: (body: { prefix: string; extra_skus?: string[] }) =>
+    request<{ max_suffix: number; next_suffix: number; next_sku: string }>('product-sku-next', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
   upsertProduct: (body: object, id?: string) => {
     const qs = id ? `?id=${id}` : '';
     return request<unknown>(`vendor-product-upsert${qs}`, {

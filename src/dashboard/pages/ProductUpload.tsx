@@ -174,24 +174,6 @@ function orderedSelectedCategoryIds(allCategories: CatOption[], categoryIds: str
   return out;
 }
 
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function maxNumericSuffixForPrefix(prefix: string, skuList: Iterable<string>): number {
-  const re = new RegExp(`^${escapeRegExp(prefix)}(\\d+)$`, 'i');
-  let max = 0;
-  for (const raw of skuList) {
-    const m = String(raw || '').trim().match(re);
-    if (m) max = Math.max(max, parseInt(m[1], 10));
-  }
-  return max;
-}
-
-function formatSkuSeq(n: number, width = 3): string {
-  return String(Math.max(0, Math.floor(n))).padStart(width, '0');
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ProductUpload() {
@@ -303,18 +285,17 @@ export default function ProductUpload() {
     return { prefix: `${catCode}-${venCode}-` };
   };
 
-  const fetchSkuStringsMatchingPrefix = async (prefix: string): Promise<string[]> => {
-    const pattern = `${prefix}%`;
-    const [pr, vr] = await Promise.all([
-      supabase.from('products').select('sku').not('sku', 'is', null).ilike('sku', pattern),
-      supabase.from('product_variations').select('sku').not('sku', 'is', null).ilike('sku', pattern),
-    ]);
-    if (pr.error) throw pr.error;
-    if (vr.error) throw vr.error;
-    const out: string[] = [];
-    for (const r of pr.data || []) if (r.sku) out.push(r.sku);
-    for (const r of vr.data || []) if (r.sku) out.push(r.sku);
-    return out;
+  const suggestNextSkuRequest = async (prefix: string, extraSkus: string[]) => {
+    const res = await fetch(`${apiBase}/.netlify/functions/product-sku-next`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ prefix, extra_skus: extraSkus }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.success) {
+      throw new Error(json.error || 'Could not compute next SKU');
+    }
+    return json.data?.next_sku as string;
   };
 
   const handleGenerateSimpleSku = async () => {
@@ -322,12 +303,11 @@ export default function ProductUpload() {
     if (!resolved) return;
     setSkuGenBusy(true);
     try {
-      const dbSkus = await fetchSkuStringsMatchingPrefix(resolved.prefix);
-      const formSku = form.sku.trim() ? [form.sku.trim()] : [];
-      const next = maxNumericSuffixForPrefix(resolved.prefix, [...dbSkus, ...formSku]) + 1;
-      set('sku', `${resolved.prefix}${formatSkuSeq(next)}`);
+      const extra_skus = form.sku.trim() ? [form.sku.trim()] : [];
+      const nextSku = await suggestNextSkuRequest(resolved.prefix, extra_skus);
+      set('sku', nextSku);
     } catch (e: unknown) {
-      notification.error('Generate SKU', e instanceof Error ? e.message : 'Could not load existing SKUs');
+      notification.error('Generate SKU', e instanceof Error ? e.message : 'Could not compute next SKU');
     } finally {
       setSkuGenBusy(false);
     }
@@ -338,15 +318,14 @@ export default function ProductUpload() {
     if (!resolved) return;
     setSkuGenBusy(true);
     try {
-      const dbSkus = await fetchSkuStringsMatchingPrefix(resolved.prefix);
-      const otherSkus = variations
+      const extra_skus = variations
         .map((v, j) => (j === idx ? '' : v.sku))
         .map((s) => s.trim())
         .filter(Boolean);
-      const next = maxNumericSuffixForPrefix(resolved.prefix, [...dbSkus, ...otherSkus]) + 1;
-      updateVariation(idx, 'sku', `${resolved.prefix}${formatSkuSeq(next)}`);
+      const nextSku = await suggestNextSkuRequest(resolved.prefix, extra_skus);
+      updateVariation(idx, 'sku', nextSku);
     } catch (e: unknown) {
-      notification.error('Generate SKU', e instanceof Error ? e.message : 'Could not load existing SKUs');
+      notification.error('Generate SKU', e instanceof Error ? e.message : 'Could not compute next SKU');
     } finally {
       setSkuGenBusy(false);
     }
@@ -362,19 +341,22 @@ export default function ProductUpload() {
     }
     setSkuGenBusy(true);
     try {
-      const dbSkus = await fetchSkuStringsMatchingPrefix(resolved.prefix);
-      const formSkus = variations.map((v) => v.sku.trim()).filter(Boolean);
-      let seq = maxNumericSuffixForPrefix(resolved.prefix, [...dbSkus, ...formSkus]) + 1;
+      const prefix = resolved.prefix;
+      const baseline = variations.map((v) => v.sku.trim()).filter(Boolean);
+      const assigned: string[] = [];
+      for (let k = 0; k < emptyIdx.length; k++) {
+        const nextSku = await suggestNextSkuRequest(prefix, [...baseline, ...assigned]);
+        assigned.push(nextSku);
+      }
       setVariations((prev) => {
         const nextRows = [...prev];
-        for (const i of emptyIdx) {
-          nextRows[i] = { ...nextRows[i], sku: `${resolved.prefix}${formatSkuSeq(seq)}` };
-          seq += 1;
-        }
+        emptyIdx.forEach((rowIdx, j) => {
+          nextRows[rowIdx] = { ...nextRows[rowIdx], sku: assigned[j] };
+        });
         return nextRows;
       });
     } catch (e: unknown) {
-      notification.error('Generate SKU', e instanceof Error ? e.message : 'Could not load existing SKUs');
+      notification.error('Generate SKU', e instanceof Error ? e.message : 'Could not compute next SKU');
     } finally {
       setSkuGenBusy(false);
     }
@@ -587,9 +569,17 @@ export default function ProductUpload() {
       const payload: Record<string, any> = {
         ...form,
         status: targetStatus,
-        regular_price: form.type === 'simple' && form.regular_price ? Number(form.regular_price) : null,
-        sale_price: form.type === 'simple' && form.sale_price ? Number(form.sale_price) : null,
-        stock_quantity: form.manage_stock && form.stock_quantity ? Number(form.stock_quantity) : null,
+        sku: form.type === 'simple' ? (form.sku.trim() || null) : null,
+        regular_price: form.type === 'simple' && form.regular_price !== '' && form.regular_price != null
+          ? Number(form.regular_price)
+          : null,
+        sale_price: form.type === 'simple' && form.sale_price !== '' && form.sale_price != null
+          ? Number(form.sale_price)
+          : null,
+        stock_quantity:
+          form.manage_stock && form.stock_quantity !== '' && form.stock_quantity != null
+            ? Number(form.stock_quantity)
+            : null,
         vendor_id: form.vendor_id || null,
         hub_id: form.hub_id || null,
       };
@@ -607,11 +597,15 @@ export default function ProductUpload() {
           ...(v.id ? { id: v.id } : {}),
           attributes: v.attributes,
           sku: v.sku || null,
-          regular_price: v.regular_price !== '' ? Number(v.regular_price) : null,
-          sale_price: v.sale_price !== '' ? Number(v.sale_price) : null,
+          regular_price:
+            v.regular_price != null && v.regular_price !== '' ? Number(v.regular_price) : null,
+          sale_price: v.sale_price != null && v.sale_price !== '' ? Number(v.sale_price) : null,
           stock_status: v.stock_status,
           manage_stock: v.manage_stock,
-          stock_quantity: v.manage_stock && v.stock_quantity !== '' ? Number(v.stock_quantity) : null,
+          stock_quantity:
+            v.manage_stock && v.stock_quantity != null && v.stock_quantity !== ''
+              ? Number(v.stock_quantity)
+              : null,
           image_url: v.image_url.trim() || null,
         }));
       } else {

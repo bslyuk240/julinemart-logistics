@@ -54,7 +54,7 @@ export async function handler(event) {
     manage_stock = false, stock_quantity, stock_status = 'instock',
     is_virtual = false, ships_from_abroad = false,
     seo_title = '', seo_description = '',
-    images = [], category_ids = [], tag_ids = [],
+    images = [],
   } = body;
 
   const rawAttributes = body.attributes || [];
@@ -80,11 +80,13 @@ export async function handler(event) {
       description, short_description,
       status: ['draft', 'pending_review', 'publish', 'published'].includes(status) ? status : 'pending_review',
       type,
-      regular_price: type === 'simple' && regular_price ? Number(regular_price) : null,
-      sale_price: type === 'simple' && sale_price ? Number(sale_price) : null,
-      sku: sku || null,
+      regular_price:
+        type === 'simple' && regular_price != null && regular_price !== '' ? Number(regular_price) : null,
+      sale_price: type === 'simple' && sale_price != null && sale_price !== '' ? Number(sale_price) : null,
+      sku: type === 'variable' ? null : (sku || null),
       manage_stock: !!manage_stock,
-      stock_quantity: manage_stock && stock_quantity ? Number(stock_quantity) : null,
+      stock_quantity:
+        manage_stock && stock_quantity != null && stock_quantity !== '' ? Number(stock_quantity) : null,
       stock_status,
       is_virtual: !!is_virtual,
       ships_from_abroad: !!ships_from_abroad,
@@ -123,15 +125,23 @@ export async function handler(event) {
           );
         }
       })(),
-      // Categories
+      // Categories — align with catalog-product-upsert: only replace when key sent (no accidental wipe)
       (async () => {
+        if (!('category_ids' in body)) return;
+        const ids = Array.isArray(body.category_ids) ? body.category_ids : [];
         await adminClient.from('product_category_map').delete().eq('product_id', pid);
-        if (category_ids.length > 0) await adminClient.from('product_category_map').insert(category_ids.map(cid => ({ product_id: pid, category_id: cid })));
+        if (ids.length > 0) {
+          await adminClient.from('product_category_map').insert(ids.map((cid) => ({ product_id: pid, category_id: cid })));
+        }
       })(),
-      // Tags
+      // Tags — same
       (async () => {
+        if (!('tag_ids' in body)) return;
+        const ids = Array.isArray(body.tag_ids) ? body.tag_ids : [];
         await adminClient.from('product_tag_map').delete().eq('product_id', pid);
-        if (tag_ids.length > 0) await adminClient.from('product_tag_map').insert(tag_ids.map(tid => ({ product_id: pid, tag_id: tid })));
+        if (ids.length > 0) {
+          await adminClient.from('product_tag_map').insert(ids.map((tid) => ({ product_id: pid, tag_id: tid })));
+        }
       })(),
       // Attributes
       (async () => {
@@ -160,18 +170,23 @@ export async function handler(event) {
             product_id: pid,
             vendor_id: vendor.id,
             sku: v.sku || null,
-            regular_price: v.regular_price !== '' ? Number(v.regular_price) : null,
-            sale_price: v.sale_price !== '' ? Number(v.sale_price) : null,
+            regular_price:
+              v.regular_price != null && v.regular_price !== '' ? Number(v.regular_price) : null,
+            sale_price: v.sale_price != null && v.sale_price !== '' ? Number(v.sale_price) : null,
             stock_status: v.stock_status || 'instock',
             manage_stock: !!v.manage_stock,
-            stock_quantity: v.manage_stock && v.stock_quantity !== '' ? Number(v.stock_quantity) : null,
+            stock_quantity:
+              v.manage_stock && v.stock_quantity != null && v.stock_quantity !== ''
+                ? Number(v.stock_quantity)
+                : null,
             attributes: Array.isArray(v.attributes) ? v.attributes : [],
             is_active: true,
             updated_at: new Date().toISOString(),
           };
           let savedVarId = v.id;
           if (v.id) {
-            await adminClient.from('product_variations').update(varData).eq('id', v.id).eq('product_id', pid);
+            const { vendor_id: _v, ...updatePayload } = varData;
+            await adminClient.from('product_variations').update(updatePayload).eq('id', v.id).eq('product_id', pid);
           } else {
             const { data: ins } = await adminClient.from('product_variations').insert(varData).select('id').single();
             savedVarId = ins?.id;

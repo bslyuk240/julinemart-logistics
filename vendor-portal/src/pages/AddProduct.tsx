@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
+import { useAuth } from '../contexts/AuthContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -96,6 +97,70 @@ function generateCombinations(varAttrs: VarAttr[]): { name: string; value: strin
   return result;
 }
 
+/** Show HTML product copy as editable plain text (strips tags, keeps line breaks from br/p). */
+function htmlToPlainText(html: string): string {
+  if (!html || !html.trim()) return '';
+  try {
+    const div = document.createElement('div');
+    div.innerHTML = html
+      .replace(/<\/p>/gi, '\n\n')
+      .replace(/<br\s*\/?>/gi, '\n');
+    const text = div.textContent || div.innerText || '';
+    return text.replace(/\n{3,}/g, '\n\n').trim();
+  } catch {
+    return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+}
+
+function decodeBasicHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/gi, '"');
+}
+
+function skuCodeFromPrimarySegment(rawSeg: string, padSource: string, len = 3): string {
+  const alnum = rawSeg.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  let core = alnum.slice(0, len);
+  if (core.length < len) {
+    const pad = toSlug(padSource || 'x')
+      .replace(/[^a-z0-9]/gi, '')
+      .toUpperCase();
+    core = (core + pad).slice(0, len);
+  }
+  return core.padEnd(len, 'X').slice(0, len);
+}
+
+function categorySkuCode(name: string, slug: string, len = 3): string {
+  const clean = decodeBasicHtmlEntities(name || '');
+  const nameSeg = toSlug(clean).split('-').filter(Boolean)[0] || '';
+  const slugSeg = (slug || '').split('-').filter(Boolean)[0] || '';
+  const raw = nameSeg || slugSeg || 'x';
+  return skuCodeFromPrimarySegment(raw, clean || slug, len);
+}
+
+function vendorSkuCode(slug: string, name: string, len = 3): string {
+  const slugSeg = (slug || '').split('-').filter(Boolean)[0] || '';
+  const nameSeg = toSlug(decodeBasicHtmlEntities(name || '')).split('-').filter(Boolean)[0] || '';
+  const raw = slugSeg || nameSeg || 'x';
+  return skuCodeFromPrimarySegment(raw, name || slug, len);
+}
+
+function orderedSelectedCategoryIds(allCategories: CatOption[], categoryIds: string[]): string[] {
+  const sel = new Set(categoryIds);
+  const out: string[] = [];
+  const tops = allCategories.filter(c => !c.parent_id);
+  for (const t of tops) {
+    if (sel.has(t.id)) out.push(t.id);
+    for (const ch of allCategories.filter(c => c.parent_id === t.id)) {
+      if (sel.has(ch.id)) out.push(ch.id);
+    }
+  }
+  return out;
+}
+
 const INITIAL_FORM: FormState = {
   name: '',
   slug: '',
@@ -139,6 +204,7 @@ export default function AddProduct() {
   const navigate = useNavigate();
   const { id } = useParams<{ id?: string }>();
   const isEdit = Boolean(id);
+  const { vendor } = useAuth();
 
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [varAttrs, setVarAttrs] = useState<VarAttr[]>([{ name: '', optionsRaw: '', is_variation: true }]);
@@ -151,6 +217,7 @@ export default function AddProduct() {
 
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(isEdit);
+  const [skuGenBusy, setSkuGenBusy] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const varFileRefs = useRef<Record<number, HTMLInputElement | null>>({});
@@ -192,8 +259,8 @@ export default function AddProduct() {
         setForm({
           name: prod.name || '',
           slug: prod.slug || '',
-          short_description: prod.short_description || '',
-          description: prod.description || '',
+          short_description: htmlToPlainText(String(prod.short_description || '')),
+          description: htmlToPlainText(String(prod.description || '')),
           status: (prod.status === 'draft' ? 'draft' : 'published') as 'draft' | 'published',
           type: (prod.type === 'variable' ? 'variable' : 'simple') as 'simple' | 'variable',
           regular_price: prod.regular_price != null ? String(prod.regular_price) : '',
@@ -344,6 +411,96 @@ export default function AddProduct() {
     setVariations(prev => prev.filter((_, i) => i !== idx));
   };
 
+  const resolveSkuPrefix = (): { prefix: string } | null => {
+    if (!vendor?.id) {
+      alert('Your store profile is still loading. Wait a moment and try again.');
+      return null;
+    }
+    const ordered = orderedSelectedCategoryIds(categories, form.category_ids);
+    const primaryCatId = ordered[0];
+    if (!primaryCatId) {
+      alert(
+        'Select at least one category first. The first category in the list (top to bottom) sets the category code in your SKU.'
+      );
+      return null;
+    }
+    const cat = categories.find(c => c.id === primaryCatId);
+    if (!cat) {
+      alert('Could not resolve the selected category.');
+      return null;
+    }
+    const catCode = categorySkuCode(cat.name, cat.slug);
+    const venCode = vendorSkuCode(vendor.store_slug, vendor.store_name);
+    return { prefix: `${catCode}-${venCode}-` };
+  };
+
+  const handleGenerateSimpleSku = async () => {
+    const resolved = resolveSkuPrefix();
+    if (!resolved) return;
+    setSkuGenBusy(true);
+    try {
+      const extra_skus = form.sku.trim() ? [form.sku.trim()] : [];
+      const { next_sku } = await api.suggestNextSku({ prefix: resolved.prefix, extra_skus });
+      setField('sku', next_sku);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Could not compute next SKU.');
+    } finally {
+      setSkuGenBusy(false);
+    }
+  };
+
+  const handleGenerateVariationSku = async (idx: number) => {
+    const resolved = resolveSkuPrefix();
+    if (!resolved) return;
+    setSkuGenBusy(true);
+    try {
+      const extra_skus = variations
+        .map((v, j) => (j === idx ? '' : v.sku))
+        .map(s => s.trim())
+        .filter(Boolean);
+      const { next_sku } = await api.suggestNextSku({ prefix: resolved.prefix, extra_skus });
+      updateVariation(idx, 'sku', next_sku);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Could not compute next SKU.');
+    } finally {
+      setSkuGenBusy(false);
+    }
+  };
+
+  const handleGenerateEmptyVariationSkus = async () => {
+    const resolved = resolveSkuPrefix();
+    if (!resolved) return;
+    const emptyIdx = variations.map((v, i) => (!v.sku.trim() ? i : -1)).filter(i => i >= 0);
+    if (!emptyIdx.length) {
+      alert('Every variation already has a SKU.');
+      return;
+    }
+    setSkuGenBusy(true);
+    try {
+      const prefix = resolved.prefix;
+      const baseline = variations.map(v => v.sku.trim()).filter(Boolean);
+      const assigned: string[] = [];
+      for (let k = 0; k < emptyIdx.length; k++) {
+        const { next_sku } = await api.suggestNextSku({
+          prefix,
+          extra_skus: [...baseline, ...assigned],
+        });
+        assigned.push(next_sku);
+      }
+      setVariations(prev => {
+        const nextRows = [...prev];
+        emptyIdx.forEach((rowIdx, j) => {
+          nextRows[rowIdx] = { ...nextRows[rowIdx], sku: assigned[j] };
+        });
+        return nextRows;
+      });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Could not compute next SKU.');
+    } finally {
+      setSkuGenBusy(false);
+    }
+  };
+
   // ── Submit ────────────────────────────────────────────────────────────────
 
   const handleSubmit = async (submitStatus: 'draft' | 'published') => {
@@ -363,7 +520,6 @@ export default function AddProduct() {
         short_description: form.short_description,
         status: submitStatus,
         type: form.type,
-        sku: form.sku,
         manage_stock: form.manage_stock,
         stock_status: form.stock_status,
         is_virtual: form.is_virtual,
@@ -376,10 +532,12 @@ export default function AddProduct() {
       };
 
       if (form.type === 'simple') {
+        body.sku = form.sku;
         body.regular_price = form.regular_price;
         body.sale_price = form.sale_price;
         body.stock_quantity = form.manage_stock ? form.stock_quantity : null;
       } else {
+        body.sku = null;
         body.attributes = varAttrs
           .filter(a => a.name.trim())
           .map(a => ({
@@ -387,7 +545,21 @@ export default function AddProduct() {
             options: a.optionsRaw.split(',').map(v => v.trim()).filter(Boolean),
             is_variation: a.is_variation,
           }));
-        body.variations = variations;
+        body.variations = variations.map(v => ({
+          ...(v.id ? { id: v.id } : {}),
+          attributes: v.attributes,
+          sku: v.sku || null,
+          regular_price:
+            v.regular_price != null && v.regular_price !== '' ? Number(v.regular_price) : null,
+          sale_price: v.sale_price != null && v.sale_price !== '' ? Number(v.sale_price) : null,
+          stock_status: v.stock_status,
+          manage_stock: v.manage_stock,
+          stock_quantity:
+            v.manage_stock && v.stock_quantity != null && v.stock_quantity !== ''
+              ? Number(v.stock_quantity)
+              : null,
+          image_url: v.image_url.trim() || null,
+        }));
       }
 
       await api.upsertProduct(body, id);
@@ -503,10 +675,11 @@ export default function AddProduct() {
               <textarea
                 className="input resize-none"
                 rows={3}
-                placeholder="Brief product summary shown in listings…"
+                placeholder="Brief plain-text summary shown in listings…"
                 value={form.short_description}
                 onChange={e => setField('short_description', e.target.value)}
               />
+              <p className="text-xs text-gray-400 mt-1">Plain text only. Old HTML imports are shown without tags.</p>
             </div>
 
             <div>
@@ -514,10 +687,11 @@ export default function AddProduct() {
               <textarea
                 className="input resize-y"
                 rows={6}
-                placeholder="Detailed product description, features, specifications…"
+                placeholder="Detailed description in plain text (features, specifications)…"
                 value={form.description}
                 onChange={e => setField('description', e.target.value)}
               />
+              <p className="text-xs text-gray-400 mt-1">Plain text only. Saves without HTML tags.</p>
             </div>
           </div>
 
@@ -558,10 +732,21 @@ export default function AddProduct() {
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">SKU</label>
                   <input
                     className="input font-mono text-sm"
-                    placeholder="SKU-001"
+                    placeholder="e.g. LAP-JUL-001"
                     value={form.sku}
                     onChange={e => setField('sku', e.target.value)}
                   />
+                  <button
+                    type="button"
+                    onClick={() => void handleGenerateSimpleSku()}
+                    disabled={skuGenBusy}
+                    className="mt-1.5 text-xs font-medium text-primary-600 hover:text-primary-800 disabled:opacity-50"
+                  >
+                    {skuGenBusy ? 'Working…' : 'Generate SKU'}
+                  </button>
+                  <p className="text-[11px] text-gray-500 mt-1 leading-snug">
+                    Builds <span className="font-mono">CAT-VEN-###</span> from your first selected category and store slug, then the next free number (catalog-wide).
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">Stock Status</label>
@@ -663,9 +848,19 @@ export default function AddProduct() {
               {/* Variations */}
               {variations.length > 0 && (
                 <div className="card space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h2 className="font-semibold text-gray-900">Variations</h2>
-                    <span className="text-sm text-gray-500">{variations.length} variant{variations.length !== 1 ? 's' : ''}</span>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="font-semibold text-gray-900">Variations</h2>
+                      <span className="text-sm text-gray-500">{variations.length} variant{variations.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleGenerateEmptyVariationSkus()}
+                      disabled={skuGenBusy}
+                      className="text-xs font-medium px-3 py-1.5 rounded-xl border border-primary-200 text-primary-700 bg-primary-50 hover:bg-primary-100 disabled:opacity-50 self-start"
+                    >
+                      {skuGenBusy ? 'Working…' : 'Fill SKUs on empty rows'}
+                    </button>
                   </div>
 
                   <div className="space-y-4">
@@ -694,11 +889,19 @@ export default function AddProduct() {
                           <div>
                             <label className="block text-xs font-medium text-gray-600 mb-1">SKU</label>
                             <input
-                              className="input text-sm py-2 min-h-0 h-10"
-                              placeholder="SKU"
+                              className="input text-sm py-2 min-h-0 h-10 font-mono"
+                              placeholder="CAT-VEN-001"
                               value={v.sku}
                               onChange={e => updateVariation(idx, 'sku', e.target.value)}
                             />
+                            <button
+                              type="button"
+                              onClick={() => void handleGenerateVariationSku(idx)}
+                              disabled={skuGenBusy}
+                              className="mt-1 text-[10px] font-medium text-primary-600 hover:text-primary-800 disabled:opacity-50"
+                            >
+                              {skuGenBusy ? '…' : 'Generate SKU'}
+                            </button>
                           </div>
                           <div>
                             <label className="block text-xs font-medium text-gray-600 mb-1">Stock Status</label>

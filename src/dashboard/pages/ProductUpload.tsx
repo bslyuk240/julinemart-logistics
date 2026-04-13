@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { ArrowLeft, ChevronDown, ChevronUp, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../contexts/AuthContext';
@@ -198,9 +198,12 @@ export default function ProductUpload() {
   const { session } = useAuth();
   const notification = useNotification();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('id');
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+  const moderationListPath =
+    (location.state as { returnTo?: string } | null)?.returnTo ?? '/admin/products/moderation';
 
   // Form state
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -629,7 +632,7 @@ export default function ProductUpload() {
         editId ? 'Product Updated' : 'Product Created',
         `"${json.data.name}" saved as ${json.data.status}`
       );
-      navigate('/admin/products/moderation');
+      navigate(moderationListPath);
     } catch (err: any) {
       notification.error('Error', err?.message || 'Unexpected error');
     } finally {
@@ -659,7 +662,7 @@ export default function ProductUpload() {
         <div className="space-y-3">
           <button
             type="button"
-            onClick={() => navigate('/admin/products/moderation')}
+            onClick={() => navigate(moderationListPath)}
             className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-600 shadow-sm transition hover:border-gray-300 hover:text-gray-900 hover:bg-gray-50"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -1318,7 +1321,7 @@ export default function ProductUpload() {
           </button>
           <button
             type="button"
-            onClick={() => navigate(-1)}
+            onClick={() => navigate(moderationListPath)}
             className="px-6 py-2.5 text-gray-500 hover:text-gray-700 transition-colors"
           >
             Cancel

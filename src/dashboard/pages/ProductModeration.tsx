@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import {
   AlertCircle,
   ChevronLeft,
@@ -85,28 +85,61 @@ interface Meta {
   total_pages: number;
 }
 
+function parseListPage(sp: URLSearchParams): number {
+  const n = parseInt(sp.get('page') || '1', 10);
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
+function parseListStatus(sp: URLSearchParams): StatusFilter {
+  const s = sp.get('status');
+  if (s === 'draft' || s === 'published') return s;
+  return 'all';
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function ProductModerationPage() {
   const { session } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const page = parseListPage(searchParams);
+  const statusFilter = parseListStatus(searchParams);
+  const vendorId = searchParams.get('vendor') || '';
+  const search = searchParams.get('q') || '';
 
   const [products, setProducts] = useState<ListProduct[]>([]);
   const [meta, setMeta] = useState<Meta>({ page: 1, per_page: 20, total: 0, total_pages: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [search, setSearch] = useState('');
-  const [searchInput, setSearchInput] = useState('');
-  const [vendorId, setVendorId] = useState('');
+  const [searchInput, setSearchInput] = useState(() => searchParams.get('q') || '');
   const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [page, setPage] = useState(1);
 
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchParamsRef = useRef(searchParams);
+  searchParamsRef.current = searchParams;
+
+  const mergeSearchParams = useCallback(
+    (patch: Record<string, string | undefined>, navOpts?: { replace?: boolean }) => {
+      const next = new URLSearchParams(searchParamsRef.current);
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === undefined || v === '') next.delete(k);
+        else next.set(k, v);
+      }
+      setSearchParams(next, navOpts);
+    },
+    [setSearchParams]
+  );
+
+  const qInUrl = searchParams.get('q') || '';
+  useEffect(() => {
+    setSearchInput(qInUrl);
+  }, [qInUrl]);
 
   const authHeader = useCallback(() =>
     session?.access_token ? `Bearer ${session.access_token}` : '',
@@ -160,19 +193,28 @@ export function ProductModerationPage() {
   }, [statusFilter, search, vendorId, authHeader]);
 
   useEffect(() => {
-    setPage(1);
-    loadProducts(1);
-  }, [statusFilter, search, vendorId]); // eslint-disable-line react-hooks/exhaustive-deps
+    loadProducts(page);
+  }, [page, statusFilter, search, vendorId, loadProducts]);
 
   useEffect(() => {
-    loadProducts(page);
-  }, [page]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (loading || meta.total_pages <= 0) return;
+    if (page > meta.total_pages) {
+      mergeSearchParams({ page: String(meta.total_pages) }, { replace: true });
+    }
+  }, [loading, meta.total_pages, page, mergeSearchParams]);
 
-  // Debounced search
+  // Debounced search → URL (replace so back from product still lands on list page, not each keystroke)
   const handleSearchChange = (val: string) => {
     setSearchInput(val);
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => { setSearch(val); }, 400);
+    searchTimer.current = setTimeout(() => {
+      const next = new URLSearchParams(searchParamsRef.current);
+      const trimmed = val.trim();
+      if (trimmed) next.set('q', trimmed);
+      else next.delete('q');
+      next.set('page', '1');
+      setSearchParams(next, { replace: true });
+    }, 400);
   };
 
   // Quick status toggle (publish / revert to draft)
@@ -257,7 +299,11 @@ export function ProductModerationPage() {
             <RefreshCw className="w-4 h-4" />
           </button>
           <button
-            onClick={() => navigate('/admin/products/upload')}
+            onClick={() =>
+              navigate('/admin/products/upload', {
+                state: { returnTo: `${location.pathname}${location.search}` },
+              })
+            }
             className="flex items-center gap-1.5 bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700"
           >
             <Plus className="w-4 h-4" />
@@ -271,7 +317,13 @@ export function ProductModerationPage() {
         {statusTabs.map((tab) => (
           <button
             key={tab.value}
-            onClick={() => setStatusFilter(tab.value)}
+            onClick={() => {
+              if (tab.value === 'all') {
+                mergeSearchParams({ status: undefined, page: '1' });
+              } else {
+                mergeSearchParams({ status: tab.value, page: '1' });
+              }
+            }}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               statusFilter === tab.value
                 ? 'border-blue-600 text-blue-600'
@@ -294,7 +346,9 @@ export function ProductModerationPage() {
         />
         <select
           value={vendorId}
-          onChange={(e) => setVendorId(e.target.value)}
+          onChange={(e) =>
+            mergeSearchParams({ vendor: e.target.value || undefined, page: '1' })
+          }
           className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[180px]"
         >
           <option value="">All Vendors</option>
@@ -418,7 +472,11 @@ export function ProductModerationPage() {
 
                   {/* Edit */}
                   <button
-                    onClick={() => navigate(`/admin/products/upload?id=${product.id}`)}
+                    onClick={() =>
+                      navigate(`/admin/products/upload?id=${product.id}`, {
+                        state: { returnTo: `${location.pathname}${location.search}` },
+                      })
+                    }
                     className="p-1.5 text-gray-400 hover:text-blue-600 rounded-md hover:bg-blue-50"
                     title="Edit product"
                   >
@@ -466,14 +524,16 @@ export function ProductModerationPage() {
           </p>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setPage((p) => Math.max(p - 1, 1))}
+              onClick={() => mergeSearchParams({ page: String(Math.max(page - 1, 1)) })}
               disabled={page <= 1 || loading}
               className="p-1.5 rounded-md border border-gray-300 text-gray-500 hover:bg-gray-50 disabled:opacity-40"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setPage((p) => Math.min(p + 1, meta.total_pages))}
+              onClick={() =>
+                mergeSearchParams({ page: String(Math.min(page + 1, meta.total_pages)) })
+              }
               disabled={page >= meta.total_pages || loading}
               className="p-1.5 rounded-md border border-gray-300 text-gray-500 hover:bg-gray-50 disabled:opacity-40"
             >

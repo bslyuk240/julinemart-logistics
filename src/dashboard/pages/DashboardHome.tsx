@@ -13,10 +13,21 @@ interface Stats {
 
 interface RecentOrder {
   id: string;
-  woocommerce_order_id: string;
+  order_number?: number | null;
+  woocommerce_order_id?: string | null;
+  payment_reference?: string | null;
   customer_name: string;
   created_at: string;
   total_amount: number;
+}
+
+function recentOrderDisplayLabel(order: RecentOrder): string {
+  const wc = order.woocommerce_order_id?.trim();
+  if (wc) return wc;
+  if (order.order_number != null) return String(order.order_number);
+  const ref = order.payment_reference?.trim();
+  if (ref) return ref;
+  return order.id.slice(0, 8).toUpperCase();
 }
 
 interface InfluencerSummary {
@@ -233,7 +244,7 @@ export function DashboardHome() {
               {recentOrders.map((order) => (
                 <div key={order.id} className="flex items-center justify-between border-b border-gray-100 pb-2">
                   <div>
-                    <p className="text-sm text-gray-600">#{order.woocommerce_order_id}</p>
+                    <p className="text-sm text-gray-600">#{recentOrderDisplayLabel(order)}</p>
                     <p className="text-sm text-gray-800 font-medium">{order.customer_name}</p>
                   </div>
                   <div className="text-right text-xs text-gray-500">

@@ -105,8 +105,12 @@ export function UsersPage() {
     setShowForm(true);
   };
 
-  const handleDelete = async (userId: string) => {
-    if (!confirm('Are you sure you want to deactivate this user?')) return;
+  const handleDelete = async (userId: string, email: string) => {
+    const msg =
+      `Permanently remove this account?\n\n${email}\n\n` +
+      `The login and staff profile will be deleted. The email can be used again for a new user.\n` +
+      `Use the eye icon if you only want to deactivate without freeing the email.`;
+    if (!confirm(msg)) return;
 
     try {
       const response = await fetch(`${apiBase}/api/users/${userId}`, {
@@ -115,12 +119,16 @@ export function UsersPage() {
       });
 
       if (response.ok) {
-        notification.success('User Deactivated', 'User has been deactivated');
+        notification.success('User removed', 'Account deleted; email can be reused.');
         fetchData();
       } else {
-        notification.error('Delete Failed', 'Unable to deactivate user');
+        const body = await response.json().catch(() => ({}));
+        notification.error(
+          'Remove failed',
+          body.error || body.hint || `Server returned ${response.status}`
+        );
       }
-    } catch (error) {
+    } catch {
       notification.error('Error', 'An unexpected error occurred');
     }
   };
@@ -200,8 +208,10 @@ export function UsersPage() {
                   </div>
                 </div>
                 <button
+                  type="button"
                   onClick={() => toggleUserStatus(user)}
-                  className="p-1"
+                  className="p-1 rounded hover:bg-gray-100"
+                  title={user.is_active ? 'Deactivate account (can reactivate)' : 'Activate account'}
                 >
                   {user.is_active ? (
                     <Eye className="w-5 h-5 text-green-600" />
@@ -260,11 +270,13 @@ export function UsersPage() {
                     Edit
                   </button>
                   <button
-                    onClick={() => handleDelete(user.id)}
+                    type="button"
+                    onClick={() => handleDelete(user.id, user.email)}
                     className="flex-1 btn-orange flex items-center justify-center text-sm"
+                    title="Permanently delete login and profile; email can be reused"
                   >
                     <Trash2 className="w-4 h-4 mr-1" />
-                    Delete
+                    Remove
                   </button>
                 </div>
               </div>

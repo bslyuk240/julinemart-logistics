@@ -218,28 +218,19 @@ export async function deleteUserHandler(req: AuthRequest, res: Response) {
       });
     }
 
-    // Deactivate user instead of deleting
-    const { error } = await supabase
-      .from('users')
-      .update({ is_active: false })
-      .eq('id', id);
+    const { error: delErr } = await supabase.auth.admin.deleteUser(id);
+    if (delErr) {
+      return res.status(409).json({
+        success: false,
+        error: delErr.message || 'Could not delete user',
+        hint:
+          'Another table may still reference this staff profile. Clear or reassign those rows, then retry.',
+      });
+    }
 
-    if (error) throw error;
+    await logActivity(req.user!.id, 'DELETE', 'users', id, { hard_delete: true }, req);
 
-    // Log activity
-    await logActivity(
-      req.user!.id,
-      'DELETE',
-      'users',
-      id,
-      {},
-      req
-    );
-
-    return res.status(200).json({
-      success: true,
-      message: 'User deactivated successfully'
-    });
+    return res.status(204).send();
   } catch (error) {
     console.error('Delete user error:', error);
     return res.status(500).json({

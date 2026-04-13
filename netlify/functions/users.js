@@ -101,12 +101,17 @@ export async function handler(event) {
       const auth = await requireRole(event, ['admin']);
       if (auth.errorResponse) return auth.errorResponse;
 
+      // Use * so missing optional columns (e.g. catalog_access) on older DBs do not 500 the whole list
       const { data, error } = await supabaseAdmin
         .from('users')
-        .select('id, email, full_name, role, is_active, catalog_access, last_login, created_at, updated_at')
+        .select('*')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: data || [] }) };
+      const rows = (data || []).map((r) => ({
+        ...r,
+        catalog_access: Boolean(r.catalog_access),
+      }));
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: rows }) };
     }
 
     if (event.httpMethod === 'POST' && !id) {
@@ -240,12 +245,34 @@ export async function handler(event) {
           })
         };
       }
-      // Soft-delete: deactivate user
-      const { error } = await supabaseAdmin
-        .from('users')
-        .update({ is_active: false })
-        .eq('id', id);
-      if (error) throw error;
+
+      if (auth.authUser.id === id) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'You cannot delete your own account'
+          })
+        };
+      }
+
+      // Hard delete: removes auth.users; public.users cascades on FK. Frees email for a new invite/signup.
+      const { error: delErr } = await supabaseAdmin.auth.admin.deleteUser(id);
+      if (delErr) {
+        console.error('auth.admin.deleteUser failed:', delErr);
+        return {
+          statusCode: 409,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: delErr.message || 'Could not delete user',
+            hint:
+              'Another table may still reference this staff profile (e.g. settlements). Clear or reassign those rows, then retry.'
+          })
+        };
+      }
+
       return { statusCode: 204, headers, body: '' };
     }
 

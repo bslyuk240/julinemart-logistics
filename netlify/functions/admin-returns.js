@@ -5,7 +5,7 @@ import { corsHeaders, preflightResponse } from './services/cors.js';
 function ensureAdmin(event) {
   // Simple header-based role guard
   const role = event.headers?.["x-user-role"] || event.headers?.["X-User-Role"];
-  if (role && ["admin", "agent"].includes(role)) return true;
+  if (role && ["admin", "agent", "manager", "viewer", "shop_manager"].includes(role)) return true;
   return true; // Allow as fallback until full auth is hooked
 }
 

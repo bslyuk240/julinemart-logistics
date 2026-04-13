@@ -1,4 +1,4 @@
-﻿import { ReactNode, useState, useEffect } from 'react';
+import { ReactNode, useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard,
@@ -55,17 +55,17 @@ type NavItem = {
 };
 
 const navigation: NavItem[] = [
-  // Shared: admin + agent
-  { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'agent'] },
-  { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent'] },
-  { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent'] },
-  { name: 'WhatsApp Support', href: '/admin/whatsapp', icon: MessageSquare, roles: ['admin', 'agent'] },
-  { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent'] },
-  { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'agent'] },
-  // Catalog: admin, shop_manager, and agents with catalog_access
-  { name: 'Add Product', href: '/admin/products/upload', icon: Plus, roles: ['admin', 'shop_manager'], requireCatalogAccess: true },
-  { name: 'Product Moderation', href: '/admin/products/moderation', icon: ClipboardCheck, roles: ['admin', 'shop_manager'], requireCatalogAccess: true },
-  { name: 'Global Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['admin', 'shop_manager'], requireCatalogAccess: true },
+  // Manager = scoped ops + catalog + vendors (no hub dispatch); agent/viewer keep hub dispatch
+  { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'agent', 'manager', 'viewer'] },
+  { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent', 'manager', 'viewer'] },
+  { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent', 'viewer'] },
+  { name: 'WhatsApp Support', href: '/admin/whatsapp', icon: MessageSquare, roles: ['admin', 'agent', 'manager', 'viewer'] },
+  { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent', 'manager', 'viewer'] },
+  { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'agent', 'manager', 'viewer'] },
+  // Catalog: manager always; shop_manager + admin; agents only with catalog_access
+  { name: 'Add Product', href: '/admin/products/upload', icon: Plus, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
+  { name: 'Product Moderation', href: '/admin/products/moderation', icon: ClipboardCheck, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
+  { name: 'Global Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
   { name: 'Homepage Content', href: '/admin/homepage-content', icon: LayoutGrid, roles: ['admin', 'shop_manager'] },
   { name: 'Catalog Migration', href: '/admin/catalog-migration', icon: DatabaseZap, roles: ['admin'] },
   // Admin only
@@ -75,8 +75,8 @@ const navigation: NavItem[] = [
   { name: 'Analytics', href: '/admin/analytics', icon: BarChart3, roles: ['admin'] },
   { name: 'Users', href: '/admin/users', icon: Users, roles: ['admin'] },
   { name: 'Shipping Discounts', href: '/admin/discounts', icon: Percent, roles: ['admin'] },
-  { name: 'Vendors', href: '/admin/vendors', icon: Store, roles: ['admin'] },
-  { name: 'Vendor Payouts', href: '/admin/vendor-withdrawals', icon: Wallet, roles: ['admin'] },
+  { name: 'Vendors', href: '/admin/vendors', icon: Store, roles: ['admin', 'manager'] },
+  { name: 'Vendor Payouts', href: '/admin/vendor-withdrawals', icon: Wallet, roles: ['admin', 'manager'] },
   { name: 'Vouchers', href: '/admin/vouchers', icon: Ticket, roles: ['admin'] },
   { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },
   { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
@@ -245,10 +245,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     setInstallPromptEvent(null);
   };
 
-  const getRoleBadgeColor = (role: string) => {
+   const getRoleBadgeColor = (role: string) => {
     const colors: Record<string, string> = {
       admin: 'bg-red-100 text-red-800',
       agent: 'bg-blue-100 text-blue-800',
+      shop_manager: 'bg-purple-100 text-purple-800',
+      manager: 'bg-indigo-100 text-indigo-800',
+      viewer: 'bg-slate-100 text-slate-800',
+      vendor: 'bg-green-100 text-green-800',
     };
     return colors[role] || 'bg-gray-100 text-gray-800';
   };
@@ -257,8 +261,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const filteredNavigation = navigation.filter(item => {
     if (!item.roles) return true;
     if (item.roles.includes(user?.role || '')) return true;
-    // Agents with catalog_access can see items marked requireCatalogAccess
-    if (item.requireCatalogAccess && user?.role === 'agent' && user?.catalog_access) return true;
+    // Agents need catalog_access for catalog nav; manager/admin/shop_manager are in roles already
+    if (item.requireCatalogAccess && user?.catalog_access && user?.role === 'agent') return true;
     return false;
   });
   const canInstallApp = user?.role === 'admin' && !isInstalled;

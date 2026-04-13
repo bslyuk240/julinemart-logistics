@@ -166,7 +166,7 @@ async function requireStaffAuth(event) {
   if (!profile.is_active) {
     return { errorResponse: forbidden('User is inactive') };
   }
-  if (!['admin', 'agent'].includes(profile.role)) {
+  if (!['admin', 'agent', 'manager', 'viewer', 'shop_manager'].includes(profile.role)) {
     return { errorResponse: forbidden('Insufficient permissions') };
   }
 

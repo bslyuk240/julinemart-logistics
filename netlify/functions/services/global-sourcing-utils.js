@@ -26,7 +26,8 @@ export const headers = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
 };
 
-export const GLOBAL_SOURCING_ALLOWED_ROLES = ['admin', 'agent', 'shop_manager'];
+/** manager = scoped JLO role with full catalog API access (no catalog_access flag) */
+export const GLOBAL_SOURCING_ALLOWED_ROLES = ['admin', 'agent', 'shop_manager', 'manager'];
 
 export function jsonResponse(statusCode, body) {
   return {
@@ -530,9 +531,9 @@ export async function requireAdmin(event, roles = ['admin']) {
     };
   }
 
-  // Agents with catalog_access granted are treated as shop_manager for catalog endpoints
-  const effectiveRole =
-    profile.role === 'agent' && profile.catalog_access ? 'agent_catalog' : profile.role;
+  // Agents with catalog_access unlock catalog endpoints that also allow shop_manager
+  const catalogElevated = profile.catalog_access && profile.role === 'agent';
+  const effectiveRole = catalogElevated ? 'agent_catalog' : profile.role;
 
   const allowedEffective = roles.flatMap((r) =>
     r === 'shop_manager' ? ['shop_manager', 'agent_catalog'] : [r]

@@ -136,7 +136,7 @@ export const handler = async (event) => {
   if (authErr || !user) return { statusCode: 401, headers: cors, body: JSON.stringify({ error: 'Invalid token' }) };
 
   const { data: profile } = await adminClient.from('users').select('role').eq('id', user.id).single();
-  if (!profile || !['admin', 'shop_manager'].includes(profile.role)) {
+  if (!profile || !['admin', 'shop_manager', 'manager'].includes(profile.role)) {
     return { statusCode: 403, headers: cors, body: JSON.stringify({ error: 'Forbidden' }) };
   }
 

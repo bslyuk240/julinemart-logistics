@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
 
 import { CustomerContactPage } from './customer-portal/pages/Contact';
@@ -53,21 +54,58 @@ const sharedRoutes = [
   { path: 'dashboard', element: <DashboardHome /> },
   { path: 'orders', element: <OrdersPage /> },
   { path: 'orders/create', element: <CreateOrderPage /> },
-  { path: 'dispatch/hub', element: <HubDispatchPage /> },
+  {
+    path: 'dispatch/hub',
+    element: (
+      <ProtectedRoute allowedRoles={['admin', 'agent', 'viewer']}>
+        <HubDispatchPage />
+      </ProtectedRoute>
+    ),
+  },
   { path: 'refunds', element: <RefundsPage /> },
   { path: 'orders/:id', element: <OrderDetailsPage /> },
   { path: 'rates', element: <ShippingRatesPage /> },
   { path: 'whatsapp', element: <WhatsAppSupportPage /> },
   { path: 'whatsapp/:chatId', element: <WhatsAppChatView /> },
-  { path: 'products/upload', element: <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent']}><ProductUpload /></ProtectedRoute> },
-  { path: 'global-sourcing', element: <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent']}><GlobalSourcingPage /></ProtectedRoute> },
-  { path: 'products/moderation', element: <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent']}><ProductModerationPage /></ProtectedRoute> },
+  {
+    path: 'products/upload',
+    element: (
+      <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent', 'manager']}>
+        <ProductUpload />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: 'global-sourcing',
+    element: (
+      <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent', 'manager']}>
+        <GlobalSourcingPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: 'products/moderation',
+    element: (
+      <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent', 'manager']}>
+        <ProductModerationPage />
+      </ProtectedRoute>
+    ),
+  },
   { path: 'homepage-content', element: <ProtectedRoute allowedRoles={['admin', 'shop_manager']}><HomepageContent /></ProtectedRoute> },
-  { path: 'catalog-migration', element: <CatalogMigration /> },
+  {
+    path: 'catalog-migration',
+    element: (
+      <ProtectedRoute allowedRoles={['admin']}>
+        <CatalogMigration />
+      </ProtectedRoute>
+    ),
+  },
 ];
 
-// Routes accessible only by admin
-const adminOnlyRoutes = [
+type AdminRouteConfig = { path: string; element: ReactElement; allowedRoles?: string[] };
+
+// Default allowedRoles is ['admin'] when omitted
+const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'hubs', element: <HubsPage /> },
   { path: 'couriers', element: <CouriersPage /> },
   { path: 'analytics', element: <AnalyticsPage /> },
@@ -81,9 +119,9 @@ const adminOnlyRoutes = [
   { path: 'settlements', element: <SettlementsPage /> },
   { path: 'activity-logs', element: <ActivityLogsPage /> },
   { path: 'vouchers', element: <VouchersPage /> },
-  { path: 'vendors', element: <VendorsPage /> },
-  { path: 'vendors/:id', element: <VendorDetail /> },
-  { path: 'vendor-withdrawals', element: <VendorWithdrawals /> },
+  { path: 'vendors', element: <VendorsPage />, allowedRoles: ['admin', 'manager'] },
+  { path: 'vendors/:id', element: <VendorDetail />, allowedRoles: ['admin', 'manager'] },
+  { path: 'vendor-withdrawals', element: <VendorWithdrawals />, allowedRoles: ['admin', 'manager'] },
   { path: 'notifications', element: <NotificationsPage /> },
   { path: 'notifications/new', element: <NotificationsNewPage /> },
   { path: 'notifications/:id', element: <NotificationDetailsPage /> },
@@ -130,7 +168,7 @@ export const router = createBrowserRouter([
   {
     path: '/admin',
     element: (
-      <ProtectedRoute allowedRoles={['admin', 'agent', 'shop_manager']}>
+      <ProtectedRoute allowedRoles={['admin', 'agent', 'shop_manager', 'manager', 'viewer']}>
         <DashboardLayout>
           <Outlet />
         </DashboardLayout>
@@ -143,7 +181,7 @@ export const router = createBrowserRouter([
       ...adminOnlyRoutes.map((route) => ({
         path: route.path,
         element: (
-          <ProtectedRoute allowedRoles={['admin']}>
+          <ProtectedRoute allowedRoles={route.allowedRoles ?? ['admin']}>
             {route.element}
           </ProtectedRoute>
         ),

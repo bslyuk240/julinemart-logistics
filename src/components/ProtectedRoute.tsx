@@ -29,8 +29,10 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
 
   if (allowedRoles?.length) {
     const hasRole = allowedRoles.includes(user.role);
-    // Agents with catalog_access granted by admin can access routes that allow 'agent'
-    const hasCatalogAccess = user.role === 'agent' && user.catalog_access && allowedRoles.includes('agent');
+    // Agents (and legacy managers) with catalog_access can use routes that allow that role
+    // Only agents use catalog_access to unlock routes that list 'agent' alongside shop-only roles
+    const hasCatalogAccess =
+      user.catalog_access && allowedRoles.includes('agent') && user.role === 'agent';
     if (!hasRole && !hasCatalogAccess) {
       return <Navigate to="/unauthorized" replace />;
     }

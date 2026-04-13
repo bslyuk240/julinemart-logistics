@@ -7,7 +7,7 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-const allowedRoles = ['admin', 'agent', 'shop_manager', 'vendor'];
+const allowedRoles = ['admin', 'agent', 'shop_manager', 'vendor', 'manager', 'viewer'];
 
 // Get all users
 export async function getUsersHandler(req: AuthRequest, res: Response) {

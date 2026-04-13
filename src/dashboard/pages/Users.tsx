@@ -63,6 +63,8 @@ export function UsersPage() {
       admin: 'bg-red-100 text-red-800',
       agent: 'bg-blue-100 text-blue-800',
       shop_manager: 'bg-purple-100 text-purple-800',
+      manager: 'bg-indigo-100 text-indigo-800',
+      viewer: 'bg-slate-100 text-slate-800',
       vendor: 'bg-green-100 text-green-800',
     };
     return colors[role] || 'bg-gray-100 text-gray-800';
@@ -70,8 +72,9 @@ export function UsersPage() {
 
   const getRoleIcon = (role: string) => {
     if (role === 'admin') return <Shield className="w-4 h-4" />;
-    if (role === 'shop_manager') return <Shield className="w-4 h-4" />;
+    if (role === 'shop_manager' || role === 'manager') return <Shield className="w-4 h-4" />;
     if (role === 'agent') return <UsersIcon className="w-4 h-4" />;
+    if (role === 'viewer') return <Eye className="w-4 h-4" />;
     return <Eye className="w-4 h-4" />;
   };
 
@@ -310,8 +313,15 @@ function UserForm({ user, roles, onClose, onSave }: UserFormProps) {
   });
   const availableRoles = roles.length ? roles : [
     { name: 'admin', display_name: 'Administrator', description: 'Full access' },
-    { name: 'shop_manager', display_name: 'Shop Manager', description: 'Products, vendors & categories' },
+    { name: 'shop_manager', display_name: 'Shop Manager', description: 'Catalog, vendors, categories' },
+    {
+      name: 'manager',
+      display_name: 'Manager',
+      description: 'Ops + catalog + vendors (see docs); not hub dispatch or admin-only screens',
+    },
     { name: 'agent', display_name: 'Agent', description: 'Orders, dispatch & support' },
+    { name: 'viewer', display_name: 'Viewer (legacy)', description: 'Ops pages; no catalog write routes' },
+    { name: 'vendor', display_name: 'Vendor', description: 'Vendor portal only' },
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {

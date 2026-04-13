@@ -12,8 +12,28 @@ const headers = {
 
 const FALLBACK_ROLES = [
   { name: 'admin', display_name: 'Administrator', description: 'Full access to everything' },
-  { name: 'shop_manager', display_name: 'Shop Manager', description: 'Products, vendors & categories' },
-  { name: 'agent', display_name: 'Agent', description: 'Orders, dispatch & support' },
+  {
+    name: 'shop_manager',
+    display_name: 'Shop Manager',
+    description: 'Catalog, vendors, categories (modern ops + merchandising)'
+  },
+  {
+    name: 'manager',
+    display_name: 'Manager',
+    description:
+      'Dashboard, orders, WhatsApp, refunds, rates, catalog, global sourcing, vendors & payouts (no hub dispatch, users, or admin settings)'
+  },
+  { name: 'agent', display_name: 'Agent', description: 'Orders, dispatch, support; optional catalog_access' },
+  {
+    name: 'viewer',
+    display_name: 'Viewer (legacy)',
+    description: 'Read-oriented legacy role: dashboard/orders/dispatch-style pages only (no catalog write screens)'
+  },
+  {
+    name: 'vendor',
+    display_name: 'Vendor',
+    description: 'Vendor portal account (not JLO); create only if they should log into the vendor app'
+  },
 ];
 
 export async function handler(event) {

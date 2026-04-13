@@ -57,6 +57,14 @@ export async function handler(event) {
       return jsonResponse(400, { error: 'Provide id, woo_id, or slug' });
     }
 
+    // Storefront (slug / woo_id): only published, matching catalog-products.
+    // Lookup by Supabase id is used by the dashboard Product Upload editor — allow any status.
+    const listStatus = q.status || 'published';
+    const isStorefrontLookup = !q.id && Boolean(q.slug || q.woo_id);
+    if (isStorefrontLookup && listStatus !== 'all') {
+      productQuery = productQuery.eq('status', listStatus);
+    }
+
     const { data, error } = await productQuery.maybeSingle();
 
     if (error) return jsonResponse(500, { success: false, error: error.message });

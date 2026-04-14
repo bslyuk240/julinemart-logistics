@@ -172,6 +172,7 @@ export async function handler(event) {
         `id, woo_product_id, name, slug, short_description, status, type,
          regular_price, sale_price, sku, stock_status, manage_stock, stock_quantity,
          ships_from_abroad, is_virtual, sourcing_meta, seo_title, created_at,
+         average_rating, rating_count, reviews_allowed,
          vendors!vendor_id ( id, store_name, store_slug, woocommerce_vendor_id ),
          hubs!hub_id ( id, name, code ),
          product_images ( id, src, alt, position, is_thumbnail, variation_id ),

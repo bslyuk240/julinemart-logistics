@@ -10,6 +10,12 @@ function toSlug(name) {
   return name.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').replace(/-+/g, '-');
 }
 
+function optionalNonNegNumber(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 export async function handler(event) {
   const origin = event.headers?.origin || event.headers?.Origin || '';
   if (event.httpMethod === 'OPTIONS') return preflightResponse(origin);
@@ -54,6 +60,7 @@ export async function handler(event) {
     manage_stock = false, stock_quantity, stock_status = 'instock',
     is_virtual = false, ships_from_abroad = false,
     seo_title = '', seo_description = '',
+    weight, length: packLength, width, height,
     images = [],
   } = body;
 
@@ -95,6 +102,10 @@ export async function handler(event) {
       seo_description: seo_description || null,
       updated_at: new Date().toISOString(),
     };
+    if ('weight' in body) productData.weight = optionalNonNegNumber(weight);
+    if ('length' in body) productData.length = optionalNonNegNumber(packLength);
+    if ('width' in body) productData.width = optionalNonNegNumber(width);
+    if ('height' in body) productData.height = optionalNonNegNumber(height);
 
     let savedProduct;
 

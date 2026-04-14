@@ -22,6 +22,7 @@ import { DashboardHome } from './dashboard/pages/DashboardHome';
 import { EmailSettingsPage } from './dashboard/pages/EmailSettings';
 import { GlobalSourcingPage } from './dashboard/pages/GlobalSourcing';
 import { ProductModerationPage } from './dashboard/pages/ProductModeration';
+import ProductReviewsPage from './dashboard/pages/ProductReviewsPage';
 import HomepageContent from './dashboard/pages/HomepageContent';
 import CatalogMigration from './dashboard/pages/CatalogMigration';
 import ProductUpload from './dashboard/pages/ProductUpload';
@@ -88,6 +89,14 @@ const sharedRoutes = [
     element: (
       <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent', 'manager']}>
         <ProductModerationPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: 'products/reviews',
+    element: (
+      <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent', 'manager']}>
+        <ProductReviewsPage />
       </ProtectedRoute>
     ),
   },

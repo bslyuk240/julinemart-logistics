@@ -23,6 +23,7 @@ import {
   BellRing,
   Search,
   ClipboardCheck,
+  Star,
   LayoutGrid,
   DatabaseZap,
   Plus,
@@ -65,6 +66,7 @@ const navigation: NavItem[] = [
   // Catalog: manager always; shop_manager + admin; agents only with catalog_access
   { name: 'Add Product', href: '/admin/products/upload', icon: Plus, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
   { name: 'Product Moderation', href: '/admin/products/moderation', icon: ClipboardCheck, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
+  { name: 'Product Reviews', href: '/admin/products/reviews', icon: Star, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
   { name: 'Global Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
   { name: 'Homepage Content', href: '/admin/homepage-content', icon: LayoutGrid, roles: ['admin'] },
   { name: 'Catalog Migration', href: '/admin/catalog-migration', icon: DatabaseZap, roles: ['admin'] },

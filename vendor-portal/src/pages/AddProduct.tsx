@@ -66,6 +66,10 @@ interface FormState {
   ships_from_abroad: boolean;
   seo_title: string;
   seo_description: string;
+  weight: string;
+  length: string;
+  width: string;
+  height: string;
   category_ids: string[];
   tag_ids: string[];
   images: ImageRow[];
@@ -80,6 +84,13 @@ function toSlug(name: string): string {
     .trim()
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-');
+}
+
+function toNullableDim(value: string): number | null {
+  if (value === '' || value == null) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
 }
 
 function generateCombinations(varAttrs: VarAttr[]): { name: string; value: string }[][] {
@@ -164,6 +175,10 @@ const INITIAL_FORM: FormState = {
   ships_from_abroad: false,
   seo_title: '',
   seo_description: '',
+  weight: '',
+  length: '',
+  width: '',
+  height: '',
   category_ids: [],
   tag_ids: [],
   images: [],
@@ -259,6 +274,10 @@ export default function AddProduct() {
           ships_from_abroad: prod.ships_from_abroad || false,
           seo_title: prod.seo_title || '',
           seo_description: prod.seo_description || '',
+          weight: prod.weight != null ? String(prod.weight) : '',
+          length: prod.length != null ? String(prod.length) : '',
+          width: prod.width != null ? String(prod.width) : '',
+          height: prod.height != null ? String(prod.height) : '',
           category_ids: (catRes.data || []).map((r: { category_id: string }) => r.category_id),
           tag_ids: (tagRes.data || []).map((r: { tag_id: string }) => r.tag_id),
           images: (imgRes.data || []).map((img: ImageRow) => ({
@@ -515,6 +534,10 @@ export default function AddProduct() {
         images: form.images,
         category_ids: form.category_ids,
         tag_ids: form.tag_ids,
+        weight: toNullableDim(form.weight),
+        length: toNullableDim(form.length),
+        width: toNullableDim(form.width),
+        height: toNullableDim(form.height),
       };
 
       if (form.type === 'simple') {
@@ -678,6 +701,66 @@ export default function AddProduct() {
               <p className="text-xs text-gray-400 mt-1">
                 Includes images and formatting from imports. Use the image button to add a picture by URL.
               </p>
+            </div>
+          </div>
+
+          {/* Package & shipping */}
+          <div className="card space-y-4">
+            <h2 className="font-semibold text-gray-900">Package & shipping</h2>
+            <p className="text-xs text-gray-500">
+              Used for delivery quotes (e.g. per-kg rates). Optional for digital goods.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Weight (kg)</label>
+                <input
+                  className="input"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="e.g. 0.5"
+                  value={form.weight}
+                  onChange={e => setField('weight', e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">L (cm)</label>
+                <input
+                  className="input text-sm"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  placeholder="—"
+                  value={form.length}
+                  onChange={e => setField('length', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">W (cm)</label>
+                <input
+                  className="input text-sm"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  placeholder="—"
+                  value={form.width}
+                  onChange={e => setField('width', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">H (cm)</label>
+                <input
+                  className="input text-sm"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  placeholder="—"
+                  value={form.height}
+                  onChange={e => setField('height', e.target.value)}
+                />
+              </div>
             </div>
           </div>
 

@@ -73,6 +73,35 @@ export const api = {
   deleteProduct: (id: string) =>
     request<unknown>(`vendor-product-upsert?id=${id}`, { method: 'DELETE' }),
 
+  /** All reviews for this vendor's products (every status). */
+  getVendorProductReviews: async (params?: Record<string, string>) => {
+    const token = await getToken();
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    const url = `${JLO_BASE}/.netlify/functions/vendor-product-reviews${qs}`;
+    const res = await fetch(url, {
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      throw new Error(json.error || `HTTP ${res.status}`);
+    }
+    return json as {
+      success: boolean;
+      data: Array<{
+        id: string;
+        created_at: string;
+        rating: number;
+        body: string;
+        status: string;
+        reviewer_name: string;
+        reviewer_email: string;
+        woo_product_id: number | null;
+        products?: { name: string; slug: string } | null;
+      }>;
+      meta: { page: number; per_page: number; total: number; total_pages: number };
+    };
+  },
+
   getWithdrawals:     ()             => request<any[]>('vendor-withdrawals'),
   requestWithdrawal:  (body: object) => request<any>('vendor-withdrawals', { method: 'POST', body: JSON.stringify(body) }),
   updateWithdrawal:   (id: string, body: object) =>

@@ -70,6 +70,10 @@ export async function handler(event) {
     hub_id,
     seo_title,
     seo_description,
+    weight,
+    length: packLength,
+    width,
+    height,
     images = [],       // [{ src, alt, position, is_thumbnail }]
     category_ids, // uuid[] — only replace maps when 'category_ids' in body
     tag_ids, // uuid[]
@@ -84,6 +88,13 @@ export async function handler(event) {
 
   if (isPost && !name) return jsonResponse(400, { error: 'name is required' });
   if (isPost && !slug) return jsonResponse(400, { error: 'slug is required' });
+
+  const optionalNonNegNumber = (v) => {
+    if (v === undefined) return undefined;
+    if (v === null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
 
   try {
     const productData = {
@@ -105,6 +116,10 @@ export async function handler(event) {
       ...(hub_id !== undefined && { hub_id: hub_id || null }),
       ...(seo_title !== undefined && { seo_title: seo_title || null }),
       ...(seo_description !== undefined && { seo_description: seo_description || null }),
+      ...(weight !== undefined && { weight: optionalNonNegNumber(weight) }),
+      ...(packLength !== undefined && { length: optionalNonNegNumber(packLength) }),
+      ...(width !== undefined && { width: optionalNonNegNumber(width) }),
+      ...(height !== undefined && { height: optionalNonNegNumber(height) }),
       updated_at: new Date().toISOString(),
     };
 

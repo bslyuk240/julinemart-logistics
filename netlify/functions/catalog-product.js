@@ -29,6 +29,7 @@ export async function handler(event) {
          regular_price, sale_price, sku, weight, length, width, height,
          manage_stock, stock_quantity, stock_status,
          is_virtual, is_downloadable, ships_from_abroad, sold_individually,
+         average_rating, rating_count, reviews_allowed,
          sourcing_meta, seo_title, seo_description, created_at, updated_at,
          vendors!vendor_id ( id, store_name, store_slug, woocommerce_vendor_id, phone, city, state ),
          hubs!hub_id ( id, name, code, city, state ),

@@ -70,6 +70,12 @@ interface FormState {
   hub_id: string;
   seo_title: string;
   seo_description: string;
+  /** Product weight in kg (shipping). */
+  weight: string;
+  /** Package length / width / height in cm. */
+  length: string;
+  width: string;
+  height: string;
   category_ids: string[];
   tag_ids: string[];
   images: ImageRow[];
@@ -83,6 +89,7 @@ const EMPTY_FORM: FormState = {
   is_virtual: false, ships_from_abroad: false,
   vendor_id: '', hub_id: '',
   seo_title: '', seo_description: '',
+  weight: '', length: '', width: '', height: '',
   category_ids: [], tag_ids: [], images: [],
 };
 
@@ -95,6 +102,14 @@ function toSlug(name: string): string {
     .trim()
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-');
+}
+
+/** Parse optional dimension/weight field: empty → null, invalid → null. */
+function toNullableDim(value: string): number | null {
+  if (value === '' || value == null) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
 }
 
 function attrSignature(attrs: { name: string; value: string }[]): string {
@@ -412,6 +427,10 @@ export default function ProductUpload() {
         hub_id: p.hub?.id || '',
         seo_title: p.seo_title || '',
         seo_description: p.seo_description || '',
+        weight: p.weight != null ? String(p.weight) : '',
+        length: p.length != null ? String(p.length) : '',
+        width: p.width != null ? String(p.width) : '',
+        height: p.height != null ? String(p.height) : '',
         category_ids: (p.categories || []).map((c: any) => c.id),
         tag_ids: (p.tags || []).map((t: any) => t.id),
         images: (p.images || []).map((img: any) => ({
@@ -582,6 +601,10 @@ export default function ProductUpload() {
             : null,
         vendor_id: form.vendor_id || null,
         hub_id: form.hub_id || null,
+        weight: toNullableDim(form.weight),
+        length: toNullableDim(form.length),
+        width: toNullableDim(form.width),
+        height: toNullableDim(form.height),
       };
 
       // Include attributes + variations for variable products
@@ -812,6 +835,66 @@ export default function ProductUpload() {
               />
               <span className="text-sm text-gray-700">Virtual product (no shipping)</span>
             </label>
+          </div>
+        </section>
+
+        {/* ── Package & shipping (stored on product; used for per-kg quotes) ─ */}
+        <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+          <h2 className="font-semibold text-gray-900">Package & shipping</h2>
+          <p className="text-xs text-gray-500">
+            Weight and size feed checkout shipping (e.g. flat rate + per kg). Leave blank if unknown; virtual goods can skip.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Weight (kg)</label>
+              <input
+                type="number"
+                value={form.weight}
+                onChange={(e) => set('weight', e.target.value)}
+                min="0"
+                step="0.01"
+                placeholder="e.g. 0.5"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Length (cm)</label>
+              <input
+                type="number"
+                value={form.length}
+                onChange={(e) => set('length', e.target.value)}
+                min="0"
+                step="0.1"
+                placeholder="—"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Width (cm)</label>
+              <input
+                type="number"
+                value={form.width}
+                onChange={(e) => set('width', e.target.value)}
+                min="0"
+                step="0.1"
+                placeholder="—"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Height (cm)</label>
+              <input
+                type="number"
+                value={form.height}
+                onChange={(e) => set('height', e.target.value)}
+                min="0"
+                step="0.1"
+                placeholder="—"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+              />
+            </div>
           </div>
         </section>
 

@@ -1,6 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Package, ShoppingBag, TrendingUp,
+  LayoutDashboard, Package, ShoppingBag, TrendingUp, Star,
   Wallet, Settings, LogOut, Store,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -9,6 +9,7 @@ const nav = [
   { to: '/',            label: 'Home',      icon: LayoutDashboard },
   { to: '/products',    label: 'Products',  icon: Package },
   { to: '/orders',      label: 'Orders',    icon: ShoppingBag },
+  { to: '/reviews',     label: 'Reviews',   icon: Star },
   { to: '/withdrawals', label: 'Withdraw',  icon: Wallet },
   { to: '/settings',    label: 'Settings',  icon: Settings },
 ];
@@ -18,6 +19,7 @@ const sidebarNav = [
   { to: '/',            label: 'Dashboard',   icon: LayoutDashboard },
   { to: '/products',    label: 'Products',    icon: Package },
   { to: '/orders',      label: 'Orders',      icon: ShoppingBag },
+  { to: '/reviews',     label: 'Reviews',     icon: Star },
   { to: '/earnings',    label: 'Earnings',    icon: TrendingUp },
   { to: '/withdrawals', label: 'Withdrawals', icon: Wallet },
   { to: '/settings',    label: 'Settings',    icon: Settings },

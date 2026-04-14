@@ -109,9 +109,7 @@ export default function Register() {
       if (!form.account_number.trim() || form.account_number.length < 10) e.account_number = '10-digit account number required';
       if (!form.account_name.trim()) e.account_name = 'Required';
     }
-    if (s === 4) {
-      if (!form.id_document) e.id_document = 'Government ID is required';
-    }
+    // Step 4: documents are optional (KYC may be completed later).
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -346,11 +344,11 @@ export default function Register() {
             <div className="space-y-4">
               <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">KYC Documents</h2>
               <p className="text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-lg p-3">
-                Upload clear copies. Accepted formats: JPG, PNG, PDF. Max 5MB each.
+                Upload clear copies if you have them. Accepted formats: JPG, PNG, PDF. Max 5MB each. You can submit without documents and complete KYC later if needed.
               </p>
 
-              <Field label="Government-issued ID *" error={errors.id_document}>
-                <p className="text-xs text-gray-400 mb-1.5">NIN slip, voter's card, driver's licence, or international passport</p>
+              <Field label="Government-issued ID (optional)" error={errors.id_document}>
+                <p className="text-xs text-gray-400 mb-1.5">NIN slip, voter&apos;s card, driver&apos;s licence, or international passport</p>
                 <FileInput
                   value={form.id_document}
                   onChange={f => set('id_document', f)}

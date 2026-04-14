@@ -16,13 +16,35 @@
  *   order_notes?: string
  */
 
-import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
+import {
+  headers,
+  jsonResponse,
+  adminClient,
+  isPlainObject,
+  mergeGlobalSourcingMetadata,
+  extractGlobalSourcingFromSupabaseMeta,
+} from './services/global-sourcing-utils.js';
+import { autoCreateCjOrdersForSubOrders } from './services/global-sourcing-cj.js';
 import { sendOrderEmails } from '../../shared/orderConfirmationEmail.js';
 
 function generateRef() {
   const ts = Date.now().toString(36).toUpperCase();
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
   return `JLO-${ts}-${rand}`;
+}
+
+/** Match sub_orders.tracking_number placeholder style from woocommerce-webhook */
+function jloTrackingPlaceholder() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let s = 'JLO-';
+  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
+function mergeProductVariationSourcingMeta(product, variation) {
+  const base = isPlainObject(product?.sourcing_meta) ? product.sourcing_meta : {};
+  const over = isPlainObject(variation?.sourcing_meta) ? variation.sourcing_meta : {};
+  return { ...base, ...over };
 }
 
 export async function handler(event) {
@@ -85,8 +107,10 @@ export async function handler(event) {
     const variationUuids = variationIds.filter(isUuid);
     const variationWooIds = variationIds.filter((id) => !isUuid(id) && Number(id) > 0).map(Number);
 
-    const productSelect = 'id, woo_product_id, name, slug, sku, regular_price, sale_price, stock_status, vendor_id, hub_id, type';
-    const variationSelect = 'id, woo_variation_id, product_id, sku, regular_price, sale_price, stock_status, attributes, vendor_id, hub_id';
+    const productSelect =
+      'id, woo_product_id, name, slug, sku, regular_price, sale_price, stock_status, vendor_id, hub_id, type, sourcing_meta, ships_from_abroad';
+    const variationSelect =
+      'id, woo_variation_id, product_id, sku, regular_price, sale_price, stock_status, attributes, vendor_id, hub_id, sourcing_meta';
 
     const [
       { data: productsByUuid },
@@ -143,7 +167,7 @@ export async function handler(event) {
       if (unitPrice <= 0 && product.type === 'variable' && !variation) {
         const { data: fallbackVars } = await adminClient
           .from('product_variations')
-          .select('id, regular_price, sale_price, sku, vendor_id, hub_id')
+          .select('id, regular_price, sale_price, sku, vendor_id, hub_id, sourcing_meta')
           .eq('product_id', product.id)
           .eq('is_active', true)
           .order('regular_price', { ascending: true })
@@ -161,6 +185,13 @@ export async function handler(event) {
 
       // source may be the resolved variation, fallback variation, or product
       const effectiveVariation = variation || (source !== product ? source : null);
+      const hubFallback = effectiveVariation?.hub_id || product.hub_id || null;
+      const mergedSourcingMeta = mergeProductVariationSourcingMeta(product, effectiveVariation);
+      const globalSourcing = extractGlobalSourcingFromSupabaseMeta(mergedSourcingMeta, {
+        hubIdFallback: hubFallback,
+        shipsFromAbroadColumn: product.ships_from_abroad === true,
+      });
+
       resolvedItems.push({
         product_id: product.id,
         product_name: product.name,
@@ -172,6 +203,7 @@ export async function handler(event) {
         unit_price: unitPrice,
         quantity: item.quantity,
         subtotal: unitPrice * item.quantity,
+        globalSourcing,
         // for sub_order items JSONB
         _name: product.name,
         _sku: effectiveVariation?.sku || product.sku || null,
@@ -300,6 +332,7 @@ export async function handler(event) {
         vendorId: item._vendorId,
         hubId: item._hubId,
         variationAttributes: item._variationAttributes,
+        ...(item.globalSourcing && { globalSourcing: item.globalSourcing }),
       });
     }
 
@@ -333,19 +366,121 @@ export async function handler(event) {
       }
     }
 
-    const subOrderRows = Array.from(vendorGroups.values()).map((g) => ({
-      main_order_id: orderId,
-      vendor_id: g.vendor_id,
-      hub_id: g.hub_id,
-      courier_id: hubCourierMap[g.hub_id]?.courierId || null,
-      items: g.items,
-      subtotal: g.subtotal,
-      allocated_shipping_fee: vendorGroups.size === 1 ? shippingFee : 0,
-      status: 'pending',
-    }));
+    const subOrderRows = Array.from(vendorGroups.values()).map((g) => {
+      const sourcedItems = g.items.filter(
+        (line) => line.globalSourcing?.fulfillmentMode === 'cj_hub'
+      );
+      const sourceSeed = sourcedItems[0]?.globalSourcing || null;
 
-    const { error: subErr } = await adminClient.from('sub_orders').insert(subOrderRows);
+      const baseMetadata = {
+        source: 'pwa',
+        order_confirmation_handler: 'netlify_create_order',
+      };
+
+      const metadata = sourceSeed
+        ? mergeGlobalSourcingMetadata(baseMetadata, {
+            fulfillment_mode: sourceSeed.fulfillmentMode || 'cj_hub',
+            global_sourcing: {
+              provider: sourceSeed.provider || 'cj',
+              cj_order_id: null,
+              receiving_hub_id: sourceSeed.receivingHubId || g.hub_id,
+              inbound_status: 'awaiting_supplier_fulfillment',
+              supplier_order_mode: 'automatic',
+              supplier_order_status: 'awaiting_supplier_order',
+              inbound_tracking_number: null,
+              items: sourcedItems.map((line) => ({
+                product_id: line.productId,
+                variation_id: line.variationId,
+                cj_pid: line.globalSourcing?.cjPid || null,
+                cj_vid: line.globalSourcing?.cjVid || null,
+                quantity: line.quantity || 1,
+                name: line.name || null,
+              })),
+            },
+          })
+        : baseMetadata;
+
+      return {
+        main_order_id: orderId,
+        vendor_id: g.vendor_id,
+        hub_id: g.hub_id,
+        courier_id: hubCourierMap[g.hub_id]?.courierId || null,
+        tracking_number: jloTrackingPlaceholder(),
+        items: g.items,
+        subtotal: g.subtotal,
+        allocated_shipping_fee: vendorGroups.size === 1 ? shippingFee : 0,
+        status: 'pending',
+        metadata,
+      };
+    });
+
+    const { data: insertedSubOrders, error: subErr } = await adminClient
+      .from('sub_orders')
+      .insert(subOrderRows)
+      .select();
     if (subErr) return jsonResponse(500, { error: 'Failed to create sub-orders', detail: subErr.message });
+
+    const subOrders = insertedSubOrders || [];
+
+    if (subOrders.length > 0) {
+      const trackingEvents = subOrders.map((subOrder) => ({
+        sub_order_id: subOrder.id,
+        status: 'pending',
+        description: 'Order received from JulineMart',
+        location_name: 'Processing Center',
+        event_time: new Date().toISOString(),
+      }));
+      await adminClient.from('tracking_events').insert(trackingEvents);
+
+      const wooOrderRef = String(orderNumber);
+      const inboundShipments = subOrders
+        .map((subOrder) => {
+          const sourcing = subOrder.metadata?.global_sourcing;
+          if (subOrder.metadata?.fulfillment_mode !== 'cj_hub' || !sourcing) return null;
+
+          const shipItems = Array.isArray(sourcing.items) ? sourcing.items : [];
+          const primaryItem = shipItems[0] || {};
+
+          return {
+            woo_order_id: wooOrderRef,
+            sub_order_id: subOrder.id,
+            vendor_id: subOrder.vendor_id || null,
+            hub_id: sourcing.receiving_hub_id || subOrder.hub_id || null,
+            provider: sourcing.provider || 'cj',
+            cj_order_id: sourcing.cj_order_id || null,
+            cj_pid: primaryItem.cj_pid || null,
+            cj_vid: primaryItem.cj_vid || null,
+            inbound_tracking_number: sourcing.inbound_tracking_number || null,
+            inbound_status: sourcing.inbound_status || 'awaiting_supplier_fulfillment',
+            supplier_order_mode: sourcing.supplier_order_mode || 'automatic',
+            supplier_order_status: sourcing.supplier_order_status || 'awaiting_supplier_order',
+            metadata: {
+              source: 'pwa_create_order',
+              item_count: shipItems.length,
+              items: shipItems,
+            },
+          };
+        })
+        .filter(Boolean);
+
+      if (inboundShipments.length > 0) {
+        try {
+          await adminClient.from('cj_inbound_shipments').insert(inboundShipments);
+        } catch (inboundError) {
+          console.warn('Unable to create CJ inbound shipment placeholders (PWA):', inboundError);
+        }
+      }
+
+      try {
+        await autoCreateCjOrdersForSubOrders({
+          client: adminClient,
+          subOrders,
+          wooOrderId: wooOrderRef,
+        });
+      } catch (cjOrderError) {
+        console.warn('Unable to auto-create CJ supplier orders (PWA):', cjOrderError);
+      }
+    }
 
     // ── Increment voucher usage ────────────────────────────────────────────
     if (voucherRow) {

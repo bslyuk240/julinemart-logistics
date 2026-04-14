@@ -1468,6 +1468,110 @@ export function extractGlobalSourcingFromMeta(metaData) {
   };
 }
 
+function pickSupabaseSourcingField(meta, keys) {
+  if (!isPlainObject(meta)) return null;
+  for (const key of keys) {
+    if (meta[key] === undefined || meta[key] === null) continue;
+    const normalized = String(meta[key]).trim();
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+/**
+ * Same rules as extractGlobalSourcingFromMeta, but reads Supabase JSONB `sourcing_meta`
+ * (underscore keys from buildGlobalSourcingMeta) plus optional hub / ships-from-abroad fallbacks.
+ */
+export function extractGlobalSourcingFromSupabaseMeta(meta, options = {}) {
+  if (!isPlainObject(meta)) return null;
+
+  const hubIdFallback =
+    options.hubIdFallback !== undefined &&
+    options.hubIdFallback !== null &&
+    String(options.hubIdFallback).trim()
+      ? String(options.hubIdFallback).trim()
+      : null;
+  const shipsFromAbroadColumn = options.shipsFromAbroadColumn === true;
+
+  const provider = pickSupabaseSourcingField(meta, [
+    '_global_sourcing_provider',
+    'global_sourcing_provider',
+  ]);
+  const fulfillmentMode = pickSupabaseSourcingField(meta, ['_fulfillment_mode', 'fulfillment_mode']);
+  const cjPid = pickSupabaseSourcingField(meta, [
+    '_cj_pid',
+    'cj_pid',
+    'cj_product_id',
+  ]);
+  const cjVid = pickSupabaseSourcingField(meta, ['_cj_vid', 'cj_vid', 'cj_variant_id']);
+  const supplierSource = pickSupabaseSourcingField(meta, ['_supplier_source', 'supplier_source']);
+  const supplierProductId = pickSupabaseSourcingField(meta, [
+    '_supplier_product_id',
+    'supplier_product_id',
+  ]);
+  const supplierVariantId = pickSupabaseSourcingField(meta, [
+    '_supplier_variant_id',
+    'supplier_variant_id',
+  ]);
+  const supplierUrl = pickSupabaseSourcingField(meta, ['_supplier_url', 'supplier_url']);
+  let receivingHubId = pickSupabaseSourcingField(meta, [
+    '_receiving_hub_id',
+    'receiving_hub_id',
+    '_julinemart_hub_id',
+    '_hub_id',
+    'hub_id',
+  ]);
+  if (!receivingHubId && hubIdFallback) {
+    receivingHubId = hubIdFallback;
+  }
+  const sourcingTag = pickSupabaseSourcingField(meta, [
+    '_global_sourcing_tag',
+    'global_sourcing_tag',
+  ]);
+  const vendorId = pickSupabaseSourcingField(meta, ['vendor_id', '_vendor_id', '_jlo_vendor_id']);
+  const woocommerceVendorId = pickSupabaseSourcingField(meta, [
+    '_woocommerce_vendor_id',
+    '_wcfm_vendor_id',
+    'wcfm_vendor_id',
+  ]);
+  let shipsFromAbroad = pickSupabaseSourcingField(meta, [
+    '_ships_from_abroad',
+    'ships_from_abroad',
+  ]);
+  if (!shipsFromAbroad && shipsFromAbroadColumn) {
+    shipsFromAbroad = 'yes';
+  }
+
+  const isCjHub = fulfillmentMode === 'cj_hub';
+  const normalizedProvider = String(provider || 'cj').trim().toLowerCase() || 'cj';
+  const isSupportedProvider = ['cj', 'aliexpress'].includes(normalizedProvider);
+  const hasCoreSourcingFields = Boolean(
+    receivingHubId &&
+      (cjPid ||
+        cjVid ||
+        supplierProductId ||
+        supplierVariantId ||
+        shipsFromAbroad === 'yes')
+  );
+
+  if (!isCjHub || !isSupportedProvider || !hasCoreSourcingFields) return null;
+
+  return {
+    provider: normalizedProvider,
+    fulfillmentMode,
+    cjPid: cjPid || null,
+    cjVid: cjVid || null,
+    supplierSource: supplierSource || (normalizedProvider !== 'cj' ? normalizedProvider : null),
+    supplierProductId: supplierProductId || null,
+    supplierVariantId: supplierVariantId || null,
+    supplierUrl: supplierUrl || null,
+    receivingHubId: receivingHubId || null,
+    sourcingTag: sourcingTag || 'Ships from Abroad',
+    vendorId: vendorId || null,
+    woocommerceVendorId: woocommerceVendorId || null,
+  };
+}
+
 const productSourcingCache = new Map();
 
 export async function fetchWooProductSourcingContext({ productId, variationId }) {

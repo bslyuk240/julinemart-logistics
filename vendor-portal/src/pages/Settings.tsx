@@ -197,13 +197,6 @@ export default function Settings() {
                     onError={e => (e.currentTarget.style.display = 'none')}
                   />
                 )}
-                <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Or paste image URL</label>
-                <input
-                  className="input text-sm"
-                  value={storeForm.logo_url}
-                  onChange={e => setStoreForm(p => ({ ...p, logo_url: e.target.value }))}
-                  placeholder="https://…"
-                />
               </div>
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1.5">Store banner</label>
@@ -238,13 +231,6 @@ export default function Settings() {
                     onError={e => (e.currentTarget.style.display = 'none')}
                   />
                 )}
-                <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Or paste image URL</label>
-                <input
-                  className="input text-sm"
-                  value={storeForm.banner_url}
-                  onChange={e => setStoreForm(p => ({ ...p, banner_url: e.target.value }))}
-                  placeholder="https://…"
-                />
               </div>
             </div>
             <button type="submit" disabled={saving === 'store'} className="btn-primary w-full mt-5">

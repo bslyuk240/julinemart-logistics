@@ -4,6 +4,8 @@ import {
   Wallet, Settings, LogOut, Store,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { JulineMartWordmark } from './JulineMartWordmark';
+import { ensureSupabaseStoragePublicUrl } from '../lib/supabase';
 
 const nav = [
   { to: '/',            label: 'Home',      icon: LayoutDashboard },
@@ -42,12 +44,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Brand header */}
         <div className="brand-gradient px-5 py-4">
           <div className="flex items-center gap-2.5 mb-3">
-            <img src="/logo.svg" alt="JulineMart" className="h-7 object-contain brightness-0 invert" />
+            <JulineMartWordmark variant="onGradient" className="text-xl leading-none" />
           </div>
           <p className="text-primary-100 text-xs font-medium mb-3">Vendor Portal</p>
           <div className="bg-white/10 rounded-xl px-3 py-2.5 flex items-center gap-3">
             {vendor?.logo_url
-              ? <img src={vendor.logo_url} alt="" className="w-9 h-9 rounded-full object-cover ring-2 ring-white/30"
+              ? <img src={ensureSupabaseStoragePublicUrl(vendor.logo_url)} alt="" className="w-9 h-9 rounded-full object-cover ring-2 ring-white/30"
                   onError={e => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling?.removeAttribute('style'); }} />
               : null
             }
@@ -116,7 +118,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <header className="lg:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white border-b border-gray-100 shadow-sm">
           <div className="flex items-center gap-2.5">
             {vendor?.logo_url
-              ? <img src={vendor.logo_url} alt="" className="w-8 h-8 rounded-full object-cover"
+              ? <img src={ensureSupabaseStoragePublicUrl(vendor.logo_url)} alt="" className="w-8 h-8 rounded-full object-cover"
                   onError={e => { e.currentTarget.style.display = 'none'; (e.currentTarget.nextElementSibling as HTMLElement)?.style.removeProperty('display'); }} />
               : null
             }
@@ -131,7 +133,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               )}
             </div>
           </div>
-          <img src="/logo.svg" alt="JulineMart" className="h-6 object-contain" />
+          <JulineMartWordmark variant="onLight" className="text-base max-w-[7rem] text-right" />
         </header>
 
         {/* Page content — safe-bottom adds padding so bottom nav doesn't overlap */}

@@ -1,6 +1,7 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { JulineMartWordmark } from '../components/JulineMartWordmark';
 
 export default function SetPassword() {
   const navigate = useNavigate();
@@ -49,7 +50,7 @@ export default function SetPassword() {
     <div className="min-h-screen flex items-center justify-center p-6 bg-gray-50">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <img src="/logo.svg" alt="JulineMart" className="h-10 object-contain mx-auto mb-3" />
+          <JulineMartWordmark variant="onLight" className="text-3xl mx-auto mb-3" />
           <h1 className="text-2xl font-bold text-gray-900">
             {tokenType === 'invite' ? 'Welcome! Set Your Password' : 'Set New Password'}
           </h1>

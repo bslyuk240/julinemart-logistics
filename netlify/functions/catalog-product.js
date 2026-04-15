@@ -84,18 +84,44 @@ export async function handler(event) {
   }
 }
 
+function variationStableSortKey(v) {
+  const attrs = Array.isArray(v.attributes) ? v.attributes : [];
+  const attrPart = attrs
+    .map((a) => {
+      const name = String(a?.name ?? '').trim().toLowerCase();
+      const value = String(a?.value ?? a?.option ?? '').trim().toLowerCase();
+      return `${name}::${value}`;
+    })
+    .filter((pair) => pair !== '::')
+    .sort()
+    .join('|');
+  const woo = Number(v.woo_variation_id);
+  const wooPart = Number.isFinite(woo) && woo > 0 ? woo : 0;
+  const meta = v.sourcing_meta && typeof v.sourcing_meta === 'object' ? v.sourcing_meta : {};
+  const cjVid = String(meta.cj_vid ?? meta.cj_variant_id ?? '').trim();
+  const cjPart = cjVid || '';
+  return [attrPart, wooPart, cjPart, String(v.id || '')].join('\0');
+}
+
 function normalizeProductDetail(p) {
   const allImages = (p.product_images || []).sort((a, b) => a.position - b.position);
   const productImages = allImages.filter((img) => !img.variation_id);
 
   const variations = (p.product_variations || [])
     .filter((v) => v.is_active)
-    .map((v) => ({
-      ...v,
-      image: (v.product_images || [])[0] || null,
-      product_images: undefined,
-    }))
-    .sort((a, b) => (a.woo_variation_id || 0) - (b.woo_variation_id || 0));
+    .map((v) => {
+      const vImages = (v.product_images || []).slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      return {
+        ...v,
+        image: vImages[0] || null,
+        product_images: undefined,
+      };
+    })
+    .sort((a, b) => {
+      const wooDiff = (a.woo_variation_id || 0) - (b.woo_variation_id || 0);
+      if (wooDiff !== 0) return wooDiff;
+      return variationStableSortKey(a).localeCompare(variationStableSortKey(b), undefined, { numeric: true });
+    });
 
   const attributes = (p.product_attribute_map || [])
     .sort((a, b) => a.display_order - b.display_order)

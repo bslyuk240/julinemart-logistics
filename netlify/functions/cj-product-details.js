@@ -247,9 +247,15 @@ function normalizeProduct(payload, externalProductId) {
     currency: product?.currency || product?.currencyCode || 'USD',
   };
 
-  const variants = pickVariantList(payload)
+  const variantsRaw = pickVariantList(payload)
     .map((entry) => normalizeVariant(entry, normalized))
     .filter((entry) => entry.external_variant_id || Object.keys(entry.attributes).length > 0);
+
+  const variants = variantsRaw.slice().sort((left, right) => {
+    const a = String(left.external_variant_id || '');
+    const b = String(right.external_variant_id || '');
+    return a.localeCompare(b, undefined, { numeric: true });
+  });
 
   return {
     ...normalized,

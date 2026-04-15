@@ -133,6 +133,21 @@ function generateCombinations(varAttrs: VarAttr[]): { name: string; value: strin
   );
 }
 
+/** Align variation rows with the same cartesian order used by "Generate variations" in the UI. */
+function sortVariationsLikeMatrix(rows: VarRow[], varAttrs: VarAttr[]): VarRow[] {
+  const combos = generateCombinations(varAttrs);
+  if (combos.length === 0) return rows;
+  const indexBySig = new Map(combos.map((c, i) => [attrSignature(c), i] as const));
+  return rows.slice().sort((a, b) => {
+    const ia = indexBySig.get(attrSignature(a.attributes));
+    const ib = indexBySig.get(attrSignature(b.attributes));
+    if (ia === undefined && ib === undefined) return 0;
+    if (ia === undefined) return 1;
+    if (ib === undefined) return -1;
+    return ia - ib;
+  });
+}
+
 /** Minimal HTML entity decode for category names stored as `Baby &amp; Kids`. */
 function decodeBasicHtmlEntities(s: string): string {
   return s
@@ -446,26 +461,27 @@ export default function ProductUpload() {
           optionsRaw: (a.options || []).join(', '),
           is_variation: a.is_variation ?? true,
         }));
-        setVarAttrs(attrs.length > 0 ? attrs : [{ name: '', optionsRaw: '', is_variation: true }]);
+        const attrsForEditor =
+          attrs.length > 0 ? attrs : [{ name: '', optionsRaw: '', is_variation: true }];
+        setVarAttrs(attrsForEditor);
 
-        setVariations(
-          (p.variations || []).map((v: any) => ({
-            id: v.id,
-            // Normalize variation attributes to {name, value} for the editor.
-            // Supabase may return [{name, value}] (import format) or
-            // [{name, option}] (WC-mapped format from catalog-product).
-            attributes: Array.isArray(v.attributes)
-              ? v.attributes.map((a: any) => ({ name: a.name ?? '', value: a.value ?? a.option ?? '' }))
-              : [],
-            sku: v.sku || '',
-            regular_price: v.regular_price != null ? String(v.regular_price) : '',
-            sale_price: v.sale_price != null ? String(v.sale_price) : '',
-            stock_status: v.stock_status || 'instock',
-            manage_stock: !!v.manage_stock,
-            stock_quantity: v.stock_quantity != null ? String(v.stock_quantity) : '',
-            image_url: v.image?.src || '',
-          }))
-        );
+        const rows: VarRow[] = (p.variations || []).map((v: any) => ({
+          id: v.id,
+          // Normalize variation attributes to {name, value} for the editor.
+          // Supabase may return [{name, value}] (import format) or
+          // [{name, option}] (WC-mapped format from catalog-product).
+          attributes: Array.isArray(v.attributes)
+            ? v.attributes.map((a: any) => ({ name: a.name ?? '', value: a.value ?? a.option ?? '' }))
+            : [],
+          sku: v.sku || '',
+          regular_price: v.regular_price != null ? String(v.regular_price) : '',
+          sale_price: v.sale_price != null ? String(v.sale_price) : '',
+          stock_status: v.stock_status || 'instock',
+          manage_stock: !!v.manage_stock,
+          stock_quantity: v.stock_quantity != null ? String(v.stock_quantity) : '',
+          image_url: v.image?.src || '',
+        }));
+        setVariations(sortVariationsLikeMatrix(rows, attrsForEditor));
       }
 
       slugEditedManually.current = true;

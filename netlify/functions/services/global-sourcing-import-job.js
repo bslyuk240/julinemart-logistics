@@ -1068,9 +1068,11 @@ async function processVariationBatch(adminClient, job) {
         variationId = inserted.id;
       }
 
-      // Write variation image (CJ URL directly)
+      // Always persist per-variation images when CJ provides a URL, even when it matches the
+      // product gallery primary — skipping caused storefront / editors to fall back to gallery
+      // order and look "shifted" vs attribute rows (white↔red, US↔UK, etc.).
       const variantImageUrl = String(variant.image || '').trim();
-      if (variantImageUrl && variantImageUrl !== cursor.sourceProductPrimaryImage) {
+      if (variantImageUrl) {
         await writeVariationImage(adminClient, productId, variationId, variantImageUrl);
       }
 

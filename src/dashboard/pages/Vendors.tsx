@@ -114,14 +114,15 @@ export function VendorsPage() {
 
   const loadApps = useCallback(async () => {
     setAppsLoading(true);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let q = (supabase as any)
-      .from('vendor_applications')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (appFilter !== 'all') q = q.eq('status', appFilter);
-    const { data } = await q;
-    setApps((data as Application[]) || []);
+    // Load via Netlify + service role: direct Supabase select is blocked by RLS
+    // while vendor-register inserts with service role, so the Applications tab stayed empty.
+    const res = await callApi('vendor-applications-list', { status: appFilter });
+    if (res.success && Array.isArray(res.applications)) {
+      setApps(res.applications as Application[]);
+    } else {
+      console.error('vendor-applications-list:', res.error || res);
+      setApps([]);
+    }
     setAppsLoading(false);
   }, [appFilter]);
 

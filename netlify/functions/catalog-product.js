@@ -5,6 +5,10 @@
  *
  * Returns a single product with full detail:
  * vendor, hub, images, categories, tags, attributes, variations.
+ *
+ * Variation row order follows the cartesian order of variation attribute options (same as
+ * Product Upload), not lexicographic attribute text — so CJ imports without woo_variation_id
+ * still align images with option labels.
  */
 
 import {
@@ -103,25 +107,91 @@ function variationStableSortKey(v) {
   return [attrPart, wooPart, cjPart, String(v.id || '')].join('\0');
 }
 
-function normalizeProductDetail(p) {
-  const allImages = (p.product_images || []).sort((a, b) => a.position - b.position);
-  const productImages = allImages.filter((img) => !img.variation_id);
-
-  const variations = (p.product_variations || [])
-    .filter((v) => v.is_active)
-    .map((v) => {
-      const vImages = (v.product_images || []).slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
-      return {
-        ...v,
-        image: vImages[0] || null,
-        product_images: undefined,
-      };
+/**
+ * Matrix signature aligned with dashboard ProductUpload `attrSignature` (for combo matching).
+ * Collapses internal whitespace so CJ / storage quirks still match option strings.
+ */
+function attrMatrixSignature(attrList) {
+  const attrs = Array.isArray(attrList) ? attrList : [];
+  return attrs
+    .map((a) => {
+      const name = String(a?.name ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+      const value = String(a?.value ?? a?.option ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+      return `${name}::${value}`;
     })
-    .sort((a, b) => {
+    .filter((pair) => pair !== '::')
+    .sort()
+    .join('||');
+}
+
+/** Cartesian order of variation options — same rules as Product Upload `generateCombinations`. */
+function generateCombinationsFromAttributes(attributes) {
+  const active = (attributes || [])
+    .filter(
+      (a) =>
+        a.is_variation &&
+        String(a.name || '').trim() &&
+        Array.isArray(a.options) &&
+        a.options.length > 0
+    )
+    .map((a) => ({
+      name: String(a.name).trim(),
+      values: a.options.map((o) => String(o).trim()).filter(Boolean),
+    }));
+
+  if (active.length === 0) return [];
+
+  return active.reduce(
+    (combos, attr) =>
+      combos.flatMap((combo) => attr.values.map((v) => [...combo, { name: attr.name, value: v }])),
+    [[]]
+  );
+}
+
+function matrixComboIndex(variation, combos) {
+  const sig = attrMatrixSignature(variation.attributes);
+  for (let i = 0; i < combos.length; i++) {
+    if (attrMatrixSignature(combos[i]) === sig) return i;
+  }
+  return -1;
+}
+
+/**
+ * CJ / Supabase imports often have no woo_variation_id; lexicographic sort then disagrees with
+ * the attribute option list (comma) order used in the editor — images look "reversed".
+ * When we can build a matrix from product attributes, sort variations by that index first.
+ */
+function sortVariationsForDetail(variations, attributes) {
+  const combos = generateCombinationsFromAttributes(attributes);
+  if (combos.length === 0) {
+    return variations.slice().sort((a, b) => {
       const wooDiff = (a.woo_variation_id || 0) - (b.woo_variation_id || 0);
       if (wooDiff !== 0) return wooDiff;
       return variationStableSortKey(a).localeCompare(variationStableSortKey(b), undefined, { numeric: true });
     });
+  }
+
+  return variations.slice().sort((a, b) => {
+    const ia = matrixComboIndex(a, combos);
+    const ib = matrixComboIndex(b, combos);
+    const rankA = ia < 0 ? Number.MAX_SAFE_INTEGER : ia;
+    const rankB = ib < 0 ? Number.MAX_SAFE_INTEGER : ib;
+    if (rankA !== rankB) return rankA - rankB;
+    const wooDiff = (a.woo_variation_id || 0) - (b.woo_variation_id || 0);
+    if (wooDiff !== 0) return wooDiff;
+    return variationStableSortKey(a).localeCompare(variationStableSortKey(b), undefined, { numeric: true });
+  });
+}
+
+function normalizeProductDetail(p) {
+  const allImages = (p.product_images || []).sort((a, b) => a.position - b.position);
+  const productImages = allImages.filter((img) => !img.variation_id);
 
   const attributes = (p.product_attribute_map || [])
     .sort((a, b) => a.display_order - b.display_order)
@@ -133,6 +203,19 @@ function normalizeProductDetail(p) {
       options: a.options || [],
       is_variation: a.is_variation,
     }));
+
+  const rawVariations = (p.product_variations || [])
+    .filter((v) => v.is_active)
+    .map((v) => {
+      const vImages = (v.product_images || []).slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      return {
+        ...v,
+        image: vImages[0] || null,
+        product_images: undefined,
+      };
+    });
+
+  const variations = sortVariationsForDetail(rawVariations, attributes);
 
   return {
     ...p,

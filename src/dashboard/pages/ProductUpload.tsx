@@ -127,8 +127,14 @@ function toNullableDim(value: string): number | null {
 function attrSignature(attrs: { name: string; value: string }[]): string {
   return attrs
     .map((a) => {
-      const name = String(a.name ?? '').trim().toLowerCase();
-      const value = String(a.value ?? '').trim().toLowerCase();
+      const name = String(a.name ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+      const value = String(a.value ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
       return `${name}::${value}`;
     })
     .filter((pair) => pair !== '::')

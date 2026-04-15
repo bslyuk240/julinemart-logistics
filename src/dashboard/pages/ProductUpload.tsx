@@ -119,8 +119,21 @@ function toNullableDim(value: string): number | null {
   return n;
 }
 
+/**
+ * Stable key for matching rows to matrix combos (Generate / sort on load).
+ * Normalizes like catalog-product `variationStableSortKey` so "White" matches option "white"
+ * and trimming differences do not leave rows unsorted (images then disagree with option order).
+ */
 function attrSignature(attrs: { name: string; value: string }[]): string {
-  return attrs.map((a) => `${a.name}::${a.value}`).sort().join('||');
+  return attrs
+    .map((a) => {
+      const name = String(a.name ?? '').trim().toLowerCase();
+      const value = String(a.value ?? '').trim().toLowerCase();
+      return `${name}::${value}`;
+    })
+    .filter((pair) => pair !== '::')
+    .sort()
+    .join('||');
 }
 
 /** True if variation has at least one non-empty name/value pair (Supabase may return []). */

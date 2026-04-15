@@ -47,6 +47,9 @@ supabase/.snapshots/
 .vercel/
 .cache/
 
+# === Local agent config (machine-specific paths / permissions) ===
+.claude/settings.local.json
+
 # === Editors / IDEs ===
 .vscode/*
 !.vscode/settings.json

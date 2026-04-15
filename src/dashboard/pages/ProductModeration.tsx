@@ -21,6 +21,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { clearProductListSessionCache } from '../lib/productListSessionCache';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -68,14 +69,6 @@ function readCache(key: string): { data: ListProduct[]; meta: Meta } | null {
 
 function writeCache(key: string, data: ListProduct[], meta: Meta) {
   try { sessionStorage.setItem(key, JSON.stringify({ data, meta, ts: Date.now() })); } catch { /* ignore */ }
-}
-
-function clearCachePattern(pattern: string) {
-  try {
-    Object.keys(sessionStorage)
-      .filter((k) => k.startsWith(pattern))
-      .forEach((k) => sessionStorage.removeItem(k));
-  } catch { /* ignore */ }
 }
 
 interface Meta {
@@ -232,7 +225,7 @@ export function ProductModerationPage() {
       );
       const json = await res.json();
       if (!json.success) throw new Error(json.error || 'Update failed');
-      clearCachePattern('jlo_products_');
+      clearProductListSessionCache();
       loadProducts(page, true);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to update status');
@@ -252,7 +245,7 @@ export function ProductModerationPage() {
       );
       const json = await res.json();
       if (!json.success) throw new Error(json.error || 'Delete failed');
-      clearCachePattern('jlo_products_');
+      clearProductListSessionCache();
       loadProducts(page, true);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to delete product');
@@ -292,7 +285,7 @@ export function ProductModerationPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => { clearCachePattern('jlo_products_'); loadProducts(page, true); }}
+            onClick={() => { clearProductListSessionCache(); loadProducts(page, true); }}
             className="p-2 text-gray-400 hover:text-gray-600 rounded-md hover:bg-gray-100"
             title="Refresh"
           >

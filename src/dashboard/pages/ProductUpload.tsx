@@ -22,6 +22,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 import RichTextEditor from '../components/RichTextEditor';
+import { clearProductListSessionCache } from '../lib/productListSessionCache';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -796,10 +797,11 @@ export default function ProductUpload() {
         { method: 'DELETE', headers: authHeaders() }
       );
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || json.success === false) {
+      if (!res.ok || !json.success) {
         notification.error('Delete failed', json.error || json.message || 'Could not delete product');
         return;
       }
+      clearProductListSessionCache();
       notification.success('Product deleted', 'The product was removed from the catalog.');
       navigate(moderationListPath);
     } catch (err: unknown) {

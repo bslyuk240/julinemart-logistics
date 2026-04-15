@@ -11,8 +11,8 @@
  * Variation actions:
  * - Generate Variations: builds the full cartesian matrix from attributes; merges existing rows
  *   by attribute signature (keeps SKU, prices, image per combination) and adds empty rows for new combos.
- * - Realign rows: hydrates empty DB attributes from option list order (row i ↔ combo i), then sorts
- *   into matrix order. Use when the Attributes column was blank or order looked wrong after import.
+ * - Realign rows: sets row i’s label to option i (comma / matrix order). Table row order is unchanged;
+ *   each row keeps its image/SKU. Use after reordering options so “first row = first option”.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -175,9 +175,30 @@ function sortVariationsLikeMatrix(rows: VarRow[], varAttrs: VarAttr[]): VarRow[]
   });
 }
 
-/** Hydrate empty attribute labels, then sort into matrix order (comma / cartesian order). */
-function realignVariationRowsToMatrix(rows: VarRow[], varAttrs: VarAttr[]): VarRow[] {
+/**
+ * After loading from API: fill empty labels, then sort by matrix index (DB row order may differ).
+ */
+function realignVariationRowsOnLoad(rows: VarRow[], varAttrs: VarAttr[]): VarRow[] {
   return sortVariationsLikeMatrix(hydrateVariationAttributesFromMatrix(rows, varAttrs), varAttrs);
+}
+
+/**
+ * Realign button: assign matrix combo **i** to **row i** in the current table order (comma / cartesian
+ * order from the attribute fields). Does **not** re-sort rows by label — so row 1 stays row 1, and each
+ * row keeps its image/SKU; only the **Option** labels update to match your option list order.
+ * Use this when you reordered “Red, Blue” → “Blue, Red” and want row 1 = first option, row 2 = second.
+ * If row count ≠ matrix size, falls back to hydrate + sort.
+ */
+function applyRealignFromOptionOrder(rows: VarRow[], varAttrs: VarAttr[]): VarRow[] {
+  const combos = generateCombinations(varAttrs);
+  if (combos.length === 0) return rows;
+  if (rows.length !== combos.length) {
+    return sortVariationsLikeMatrix(hydrateVariationAttributesFromMatrix(rows, varAttrs), varAttrs);
+  }
+  return rows.map((row, i) => ({
+    ...row,
+    attributes: combos[i].map((a) => ({ name: a.name, value: a.value })),
+  }));
 }
 
 /** Minimal HTML entity decode for category names stored as `Baby &amp; Kids`. */
@@ -514,7 +535,7 @@ export default function ProductUpload() {
           stock_quantity: v.stock_quantity != null ? String(v.stock_quantity) : '',
           image_url: v.image?.src || '',
         }));
-        setVariations(realignVariationRowsToMatrix(rows, attrsForEditor));
+        setVariations(realignVariationRowsOnLoad(rows, attrsForEditor));
       }
 
       slugEditedManually.current = true;
@@ -615,8 +636,7 @@ export default function ProductUpload() {
   };
 
   /**
-   * Hydrate empty variation attributes from the matrix (by index), then reorder to matrix order.
-   * Each row keeps its own id, SKU, prices, stock, and image.
+   * Apply option-list order to labels: row 1 = first comma option, etc. Images/SKUs stay on each row.
    */
   const handleRealignVariationRows = () => {
     if (form.type !== 'variable') return;
@@ -631,21 +651,25 @@ export default function ProductUpload() {
     }
 
     const hadEmptyAttrs = variations.some((v) => !hasMeaningfulAttributes(v.attributes));
-    const realigned = realignVariationRowsToMatrix(variations, varAttrs);
+    const countMismatch = variations.length !== combos.length;
+    const realigned = applyRealignFromOptionOrder(variations, varAttrs);
     setVariations(realigned);
 
-    if (variations.length !== combos.length) {
+    if (countMismatch) {
       notification.warning(
         'Realigned with note',
-        `Row count (${variations.length}) does not match the full matrix (${combos.length}). Use Generate Variations if you need to add or drop combinations.`
+        `Row count (${variations.length}) does not match the full matrix (${combos.length}). Labels were filled/sorted where possible. Use Generate Variations to add or drop rows.`
       );
     } else if (hadEmptyAttrs) {
       notification.success(
         'Rows realigned',
-        'Missing attribute labels were filled from your option list (comma order), then sorted to match the matrix. Save to persist.'
+        'Labels now follow your option list (top row = first option). Save to persist.'
       );
     } else {
-      notification.success('Rows realigned', 'Order now matches the attribute matrix; each row’s data is unchanged.');
+      notification.success(
+        'Rows realigned',
+        'Row 1 = first option in your list, row 2 = second, etc. Images and SKUs stayed on each row—swap image URLs if a picture and label do not match.'
+      );
     }
   };
 
@@ -1199,7 +1223,7 @@ export default function ProductUpload() {
                   type="button"
                   onClick={handleRealignVariationRows}
                   disabled={variations.length === 0}
-                  title="Reorder rows to match attribute matrix order without changing SKU, price, or images on each combination"
+                  title="Set labels from your option list: row 1 = first option, row 2 = second… Images and SKUs stay on each row."
                   className="flex items-center gap-1.5 px-4 py-2 border border-primary-200 text-primary-800 bg-primary-50 text-sm font-medium rounded-lg hover:bg-primary-100 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <ListOrdered className="w-4 h-4" />
@@ -1217,7 +1241,7 @@ export default function ProductUpload() {
             </div>
             <p className="text-xs text-gray-500 -mt-1">
               <strong className="font-medium text-gray-600">Generate</strong> creates or updates rows from your attribute options.
-              <strong className="font-medium text-gray-600"> Realign</strong> fills missing attribute labels from the option list (comma order) when needed, then sorts rows to match the matrix — save to persist labels.
+              <strong className="font-medium text-gray-600"> Realign</strong> sets row 1 = first option in your comma list, row 2 = second, etc. Row order and images stay put—swap image URLs if a label and picture disagree.
             </p>
           </section>
         )}
@@ -1245,23 +1269,23 @@ export default function ProductUpload() {
             <div className="overflow-x-auto -mx-1">
               <table className="w-full text-sm table-fixed border-separate border-spacing-0">
                 <colgroup>
-                  <col className="w-[18%] min-w-[11rem]" />
-                  <col className="w-[220px]" />
-                  <col className="min-w-[7rem]" />
-                  <col className="w-28" />
-                  <col className="w-28" />
-                  <col className="w-32" />
-                  <col className="w-10" />
+                  <col className="w-[19%]" />
+                  <col className="w-[200px]" />
+                  <col className="w-[7rem]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[8rem]" />
+                  <col className="w-9" />
                 </colgroup>
                 <thead>
                   <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
                     <th className="pb-2 pr-3 font-medium align-bottom">Attributes</th>
                     <th className="pb-2 pl-1 pr-2 font-medium align-bottom">Image</th>
-                    <th className="pb-2 pl-2 font-medium align-bottom">SKU</th>
-                    <th className="pb-2 pl-2 font-medium align-bottom">Regular Price (₦)</th>
-                    <th className="pb-2 pl-2 font-medium align-bottom">Sale Price (₦)</th>
+                    <th className="pb-2 pl-1 pr-1 font-medium align-bottom">SKU</th>
+                    <th className="pb-2 pl-2 font-medium align-bottom">Regular (₦)</th>
+                    <th className="pb-2 pl-2 font-medium align-bottom">Sale (₦)</th>
                     <th className="pb-2 pl-2 font-medium align-bottom">Stock</th>
-                    <th className="pb-2 w-10 align-bottom" aria-label="Remove row" />
+                    <th className="pb-2 w-9 align-bottom" aria-label="Remove row" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -1288,8 +1312,8 @@ export default function ProductUpload() {
                         </div>
                       </td>
                       {/* Variation image — preview; URL hidden in collapsible row */}
-                      <td className="py-3 pl-1 pr-2 align-top min-w-0 w-[220px]">
-                        <div className="flex flex-col gap-2 max-w-[220px]">
+                      <td className="py-3 pl-1 pr-2 align-top min-w-0 max-w-[200px]">
+                        <div className="flex flex-col gap-2 max-w-[200px]">
                           <div className="flex items-start gap-2">
                             {v.image_url.trim() ? (
                               <a
@@ -1367,26 +1391,27 @@ export default function ProductUpload() {
                           </details>
                         </div>
                       </td>
-                      <td className="py-2 pl-3 align-top min-w-[7.5rem]">
-                        <div className="flex flex-col gap-1">
+                      <td className="py-2 pl-1 pr-1 align-top min-w-0 max-w-[7rem] w-[7rem]">
+                        <div className="flex flex-col gap-1 max-w-[7rem]">
                           <input
                             type="text"
                             value={v.sku}
                             onChange={(e) => updateVariation(i, 'sku', e.target.value)}
                             placeholder="SKU"
-                            className="w-full min-w-[6.5rem] px-2 py-1.5 border border-gray-200 rounded-md text-sm font-mono focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                            title={v.sku}
+                            className="w-full max-w-[7rem] box-border px-1.5 py-1.5 border border-gray-200 rounded-md text-xs font-mono focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
                           />
                           <button
                             type="button"
                             onClick={() => void handleGenerateVariationSku(i)}
                             disabled={skuGenBusy}
-                            className="text-[10px] font-medium text-primary-600 hover:text-primary-800 text-left disabled:opacity-50"
+                            className="text-[10px] font-medium text-primary-600 hover:text-primary-800 text-left disabled:opacity-50 truncate"
                           >
                             {skuGenBusy ? '…' : 'Generate'}
                           </button>
                         </div>
                       </td>
-                      <td className="py-2 pl-3">
+                      <td className="py-2 pl-2 pr-1 align-top min-w-0">
                         <input
                           type="number"
                           value={v.regular_price}
@@ -1394,10 +1419,10 @@ export default function ProductUpload() {
                           placeholder="0"
                           min="0"
                           step="0.01"
-                          className="w-28 px-2 py-1.5 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                          className="w-full min-w-0 max-w-full px-1.5 py-1.5 border border-gray-200 rounded-md text-sm tabular-nums focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
                         />
                       </td>
-                      <td className="py-2 pl-3">
+                      <td className="py-2 pl-1 pr-2 align-top min-w-0">
                         <input
                           type="number"
                           value={v.sale_price}
@@ -1405,14 +1430,14 @@ export default function ProductUpload() {
                           placeholder="—"
                           min="0"
                           step="0.01"
-                          className="w-28 px-2 py-1.5 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                          className="w-full min-w-0 max-w-full px-1.5 py-1.5 border border-gray-200 rounded-md text-sm tabular-nums focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
                         />
                       </td>
-                      <td className="py-2 pl-3">
+                      <td className="py-2 pl-2 pr-1 align-top min-w-0">
                         <select
                           value={v.stock_status}
                           onChange={(e) => updateVariation(i, 'stock_status', e.target.value)}
-                          className="px-2 py-1.5 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-primary-500"
+                          className="w-full min-w-0 max-w-full px-1 py-1.5 border border-gray-200 rounded-md text-xs focus:ring-1 focus:ring-primary-500"
                         >
                           <option value="instock">In Stock</option>
                           <option value="outofstock">Out of Stock</option>

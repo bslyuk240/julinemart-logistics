@@ -11,8 +11,8 @@
  * Variation actions:
  * - Generate Variations: builds the full cartesian matrix from attributes; merges existing rows
  *   by attribute signature (keeps SKU, prices, image per combination) and adds empty rows for new combos.
- * - Realign rows: same matrix order as Generate, but only reorders current rows — does not add/remove
- *   rows. Use after imports or edits when images/prices look “shifted” vs attribute labels.
+ * - Realign rows: hydrates empty DB attributes from option list order (row i ↔ combo i), then sorts
+ *   into matrix order. Use when the Attributes column was blank or order looked wrong after import.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -122,6 +122,27 @@ function attrSignature(attrs: { name: string; value: string }[]): string {
   return attrs.map((a) => `${a.name}::${a.value}`).sort().join('||');
 }
 
+/** True if variation has at least one non-empty name/value pair (Supabase may return []). */
+function hasMeaningfulAttributes(attrs: { name: string; value: string }[] | undefined): boolean {
+  if (!Array.isArray(attrs) || attrs.length === 0) return false;
+  return attrs.some((a) => String(a.name ?? '').trim() && String(a.value ?? '').trim());
+}
+
+/**
+ * Fill missing variation attributes from the cartesian matrix by row index (option list order).
+ * Required when DB rows have empty attributes — Realign/sort cannot work until labels exist.
+ */
+function hydrateVariationAttributesFromMatrix(rows: VarRow[], varAttrs: VarAttr[]): VarRow[] {
+  const combos = generateCombinations(varAttrs);
+  if (combos.length === 0) return rows;
+  return rows.map((row, i) => {
+    if (hasMeaningfulAttributes(row.attributes)) return row;
+    const fill = combos[i];
+    if (!fill?.length) return row;
+    return { ...row, attributes: fill.map((a) => ({ name: a.name, value: a.value })) };
+  });
+}
+
 function generateCombinations(varAttrs: VarAttr[]): { name: string; value: string }[][] {
   const active = varAttrs
     .filter((a) => a.is_variation && a.name.trim() && a.optionsRaw.trim())
@@ -152,6 +173,11 @@ function sortVariationsLikeMatrix(rows: VarRow[], varAttrs: VarAttr[]): VarRow[]
     if (ib === undefined) return -1;
     return ia - ib;
   });
+}
+
+/** Hydrate empty attribute labels, then sort into matrix order (comma / cartesian order). */
+function realignVariationRowsToMatrix(rows: VarRow[], varAttrs: VarAttr[]): VarRow[] {
+  return sortVariationsLikeMatrix(hydrateVariationAttributesFromMatrix(rows, varAttrs), varAttrs);
 }
 
 /** Minimal HTML entity decode for category names stored as `Baby &amp; Kids`. */
@@ -238,6 +264,7 @@ export default function ProductUpload() {
 
   // UI state
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [loadingMeta, setLoadingMeta] = useState(true);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [newImageUrl, setNewImageUrl] = useState('');
@@ -487,7 +514,7 @@ export default function ProductUpload() {
           stock_quantity: v.stock_quantity != null ? String(v.stock_quantity) : '',
           image_url: v.image?.src || '',
         }));
-        setVariations(sortVariationsLikeMatrix(rows, attrsForEditor));
+        setVariations(realignVariationRowsToMatrix(rows, attrsForEditor));
       }
 
       slugEditedManually.current = true;
@@ -561,32 +588,35 @@ export default function ProductUpload() {
       return;
     }
 
-    // Preserve existing variation data where the combination already exists
-    const existingMap = new Map(variations.map((v) => [attrSignature(v.attributes), v]));
-
-    const newRows: VarRow[] = combos.map((attrs) => {
+    // Match by attribute signature; if rows had empty attributes (all map to ""), fall back to same index.
+    const newRows: VarRow[] = combos.map((attrs, comboIdx) => {
       const sig = attrSignature(attrs);
-      const existing = existingMap.get(sig);
-      return existing
-        ? { ...existing, attributes: attrs }
-        : {
-            attributes: attrs,
-            sku: '',
-            regular_price: '',
-            sale_price: '',
-            stock_status: 'instock',
-            manage_stock: false,
-            stock_quantity: '',
-            image_url: '',
-          };
+      const bySig = variations.find(
+        (v) => hasMeaningfulAttributes(v.attributes) && attrSignature(v.attributes) === sig
+      );
+      if (bySig) return { ...bySig, attributes: attrs };
+      const byIndex = variations[comboIdx];
+      if (byIndex && !hasMeaningfulAttributes(byIndex.attributes)) {
+        return { ...byIndex, attributes: attrs };
+      }
+      return {
+        attributes: attrs,
+        sku: '',
+        regular_price: '',
+        sale_price: '',
+        stock_status: 'instock',
+        manage_stock: false,
+        stock_quantity: '',
+        image_url: '',
+      };
     });
 
     setVariations(newRows);
   };
 
   /**
-   * Reorder existing rows to match cartesian matrix order (first attribute × second × …).
-   * Each row keeps its own id, SKU, prices, stock, and image — only display order changes.
+   * Hydrate empty variation attributes from the matrix (by index), then reorder to matrix order.
+   * Each row keeps its own id, SKU, prices, stock, and image.
    */
   const handleRealignVariationRows = () => {
     if (form.type !== 'variable') return;
@@ -600,13 +630,19 @@ export default function ProductUpload() {
       return;
     }
 
-    const realigned = sortVariationsLikeMatrix(variations, varAttrs);
+    const hadEmptyAttrs = variations.some((v) => !hasMeaningfulAttributes(v.attributes));
+    const realigned = realignVariationRowsToMatrix(variations, varAttrs);
     setVariations(realigned);
 
     if (variations.length !== combos.length) {
       notification.warning(
         'Realigned with note',
         `Row count (${variations.length}) does not match the full matrix (${combos.length}). Use Generate Variations if you need to add or drop combinations.`
+      );
+    } else if (hadEmptyAttrs) {
+      notification.success(
+        'Rows realigned',
+        'Missing attribute labels were filled from your option list (comma order), then sorted to match the matrix. Save to persist.'
       );
     } else {
       notification.success('Rows realigned', 'Order now matches the attribute matrix; each row’s data is unchanged.');
@@ -708,6 +744,36 @@ export default function ProductUpload() {
     }
   };
 
+  const handleDeleteProduct = async () => {
+    if (!editId) return;
+    const label = form.name.trim() || 'this product';
+    if (
+      !window.confirm(
+        `Delete “${label}” permanently? This removes the product, variations, and images from the catalog. This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      const res = await fetch(
+        `${apiBase}/.netlify/functions/catalog-product-upsert?id=${encodeURIComponent(editId)}`,
+        { method: 'DELETE', headers: authHeaders() }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.success === false) {
+        notification.error('Delete failed', json.error || json.message || 'Could not delete product');
+        return;
+      }
+      notification.success('Product deleted', 'The product was removed from the catalog.');
+      navigate(moderationListPath);
+    } catch (err: unknown) {
+      notification.error('Delete failed', err instanceof Error ? err.message : 'Unexpected error');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (loadingMeta && !editId) {
     return (
       <div className="flex items-center justify-center min-h-64">
@@ -724,7 +790,7 @@ export default function ProductUpload() {
 
   // ─── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="w-full max-w-none mx-auto px-4 sm:px-6 xl:px-8">
       {/* Header */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-3">
@@ -1151,7 +1217,7 @@ export default function ProductUpload() {
             </div>
             <p className="text-xs text-gray-500 -mt-1">
               <strong className="font-medium text-gray-600">Generate</strong> creates or updates rows from your attribute options.
-              <strong className="font-medium text-gray-600"> Realign</strong> only sorts existing rows so images and prices line up with the matrix — useful after CJ import.
+              <strong className="font-medium text-gray-600"> Realign</strong> fills missing attribute labels from the option list (comma order) when needed, then sorts rows to match the matrix — save to persist labels.
             </p>
           </section>
         )}
@@ -1176,65 +1242,129 @@ export default function ProductUpload() {
               </button>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <div className="overflow-x-auto -mx-1">
+              <table className="w-full text-sm table-fixed border-separate border-spacing-0">
+                <colgroup>
+                  <col className="w-[18%] min-w-[11rem]" />
+                  <col className="w-[220px]" />
+                  <col className="min-w-[7rem]" />
+                  <col className="w-28" />
+                  <col className="w-28" />
+                  <col className="w-32" />
+                  <col className="w-10" />
+                </colgroup>
                 <thead>
                   <tr className="text-left text-xs text-gray-500 border-b border-gray-100">
-                    <th className="pb-2 font-medium">Attributes</th>
-                    <th className="pb-2 font-medium pl-3">Image URL</th>
-                    <th className="pb-2 font-medium pl-3">SKU</th>
-                    <th className="pb-2 font-medium pl-3">Regular Price (₦)</th>
-                    <th className="pb-2 font-medium pl-3">Sale Price (₦)</th>
-                    <th className="pb-2 font-medium pl-3">Stock</th>
-                    <th className="pb-2 w-8" />
+                    <th className="pb-2 pr-3 font-medium align-bottom">Attributes</th>
+                    <th className="pb-2 pl-1 pr-2 font-medium align-bottom">Image</th>
+                    <th className="pb-2 pl-2 font-medium align-bottom">SKU</th>
+                    <th className="pb-2 pl-2 font-medium align-bottom">Regular Price (₦)</th>
+                    <th className="pb-2 pl-2 font-medium align-bottom">Sale Price (₦)</th>
+                    <th className="pb-2 pl-2 font-medium align-bottom">Stock</th>
+                    <th className="pb-2 w-10 align-bottom" aria-label="Remove row" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {variations.map((v, i) => (
                     <tr key={i} className="group">
-                      {/* Attribute labels */}
-                      <td className="py-2 pr-2">
-                        <div className="flex flex-wrap gap-1">
-                          {v.attributes.map((a) => (
-                            <span
-                              key={a.name}
-                              className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full"
-                            >
-                              <span className="text-gray-400">{a.name}:</span> {a.value}
+                      {/* Attribute labels — first column only (Option / Colour chips) */}
+                      <td className="py-3 pr-3 align-top min-w-0 border-r border-transparent">
+                        <div className="flex flex-wrap gap-1.5 min-h-[2.5rem] content-start">
+                          {v.attributes.length === 0 ? (
+                            <span className="text-xs text-amber-600 italic leading-snug">
+                              No attributes — use Realign or Generate
                             </span>
-                          ))}
+                          ) : (
+                            v.attributes.map((a, ai) => (
+                              <span
+                                key={`${a.name}-${a.value}-${ai}`}
+                                className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-800 px-2.5 py-1 rounded-full border border-gray-200/80"
+                              >
+                                <span className="text-gray-500 font-medium">{a.name}:</span>
+                                <span className="font-medium">{a.value}</span>
+                              </span>
+                            ))
+                          )}
                         </div>
                       </td>
-                      {/* Variation image */}
-                      <td className="py-2 pl-3">
-                        <div className="flex items-center gap-1.5">
-                          {v.image_url ? (
-                            <img
-                              src={v.image_url}
-                              alt="variation"
-                              className="w-8 h-8 rounded object-cover border border-gray-200 flex-shrink-0"
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                            />
+                      {/* Variation image — preview; URL hidden in collapsible row */}
+                      <td className="py-3 pl-1 pr-2 align-top min-w-0 w-[220px]">
+                        <div className="flex flex-col gap-2 max-w-[220px]">
+                          <div className="flex items-start gap-2">
+                            {v.image_url.trim() ? (
+                              <a
+                                href={v.image_url.trim()}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Open full size in a new tab"
+                                className="group/img flex-shrink-0 block rounded-xl border border-gray-200 bg-gray-50 overflow-hidden shadow-sm ring-1 ring-black/[0.04] hover:ring-primary-300 transition-shadow"
+                              >
+                                <img
+                                  src={v.image_url.trim()}
+                                  alt={`Variation ${i + 1} preview`}
+                                  className="w-24 h-24 object-contain"
+                                  onError={(e) => {
+                                    const el = e.target as HTMLImageElement;
+                                    el.style.display = 'none';
+                                    el.parentElement?.classList.add('hidden');
+                                  }}
+                                />
+                              </a>
+                            ) : (
+                              <div className="w-24 h-24 rounded-xl border border-dashed border-gray-200 bg-gray-50 flex items-center justify-center text-[10px] text-gray-400 text-center px-1">
+                                No image
+                              </div>
+                            )}
+                            <label
+                              className={`flex items-center justify-center w-10 h-10 rounded-lg border cursor-pointer transition-colors flex-shrink-0 self-end ${uploadingVariationIdx === i ? 'border-gray-200 text-gray-300 pointer-events-none' : 'border-primary-200 text-primary-600 hover:bg-primary-50'}`}
+                              title="Upload image"
+                            >
+                              {uploadingVariationIdx === i ? (
+                                <span className="text-xs">…</span>
+                              ) : (
+                                <Upload className="w-4 h-4" />
+                              )}
+                              <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp,image/gif"
+                                className="hidden"
+                                disabled={uploadingVariationIdx !== null}
+                                onChange={(e) => handleVariationImageUpload(e, i)}
+                              />
+                            </label>
+                          </div>
+                          {v.image_url.trim() ? (
+                            <a
+                              href={v.image_url.trim()}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs font-medium text-primary-600 hover:text-primary-800 w-fit"
+                            >
+                              View full size
+                            </a>
                           ) : null}
-                          <input
-                            type="url"
-                            value={v.image_url}
-                            onChange={(e) => updateVariation(i, 'image_url', e.target.value)}
-                            placeholder="https://..."
-                            className="w-28 px-2 py-1.5 border border-gray-200 rounded-md text-sm focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
-                          />
-                          <label className={`flex items-center justify-center w-8 h-8 rounded border cursor-pointer transition-colors flex-shrink-0 ${uploadingVariationIdx === i ? 'border-gray-200 text-gray-300 pointer-events-none' : 'border-primary-200 text-primary-600 hover:bg-primary-50'}`} title="Upload image">
-                            {uploadingVariationIdx === i
-                              ? <span className="text-xs">…</span>
-                              : <Upload className="w-3.5 h-3.5" />}
-                            <input
-                              type="file"
-                              accept="image/jpeg,image/png,image/webp,image/gif"
-                              className="hidden"
-                              disabled={uploadingVariationIdx !== null}
-                              onChange={(e) => handleVariationImageUpload(e, i)}
-                            />
-                          </label>
+                          <details className="group/url text-xs">
+                            <summary className="cursor-pointer list-none text-primary-600 hover:text-primary-800 font-medium select-none [&::-webkit-details-marker]:hidden flex items-center gap-1">
+                              <span className="border-b border-dotted border-primary-400">
+                                {v.image_url.trim() ? 'Edit image URL' : 'Set image URL'}
+                              </span>
+                            </summary>
+                            <div className="mt-2 pt-2 border-t border-gray-100">
+                              <input
+                                type="url"
+                                value={v.image_url}
+                                onChange={(e) => updateVariation(i, 'image_url', e.target.value)}
+                                placeholder="https://..."
+                                title={v.image_url.trim() || undefined}
+                                className="w-full min-w-0 px-2 py-1.5 border border-gray-200 rounded-md text-xs font-mono focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                              />
+                              {v.image_url.trim() ? (
+                                <p className="mt-1 text-[10px] text-gray-400 truncate" title={v.image_url}>
+                                  {v.image_url}
+                                </p>
+                              ) : null}
+                            </div>
+                          </details>
                         </div>
                       </td>
                       <td className="py-2 pl-3 align-top min-w-[7.5rem]">
@@ -1446,10 +1576,10 @@ export default function ProductUpload() {
         </section>
 
         {/* ── Actions ─────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-3 pb-8">
+        <div className="flex flex-wrap items-center gap-3 pb-8">
           <button
             type="button"
-            disabled={saving}
+            disabled={saving || deleting}
             onClick={() => handleSubmit('draft')}
             className="px-6 py-2.5 bg-gray-100 text-gray-700 border border-gray-300 rounded-lg font-medium hover:bg-gray-200 transition-colors disabled:opacity-50"
           >
@@ -1457,7 +1587,7 @@ export default function ProductUpload() {
           </button>
           <button
             type="button"
-            disabled={saving}
+            disabled={saving || deleting}
             onClick={() => handleSubmit('published')}
             className="px-6 py-2.5 bg-primary-600 text-white rounded-lg font-medium hover:bg-primary-700 transition-colors disabled:opacity-50"
           >
@@ -1465,11 +1595,22 @@ export default function ProductUpload() {
           </button>
           <button
             type="button"
+            disabled={deleting}
             onClick={() => navigate(moderationListPath)}
-            className="px-6 py-2.5 text-gray-500 hover:text-gray-700 transition-colors"
+            className="px-6 py-2.5 text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
+          {editId ? (
+            <button
+              type="button"
+              disabled={saving || deleting}
+              onClick={() => void handleDeleteProduct()}
+              className="ml-auto px-6 py-2.5 border border-red-200 text-red-700 rounded-lg font-medium hover:bg-red-50 transition-colors disabled:opacity-50"
+            >
+              {deleting ? 'Deleting…' : 'Delete product'}
+            </button>
+          ) : null}
         </div>
 
       </div>

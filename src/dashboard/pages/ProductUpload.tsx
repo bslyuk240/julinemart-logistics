@@ -292,7 +292,18 @@ export default function ProductUpload() {
   const [tagInput, setTagInput] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingVariationIdx, setUploadingVariationIdx] = useState<number | null>(null);
+  /** Lightbox URL when user taps a variation thumbnail */
+  const [variationImagePreviewUrl, setVariationImagePreviewUrl] = useState<string | null>(null);
   const slugEditedManually = useRef(false);
+
+  useEffect(() => {
+    if (!variationImagePreviewUrl) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setVariationImagePreviewUrl(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [variationImagePreviewUrl]);
 
   // ── Image upload to Supabase Storage ─────────────────────────────────────────
   const uploadImageFile = async (file: File): Promise<string | null> => {
@@ -1270,7 +1281,7 @@ export default function ProductUpload() {
               <table className="w-full text-sm table-fixed border-separate border-spacing-0">
                 <colgroup>
                   <col className="w-[19%]" />
-                  <col className="w-[200px]" />
+                  <col className="w-[120px]" />
                   <col className="w-[7rem]" />
                   <col className="w-[14%]" />
                   <col className="w-[14%]" />
@@ -1312,30 +1323,30 @@ export default function ProductUpload() {
                         </div>
                       </td>
                       {/* Variation image — preview; URL hidden in collapsible row */}
-                      <td className="py-3 pl-1 pr-2 align-top min-w-0 max-w-[200px]">
-                        <div className="flex flex-col gap-2 max-w-[200px]">
-                          <div className="flex items-start gap-2">
+                      <td className="py-3 pl-1 pr-2 align-top min-w-0 max-w-[120px]">
+                        <div className="flex flex-col gap-1.5 max-w-[120px]">
+                          <div className="flex items-start gap-1.5">
                             {v.image_url.trim() ? (
-                              <a
-                                href={v.image_url.trim()}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title="Open full size in a new tab"
-                                className="group/img flex-shrink-0 block rounded-xl border border-gray-200 bg-gray-50 overflow-hidden shadow-sm ring-1 ring-black/[0.04] hover:ring-primary-300 transition-shadow"
+                              <button
+                                type="button"
+                                onClick={() => setVariationImagePreviewUrl(v.image_url.trim())}
+                                title="Tap to preview"
+                                aria-label={`Preview variation ${i + 1} image`}
+                                className="group/img flex-shrink-0 rounded-lg border border-gray-200 bg-gray-50 overflow-hidden ring-1 ring-black/[0.04] hover:ring-primary-400 cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-1 transition-shadow"
                               >
                                 <img
                                   src={v.image_url.trim()}
-                                  alt={`Variation ${i + 1} preview`}
-                                  className="w-24 h-24 object-contain"
+                                  alt=""
+                                  className="w-12 h-12 object-contain block"
                                   onError={(e) => {
                                     const el = e.target as HTMLImageElement;
                                     el.style.display = 'none';
                                     el.parentElement?.classList.add('hidden');
                                   }}
                                 />
-                              </a>
+                              </button>
                             ) : (
-                              <div className="w-24 h-24 rounded-xl border border-dashed border-gray-200 bg-gray-50 flex items-center justify-center text-[10px] text-gray-400 text-center px-1">
+                              <div className="w-12 h-12 rounded-lg border border-dashed border-gray-200 bg-gray-50 flex items-center justify-center text-[9px] text-gray-400 text-center px-0.5 leading-tight">
                                 No image
                               </div>
                             )}
@@ -1362,9 +1373,9 @@ export default function ProductUpload() {
                               href={v.image_url.trim()}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-xs font-medium text-primary-600 hover:text-primary-800 w-fit"
+                              className="text-[10px] font-medium text-primary-600 hover:text-primary-800 w-fit"
                             >
-                              View full size
+                              Open in new tab
                             </a>
                           ) : null}
                           <details className="group/url text-xs">
@@ -1471,6 +1482,31 @@ export default function ProductUpload() {
                 );
               }}
             />
+
+            {variationImagePreviewUrl ? (
+              <div
+                className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/70"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Variation image preview"
+                onClick={() => setVariationImagePreviewUrl(null)}
+              >
+                <button
+                  type="button"
+                  onClick={() => setVariationImagePreviewUrl(null)}
+                  className="absolute top-3 right-3 rounded-full bg-white/10 p-2 text-white hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white"
+                  aria-label="Close preview"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+                <img
+                  src={variationImagePreviewUrl}
+                  alt=""
+                  className="max-h-[min(85vh,900px)] max-w-[min(92vw,1200px)] w-auto h-auto object-contain rounded-lg shadow-2xl"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
+            ) : null}
           </section>
         )}
 

@@ -16,6 +16,7 @@ interface Vendor {
   bank_name: string | null;
   bank_account_number: string | null;
   bank_account_name: string | null;
+  address: string | null;
   city: string;
   state: string;
   woocommerce_vendor_id: string;

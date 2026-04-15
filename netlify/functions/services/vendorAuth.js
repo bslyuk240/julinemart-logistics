@@ -34,7 +34,7 @@ export async function authenticateVendor(event) {
   const adminClient = getAdminClient();
   const { data: vendor, error: vendorErr } = await adminClient
     .from('vendors')
-    .select('id, store_name, store_slug, email, phone, commission_rate, is_active, logo_url, banner_url, description, bank_name, bank_account_number, bank_account_name, city, state, woocommerce_vendor_id, total_orders, fulfilled_orders, created_at')
+    .select('id, store_name, store_slug, email, phone, commission_rate, is_active, logo_url, banner_url, description, bank_name, bank_account_number, bank_account_name, address, city, state, woocommerce_vendor_id, total_orders, fulfilled_orders, created_at')
     .eq('user_id', user.id)
     .single();
 

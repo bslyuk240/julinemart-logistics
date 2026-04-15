@@ -1,10 +1,30 @@
-import { useState, FormEvent } from 'react';
-import { Settings as SettingsIcon, Store, CreditCard, CheckCircle, AlertCircle } from 'lucide-react';
+import { useState, FormEvent, useRef } from 'react';
+import { Settings as SettingsIcon, Store, CreditCard, CheckCircle, AlertCircle, Upload } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
+import { supabase } from '../lib/supabase';
+
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB
+
+async function uploadBrandingImage(file: File, vendorId: string, kind: 'logo' | 'banner'): Promise<string> {
+  const raw = (file.name.split('.').pop() || 'jpg').toLowerCase();
+  const safeExt = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(raw) ? raw : 'jpg';
+  const path = `branding/${vendorId}/${kind}_${Date.now()}.${safeExt}`;
+  const { data, error } = await supabase.storage
+    .from('vendor-documents')
+    .upload(path, file, {
+      upsert: true,
+      contentType: file.type || `image/${safeExt === 'jpg' ? 'jpeg' : safeExt}`,
+    });
+  if (error) throw new Error(error.message);
+  const { data: pub } = supabase.storage.from('vendor-documents').getPublicUrl(data.path);
+  return pub.publicUrl;
+}
 
 export default function Settings() {
   const { vendor, refreshVendor } = useAuth();
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
 
   const [storeForm, setStoreForm] = useState({
     description: vendor?.description || '',
@@ -21,6 +41,8 @@ export default function Settings() {
   const [saving, setSaving]   = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError]     = useState<string | null>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
 
   const save = async (section: string, updates: object) => {
     setSaving(section); setSuccess(null); setError(null);
@@ -32,6 +54,52 @@ export default function Settings() {
     } catch (e: any) { setError(e.message); }
     finally { setSaving(null); }
   };
+
+  async function onPickLogo(file: File | null) {
+    if (!file || !vendor?.id) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Please choose an image file (JPEG, PNG, WebP, or GIF).');
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setError('Image must be 4 MB or smaller.');
+      return;
+    }
+    setError(null);
+    setUploadingLogo(true);
+    try {
+      const url = await uploadBrandingImage(file, vendor.id, 'logo');
+      setStoreForm((p) => ({ ...p, logo_url: url }));
+    } catch (e: any) {
+      setError(e?.message || 'Logo upload failed. Try again or use a URL below.');
+    } finally {
+      setUploadingLogo(false);
+      if (logoInputRef.current) logoInputRef.current.value = '';
+    }
+  }
+
+  async function onPickBanner(file: File | null) {
+    if (!file || !vendor?.id) return;
+    if (!file.type.startsWith('image/')) {
+      setError('Please choose an image file (JPEG, PNG, WebP, or GIF).');
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setError('Image must be 4 MB or smaller.');
+      return;
+    }
+    setError(null);
+    setUploadingBanner(true);
+    try {
+      const url = await uploadBrandingImage(file, vendor.id, 'banner');
+      setStoreForm((p) => ({ ...p, banner_url: url }));
+    } catch (e: any) {
+      setError(e?.message || 'Banner upload failed. Try again or use a URL below.');
+    } finally {
+      setUploadingBanner(false);
+      if (bannerInputRef.current) bannerInputRef.current.value = '';
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -59,7 +127,7 @@ export default function Settings() {
                 { label: 'Phone',           value: (vendor as any)?.phone },
                 { label: 'City',            value: vendor?.city },
                 { label: 'State',           value: vendor?.state },
-                { label: 'Address',         value: (vendor as any)?.address },
+                { label: 'Address',         value: vendor?.address },
               ].map(f => (
                 <div key={f.label} className="flex justify-between items-start py-3 border-b border-gray-50 last:border-0 gap-4">
                   <span className="text-sm text-gray-500 flex-shrink-0">{f.label}</span>
@@ -98,13 +166,30 @@ export default function Settings() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Logo URL</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Store logo</label>
+                <p className="text-xs text-gray-500 mb-2">Upload a square image from your phone or computer (max 4 MB).</p>
                 <input
-                  className="input"
-                  value={storeForm.logo_url}
-                  onChange={e => setStoreForm(p => ({ ...p, logo_url: e.target.value }))}
-                  placeholder="https://…"
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="hidden"
+                  onChange={(e) => onPickLogo(e.target.files?.[0] ?? null)}
                 />
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={uploadingLogo || !vendor?.id}
+                    onClick={() => logoInputRef.current?.click()}
+                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {uploadingLogo ? (
+                      <span className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Upload className="w-4 h-4 text-primary-600" />
+                    )}
+                    {uploadingLogo ? 'Uploading…' : 'Upload from device'}
+                  </button>
+                </div>
                 {storeForm.logo_url && (
                   <img
                     src={storeForm.logo_url}
@@ -113,15 +198,39 @@ export default function Settings() {
                     onError={e => (e.currentTarget.style.display = 'none')}
                   />
                 )}
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Banner URL</label>
+                <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Or paste image URL</label>
                 <input
-                  className="input"
-                  value={storeForm.banner_url}
-                  onChange={e => setStoreForm(p => ({ ...p, banner_url: e.target.value }))}
+                  className="input text-sm"
+                  value={storeForm.logo_url}
+                  onChange={e => setStoreForm(p => ({ ...p, logo_url: e.target.value }))}
                   placeholder="https://…"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Store banner</label>
+                <p className="text-xs text-gray-500 mb-2">Wide image for your store header (max 4 MB).</p>
+                <input
+                  ref={bannerInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="hidden"
+                  onChange={(e) => onPickBanner(e.target.files?.[0] ?? null)}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={uploadingBanner || !vendor?.id}
+                    onClick={() => bannerInputRef.current?.click()}
+                    className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 shadow-sm hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {uploadingBanner ? (
+                      <span className="w-4 h-4 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Upload className="w-4 h-4 text-primary-600" />
+                    )}
+                    {uploadingBanner ? 'Uploading…' : 'Upload from device'}
+                  </button>
+                </div>
                 {storeForm.banner_url && (
                   <img
                     src={storeForm.banner_url}
@@ -130,6 +239,13 @@ export default function Settings() {
                     onError={e => (e.currentTarget.style.display = 'none')}
                   />
                 )}
+                <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Or paste image URL</label>
+                <input
+                  className="input text-sm"
+                  value={storeForm.banner_url}
+                  onChange={e => setStoreForm(p => ({ ...p, banner_url: e.target.value }))}
+                  placeholder="https://…"
+                />
               </div>
             </div>
             <button type="submit" disabled={saving === 'store'} className="btn-primary w-full mt-5">

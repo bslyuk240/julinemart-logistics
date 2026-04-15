@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft, Store, Mail, Phone, MapPin, CreditCard,
   ShoppingBag, TrendingUp, Send, CheckCircle, XCircle,
-  Edit2, Check, X, RefreshCw, ExternalLink,
+  Edit2, Check, X, RefreshCw, ExternalLink, Power, PowerOff,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
@@ -325,61 +325,115 @@ export default function VendorDetail() {
 
   const streetPlain = formatJsonAddressToPlain(vendor.address);
 
+  const deactivateLabel = vendor.is_active ? 'Deactivate vendor (hide from storefront)' : 'Activate vendor (visible on storefront)';
+  const inviteLabel = vendor.user_id
+    ? 'Resend vendor portal invite email'
+    : 'Send vendor portal invite email';
+
   return (
     <div className="w-full max-w-none px-1 sm:px-0">
 
-      {/* Back + header */}
-      <div className="flex items-start justify-between mb-6">
-        <div className="flex items-start gap-4">
-          <button onClick={() => navigate('/admin/vendors')} className="mt-1 p-2 rounded-lg hover:bg-gray-100 text-gray-500">
+      {/* Back + identity + actions — stacked on mobile so header never overflows */}
+      <div className="mb-6 space-y-3">
+        <div className="flex items-start gap-2 sm:gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => navigate('/admin/vendors')}
+            className="shrink-0 mt-0.5 p-1.5 sm:p-2 rounded-lg hover:bg-gray-100 text-gray-500"
+            title="Back to vendors"
+            aria-label="Back to vendors"
+          >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="flex items-center gap-4">
+          <div className="flex items-start gap-2 sm:gap-3 min-w-0 flex-1">
             {vendor.logo_url ? (
-              <img src={vendor.logo_url} alt="" className="w-14 h-14 rounded-full object-cover border-2 border-purple-100 shadow-sm" onError={e => (e.currentTarget.style.display = 'none')} />
+              <img
+                src={vendor.logo_url}
+                alt=""
+                className="w-11 h-11 sm:w-14 sm:h-14 shrink-0 rounded-full object-cover border-2 border-purple-100 shadow-sm"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
             ) : (
-              <div className="w-14 h-14 rounded-full bg-purple-100 flex items-center justify-center">
-                <Store className="w-7 h-7 text-purple-500" />
+              <div className="w-11 h-11 sm:w-14 sm:h-14 shrink-0 rounded-full bg-purple-100 flex items-center justify-center">
+                <Store className="w-5 h-5 sm:w-7 sm:h-7 text-purple-500" />
               </div>
             )}
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">{vendor.store_name}</h1>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${vendor.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg sm:text-2xl font-bold text-gray-900 leading-snug break-words">
+                {vendor.store_name}
+              </h1>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1.5">
+                <span
+                  className={`text-[10px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full font-medium shrink-0 ${
+                    vendor.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                  }`}
+                >
                   {vendor.is_active ? 'Active' : 'Inactive'}
                 </span>
                 {vendor.user_id ? (
-                  <span className="text-xs flex items-center gap-1 text-green-600"><CheckCircle className="w-3.5 h-3.5" /> Portal linked</span>
+                  <span className="text-[10px] sm:text-xs flex items-center gap-0.5 text-green-600 min-w-0">
+                    <CheckCircle className="w-3 h-3 shrink-0" />
+                    <span className="truncate">Portal linked</span>
+                  </span>
                 ) : (
-                  <span className="text-xs flex items-center gap-1 text-gray-400"><XCircle className="w-3.5 h-3.5" /> No portal account</span>
+                  <span className="text-[10px] sm:text-xs flex items-center gap-0.5 text-gray-400 min-w-0">
+                    <XCircle className="w-3 h-3 shrink-0" />
+                    <span className="sm:hidden">No portal</span>
+                    <span className="hidden sm:inline">No portal account</span>
+                  </span>
                 )}
                 {vendor.woocommerce_vendor_id && (
-                  <span className="text-xs text-gray-400">WP #{vendor.woocommerce_vendor_id}</span>
+                  <span className="text-[10px] sm:text-xs text-gray-400 shrink-0">
+                    WP #{vendor.woocommerce_vendor_id}
+                  </span>
                 )}
               </div>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {saveMsg && <span className="text-xs text-green-600">{saveMsg}</span>}
+        <div className="flex flex-wrap items-center justify-end gap-1.5 sm:gap-2 pt-1 border-t border-gray-100 sm:border-0 sm:pt-0">
+          {saveMsg && (
+            <span className="text-[10px] sm:text-xs text-green-600 mr-auto sm:mr-0">{saveMsg}</span>
+          )}
           <button
+            type="button"
             onClick={toggleActive}
-            className={`text-sm px-3 py-1.5 rounded-lg border transition ${
+            title={deactivateLabel}
+            aria-label={deactivateLabel}
+            className={`inline-flex h-9 w-9 sm:h-8 sm:w-auto sm:min-h-0 sm:px-2.5 sm:py-1.5 items-center justify-center rounded-lg border transition touch-manipulation ${
               vendor.is_active
-                ? 'border-red-200 text-red-600 hover:bg-red-50'
-                : 'border-green-200 text-green-600 hover:bg-green-50'
+                ? 'border-red-200 text-red-600 hover:bg-red-50 active:bg-red-100'
+                : 'border-green-200 text-green-600 hover:bg-green-50 active:bg-green-100'
             }`}
           >
-            {vendor.is_active ? 'Deactivate' : 'Activate'}
+            {vendor.is_active ? (
+              <PowerOff className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
+            ) : (
+              <Power className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
+            )}
+            <span className="hidden sm:inline text-xs font-medium ml-1.5">
+              {vendor.is_active ? 'Deactivate' : 'Activate'}
+            </span>
           </button>
           <button
+            type="button"
             onClick={handleInvite}
             disabled={inviting}
-            className="flex items-center gap-1.5 text-sm bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-lg disabled:opacity-50 transition"
+            title={inviteLabel}
+            aria-label={inviteLabel}
+            className="inline-flex h-9 w-9 sm:h-8 sm:w-auto sm:min-h-0 sm:px-2.5 sm:py-1.5 items-center justify-center rounded-lg bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50 transition touch-manipulation"
           >
-            {inviting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-            {vendor.user_id ? 'Resend Invite' : 'Send Invite'}
+            {inviting ? (
+              <RefreshCw className="w-4 h-4 sm:w-3.5 sm:h-3.5 animate-spin shrink-0" />
+            ) : (
+              <Send className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
+            )}
+            <span className="hidden sm:inline text-xs font-medium ml-1.5">
+              {vendor.user_id ? 'Resend' : 'Invite'}
+            </span>
           </button>
         </div>
       </div>

@@ -205,7 +205,8 @@ export function VendorsPage() {
     if (res.success) {
       setApps(prev => prev.map(a => a.id === appId ? { ...a, status: 'approved' } : a));
     } else {
-      alert('Error: ' + res.error);
+      const extra = (res as { detail?: string }).detail;
+      alert(`Error: ${res.error}${extra ? `\n\n${extra}` : ''}`);
     }
     setActioning(null);
   }

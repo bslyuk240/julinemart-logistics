@@ -38,6 +38,8 @@ function AppRoutes() {
       <Route path="/login"        element={<Login />} />
       <Route path="/register"     element={<Register />} />
       <Route path="/set-password" element={<SetPassword />} />
+      {/* Invite emails from vendor-approve use …/setup — same page as set-password */}
+      <Route path="/setup" element={<SetPassword />} />
       <Route path="/*" element={
         <PrivateRoute>
           <Layout>

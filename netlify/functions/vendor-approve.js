@@ -92,8 +92,22 @@ export const handler = async (event) => {
     return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'action must be approve or reject' }) };
   }
 
+  /** Synthetic WC id for vendors created only in JLO (no WooCommerce row). Must fit VARCHAR(50) and stay UNIQUE. */
+  const syntheticWooId = `jlo-${application_id}`;
+
+  function slugifyStoreSlug(name) {
+    const base = String(name || 'store')
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 48);
+    return base || 'store';
+  }
+
   // 1. Create Supabase Auth user (invite)
-  const redirectTo = `${process.env.VENDOR_PORTAL_URL || 'https://vendors.julinemart.com'}/setup`;
+  const portalBase = (process.env.VENDOR_PORTAL_URL || 'https://vendors.julinemart.com').replace(/\/+$/, '');
+  const redirectTo = `${portalBase}/set-password`;
   const { data: invited, error: invErr } = await adminClient.auth.admin.inviteUserByEmail(app.email, {
     redirectTo,
     data: { store_name: app.store_name },
@@ -104,27 +118,38 @@ export const handler = async (event) => {
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: 'Failed to create auth account: ' + invErr.message }) };
   }
 
-  // 2. Create vendors record
+  // 2. Create vendors record (DB requires woocommerce_vendor_id; column is `address` not business_address)
+  const store_slug = `${slugifyStoreSlug(app.store_name)}-${String(application_id).slice(0, 8)}`;
+
   const { data: vendor, error: vErr } = await adminClient.from('vendors').insert({
-    store_name:          app.store_name,
-    email:               app.email,
-    phone:               app.phone,
-    business_address:    app.business_address,
-    state:               app.state,
-    city:                app.city,
-    bank_name:           app.bank_name,
-    bank_account_number: app.bank_account_number,
-    bank_account_name:   app.bank_account_name,
-    commission_rate:     10,          // default 10%
-    is_active:           true,
-    user_id:             invited.user.id,
+    woocommerce_vendor_id: syntheticWooId,
+    store_name:            app.store_name,
+    store_slug,
+    email:                 app.email,
+    phone:                 app.phone,
+    address:               app.business_address,
+    state:                 app.state,
+    city:                  app.city,
+    bank_name:             app.bank_name,
+    bank_account_number:   app.bank_account_number,
+    bank_account_name:     app.bank_account_name,
+    commission_rate:       10,
+    is_active:             true,
+    user_id:               invited.user.id,
   }).select().single();
 
   if (vErr) {
     console.error('vendor insert error:', vErr);
-    // Rollback: delete the auth user we just created
     await adminClient.auth.admin.deleteUser(invited.user.id);
-    return { statusCode: 500, headers: cors, body: JSON.stringify({ error: 'Failed to create vendor record' }) };
+    return {
+      statusCode: 500,
+      headers: { ...cors, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        error: 'Failed to create vendor record',
+        detail: vErr.message || String(vErr),
+        code: vErr.code,
+      }),
+    };
   }
 
   // 3. Mark application approved

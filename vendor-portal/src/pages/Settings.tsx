@@ -2,7 +2,7 @@ import { useState, FormEvent, useRef } from 'react';
 import { Settings as SettingsIcon, Store, CreditCard, CheckCircle, AlertCircle, Upload } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
-import { supabase } from '../lib/supabase';
+import { supabase, ensureSupabaseStoragePublicUrl } from '../lib/supabase';
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB
 
@@ -18,7 +18,7 @@ async function uploadBrandingImage(file: File, vendorId: string, kind: 'logo' | 
     });
   if (error) throw new Error(error.message);
   const { data: pub } = supabase.storage.from('vendor-documents').getPublicUrl(data.path);
-  return pub.publicUrl;
+  return ensureSupabaseStoragePublicUrl(pub.publicUrl);
 }
 
 export default function Settings() {
@@ -142,7 +142,21 @@ export default function Settings() {
         {/* Right col: editable forms */}
         <div className="lg:col-span-3 space-y-4">
           {/* Store profile — editable */}
-          <form onSubmit={(e: FormEvent) => { e.preventDefault(); save('store', storeForm); }} className="card">
+          <form
+            onSubmit={(e: FormEvent) => {
+              e.preventDefault();
+              save('store', {
+                ...storeForm,
+                logo_url: storeForm.logo_url
+                  ? ensureSupabaseStoragePublicUrl(storeForm.logo_url)
+                  : '',
+                banner_url: storeForm.banner_url
+                  ? ensureSupabaseStoragePublicUrl(storeForm.banner_url)
+                  : '',
+              });
+            }}
+            className="card"
+          >
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <SettingsIcon className="w-5 h-5 text-primary-600" />
@@ -192,7 +206,7 @@ export default function Settings() {
                 </div>
                 {storeForm.logo_url && (
                   <img
-                    src={storeForm.logo_url}
+                    src={ensureSupabaseStoragePublicUrl(storeForm.logo_url)}
                     alt=""
                     className="mt-2 w-16 h-16 rounded-full object-cover border"
                     onError={e => (e.currentTarget.style.display = 'none')}
@@ -233,7 +247,7 @@ export default function Settings() {
                 </div>
                 {storeForm.banner_url && (
                   <img
-                    src={storeForm.banner_url}
+                    src={ensureSupabaseStoragePublicUrl(storeForm.banner_url)}
                     alt=""
                     className="mt-2 w-full h-24 object-cover rounded-xl border"
                     onError={e => (e.currentTarget.style.display = 'none')}

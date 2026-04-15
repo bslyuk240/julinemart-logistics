@@ -4,7 +4,7 @@ import {
   Wallet, Settings, LogOut, Store,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { JulineMartWordmark } from './JulineMartWordmark';
+import { JulineMartLogo } from './JulineMartLogo';
 import { ensureSupabaseStoragePublicUrl } from '../lib/supabase';
 
 const nav = [
@@ -44,7 +44,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Brand header */}
         <div className="brand-gradient px-5 py-4">
           <div className="flex items-center gap-2.5 mb-3">
-            <JulineMartWordmark variant="onGradient" className="text-xl leading-none" />
+            <JulineMartLogo className="h-10 w-10 object-contain rounded-full ring-2 ring-white/25 shadow-sm" />
           </div>
           <p className="text-primary-100 text-xs font-medium mb-3">Vendor Portal</p>
           <div className="bg-white/10 rounded-xl px-3 py-2.5 flex items-center gap-3">
@@ -133,7 +133,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               )}
             </div>
           </div>
-          <JulineMartWordmark variant="onLight" className="text-base max-w-[7rem] text-right" />
+          <JulineMartLogo className="h-8 w-8 object-contain shrink-0" />
         </header>
 
         {/* Page content — safe-bottom adds padding so bottom nav doesn't overlap */}

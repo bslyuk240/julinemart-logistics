@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { JulineMartWordmark } from '../components/JulineMartWordmark';
+import { JulineMartLogo } from '../components/JulineMartLogo';
 
 const JLO_API = import.meta.env.VITE_JLO_API_URL || 'https://jlo.julinemart.com';
 
@@ -201,7 +201,7 @@ export default function Register() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-primary-50 to-white flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-card border border-gray-100 p-10 max-w-md w-full text-center">
-          <JulineMartWordmark variant="onLight" className="text-2xl mx-auto mb-6" />
+          <JulineMartLogo className="h-12 w-12 object-contain mx-auto mb-6" />
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -226,7 +226,7 @@ export default function Register() {
       <div className="bg-white rounded-2xl shadow-card border border-gray-100 w-full max-w-xl">
         {/* Header */}
         <div className="brand-gradient px-8 pt-7 pb-6 rounded-t-2xl">
-          <JulineMartWordmark variant="onGradient" className="text-3xl mb-4 drop-shadow-sm" />
+          <JulineMartLogo className="h-16 w-16 object-contain mb-4 drop-shadow-md rounded-full" />
           <h1 className="text-xl font-bold text-white">Become a JulineMart Vendor</h1>
           <p className="text-primary-200 text-xs mt-0.5 mb-5">Sell to thousands of customers across Nigeria</p>
           {/* Progress bar */}

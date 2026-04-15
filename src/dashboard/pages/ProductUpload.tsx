@@ -7,11 +7,17 @@
  *
  * Route: /admin/products/upload          (new)
  *        /admin/products/upload?id=<uuid> (edit)
+ *
+ * Variation actions:
+ * - Generate Variations: builds the full cartesian matrix from attributes; merges existing rows
+ *   by attribute signature (keeps SKU, prices, image per combination) and adds empty rows for new combos.
+ * - Realign rows: same matrix order as Generate, but only reorders current rows — does not add/remove
+ *   rows. Use after imports or edits when images/prices look “shifted” vs attribute labels.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { ArrowLeft, ChevronDown, ChevronUp, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronUp, ListOrdered, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
@@ -578,6 +584,35 @@ export default function ProductUpload() {
     setVariations(newRows);
   };
 
+  /**
+   * Reorder existing rows to match cartesian matrix order (first attribute × second × …).
+   * Each row keeps its own id, SKU, prices, stock, and image — only display order changes.
+   */
+  const handleRealignVariationRows = () => {
+    if (form.type !== 'variable') return;
+    if (variations.length === 0) {
+      notification.error('Nothing to realign', 'Add attributes and use Generate Variations first.');
+      return;
+    }
+    const combos = generateCombinations(varAttrs);
+    if (combos.length === 0) {
+      notification.error('No matrix', 'Add at least one variation attribute with comma-separated options.');
+      return;
+    }
+
+    const realigned = sortVariationsLikeMatrix(variations, varAttrs);
+    setVariations(realigned);
+
+    if (variations.length !== combos.length) {
+      notification.warning(
+        'Realigned with note',
+        `Row count (${variations.length}) does not match the full matrix (${combos.length}). Use Generate Variations if you need to add or drop combinations.`
+      );
+    } else {
+      notification.success('Rows realigned', 'Order now matches the attribute matrix; each row’s data is unchanged.');
+    }
+  };
+
   const updateVariation = (i: number, field: keyof VarRow, value: string | boolean) =>
     setVariations((prev) => prev.map((v, idx) => idx === i ? { ...v, [field]: value } : v));
 
@@ -1084,7 +1119,7 @@ export default function ProductUpload() {
               ))}
             </div>
 
-            <div className="flex items-center gap-3 pt-1">
+            <div className="flex flex-wrap items-center gap-3 pt-1">
               <button
                 type="button"
                 onClick={addAttr}
@@ -1093,15 +1128,31 @@ export default function ProductUpload() {
                 <Plus className="w-4 h-4" />
                 Add attribute
               </button>
-              <button
-                type="button"
-                onClick={handleGenerateVariations}
-                className="flex items-center gap-1.5 ml-auto px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Generate Variations
-              </button>
+              <div className="flex flex-wrap items-center gap-2 ml-auto">
+                <button
+                  type="button"
+                  onClick={handleRealignVariationRows}
+                  disabled={variations.length === 0}
+                  title="Reorder rows to match attribute matrix order without changing SKU, price, or images on each combination"
+                  className="flex items-center gap-1.5 px-4 py-2 border border-primary-200 text-primary-800 bg-primary-50 text-sm font-medium rounded-lg hover:bg-primary-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <ListOrdered className="w-4 h-4" />
+                  Realign rows
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGenerateVariations}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-lg hover:bg-primary-700"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Generate Variations
+                </button>
+              </div>
             </div>
+            <p className="text-xs text-gray-500 -mt-1">
+              <strong className="font-medium text-gray-600">Generate</strong> creates or updates rows from your attribute options.
+              <strong className="font-medium text-gray-600"> Realign</strong> only sorts existing rows so images and prices line up with the matrix — useful after CJ import.
+            </p>
           </section>
         )}
 

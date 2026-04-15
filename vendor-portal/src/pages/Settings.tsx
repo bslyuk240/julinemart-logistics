@@ -2,6 +2,7 @@ import { useState, FormEvent, useRef } from 'react';
 import { Settings as SettingsIcon, Store, CreditCard, CheckCircle, AlertCircle, Upload } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
+import { formatVendorAddressForDisplay } from '../lib/formatVendorAddress';
 import { ensureSupabaseStoragePublicUrl } from '../lib/supabase';
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB
@@ -112,11 +113,21 @@ export default function Settings() {
                 { label: 'Phone',           value: (vendor as any)?.phone },
                 { label: 'City',            value: vendor?.city },
                 { label: 'State',           value: vendor?.state },
-                { label: 'Address',         value: vendor?.address },
-              ].map(f => (
+                {
+                  label: 'Address',
+                  value: formatVendorAddressForDisplay(vendor?.address, {
+                    omitCityStateWhenStructured: true,
+                  }),
+                  multiline: true,
+                },
+              ].map((f) => (
                 <div key={f.label} className="flex justify-between items-start py-3 border-b border-gray-50 last:border-0 gap-4">
                   <span className="text-sm text-gray-500 flex-shrink-0">{f.label}</span>
-                  <span className={`text-sm font-semibold text-right break-all ${f.color || 'text-gray-900'}`}>{f.value || '—'}</span>
+                  <span
+                    className={`text-sm font-semibold text-right break-words max-w-[min(100%,20rem)] sm:max-w-[24rem] ${f.color || 'text-gray-900'} ${f.multiline ? 'whitespace-pre-line' : 'break-all'}`}
+                  >
+                    {f.value || '—'}
+                  </span>
                 </div>
               ))}
             </div>

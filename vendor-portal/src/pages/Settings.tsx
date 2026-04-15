@@ -2,24 +2,9 @@ import { useState, FormEvent, useRef } from 'react';
 import { Settings as SettingsIcon, Store, CreditCard, CheckCircle, AlertCircle, Upload } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
-import { supabase, ensureSupabaseStoragePublicUrl } from '../lib/supabase';
+import { ensureSupabaseStoragePublicUrl } from '../lib/supabase';
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB
-
-async function uploadBrandingImage(file: File, vendorId: string, kind: 'logo' | 'banner'): Promise<string> {
-  const raw = (file.name.split('.').pop() || 'jpg').toLowerCase();
-  const safeExt = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(raw) ? raw : 'jpg';
-  const path = `branding/${vendorId}/${kind}_${Date.now()}.${safeExt}`;
-  const { data, error } = await supabase.storage
-    .from('vendor-documents')
-    .upload(path, file, {
-      upsert: true,
-      contentType: file.type || `image/${safeExt === 'jpg' ? 'jpeg' : safeExt}`,
-    });
-  if (error) throw new Error(error.message);
-  const { data: pub } = supabase.storage.from('vendor-documents').getPublicUrl(data.path);
-  return ensureSupabaseStoragePublicUrl(pub.publicUrl);
-}
 
 export default function Settings() {
   const { vendor, refreshVendor } = useAuth();
@@ -68,7 +53,7 @@ export default function Settings() {
     setError(null);
     setUploadingLogo(true);
     try {
-      const url = await uploadBrandingImage(file, vendor.id, 'logo');
+      const url = ensureSupabaseStoragePublicUrl(await api.uploadBranding('logo', file));
       setStoreForm((p) => ({ ...p, logo_url: url }));
     } catch (e: any) {
       setError(e?.message || 'Logo upload failed. Try again or use a URL below.');
@@ -91,7 +76,7 @@ export default function Settings() {
     setError(null);
     setUploadingBanner(true);
     try {
-      const url = await uploadBrandingImage(file, vendor.id, 'banner');
+      const url = ensureSupabaseStoragePublicUrl(await api.uploadBranding('banner', file));
       setStoreForm((p) => ({ ...p, banner_url: url }));
     } catch (e: any) {
       setError(e?.message || 'Banner upload failed. Try again or use a URL below.');

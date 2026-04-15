@@ -50,7 +50,7 @@ export default function Login() {
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[36rem] h-[36rem] rounded-full bg-white/[0.03]" />
 
         <div className="relative z-10 text-center">
-          <img src="/logo.png" alt="JulineMart" className="h-14 object-contain mx-auto mb-8" />
+          <img src="/logo.svg" alt="JulineMart" className="h-14 object-contain mx-auto mb-8" />
           <h1 className="text-4xl font-bold text-white mb-4 leading-tight">
             Your Store.<br />Your Terms.
           </h1>
@@ -78,7 +78,7 @@ export default function Login() {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="lg:hidden text-center mb-8">
-            <img src="/logo.png" alt="JulineMart" className="h-10 object-contain mx-auto mb-3" />
+            <img src="/logo.svg" alt="JulineMart" className="h-10 object-contain mx-auto mb-3" />
             <p className="text-gray-500 text-sm">Vendor Portal</p>
           </div>
 

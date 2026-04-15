@@ -42,7 +42,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Brand header */}
         <div className="brand-gradient px-5 py-4">
           <div className="flex items-center gap-2.5 mb-3">
-            <img src="/logo.png" alt="JulineMart" className="h-7 object-contain brightness-0 invert" />
+            <img src="/logo.svg" alt="JulineMart" className="h-7 object-contain brightness-0 invert" />
           </div>
           <p className="text-primary-100 text-xs font-medium mb-3">Vendor Portal</p>
           <div className="bg-white/10 rounded-xl px-3 py-2.5 flex items-center gap-3">
@@ -131,7 +131,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               )}
             </div>
           </div>
-          <img src="/logo.png" alt="JulineMart" className="h-6 object-contain" />
+          <img src="/logo.svg" alt="JulineMart" className="h-6 object-contain" />
         </header>
 
         {/* Page content — safe-bottom adds padding so bottom nav doesn't overlap */}

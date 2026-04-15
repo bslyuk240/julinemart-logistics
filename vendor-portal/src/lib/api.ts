@@ -30,9 +30,42 @@ async function request<T>(
   return json.data as T;
 }
 
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const res = r.result as string;
+      resolve(res.includes(',') ? res.split(',')[1]! : res);
+    };
+    r.onerror = () => reject(new Error('Could not read file'));
+    r.readAsDataURL(file);
+  });
+}
+
 export const api = {
   getProfile:    ()              => request<any>('vendor-profile'),
   updateProfile: (body: object)  => request<any>('vendor-profile', { method: 'PUT', body: JSON.stringify(body) }),
+
+  /** Server-side Storage upload (service role) — avoids client Storage RLS 400 errors */
+  uploadBranding: async (kind: 'logo' | 'banner', file: File): Promise<string> => {
+    const token = await getToken();
+    const file_base64 = await fileToBase64(file);
+    const res = await fetch(`${JLO_BASE}/.netlify/functions/vendor-branding-upload`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        kind,
+        file_base64,
+        content_type: file.type || 'image/jpeg',
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) throw new Error(json.error || 'Upload failed');
+    return (json.data as { publicUrl: string }).publicUrl;
+  },
 
   getStats:      ()              => request<any>('vendor-stats'),
 

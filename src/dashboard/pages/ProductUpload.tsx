@@ -846,7 +846,7 @@ export default function ProductUpload() {
 
   // ─── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="w-full max-w-none mx-auto px-4 sm:px-6 xl:px-8">
+    <div className="w-full max-w-none mx-auto px-3 sm:px-5 xl:px-8">
       {/* Header */}
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-3">

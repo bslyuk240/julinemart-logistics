@@ -274,19 +274,19 @@ export function ProductModerationPage() {
   ];
 
   return (
-    <div className="w-full max-w-none p-6">
+    <div className="w-full max-w-none mx-auto px-3 sm:px-5 xl:px-8 py-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Products</h1>
           <p className="text-sm text-gray-500 mt-0.5">
             {meta.total > 0 ? `${meta.total} product${meta.total !== 1 ? 's' : ''}` : 'No products'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 self-stretch sm:self-auto">
           <button
             onClick={() => { clearProductListSessionCache(); loadProducts(page, true); }}
-            className="p-2 text-gray-400 hover:text-gray-600 rounded-md hover:bg-gray-100"
+            className="flex-1 sm:flex-none justify-center inline-flex items-center p-2 text-gray-400 hover:text-gray-600 rounded-md hover:bg-gray-100"
             title="Refresh"
           >
             <RefreshCw className="w-4 h-4" />
@@ -297,7 +297,7 @@ export function ProductModerationPage() {
                 state: { returnTo: `${location.pathname}${location.search}` },
               })
             }
-            className="flex items-center gap-1.5 bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700"
           >
             <Plus className="w-4 h-4" />
             Add Product
@@ -306,7 +306,7 @@ export function ProductModerationPage() {
       </div>
 
       {/* Status tabs */}
-      <div className="flex gap-1 border-b border-gray-200 mb-4">
+      <div className="flex gap-1 border-b border-gray-200 mb-4 overflow-x-auto">
         {statusTabs.map((tab) => (
           <button
             key={tab.value}
@@ -329,20 +329,20 @@ export function ProductModerationPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-3 mb-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3 mb-4">
         <input
           type="text"
           placeholder="Search products..."
           value={searchInput}
           onChange={(e) => handleSearchChange(e.target.value)}
-          className="flex-1 border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <select
           value={vendorId}
           onChange={(e) =>
             mergeSearchParams({ vendor: e.target.value || undefined, page: '1' })
           }
-          className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[180px]"
+          className="w-full sm:w-auto border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-[180px]"
         >
           <option value="">All Vendors</option>
           {vendors.map((v) => (
@@ -378,9 +378,12 @@ export function ProductModerationPage() {
             const isActing = actionLoading === product.id;
 
             return (
-              <div key={product.id} className="flex items-center gap-4 px-4 py-3">
+              <div
+                key={product.id}
+                className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:gap-4"
+              >
                 {/* Thumbnail */}
-                <div className="w-14 h-14 flex-shrink-0 rounded-md overflow-hidden bg-gray-100 border border-gray-200">
+                <div className="w-16 h-16 flex-shrink-0 rounded-md overflow-hidden bg-gray-100 border border-gray-200 self-start">
                   {thumb ? (
                     <img src={thumb} alt={product.name} className="w-full h-full object-cover" />
                   ) : (
@@ -393,7 +396,7 @@ export function ProductModerationPage() {
                 {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium text-gray-900 text-sm truncate max-w-xs">
+                    <span className="font-medium text-gray-900 text-sm truncate max-w-full sm:max-w-xs">
                       {product.name}
                     </span>
                     {/* Status badge */}
@@ -418,7 +421,7 @@ export function ProductModerationPage() {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5 text-xs text-gray-500">
                     {product.vendor && <span>{product.vendor.store_name}</span>}
                     {product.hub && <span>· {product.hub.name}</span>}
                     {product.categories.length > 0 && (
@@ -442,7 +445,7 @@ export function ProductModerationPage() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-1 flex-shrink-0">
+                <div className="flex items-center justify-between gap-2 flex-shrink-0 pt-1 border-t border-gray-100 mt-2 sm:mt-0 sm:pt-0 sm:border-t-0 sm:justify-end">
                   {/* Publish / Unpublish */}
                   <button
                     onClick={() => toggleStatus(product)}

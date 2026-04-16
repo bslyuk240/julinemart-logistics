@@ -962,7 +962,7 @@ export default function ProductUpload() {
         <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
           <h2 className="font-semibold text-gray-900">Vendor & Hub</h2>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Vendor *</label>
               <select
@@ -991,7 +991,7 @@ export default function ProductUpload() {
             </div>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-6">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox" checked={form.ships_from_abroad}
@@ -1077,7 +1077,7 @@ export default function ProductUpload() {
           {allCategories.length === 0 ? (
             <p className="text-sm text-gray-400">Loading categories...</p>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
               {topCats.map((cat) => {
                 const children = allCategories.filter((c) => c.parent_id === cat.id);
                 return (
@@ -1117,7 +1117,7 @@ export default function ProductUpload() {
           <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
             <h2 className="font-semibold text-gray-900">Pricing & Stock</h2>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Regular Price (₦)</label>
                 <input
@@ -1138,7 +1138,7 @@ export default function ProductUpload() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">SKU</label>
                 <input
@@ -1203,15 +1203,15 @@ export default function ProductUpload() {
               <p className="text-xs text-gray-400">Define options, then generate variation rows below</p>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               {varAttrs.map((attr, i) => (
-                <div key={i} className="flex items-center gap-2">
+                <div key={i} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
                   <input
                     type="text"
                     value={attr.name}
                     onChange={(e) => updateAttr(i, 'name', e.target.value)}
                     placeholder="Attribute name (e.g. Color)"
-                    className="w-36 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                    className="w-full sm:w-36 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
                   />
                   <input
                     type="text"
@@ -1220,23 +1220,25 @@ export default function ProductUpload() {
                     placeholder="Options (comma-separated: Red, Blue, Green)"
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
                   />
-                  <label className="flex items-center gap-1.5 text-xs text-gray-500 whitespace-nowrap">
-                    <input
-                      type="checkbox"
-                      checked={attr.is_variation}
-                      onChange={(e) => updateAttr(i, 'is_variation', e.target.checked)}
-                      className="w-3.5 h-3.5"
-                    />
-                    Used for variations
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => removeAttr(i)}
-                    disabled={varAttrs.length === 1}
-                    className="p-1.5 text-gray-400 hover:text-red-500 disabled:opacity-30"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center justify-between gap-2 sm:justify-start">
+                    <label className="flex items-center gap-1.5 text-xs text-gray-500">
+                      <input
+                        type="checkbox"
+                        checked={attr.is_variation}
+                        onChange={(e) => updateAttr(i, 'is_variation', e.target.checked)}
+                        className="w-3.5 h-3.5"
+                      />
+                      Used for variations
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => removeAttr(i)}
+                      disabled={varAttrs.length === 1}
+                      className="p-1.5 text-gray-400 hover:text-red-500 disabled:opacity-30"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1250,7 +1252,7 @@ export default function ProductUpload() {
                 <Plus className="w-4 h-4" />
                 Add attribute
               </button>
-              <div className="flex flex-wrap items-center gap-2 ml-auto">
+            <div className="flex flex-wrap items-center gap-2 ml-auto">
                 <button
                   type="button"
                   onClick={handleRealignVariationRows}
@@ -1298,7 +1300,8 @@ export default function ProductUpload() {
               </button>
             </div>
 
-            <div className="overflow-x-auto -mx-1">
+            {/* Desktop / tablet table */}
+            <div className="hidden md:block overflow-x-auto -mx-1">
               <table className="w-full text-sm table-fixed border-separate border-spacing-0">
                 <colgroup>
                   <col className="w-[19%]" />
@@ -1491,6 +1494,164 @@ export default function ProductUpload() {
               </table>
             </div>
 
+            {/* Mobile-friendly stacked cards */}
+            <div className="space-y-3 md:hidden">
+              {variations.map((v, i) => (
+                <div
+                  key={i}
+                  className="border border-gray-200 rounded-lg p-3 bg-white shadow-sm space-y-3"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap gap-1.5">
+                        {v.attributes.length === 0 ? (
+                          <span className="text-xs text-amber-600 italic leading-snug">
+                            No attributes — use Realign or Generate
+                          </span>
+                        ) : (
+                          v.attributes.map((a, ai) => (
+                            <span
+                              key={`${a.name}-${a.value}-${ai}`}
+                              className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-800 px-2.5 py-1 rounded-full border border-gray-200/80"
+                            >
+                              <span className="text-gray-500 font-medium">{a.name}:</span>
+                              <span className="font-medium">{a.value}</span>
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-center gap-1">
+                      {v.image_url.trim() ? (
+                        <button
+                          type="button"
+                          onClick={() => setVariationImagePreviewUrl(v.image_url.trim())}
+                          className="rounded-lg border border-gray-200 bg-gray-50 overflow-hidden"
+                        >
+                          <img
+                            src={v.image_url.trim()}
+                            alt=""
+                            className="w-14 h-14 object-contain"
+                          />
+                        </button>
+                      ) : (
+                        <div className="w-14 h-14 rounded-lg border border-dashed border-gray-200 bg-gray-50 flex items-center justify-center text-[9px] text-gray-400 text-center px-0.5 leading-tight">
+                          No image
+                        </div>
+                      )}
+                      <label
+                        className={`flex items-center justify-center w-9 h-9 rounded-lg border cursor-pointer transition-colors ${
+                          uploadingVariationIdx === i
+                            ? 'border-gray-200 text-gray-300 pointer-events-none'
+                            : 'border-primary-200 text-primary-600 hover:bg-primary-50'
+                        }`}
+                      >
+                        {uploadingVariationIdx === i ? (
+                          <span className="text-[10px]">…</span>
+                        ) : (
+                          <Upload className="w-4 h-4" />
+                        )}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/gif"
+                          className="hidden"
+                          disabled={uploadingVariationIdx !== null}
+                          onChange={(e) => handleVariationImageUpload(e, i)}
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <details className="group/url text-xs">
+                    <summary className="cursor-pointer list-none text-primary-600 hover:text-primary-800 font-medium select-none [&::-webkit-details-marker]:hidden flex items-center gap-1">
+                      <span className="border-b border-dotted border-primary-400">
+                        {v.image_url.trim() ? 'Edit image URL' : 'Set image URL'}
+                      </span>
+                    </summary>
+                    <div className="mt-2 pt-2 border-t border-gray-100">
+                      <input
+                        type="url"
+                        value={v.image_url}
+                        onChange={(e) => updateVariation(i, 'image_url', e.target.value)}
+                        placeholder="https://..."
+                        title={v.image_url.trim() || undefined}
+                        className="w-full min-w-0 px-2 py-1.5 border border-gray-200 rounded-md text-xs font-mono focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                      />
+                    </div>
+                  </details>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="block text-xs text-gray-500">SKU</label>
+                      <input
+                        type="text"
+                        value={v.sku}
+                        onChange={(e) => updateVariation(i, 'sku', e.target.value)}
+                        placeholder="SKU"
+                        className="w-full px-2 py-1.5 border border-gray-200 rounded-md text-xs font-mono focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleGenerateVariationSku(i)}
+                        disabled={skuGenBusy}
+                        className="mt-0.5 text-[11px] font-medium text-primary-600 hover:text-primary-800 disabled:opacity-50"
+                      >
+                        {skuGenBusy ? '…' : 'Generate'}
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="space-y-1">
+                        <label className="block text-xs text-gray-500">Regular price (₦)</label>
+                        <input
+                          type="number"
+                          value={v.regular_price}
+                          onChange={(e) => updateVariation(i, 'regular_price', e.target.value)}
+                          placeholder="0"
+                          min="0"
+                          step="0.01"
+                          className="w-full px-2 py-1.5 border border-gray-200 rounded-md text-xs tabular-nums focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs text-gray-500">Sale price (₦)</label>
+                        <input
+                          type="number"
+                          value={v.sale_price}
+                          onChange={(e) => updateVariation(i, 'sale_price', e.target.value)}
+                          placeholder="—"
+                          min="0"
+                          step="0.01"
+                          className="w-full px-2 py-1.5 border border-gray-200 rounded-md text-xs tabular-nums focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-500 mb-1">Stock status</label>
+                      <select
+                        value={v.stock_status}
+                        onChange={(e) => updateVariation(i, 'stock_status', e.target.value)}
+                        className="w-full px-2 py-1.5 border border-gray-200 rounded-md text-xs focus:ring-1 focus:ring-primary-500"
+                      >
+                        <option value="instock">In Stock</option>
+                        <option value="outofstock">Out of Stock</option>
+                        <option value="onbackorder">Backorder</option>
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeVariation(i)}
+                      className="ml-3 p-1.5 text-gray-300 hover:text-red-500"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
             {/* Bulk price fill */}
             <BulkPriceFill
               onApply={(price, salePrice) => {
@@ -1563,7 +1724,7 @@ export default function ProductUpload() {
           <h2 className="font-semibold text-gray-900">Images</h2>
 
           {form.images.length > 0 && (
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {form.images.map((img, i) => (
                 <div key={i} className="relative group">
                   <img

@@ -12,6 +12,7 @@
  *   items: [{ product_id, variation_id?, quantity }]  (required, min 1)
  *   shipping_fee: number  (required, ₦)
  *   voucher_code?: string
+ *   influencer_coupon_code?: string  (active influencer coupon; shipping_discount applied server-side to shipping_fee)
  *   special_instructions?: string
  *   order_notes?: string
  */
@@ -26,6 +27,7 @@ import {
 } from './services/global-sourcing-utils.js';
 import { autoCreateCjOrdersForSubOrders } from './services/global-sourcing-cj.js';
 import { sendOrderEmails } from '../../shared/orderConfirmationEmail.js';
+import { computeInfluencerShippingDiscount } from './services/influencer-order-sale.js';
 
 function generateRef() {
   const ts = Date.now().toString(36).toUpperCase();
@@ -69,6 +71,7 @@ export async function handler(event) {
     items = [],
     shipping_fee = 0,
     voucher_code,
+    influencer_coupon_code,
     special_instructions,
     order_notes,
   } = body;
@@ -213,6 +216,8 @@ export async function handler(event) {
       });
     }
 
+    const subtotal = resolvedItems.reduce((s, i) => s + i.subtotal, 0);
+
     // ── Voucher check ──────────────────────────────────────────────────────
     let discountAmount = 0;
     let voucherRow = null;
@@ -232,23 +237,54 @@ export async function handler(event) {
         return jsonResponse(400, { error: 'Voucher has reached its usage limit' });
       }
 
-      const rawSubtotal = resolvedItems.reduce((s, i) => s + i.subtotal, 0);
-      if (voucher.min_order_amount && rawSubtotal < Number(voucher.min_order_amount)) {
+      if (voucher.min_order_amount && subtotal < Number(voucher.min_order_amount)) {
         return jsonResponse(400, {
           error: `Minimum order amount for this voucher is ₦${Number(voucher.min_order_amount).toLocaleString()}`,
         });
       }
 
       discountAmount = voucher.discount_type === 'percentage'
-        ? Math.round((rawSubtotal * Number(voucher.discount_value)) / 100)
-        : Math.min(Number(voucher.discount_value), rawSubtotal);
+        ? Math.round((subtotal * Number(voucher.discount_value)) / 100)
+        : Math.min(Number(voucher.discount_value), subtotal);
 
       voucherRow = voucher;
     }
 
+    // ── Influencer shipping code (Supabase / PWA — not WooCommerce) ─────────
+    const shippingFeeBase = Math.max(Number(shipping_fee) || 0, 0);
+    let influencerMeta = null;
+    let influencerShippingDiscount = 0;
+    if (influencer_coupon_code?.trim()) {
+      const code = influencer_coupon_code.trim().toUpperCase();
+      const { data: influencer } = await adminClient
+        .from('influencers')
+        .select('*')
+        .eq('coupon_code', code)
+        .eq('status', 'active')
+        .maybeSingle();
+
+      if (!influencer) {
+        return jsonResponse(400, { error: 'Invalid influencer code' });
+      }
+
+      const minOrderValue = parseFloat(influencer.minimum_order_value || '0');
+      if (subtotal < minOrderValue) {
+        return jsonResponse(400, {
+          error: `Minimum order of ₦${minOrderValue.toLocaleString()} required for this influencer code`,
+        });
+      }
+
+      influencerShippingDiscount = computeInfluencerShippingDiscount(influencer, shippingFeeBase);
+      influencerMeta = {
+        influencer_id: influencer.id,
+        coupon_code: influencer.coupon_code,
+        shipping_discount_amount: influencerShippingDiscount,
+        shipping_base_amount: shippingFeeBase,
+      };
+    }
+
     // ── Totals ─────────────────────────────────────────────────────────────
-    const subtotal = resolvedItems.reduce((s, i) => s + i.subtotal, 0);
-    const shippingFee = Math.max(Number(shipping_fee) || 0, 0);
+    const shippingFee = Math.max(shippingFeeBase - influencerShippingDiscount, 0);
     const totalAmount = Math.max(subtotal - discountAmount + shippingFee, 0);
     const paymentReference = generateRef();
 
@@ -280,6 +316,7 @@ export async function handler(event) {
           source: 'pwa',
           /** DB webhook skips duplicate confirmation when this is set */
           order_confirmation_handler: 'netlify_create_order',
+          ...(influencerMeta ? { influencer: influencerMeta } : {}),
         },
       })
       .select('id, order_number')
@@ -521,6 +558,7 @@ export async function handler(event) {
         subtotal,
         discount_amount: discountAmount,
         shipping_fee: shippingFee,
+        influencer_shipping_discount: influencerShippingDiscount,
         total_amount: totalAmount,
         item_count: resolvedItems.length,
       },

@@ -14,6 +14,7 @@
 import crypto from 'crypto';
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
 import { sendTransactionalEmail } from './services/emailNotifications.js';
+import { recordInfluencerSaleForPaidOrder } from './services/influencer-order-sale.js';
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
@@ -95,6 +96,19 @@ export async function handler(event) {
               trackingUrl: `${portalUrl}/orders/${updatedOrder.order_number ?? updatedOrder.id}`,
             },
           });
+        }
+
+        if (updatedOrder?.id) {
+          try {
+            const { data: fullOrder } = await adminClient
+              .from('orders')
+              .select('*')
+              .eq('id', updatedOrder.id)
+              .maybeSingle();
+            if (fullOrder) await recordInfluencerSaleForPaidOrder(adminClient, fullOrder);
+          } catch (e) {
+            console.warn('paystack-webhook: influencer sale', e?.message || e);
+          }
         }
         break;
       }

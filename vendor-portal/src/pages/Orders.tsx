@@ -223,8 +223,10 @@ export default function Orders() {
                       const vd = item.variation_details
                         ? (typeof item.variation_details === 'string' ? JSON.parse(item.variation_details) : item.variation_details)
                         : null;
-                      const attrs = vd?.attributes ?? vd ?? {};
-                      const vars = Object.entries(attrs).filter(([, v]) => v);
+                      const raw = vd?.attributes ?? vd ?? {};
+                      const vars: [string, string][] = Array.isArray(raw)
+                        ? raw.filter((a: any) => a?.value).map((a: any) => [a.name ?? '', String(a.value)])
+                        : Object.entries(raw).filter(([, v]) => v).map(([k, v]) => [k, String(v)]);
                       return (
                       <div key={item.id} className="bg-gray-50 rounded-xl p-3 flex justify-between items-start gap-3">
                         <div className="min-w-0">

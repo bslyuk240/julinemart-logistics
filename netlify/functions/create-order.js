@@ -224,23 +224,21 @@ export async function handler(event) {
     if (voucher_code?.trim()) {
       const { data: voucher } = await adminClient
         .from('campaign_vouchers')
-        .select('id, code, discount_type, discount_value, min_order_amount, max_uses, current_uses, expires_at, is_active')
+        .select('id, code, discount_type, discount_value, max_uses, current_uses, valid_from, valid_until, status')
         .eq('code', voucher_code.trim().toUpperCase())
-        .eq('is_active', true)
+        .eq('status', 'active')
         .maybeSingle();
 
       if (!voucher) return jsonResponse(400, { error: 'Invalid or expired voucher code' });
-      if (voucher.expires_at && new Date(voucher.expires_at) < new Date()) {
+      const now = new Date();
+      if (voucher.valid_from && new Date(voucher.valid_from) > now) {
+        return jsonResponse(400, { error: 'Voucher is not yet valid' });
+      }
+      if (voucher.valid_until && new Date(voucher.valid_until) < now) {
         return jsonResponse(400, { error: 'Voucher has expired' });
       }
       if (voucher.max_uses != null && voucher.current_uses >= voucher.max_uses) {
         return jsonResponse(400, { error: 'Voucher has reached its usage limit' });
-      }
-
-      if (voucher.min_order_amount && subtotal < Number(voucher.min_order_amount)) {
-        return jsonResponse(400, {
-          error: `Minimum order amount for this voucher is ₦${Number(voucher.min_order_amount).toLocaleString()}`,
-        });
       }
 
       discountAmount = voucher.discount_type === 'percentage'

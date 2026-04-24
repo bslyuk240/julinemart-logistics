@@ -220,11 +220,11 @@ export default function Orders() {
                   <p className="text-sm font-semibold text-gray-700 mb-2">Items</p>
                   <div className="space-y-2">
                     {(selected.order_items || []).map((item: any) => {
-                      const vars = item.variation_details
-                        ? (typeof item.variation_details === 'string'
-                            ? Object.entries(JSON.parse(item.variation_details))
-                            : Object.entries(item.variation_details))
-                        : [];
+                      const vd = item.variation_details
+                        ? (typeof item.variation_details === 'string' ? JSON.parse(item.variation_details) : item.variation_details)
+                        : null;
+                      const attrs = vd?.attributes ?? vd ?? {};
+                      const vars = Object.entries(attrs).filter(([, v]) => v);
                       return (
                       <div key={item.id} className="bg-gray-50 rounded-xl p-3 flex justify-between items-start gap-3">
                         <div className="min-w-0">

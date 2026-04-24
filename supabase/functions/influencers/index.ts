@@ -219,6 +219,114 @@ serve(async (req) => {
       )
     }
 
+    // POST /influencers/:id/pay - Process commission payment for an influencer
+    if (method === 'POST' && path.match(/^\/[^/]+\/pay$/)) {
+      const id = path.split('/')[1]
+      const body = await req.json()
+      const { payment_method = 'bank_transfer', payment_reference, notes } = body
+
+      // Get influencer and their pending sales
+      const { data: influencer, error: infErr } = await supabaseClient
+        .from('influencers')
+        .select('id, name, total_commission_earned, total_commission_paid')
+        .eq('id', id)
+        .single()
+
+      if (infErr || !influencer) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Influencer not found' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      const { data: pendingSales, error: salesErr } = await supabaseClient
+        .from('influencer_sales')
+        .select('id, influencer_commission_amount, sale_date')
+        .eq('influencer_id', id)
+        .eq('commission_status', 'pending')
+
+      if (salesErr) throw salesErr
+
+      if (!pendingSales || pendingSales.length === 0) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'No pending commission to pay' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        )
+      }
+
+      const totalCommission = pendingSales.reduce(
+        (sum: number, s: any) => sum + parseFloat(s.influencer_commission_amount || 0), 0
+      )
+
+      const sortedDates = pendingSales
+        .map((s: any) => s.sale_date)
+        .filter(Boolean)
+        .sort()
+      const periodStart = sortedDates[0]?.split('T')[0] ?? new Date().toISOString().split('T')[0]
+      const periodEnd = sortedDates[sortedDates.length - 1]?.split('T')[0] ?? periodStart
+
+      const now = new Date().toISOString()
+      const ref = payment_reference?.trim() ||
+        `PAY-${id.slice(0, 8).toUpperCase()}-${Date.now().toString(36).toUpperCase()}`
+
+      // Create payment batch
+      const { data: batch, error: batchErr } = await supabaseClient
+        .from('influencer_payment_batches')
+        .insert({
+          period_start: periodStart,
+          period_end: periodEnd,
+          total_influencers: 1,
+          total_orders: pendingSales.length,
+          total_commission: totalCommission,
+          payment_method,
+          payment_status: 'completed',
+          payment_reference: ref,
+          notes: notes || null,
+          processed_at: now,
+        })
+        .select()
+        .single()
+
+      if (batchErr) throw batchErr
+
+      // Mark all pending sales as paid
+      const saleIds = pendingSales.map((s: any) => s.id)
+      const { error: updateSalesErr } = await supabaseClient
+        .from('influencer_sales')
+        .update({
+          commission_status: 'paid',
+          payment_date: now,
+          payment_reference: ref,
+          payment_batch_id: batch.id,
+          updated_at: now,
+        })
+        .in('id', saleIds)
+
+      if (updateSalesErr) throw updateSalesErr
+
+      // Update influencer total_commission_paid
+      const newPaid = parseFloat(influencer.total_commission_paid || 0) + totalCommission
+      const { error: updateInfErr } = await supabaseClient
+        .from('influencers')
+        .update({ total_commission_paid: newPaid })
+        .eq('id', id)
+
+      if (updateInfErr) throw updateInfErr
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          data: {
+            batch_id: batch.id,
+            payment_reference: ref,
+            total_commission: totalCommission,
+            sales_paid: saleIds.length,
+          },
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+      )
+    }
+
     // POST /influencers/validate-coupon - Validate coupon code
     if (method === 'POST' && path === '/validate-coupon') {
       const body = await req.json()

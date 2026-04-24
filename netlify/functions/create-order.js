@@ -28,6 +28,7 @@ import {
 import { autoCreateCjOrdersForSubOrders } from './services/global-sourcing-cj.js';
 import { sendOrderEmails } from '../../shared/orderConfirmationEmail.js';
 import { computeInfluencerShippingDiscount } from './services/influencer-order-sale.js';
+import { sendPushToCustomer } from './services/pushNotifications.js';
 
 function generateRef() {
   const ts = Date.now().toString(36).toUpperCase();
@@ -518,6 +519,17 @@ export async function handler(event) {
         });
       } catch (cjOrderError) {
         console.warn('Unable to auto-create CJ supplier orders (PWA):', cjOrderError);
+      }
+
+      // Notify each vendor of their new sub-order
+      const vendorIds = [...new Set(subOrders.map((s) => s.vendor_id).filter(Boolean))];
+      for (const vendorId of vendorIds) {
+        sendPushToCustomer(vendorId, {
+          title: '🛍️ New Order Received',
+          message: `Order #${orderNumber} — please confirm and process promptly.`,
+          type: 'new_vendor_order',
+          data: { order_id: orderId, order_number: String(orderNumber) },
+        }).catch((e) => console.warn('Vendor push failed:', e?.message));
       }
     }
 

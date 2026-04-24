@@ -39,8 +39,37 @@ type Item = {
   weight?: number;
   price?: number;
   variationId?: string | number | null;
-  variationAttributes?: Record<string, unknown>;
+  /** From sub_orders.items — array (Woo/Supabase) or legacy object */
+  variationAttributes?: Record<string, unknown> | Array<Record<string, unknown>>;
 };
+
+function formatVariationForOrderItem(item: Item): string | null {
+  const v = item.variationAttributes as unknown;
+  if (v == null) return null;
+  if (Array.isArray(v)) {
+    const parts = v
+      .map((a: Record<string, unknown>) => {
+        if (!a || typeof a !== 'object') return '';
+        const name = String(a.name ?? a.attribute ?? '').trim();
+        const val = a.option ?? a.value ?? a.option_value ?? '';
+        const valStr = val !== undefined && val !== null ? String(val).trim() : '';
+        if (name && valStr) return `${name}: ${valStr}`;
+        if (valStr) return valStr;
+        return name;
+      })
+      .filter(Boolean);
+    return parts.length ? parts.join(', ') : null;
+  }
+  if (typeof v === 'object') {
+    const parts = Object.entries(v as Record<string, unknown>)
+      .map(([k, val]) =>
+        val != null && String(val) !== '' ? `${k}: ${String(val)}` : ''
+      )
+      .filter(Boolean);
+    return parts.length ? parts.join(', ') : null;
+  }
+  return null;
+}
 
 type SubOrder = {
   id: Identifier;
@@ -973,7 +1002,9 @@ export function OrderDetailsPage() {
                       </h4>
                     </div>
                     <div className="space-y-2">
-                      {items.map((item, idx) => (
+                      {items.map((item, idx) => {
+                        const variationLabel = formatVariationForOrderItem(item);
+                        return (
                         <div
                           key={idx}
                           className="flex items-start justify-between bg-white p-3 rounded-md border border-green-100"
@@ -986,6 +1017,11 @@ export function OrderDetailsPage() {
                               {item.name}
                             </p>
                             <div className="text-xs text-gray-600 mt-1 space-y-1">
+                              {variationLabel && (
+                                <p className="text-purple-800 font-medium">
+                                  Variation: {variationLabel}
+                                </p>
+                              )}
                               {item.sku && <p>SKU: {item.sku}</p>}
                               {item.weight !== undefined && (
                                 <p>Weight: {item.weight}kg per unit</p>
@@ -1014,7 +1050,8 @@ export function OrderDetailsPage() {
                               )}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     <div className="mt-3 pt-3 border-t border-green-200 space-y-2">

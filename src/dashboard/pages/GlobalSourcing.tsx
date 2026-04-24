@@ -468,6 +468,34 @@ function getShipmentPrimaryItem(shipment: InboundShipment) {
   );
 }
 
+/** Labels for PWA/CJ inbound line items (variation_attributes from create-order metadata). */
+function formatInboundItemVariation(item: Record<string, unknown>): string {
+  const raw = item.variation_attributes ?? item.variationAttributes;
+  if (raw == null) return '';
+  if (Array.isArray(raw)) {
+    return raw
+      .map((a: unknown) => {
+        if (!a || typeof a !== 'object') return '';
+        const o = a as Record<string, unknown>;
+        const name = String(o.name ?? o.attribute ?? '').trim();
+        const val = o.option ?? o.value ?? o.option_value;
+        const valStr = val !== undefined && val !== null ? String(val).trim() : '';
+        if (name && valStr) return `${name}: ${valStr}`;
+        if (valStr) return valStr;
+        return name;
+      })
+      .filter(Boolean)
+      .join(', ');
+  }
+  if (typeof raw === 'object') {
+    return Object.entries(raw as Record<string, unknown>)
+      .map(([k, v]) => (v != null && String(v) !== '' ? `${k}: ${String(v)}` : ''))
+      .filter(Boolean)
+      .join(', ');
+  }
+  return '';
+}
+
 function getShipmentQuantity(shipment: InboundShipment) {
   const item = getShipmentPrimaryItem(shipment);
   const quantity = Number(item.quantity);
@@ -506,12 +534,15 @@ function getShipmentSupplierOrderStatus(shipment: InboundShipment) {
 function getShipmentSnapshot(shipment: InboundShipment) {
   const item = getShipmentPrimaryItem(shipment);
   const metadata = parseObjectValue(shipment.metadata);
+  const variationLabel = formatInboundItemVariation(item);
   return {
     productId: pickStringValue(item.product_id, item.productId),
     variationId: pickStringValue(item.variation_id, item.variationId),
     cjPid: pickStringValue(shipment.cj_pid, item.cj_pid, item.cjPid),
     cjVid: pickStringValue(shipment.cj_vid, item.cj_vid, item.cjVid),
     title: pickStringValue(item.name, metadata.title, metadata.product_title),
+    variationLabel,
+    sku: pickStringValue(item.sku),
     quantity: getShipmentQuantity(shipment),
   };
 }
@@ -2683,7 +2714,10 @@ export function GlobalSourcingPage() {
                         <p>Created: {formatDate(shipment.created_at)}</p>
                         <p>Hub: {shipment.hubs?.name || 'Not linked'} / Sub-order: {shipment.sub_orders?.tracking_number || 'Not linked'}</p>
                         <p>
-                          Product: {snapshot.title || 'CJ product'} / Qty: {snapshot.quantity} / CJ PID {snapshot.cjPid || 'n/a'} / CJ VID {snapshot.cjVid || 'n/a'}
+                          Product: {snapshot.title || 'CJ product'}
+                          {snapshot.variationLabel ? ` — ${snapshot.variationLabel}` : ''} / Qty: {snapshot.quantity} / CJ PID{' '}
+                          {snapshot.cjPid || 'n/a'} / CJ VID {snapshot.cjVid || 'n/a'}
+                          {snapshot.sku ? ` / SKU ${snapshot.sku}` : ''}
                         </p>
                         <p>
                           Inbound status: {formatReadableStatus(shipment.inbound_status)} / Tracking: {shipment.inbound_tracking_number || 'Not set'}

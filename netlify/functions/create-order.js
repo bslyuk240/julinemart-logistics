@@ -432,6 +432,10 @@ export async function handler(event) {
                 cj_vid: line.globalSourcing?.cjVid || null,
                 quantity: line.quantity || 1,
                 name: line.name || null,
+                sku: line.sku || null,
+                variation_attributes: Array.isArray(line.variationAttributes)
+                  ? line.variationAttributes
+                  : null,
               })),
             },
           })

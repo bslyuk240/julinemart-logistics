@@ -24,6 +24,61 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/**
+ * Human-readable variation text for emails (Woo + Supabase shapes).
+ * Attributes may be { name, option }, { name, value }, or legacy objects.
+ */
+function attrOptionValue(attr) {
+  if (!attr || typeof attr !== 'object') return '';
+  const name = attr.name || attr.attribute || attr.label || '';
+  const val = attr.option ?? attr.value ?? attr.option_value;
+  if (name && val !== undefined && val !== '') return `${name}: ${val}`;
+  if (val !== undefined && val !== '') return String(val);
+  return name ? String(name) : '';
+}
+
+function formatVariationSuffixFromDetails(variationDetails) {
+  if (!variationDetails) return '';
+  const attrs = variationDetails.attributes;
+  if (!attrs) return '';
+  if (Array.isArray(attrs)) {
+    const parts = attrs.map(attrOptionValue).filter(Boolean);
+    return parts.length ? ` (${parts.join(', ')})` : '';
+  }
+  if (typeof attrs === 'object') {
+    const parts = Object.entries(attrs)
+      .map(([k, v]) => (v != null && String(v) !== '' ? `${k}: ${v}` : ''))
+      .filter(Boolean);
+    return parts.length ? ` (${parts.join(', ')})` : '';
+  }
+  return '';
+}
+
+/** sub_orders.items line (from create-order) may carry variationAttributes array */
+function formatVariationSuffixFromLineItem(it) {
+  if (it.variation_details) return formatVariationSuffixFromDetails(it.variation_details);
+  const raw = it.variationAttributes;
+  if (Array.isArray(raw) && raw.length > 0) {
+    return formatVariationSuffixFromDetails({ attributes: raw });
+  }
+  return '';
+}
+
+function lineItemDisplayName(row) {
+  const base = row.product_name || 'Item';
+  const fromDet = formatVariationSuffixFromDetails(row.variation_details);
+  if (fromDet) return `${base}${fromDet}`;
+  const arr = row._variationAttributes || row.variationAttributes;
+  if (Array.isArray(arr) && arr.length > 0) {
+    return `${base}${formatVariationSuffixFromDetails({ attributes: arr })}`;
+  }
+  return `${base}${formatVariationSuffixFromLineItem(row)}`;
+}
+
+function lineItemDisplayNameFromResolved(i) {
+  return lineItemDisplayName(i);
+}
+
 /** Normalize sub_orders.items (JSONB may arrive as array, string, or wrapped object). */
 function parseSubOrderItemsJson(raw) {
   let v = raw;
@@ -90,13 +145,19 @@ async function buildVendorItemMapOnce(supabase, orderId, resolvedItems) {
           const qty = it.quantity ?? 1;
           const sub = Number(it.total ?? it.subtotal ?? 0);
           const productId = it.productId || it.product_id || null;
+          const variationDetails =
+            it.variation_details ||
+            (Array.isArray(it.variationAttributes) && it.variationAttributes.length > 0
+              ? { attributes: it.variationAttributes }
+              : null);
           push(vid, {
             product_name: name,
             quantity: qty,
             subtotal: sub,
             vendor_id: vid,
             product_id: productId,
-            variation_details: { attributes: [] },
+            variation_details: variationDetails || { attributes: [] },
+            variationAttributes: it.variationAttributes,
           });
         }
       } else {
@@ -383,9 +444,10 @@ export async function sendOrderEmails(
 
     const safeItems = Array.isArray(resolvedItems) ? resolvedItems : [];
 
-    const itemRows = safeItems.map((i) =>
-      `<tr><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3">${i.product_name}${i.variation_details?.attributes?.length ? ' (' + i.variation_details.attributes.map(a => `${a.name}: ${a.option}`).join(', ') + ')' : ''}</td><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3;text-align:center">${i.quantity}</td><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3;text-align:right">${fmt(i.subtotal)}</td></tr>`
-    ).join('');
+    const itemRows = safeItems.map((i) => {
+      const label = lineItemDisplayNameFromResolved(i);
+      return `<tr><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3">${label}</td><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3;text-align:center">${i.quantity}</td><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3;text-align:right">${fmt(i.subtotal)}</td></tr>`;
+    }).join('');
 
     const customerHtml = `
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
@@ -503,9 +565,12 @@ export async function sendOrderEmails(
         }
 
         const vItems = vendorItemMap.get(String(vid)) || [];
-        const vRows = vItems.map((i) =>
-          `<tr><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3">${i.product_name}</td><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3;text-align:center">${i.quantity}</td><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3;text-align:right">${fmt(i.subtotal)}</td></tr>`
-        ).join('');
+        const vRows = vItems
+          .map((i) => {
+            const label = lineItemDisplayName(i);
+            return `<tr><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3">${label}</td><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3;text-align:center">${i.quantity}</td><td style="padding:6px 12px;border-bottom:1px solid #f3f3f3;text-align:right">${fmt(i.subtotal)}</td></tr>`;
+          })
+          .join('');
         const vendorHtml = `
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
   <div style="background:#6b21a8;color:#fff;padding:30px;text-align:center">

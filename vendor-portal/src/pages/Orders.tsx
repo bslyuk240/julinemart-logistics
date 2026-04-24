@@ -219,18 +219,30 @@ export default function Orders() {
                 <div>
                   <p className="text-sm font-semibold text-gray-700 mb-2">Items</p>
                   <div className="space-y-2">
-                    {(selected.order_items || []).map((item: any) => (
+                    {(selected.order_items || []).map((item: any) => {
+                      const vars = item.variation_details
+                        ? (typeof item.variation_details === 'string'
+                            ? Object.entries(JSON.parse(item.variation_details))
+                            : Object.entries(item.variation_details))
+                        : [];
+                      return (
                       <div key={item.id} className="bg-gray-50 rounded-xl p-3 flex justify-between items-start gap-3">
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{item.product_name}</p>
-                          <p className="text-xs text-gray-400">SKU: {item.product_sku} · Qty: {item.quantity}</p>
+                          <p className="text-sm font-medium text-gray-900">{item.product_name}</p>
+                          {vars.length > 0 && (
+                            <p className="text-xs text-purple-600 font-medium mt-0.5">
+                              {vars.map(([k, v]) => `${k}: ${v}`).join(' · ')}
+                            </p>
+                          )}
+                          <p className="text-xs text-gray-400 mt-0.5">SKU: {item.product_sku} · Qty: {item.quantity}</p>
                         </div>
                         <div className="text-right flex-shrink-0">
                           <p className="text-sm font-bold text-gray-900">{fmt(item.subtotal)}</p>
                           <p className="text-xs text-green-600">You: {fmt(item.subtotal * (1 - commissionRate / 100))}</p>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 

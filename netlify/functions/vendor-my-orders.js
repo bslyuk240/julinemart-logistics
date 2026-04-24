@@ -43,7 +43,7 @@ export async function handler(event) {
     if (orderId) {
       const { data: itemsData } = await adminClient
         .from('order_items')
-        .select('id, product_name, product_sku, unit_price, quantity, subtotal')
+        .select('id, product_name, product_sku, variation_details, unit_price, quantity, subtotal')
         .eq('order_id', orderId);
       items = itemsData || [];
     }

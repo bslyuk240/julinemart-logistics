@@ -223,17 +223,25 @@ export default function Orders() {
                       const vd = item.variation_details
                         ? (typeof item.variation_details === 'string' ? JSON.parse(item.variation_details) : item.variation_details)
                         : null;
-                      const raw = vd?.attributes ?? vd ?? {};
-                      const vars: [string, string][] = Array.isArray(raw)
-                        ? raw.filter((a: any) => a?.value).map((a: any) => [a.name ?? '', String(a.value)])
-                        : Object.entries(raw).filter(([, v]) => v).map(([k, v]) => [k, String(v)]);
+                      const rawAttrs = vd?.attributes ?? null;
+                      const vars: string[] = rawAttrs == null ? [] : Array.isArray(rawAttrs)
+                        ? rawAttrs.map((a: any) => {
+                            const name = a?.name || a?.attribute || a?.label || '';
+                            const val  = a?.option ?? a?.value ?? a?.option_value;
+                            if (name && val != null && val !== '') return `${name}: ${val}`;
+                            if (val != null && val !== '') return String(val);
+                            return name ? String(name) : '';
+                          }).filter(Boolean)
+                        : Object.entries(rawAttrs)
+                            .map(([k, v]) => (v != null && String(v) !== '' ? `${k}: ${v}` : ''))
+                            .filter(Boolean);
                       return (
                       <div key={item.id} className="bg-gray-50 rounded-xl p-3 flex justify-between items-start gap-3">
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-gray-900">{item.product_name}</p>
                           {vars.length > 0 && (
                             <p className="text-xs text-purple-600 font-medium mt-0.5">
-                              {vars.map(([k, v]) => `${k}: ${v}`).join(' · ')}
+                              {vars.join(' · ')}
                             </p>
                           )}
                           <p className="text-xs text-gray-400 mt-0.5">SKU: {item.product_sku} · Qty: {item.quantity}</p>

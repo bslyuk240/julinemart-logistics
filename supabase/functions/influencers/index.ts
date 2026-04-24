@@ -21,7 +21,11 @@ serve(async (req) => {
     )
 
     const url = new URL(req.url)
-    const path = url.pathname.replace('/influencers', '')
+    // Supabase request path is e.g. /functions/v1/influencers/validate-c — not /influencers/...
+    const pathname = url.pathname
+    const infIdx = pathname.indexOf('/influencers')
+    let path = infIdx >= 0 ? pathname.slice(infIdx + '/influencers'.length) : pathname
+    if (path === '/' || !path) path = ''
     const method = req.method
 
     // GET /influencers - List all influencers

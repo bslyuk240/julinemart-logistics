@@ -374,24 +374,34 @@ export function OrderTrackingPage() {
                   <div className="relative">
                     <h5 className="font-semibold text-gray-900 mb-4">Tracking Updates</h5>
                     <div className="space-y-4">
-                      {subOrder.tracking_events.map((event: TrackingEvent, eventIndex: number) => (
+                      {[...subOrder.tracking_events].reverse().map((event: TrackingEvent, eventIndex: number) => {
+                        const isLatest = eventIndex === 0;
+                        const statusLabel: Record<string, string> = {
+                          pending: 'Order Received',
+                          vendor_dispatched: 'Sent to Hub',
+                          assigned: 'Rider Assigned',
+                          picked_up: 'Picked Up',
+                          in_transit: 'In Transit',
+                          out_for_delivery: 'Out for Delivery',
+                          delivered: 'Delivered',
+                          returned: 'Returned',
+                          failed: 'Delivery Failed',
+                        };
+                        return (
                         <div key={eventIndex} className="flex gap-4">
-                          {/* Timeline Line */}
                           <div className="flex flex-col items-center">
-                            <div className={`w-3 h-3 rounded-full ${
-                              eventIndex === 0 ? 'bg-primary-600' : 'bg-gray-300'
-                            }`} />
+                            <div className={`w-3 h-3 rounded-full ${isLatest ? 'bg-primary-600' : 'bg-gray-300'}`} />
                             {eventIndex !== subOrder.tracking_events.length - 1 && (
-                              <div className="w-0.5 h-full bg-gray-300 my-1" />
+                              <div className="w-0.5 h-full bg-gray-200 my-1" />
                             )}
                           </div>
-
-                          {/* Event Details */}
                           <div className="flex-1 pb-4">
                             <div className="flex items-start justify-between mb-1">
-                              <h6 className="font-semibold text-gray-900">{event.status}</h6>
-                              <span className="text-sm text-gray-500">
-                                {new Date(event.timestamp).toLocaleString()}
+                              <h6 className={`font-semibold ${isLatest ? 'text-primary-600' : 'text-gray-900'}`}>
+                                {statusLabel[event.status] || event.status.replace(/_/g, ' ')}
+                              </h6>
+                              <span className="text-xs text-gray-400">
+                                {new Date(event.timestamp).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                               </span>
                             </div>
                             <p className="text-sm text-gray-600">{event.description}</p>
@@ -403,7 +413,8 @@ export function OrderTrackingPage() {
                             )}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ) : (

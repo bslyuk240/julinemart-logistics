@@ -596,7 +596,9 @@ function SettlementDetailsModal({ settlement, onClose }: { settlement: Settlemen
                   const deliveredDate = so?.delivered_at ?? so?.updated_at;
                   const orderLabel = so?.orders?.order_number
                     ? `#${so.orders.order_number}`
-                    : so?.main_order_id?.slice(0, 8) + '…' ?? '—';
+                    : so?.main_order_id
+                    ? so.main_order_id.slice(0, 8) + '…'
+                    : '—';
 
                   return (
                     <tr key={item.id} className="hover:bg-gray-50">

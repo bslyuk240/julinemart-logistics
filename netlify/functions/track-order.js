@@ -45,7 +45,7 @@ export async function handler(event) {
     created_at,
     updated_at,
     hubs ( name, city, state ),
-    couriers ( name, code ),
+    couriers ( name, code )
   `;
 
   // 1. Try matching by order_number (new Supabase-native orders)

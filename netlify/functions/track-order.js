@@ -46,7 +46,6 @@ export async function handler(event) {
     updated_at,
     hubs ( name, city, state ),
     couriers ( name, code ),
-    tracking_events ( status, description, location, created_at )
   `;
 
   // 1. Try matching by order_number (new Supabase-native orders)
@@ -90,6 +89,28 @@ export async function handler(event) {
         error: 'Order not found. Please check your order number and email address.',
       }),
     };
+  }
+
+  // Fetch tracking events for all sub_orders separately
+  const subOrderIds = (order.sub_orders || []).map((s) => s.id);
+  if (subOrderIds.length > 0) {
+    const { data: events } = await adminClient
+      .from('tracking_events')
+      .select('sub_order_id, status, description, location, created_at')
+      .in('sub_order_id', subOrderIds)
+      .order('created_at', { ascending: true });
+
+    if (events) {
+      const eventsBySubOrder = {};
+      for (const e of events) {
+        if (!eventsBySubOrder[e.sub_order_id]) eventsBySubOrder[e.sub_order_id] = [];
+        eventsBySubOrder[e.sub_order_id].push(e);
+      }
+      order.sub_orders = order.sub_orders.map((s) => ({
+        ...s,
+        tracking_events: eventsBySubOrder[s.id] || [],
+      }));
+    }
   }
 
   // Determine overall progress from sub_orders

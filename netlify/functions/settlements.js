@@ -164,7 +164,7 @@ export async function handler(event) {
       if (!settlementId) return json(400, { success: false, error: 'Settlement ID required' });
 
       const body = JSON.parse(event.body || '{}');
-      const { payment_reference, payment_method, payment_date, notes } = body;
+      const { payment_reference, payment_method, payment_date, notes, actual_amount_paid } = body;
 
       if (!payment_reference) {
         return json(400, { success: false, error: 'payment_reference is required' });
@@ -184,12 +184,18 @@ export async function handler(event) {
         ? new Date(payment_date).toISOString()
         : new Date().toISOString();
 
+      // Use actual_amount_paid if provided (e.g. negotiated rate differs from billed amount),
+      // otherwise fall back to the originally computed total_amount_due
+      const amountPaid = actual_amount_paid != null
+        ? Number(actual_amount_paid)
+        : settlement.total_amount_due;
+
       // Mark settlement as paid
       const { error: updateErr } = await db
         .from('courier_settlements')
         .update({
           status:            'paid',
-          total_amount_paid: settlement.total_amount_due,
+          total_amount_paid: amountPaid,
           payment_reference,
           payment_method:    payment_method || 'bank_transfer',
           payment_date:      paidAt,
@@ -221,13 +227,13 @@ export async function handler(event) {
         .eq('id', settlement.courier_id)
         .single();
 
-      // Record as ledger expense
+      // Record as ledger expense — use actual amount paid, not billed amount
       await db.from('ledger_expenses').insert({
         source:           'courier_settlement',
         source_reference: settlementId,
         category:         'courier',
         subcategory:      'delivery_fees',
-        amount:           settlement.total_amount_due,
+        amount:           amountPaid,
         currency:         'NGN',
         tax_deductible:   true,
         vat_amount:       0,
@@ -237,14 +243,25 @@ export async function handler(event) {
         paid_at:          paidAt,
         description:      `Courier payment — ${courier?.name || 'Courier'} (${(items || []).length} deliveries)`,
         metadata: {
-          settlement_id: settlementId,
-          courier_id:    settlement.courier_id,
+          settlement_id:    settlementId,
+          courier_id:       settlement.courier_id,
+          amount_due:       settlement.total_amount_due,
+          amount_paid:      amountPaid,
+          shipping_saving:  settlement.total_amount_due - amountPaid,
         },
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });
 
-      return json(200, { success: true, message: 'Settlement marked as paid and expense recorded' });
+      return json(200, {
+        success: true,
+        message: 'Settlement marked as paid and expense recorded',
+        data: {
+          amount_due:      settlement.total_amount_due,
+          amount_paid:     amountPaid,
+          shipping_saving: settlement.total_amount_due - amountPaid,
+        },
+      });
     }
 
     return json(405, { success: false, error: 'Method not allowed' });

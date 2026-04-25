@@ -112,9 +112,9 @@ export async function handler(event) {
     const variationWooIds = variationIds.filter((id) => !isUuid(id) && Number(id) > 0).map(Number);
 
     const productSelect =
-      'id, woo_product_id, name, slug, sku, regular_price, sale_price, stock_status, vendor_id, hub_id, type, sourcing_meta, ships_from_abroad';
+      'id, woo_product_id, name, slug, sku, regular_price, sale_price, cost_price, stock_status, vendor_id, hub_id, type, sourcing_meta, ships_from_abroad';
     const variationSelect =
-      'id, woo_variation_id, product_id, sku, regular_price, sale_price, stock_status, attributes, vendor_id, hub_id, sourcing_meta';
+      'id, woo_variation_id, product_id, sku, regular_price, sale_price, cost_price, stock_status, attributes, vendor_id, hub_id, sourcing_meta';
 
     const [
       { data: productsByUuid },
@@ -196,6 +196,9 @@ export async function handler(event) {
         shipsFromAbroadColumn: product.ships_from_abroad === true,
       });
 
+      // Snapshot cost_price from product/variation at time of order — never changes later
+      const costPrice = Number(effectiveVariation?.cost_price ?? product.cost_price ?? 0) || null;
+
       resolvedItems.push({
         product_id: product.id,
         product_name: product.name,
@@ -205,6 +208,7 @@ export async function handler(event) {
         vendor_id: effectiveVariation?.vendor_id || product.vendor_id || null,
         hub_id: effectiveVariation?.hub_id || product.hub_id || null,
         unit_price: unitPrice,
+        cost_price: costPrice,
         quantity: item.quantity,
         subtotal: unitPrice * item.quantity,
         globalSourcing,
@@ -337,6 +341,7 @@ export async function handler(event) {
         vendor_id: i.vendor_id,
         hub_id: i.hub_id,
         unit_price: i.unit_price,
+        cost_price: i.cost_price,
         quantity: i.quantity,
         subtotal: i.subtotal,
       }))

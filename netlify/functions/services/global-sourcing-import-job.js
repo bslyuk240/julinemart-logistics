@@ -863,6 +863,15 @@ async function prepareJob(adminClient, job) {
   // Check if product already exists (re-import)
   const existingProduct = externalProductId ? await findExistingProduct(adminClient, externalProductId) : null;
 
+  // Compute cost_price in NGN from landed_cost_usd × exchange_rate
+  // For simple products: use pricingPreview directly
+  // For variable products: parent gets null (each variation carries its own cost)
+  const fxRate     = Number(pricingPreview.usd_to_ngn_rate_used ?? pricingPreview.exchange_rate ?? 0);
+  const landedUsd  = Number(pricingPreview.landed_cost_usd ?? 0);
+  const costNgn    = !shouldCreateVariations && fxRate > 0 && landedUsd > 0
+    ? Math.round(landedUsd * fxRate * 100) / 100
+    : null;
+
   const productRow = {
     name: normalizedTitle,
     description: richDescription || normalizedDescription,
@@ -871,6 +880,8 @@ async function prepareJob(adminClient, job) {
     type: shouldCreateVariations ? 'variable' : 'simple',
     regular_price: shouldCreateVariations ? null : (parentPricing.regularPriceWoo ?? null),
     sale_price: shouldCreateVariations ? null : (parentPricing.salePriceWoo || null),
+    cost_price: costNgn,
+    cj_cost_usd: !shouldCreateVariations && landedUsd > 0 ? landedUsd : null,
     stock_status: 'instock',
     manage_stock: false,
     ships_from_abroad: true,
@@ -1043,10 +1054,18 @@ async function processVariationBatch(adminClient, job) {
       value: a.value,
     }));
 
+    // Compute variation cost_price in NGN
+    const varFxRate    = Number(variantPricingPreview.usd_to_ngn_rate_used ?? variantPricingPreview.exchange_rate ?? 0);
+    const varLandedUsd = Number(variantPricingPreview.landed_cost_usd ?? 0);
+    const varCostNgn   = varFxRate > 0 && varLandedUsd > 0
+      ? Math.round(varLandedUsd * varFxRate * 100) / 100
+      : null;
+
     const variationRow = {
       product_id: productId,
       regular_price: variantPricingPreview.final_price_ngn ?? null,
       sale_price: variantPricingPreview.sale_price_ngn || null,
+      cost_price: varCostNgn,
       stock_status: 'instock',
       manage_stock: false,
       attributes: attributesJson,

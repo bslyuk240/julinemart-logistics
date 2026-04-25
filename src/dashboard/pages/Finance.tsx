@@ -14,10 +14,12 @@ interface MonthlyPnl {
   commission_revenue: number;
   margin_revenue: number;
   shipping_revenue: number;
+  gross_sales: number;
   expenses: number;
   gross_profit: number;
   profit_margin_pct: number;
   vat_collected: number;
+  order_count: number;
 }
 
 interface ExpenseCategory {
@@ -131,15 +133,17 @@ export function FinancePage() {
     .filter(m => m.period?.startsWith(currentYear))
     .reduce(
       (acc, m) => ({
-        revenue:    acc.revenue    + Number(m.revenue    || 0),
-        expenses:   acc.expenses   + Number(m.expenses   || 0),
-        profit:     acc.profit     + Number(m.gross_profit || 0),
+        revenue:    acc.revenue    + Number(m.revenue          || 0),
+        expenses:   acc.expenses   + Number(m.expenses         || 0),
+        profit:     acc.profit     + Number(m.gross_profit     || 0),
         commission: acc.commission + Number(m.commission_revenue || 0),
-        margin:     acc.margin     + Number(m.margin_revenue     || 0),
-        shipping:   acc.shipping   + Number(m.shipping_revenue   || 0),
-        vat:        acc.vat        + Number(m.vat_collected      || 0),
+        margin:     acc.margin     + Number(m.margin_revenue   || 0),
+        shipping:   acc.shipping   + Number(m.shipping_revenue || 0),
+        grossSales: acc.grossSales + Number(m.gross_sales      || 0),
+        vat:        acc.vat        + Number(m.vat_collected    || 0),
+        orders:     acc.orders     + Number(m.order_count      || 0),
       }),
-      { revenue: 0, expenses: 0, profit: 0, commission: 0, margin: 0, shipping: 0, vat: 0 }
+      { revenue: 0, expenses: 0, profit: 0, commission: 0, margin: 0, shipping: 0, grossSales: 0, vat: 0, orders: 0 }
     );
 
   const profitMarginPct = ytd.revenue > 0
@@ -331,9 +335,9 @@ export function FinancePage() {
       {/* YTD Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: 'Total Revenue',   value: fmt(ytd.revenue),   icon: TrendingUp,  color: 'bg-blue-50 text-blue-600',   sub: `Commission ₦${(ytd.commission/1000).toFixed(0)}k · Margin ₦${(ytd.margin/1000).toFixed(0)}k` },
+          { label: 'Total Revenue',   value: fmt(ytd.revenue),   icon: TrendingUp,  color: 'bg-blue-50 text-blue-600',   sub: `${ytd.orders} orders · Gross sales ${fmt(ytd.grossSales)}` },
           { label: 'Total Expenses',  value: fmt(ytd.expenses),  icon: TrendingDown, color: 'bg-red-50 text-red-600',    sub: `${expensesByCategory.length} categories` },
-          { label: 'Net Profit',      value: fmt(ytd.profit),    icon: DollarSign,  color: ytd.profit >= 0 ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600', sub: `${profitMarginPct}% margin` },
+          { label: 'Net Profit',      value: fmt(ytd.profit),    icon: DollarSign,  color: ytd.profit >= 0 ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-600', sub: `${profitMarginPct}% margin · Shipping ${fmt(ytd.shipping)}` },
           { label: 'VAT Collected',   value: fmt(ytd.vat),       icon: Receipt,     color: 'bg-purple-50 text-purple-600', sub: 'From delivered orders' },
         ].map(s => (
           <div key={s.label} className="bg-white rounded-xl border border-gray-100 p-4">
@@ -397,11 +401,12 @@ export function FinancePage() {
                         {isExpanded && (
                           <tr key={`${m.period}-detail`} className="bg-blue-50/40">
                             <td colSpan={6} className="px-6 py-3">
-                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs text-gray-600">
+                              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs text-gray-600">
+                                <div><span className="text-gray-400 block">Orders</span>{Number(m.order_count || 0)}</div>
+                                <div><span className="text-gray-400 block">Gross Sales</span>{fmt(Number(m.gross_sales))}</div>
                                 <div><span className="text-gray-400 block">Commission</span>{fmt(Number(m.commission_revenue))}</div>
-                                <div><span className="text-gray-400 block">Product Margin</span>{fmt(Number(m.margin_revenue))}</div>
-                                <div><span className="text-gray-400 block">Shipping Margin</span>{fmt(Number(m.shipping_revenue))}</div>
-                                <div><span className="text-gray-400 block">VAT Collected</span>{fmt(Number(m.vat_collected))}</div>
+                                <div><span className="text-gray-400 block">Own-Store Margin</span>{fmt(Number(m.margin_revenue))}</div>
+                                <div><span className="text-gray-400 block">Shipping Collected</span>{fmt(Number(m.shipping_revenue))}</div>
                               </div>
                             </td>
                           </tr>

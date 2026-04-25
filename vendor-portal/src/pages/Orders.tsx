@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
-import { ShoppingBag, AlertCircle, X, ChevronRight } from 'lucide-react';
+import { ShoppingBag, AlertCircle, X, ChevronRight, Truck } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 
 const fmt = (n: number) => `₦${Number(n || 0).toLocaleString()}`;
 
 const STATUS_BADGE: Record<string, string> = {
-  pending:          'bg-yellow-100 text-yellow-700',
-  assigned:         'bg-blue-100 text-blue-700',
+  pending:           'bg-yellow-100 text-yellow-700',
+  vendor_dispatched: 'bg-amber-100 text-amber-700',
+  assigned:          'bg-blue-100 text-blue-700',
   in_transit:       'bg-indigo-100 text-indigo-700',
   out_for_delivery: 'bg-purple-100 text-purple-700',
   delivered:        'bg-green-100 text-green-700',
@@ -24,6 +25,7 @@ export default function Orders() {
   const [error, setError]                 = useState('');
   const [statusFilter, setStatus]         = useState('');
   const [page, setPage]                   = useState(1);
+  const [dispatching, setDispatching]     = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -42,6 +44,28 @@ export default function Orders() {
       setSelected(detail);
     } catch (e: any) { setError(e.message); }
     finally { setDetailLoading(false); }
+  };
+
+  const markDispatched = async () => {
+    if (!selected || dispatching) return;
+    setDispatching(true);
+    try {
+      const { data: { session } } = await (await import('../lib/supabase')).supabase.auth.getSession();
+      const token = session?.access_token || '';
+      const res = await fetch('/.netlify/functions/vendor-dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ sub_order_id: selected.id }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed');
+      setSelected((prev: any) => ({ ...prev, status: 'vendor_dispatched' }));
+      setData((prev: any) => prev ? {
+        ...prev,
+        orders: prev.orders.map((o: any) => o.id === selected.id ? { ...o, status: 'vendor_dispatched' } : o),
+      } : prev);
+    } catch (e: any) { setError(e.message); }
+    finally { setDispatching(false); }
   };
 
   const commissionRate = Number(vendor?.commission_rate || 0);
@@ -255,6 +279,18 @@ export default function Orders() {
                     })}
                   </div>
                 </div>
+
+                {/* Dispatch to hub CTA — only visible when pending */}
+                {selected.status === 'pending' && (
+                  <button
+                    onClick={markDispatched}
+                    disabled={dispatching}
+                    className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors"
+                  >
+                    <Truck className="w-4 h-4" />
+                    {dispatching ? 'Marking as dispatched…' : 'Mark as Dispatched to Hub'}
+                  </button>
+                )}
 
                 {/* Payout summary */}
                 <div className="bg-primary-50 rounded-xl p-4">

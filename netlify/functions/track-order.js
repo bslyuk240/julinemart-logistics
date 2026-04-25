@@ -93,7 +93,7 @@ export async function handler(event) {
 
   // Determine overall progress from sub_orders
   const SUB_STATUS_RANK = {
-    pending: 1, assigned: 2, pickup_scheduled: 2,
+    pending: 1, vendor_dispatched: 2, assigned: 2, pickup_scheduled: 2,
     in_transit: 3, out_for_delivery: 4, delivered: 5,
   };
   const subOrders = order.sub_orders || [];

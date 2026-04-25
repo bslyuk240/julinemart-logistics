@@ -22,6 +22,7 @@ import { buildSupabaseFunctionUrl } from '../utils/supabaseFunctions';
 type Identifier = string | number;
 type KnownStatus =
   | 'pending'
+  | 'vendor_dispatched'
   | 'assigned'
   | 'picked_up'
   | 'in_transit'
@@ -160,6 +161,7 @@ type Order = {
 
 const STATUS_PRIORITY: Record<string, number> = {
   pending: 1,
+  vendor_dispatched: 2,
   processing: 2,
   assigned: 3,
   picked_up: 4,
@@ -211,6 +213,7 @@ const getSelectedLane = (subOrder: SubOrder): ShipmentLane => {
 const TrackingTimeline = ({ status }: { status: string }) => {
   const steps = [
     { key: 'pending', label: 'Pending' },
+    { key: 'vendor_dispatched', label: 'Sent to Hub' },
     { key: 'assigned', label: 'Assigned' },
     { key: 'picked_up', label: 'Picked Up' },
     { key: 'in_transit', label: 'In Transit' },
@@ -222,6 +225,7 @@ const TrackingTimeline = ({ status }: { status: string }) => {
   const normalizeStatus = (s: string): string => {
     const statusMap: Record<string, string> = {
       pending: 'pending',
+      vendor_dispatched: 'vendor_dispatched',
       pending_pickup: 'assigned',
       assigned: 'assigned',
       picked_up: 'picked_up',
@@ -811,6 +815,7 @@ export function OrderDetailsPage() {
   const getStatusColor = (status: string) => {
     const colors: Record<KnownStatus, string> = {
       pending: 'bg-yellow-100 text-yellow-800',
+      vendor_dispatched: 'bg-amber-100 text-amber-800',
       assigned: 'bg-blue-100 text-blue-800',
       picked_up: 'bg-blue-100 text-blue-800',
       processing: 'bg-blue-100 text-blue-800',

@@ -1,5 +1,6 @@
 const STATUS_PRIORITY = {
   pending: 1,
+  vendor_dispatched: 2,
   processing: 2,
   assigned: 3,
   picked_up: 4,

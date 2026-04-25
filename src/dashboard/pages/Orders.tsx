@@ -67,6 +67,7 @@ export function OrdersPage() {
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       pending: 'bg-yellow-100 text-yellow-800',
+      vendor_dispatched: 'bg-amber-100 text-amber-800',
       processing: 'bg-blue-100 text-blue-800',
       in_transit: 'bg-purple-100 text-purple-800',
       delivered: 'bg-green-100 text-green-800',
@@ -151,6 +152,7 @@ export function OrdersPage() {
               >
                 <option value="all">All Status</option>
                 <option value="pending">Pending</option>
+                <option value="vendor_dispatched">Vendor Dispatched</option>
                 <option value="processing">Processing</option>
                 <option value="in_transit">In Transit</option>
                 <option value="delivered">Delivered</option>

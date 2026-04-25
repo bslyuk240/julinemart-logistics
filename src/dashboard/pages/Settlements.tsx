@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   DollarSign, TrendingUp, TrendingDown, Clock, CheckCircle,
-  Download, Plus, Eye, FileText, CreditCard, X, Save, AlertTriangle
+  Download, Plus, Eye, FileText, CreditCard, X, Save, AlertTriangle, User
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { supabase } from '../../lib/supabase';
@@ -70,34 +70,226 @@ function PlBadge({ value }: { value: number }) {
   );
 }
 
+// ─── Pay Individual Delivery Modal ────────────────────────────────────────────
+function PayDeliveryModal({
+  row,
+  onClose,
+  onSuccess,
+}: {
+  row: SubOrderRow;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const notification = useNotification();
+  const [loading, setLoading] = useState(false);
+  const defaultAmount = String(row.real_shipping_cost ?? row.allocated_shipping_fee ?? row.courier_charge ?? '');
+  const [amount, setAmount] = useState(defaultAmount);
+  const [paidTo, setPaidTo] = useState('');
+  const [paymentReference, setPaymentReference] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [notes, setNotes] = useState('');
+
+  const charged = Number(row.allocated_shipping_fee ?? 0);
+  const costValue = amount !== '' ? Number(amount) : 0;
+  const pl = charged - costValue;
+
+  const orderLabel = row.orders?.order_number
+    ? `#${row.orders.order_number}`
+    : row.main_order_id.slice(0, 8) + '…';
+
+  const handlePay = async () => {
+    if (!paymentReference.trim()) {
+      notification.error('Required', 'Payment reference is required');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/settlements/pay-delivery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sub_order_id: row.id,
+          amount: Number(amount),
+          paid_to: paidTo.trim() || undefined,
+          payment_reference: paymentReference.trim(),
+          payment_method: paymentMethod,
+          payment_date: paymentDate,
+          notes: notes.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        notification.success('Delivery Paid', `Payment recorded${paidTo ? ` for ${paidTo}` : ''}`);
+        onSuccess();
+      } else {
+        notification.error('Failed', data.error || 'Could not record payment');
+      }
+    } catch {
+      notification.error('Error', 'Failed to record payment');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">Pay Local Rider</h3>
+            <p className="text-sm text-gray-500">Order {orderLabel}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="px-6 py-4 space-y-4">
+          {/* Rider name */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Rider Name / Phone <span className="text-gray-400 font-normal">(optional but recommended)</span>
+            </label>
+            <div className="relative">
+              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                value={paidTo}
+                onChange={(e) => setPaidTo(e.target.value)}
+                placeholder="e.g. Emeka — 0801 234 5678"
+                className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Amount */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Amount Paid
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">₦</span>
+              <input
+                type="number"
+                min="0"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full pl-8 pr-4 py-2 border border-gray-300 rounded-lg text-right font-semibold text-base"
+              />
+            </div>
+            {amount !== '' && (
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-xs text-gray-500">Charged to customer: {fmt(charged)}</span>
+                <PlBadge value={pl} />
+              </div>
+            )}
+          </div>
+
+          {/* Reference */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Payment Reference *
+            </label>
+            <input
+              type="text"
+              value={paymentReference}
+              onChange={(e) => setPaymentReference(e.target.value)}
+              placeholder="e.g. Cash-25Apr or receipt #"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+            />
+          </div>
+
+          {/* Method + Date row */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Method</label>
+              <select
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              >
+                <option value="cash">Cash</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="online">Online (OPay / etc.)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+              <input
+                type="date"
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any extra info…"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg text-sm"
+            />
+          </div>
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+          <button onClick={onClose} className="btn-secondary flex-1 text-sm">Cancel</button>
+          <button
+            onClick={handlePay}
+            disabled={loading || !amount}
+            className="btn-primary flex-1 text-sm flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <CreditCard className="w-4 h-4" />
+            )}
+            {loading ? 'Recording…' : 'Record Payment'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Pending Details Modal ────────────────────────────────────────────────────
 function PendingDetailsModal({ courier, onClose }: { courier: PendingPayment; onClose: () => void }) {
   const [rows, setRows] = useState<SubOrderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [payRow, setPayRow] = useState<SubOrderRow | null>(null);
   // editable courier costs keyed by sub_order id — string so input stays controlled
   const [editedCosts, setEditedCosts] = useState<Record<string, string>>({});
   const notification = useNotification();
 
+  const loadRows = async () => {
+    const { data, error } = await (supabase as any)
+      .from('sub_orders')
+      .select('id, main_order_id, status, delivered_at, updated_at, allocated_shipping_fee, real_shipping_cost, courier_charge, orders(order_number)')
+      .eq('courier_id', courier.courier_id)
+      .eq('status', 'delivered')
+      .not('settlement_status', 'in', '("paid","settled")')
+      .order('delivered_at', { ascending: false });
+
+    if (!error) {
+      setRows(data || []);
+      const initial: Record<string, string> = {};
+      (data || []).forEach((r: SubOrderRow) => {
+        initial[r.id] = r.real_shipping_cost != null ? String(r.real_shipping_cost) : '';
+      });
+      setEditedCosts((prev) => ({ ...initial, ...prev }));
+    }
+  };
+
   useEffect(() => {
     (async () => {
-      const { data, error } = await (supabase as any)
-        .from('sub_orders')
-        .select('id, main_order_id, status, delivered_at, updated_at, allocated_shipping_fee, real_shipping_cost, courier_charge, orders(order_number)')
-        .eq('courier_id', courier.courier_id)
-        .eq('status', 'delivered')
-        .not('settlement_status', 'in', '("paid","settled")')
-        .order('delivered_at', { ascending: false });
-
-      if (!error) {
-        setRows(data || []);
-        // Seed editable costs from existing real_shipping_cost
-        const initial: Record<string, string> = {};
-        (data || []).forEach((r: SubOrderRow) => {
-          initial[r.id] = r.real_shipping_cost != null ? String(r.real_shipping_cost) : '';
-        });
-        setEditedCosts(initial);
-      }
+      await loadRows();
       setLoading(false);
     })();
   }, [courier.courier_id]);
@@ -118,16 +310,7 @@ function PendingDetailsModal({ courier, onClose }: { courier: PendingPayment; on
         )
       );
 
-      // Refresh rows so totals recalculate
-      const { data } = await (supabase as any)
-        .from('sub_orders')
-        .select('id, main_order_id, status, delivered_at, updated_at, allocated_shipping_fee, real_shipping_cost, courier_charge, orders(order_number)')
-        .eq('courier_id', courier.courier_id)
-        .eq('status', 'delivered')
-        .not('settlement_status', 'in', '("paid","settled")')
-        .order('delivered_at', { ascending: false });
-
-      if (data) setRows(data);
+      await loadRows();
       notification.success('Costs Saved', `Updated courier cost for ${updates.length} shipment(s)`);
     } catch {
       notification.error('Save Failed', 'Could not update courier costs');
@@ -140,7 +323,6 @@ function PendingDetailsModal({ courier, onClose }: { courier: PendingPayment; on
     (r) => editedCosts[r.id] !== '' && editedCosts[r.id] !== String(r.real_shipping_cost ?? '')
   );
 
-  // Totals
   const totalCharged = rows.reduce((s, r) => s + Number(r.allocated_shipping_fee ?? 0), 0);
   const totalCost = rows.reduce((s, r) => {
     const cost = editedCosts[r.id] !== '' ? Number(editedCosts[r.id]) : Number(r.real_shipping_cost ?? r.courier_charge ?? r.allocated_shipping_fee ?? 0);
@@ -149,131 +331,155 @@ function PendingDetailsModal({ courier, onClose }: { courier: PendingPayment; on
   const totalPl = totalCharged - totalCost;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">{courier.courier_name} — Unsettled Deliveries</h2>
-            <p className="text-sm text-gray-500 mt-0.5">
-              {courier.pending_shipments} shipments · Edit courier costs to see your shipping P&L
-            </p>
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="overflow-auto flex-1 px-6 py-4">
-          {loading ? (
-            <div className="flex justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+    <>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">{courier.courier_name} — Unsettled Deliveries</h2>
+              <p className="text-sm text-gray-500 mt-0.5">
+                {courier.pending_shipments} shipments · Edit costs or pay riders individually
+              </p>
             </div>
-          ) : rows.length === 0 ? (
-            <div className="text-center py-12 text-gray-500">No unsettled deliveries found.</div>
-          ) : (
-            <table className="w-full text-sm min-w-[600px]">
-              <thead>
-                <tr className="text-left text-xs font-medium text-gray-500 border-b border-gray-100">
-                  <th className="pb-3 pr-3">Order #</th>
-                  <th className="pb-3 pr-3">Delivered</th>
-                  <th className="pb-3 pr-3 text-right">Charged to Customer</th>
-                  <th className="pb-3 pr-3 text-right">Actual Courier Cost</th>
-                  <th className="pb-3 text-right">P&L</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {rows.map((r) => {
-                  const charged = Number(r.allocated_shipping_fee ?? 0);
-                  const costInput = editedCosts[r.id] ?? '';
-                  const costValue = costInput !== '' ? Number(costInput) : Number(r.real_shipping_cost ?? r.courier_charge ?? r.allocated_shipping_fee ?? 0);
-                  const pl = charged - costValue;
-                  const deliveredDate = r.delivered_at ?? r.updated_at;
-                  const orderLabel = r.orders?.order_number ? `#${r.orders.order_number}` : r.main_order_id.slice(0, 8) + '…';
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
 
-                  return (
-                    <tr key={r.id} className="hover:bg-gray-50">
-                      <td className="py-3 pr-3 font-medium text-gray-800">{orderLabel}</td>
-                      <td className="py-3 pr-3 text-gray-600 whitespace-nowrap">
-                        {deliveredDate ? new Date(deliveredDate).toLocaleDateString() : '—'}
-                        {!r.delivered_at && deliveredDate && (
-                          <span className="ml-1 text-[10px] text-gray-400">(est.)</span>
-                        )}
-                      </td>
-                      <td className="py-3 pr-3 text-right text-gray-900 font-medium">{fmt(charged)}</td>
-                      <td className="py-3 pr-3 text-right">
-                        <div className="flex items-center justify-end">
-                          <span className="text-gray-500 mr-1 text-xs">₦</span>
-                          <input
-                            type="number"
-                            min="0"
-                            value={costInput}
-                            onChange={(e) =>
-                              setEditedCosts((prev) => ({ ...prev, [r.id]: e.target.value }))
-                            }
-                            placeholder={String(r.allocated_shipping_fee ?? 0)}
-                            className="w-28 px-2 py-1 border border-gray-300 rounded text-right text-sm focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
-                          />
-                        </div>
-                      </td>
-                      <td className="py-3 text-right">
-                        {costInput !== '' || r.real_shipping_cost != null ? (
-                          <PlBadge value={pl} />
-                        ) : (
-                          <span className="text-xs text-gray-400">Enter cost</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-gray-200 font-semibold">
-                  <td className="pt-3 text-gray-700" colSpan={2}>Total</td>
-                  <td className="pt-3 text-right text-gray-900">{fmt(totalCharged)}</td>
-                  <td className="pt-3 text-right text-gray-900">{fmt(totalCost)}</td>
-                  <td className="pt-3 text-right">
-                    <PlBadge value={totalPl} />
-                  </td>
-                </tr>
-                <tr>
-                  <td colSpan={5} className="pt-2 text-xs text-gray-500">
-                    {totalPl >= 0
-                      ? `You earned ₦${totalPl.toLocaleString()} more in shipping than you paid — shipping surplus`
-                      : `You paid ₦${Math.abs(totalPl).toLocaleString()} more to the courier than you charged customers — shipping loss`}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          )}
-        </div>
+          {/* Body */}
+          <div className="overflow-auto flex-1 px-6 py-4">
+            {loading ? (
+              <div className="flex justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+              </div>
+            ) : rows.length === 0 ? (
+              <div className="text-center py-12 text-gray-500">No unsettled deliveries found.</div>
+            ) : (
+              <table className="w-full text-sm min-w-[680px]">
+                <thead>
+                  <tr className="text-left text-xs font-medium text-gray-500 border-b border-gray-100">
+                    <th className="pb-3 pr-3">Order #</th>
+                    <th className="pb-3 pr-3">Delivered</th>
+                    <th className="pb-3 pr-3 text-right">Charged Customer</th>
+                    <th className="pb-3 pr-3 text-right">Courier Cost</th>
+                    <th className="pb-3 pr-3 text-right">P&L</th>
+                    <th className="pb-3 text-right">Pay Rider</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {rows.map((r) => {
+                    const charged = Number(r.allocated_shipping_fee ?? 0);
+                    const costInput = editedCosts[r.id] ?? '';
+                    const costValue = costInput !== '' ? Number(costInput) : Number(r.real_shipping_cost ?? r.courier_charge ?? r.allocated_shipping_fee ?? 0);
+                    const pl = charged - costValue;
+                    const deliveredDate = r.delivered_at ?? r.updated_at;
+                    const orderLabel = r.orders?.order_number ? `#${r.orders.order_number}` : r.main_order_id.slice(0, 8) + '…';
 
-        <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between gap-3">
-          <p className="text-xs text-gray-500 flex items-center gap-1">
-            <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-            Enter actual courier cost per shipment, then save before creating a settlement
-          </p>
-          <div className="flex gap-2 shrink-0">
-            <button onClick={onClose} className="btn-secondary text-sm">Close</button>
-            {hasUnsavedChanges && (
-              <button
-                onClick={handleSaveCosts}
-                disabled={saving}
-                className="btn-primary text-sm flex items-center gap-2"
-              >
-                {saving ? (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <Save className="w-4 h-4" />
-                )}
-                Save Costs
-              </button>
+                    return (
+                      <tr key={r.id} className="hover:bg-gray-50">
+                        <td className="py-3 pr-3 font-medium text-gray-800">{orderLabel}</td>
+                        <td className="py-3 pr-3 text-gray-600 whitespace-nowrap">
+                          {deliveredDate ? new Date(deliveredDate).toLocaleDateString() : '—'}
+                          {!r.delivered_at && deliveredDate && (
+                            <span className="ml-1 text-[10px] text-gray-400">(est.)</span>
+                          )}
+                        </td>
+                        <td className="py-3 pr-3 text-right text-gray-900 font-medium">{fmt(charged)}</td>
+                        <td className="py-3 pr-3 text-right">
+                          <div className="flex items-center justify-end">
+                            <span className="text-gray-500 mr-1 text-xs">₦</span>
+                            <input
+                              type="number"
+                              min="0"
+                              value={costInput}
+                              onChange={(e) =>
+                                setEditedCosts((prev) => ({ ...prev, [r.id]: e.target.value }))
+                              }
+                              placeholder={String(r.allocated_shipping_fee ?? 0)}
+                              className="w-24 px-2 py-1 border border-gray-300 rounded text-right text-sm focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
+                            />
+                          </div>
+                        </td>
+                        <td className="py-3 pr-3 text-right">
+                          {costInput !== '' || r.real_shipping_cost != null ? (
+                            <PlBadge value={pl} />
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 text-right">
+                          <button
+                            onClick={() => setPayRow(r)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-primary-600 hover:bg-primary-700 text-white text-xs font-medium rounded-lg transition-colors"
+                          >
+                            <CreditCard className="w-3.5 h-3.5" />
+                            Pay
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-gray-200 font-semibold">
+                    <td className="pt-3 text-gray-700" colSpan={2}>Total</td>
+                    <td className="pt-3 text-right text-gray-900">{fmt(totalCharged)}</td>
+                    <td className="pt-3 text-right text-gray-900">{fmt(totalCost)}</td>
+                    <td className="pt-3 text-right" colSpan={2}>
+                      <PlBadge value={totalPl} />
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colSpan={6} className="pt-2 text-xs text-gray-500">
+                      {totalPl >= 0
+                        ? `Shipping surplus — earned ₦${totalPl.toLocaleString()} more than paid out`
+                        : `Shipping loss — paid ₦${Math.abs(totalPl).toLocaleString()} more than charged to customers`}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
             )}
+          </div>
+
+          <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between gap-3">
+            <p className="text-xs text-gray-500 flex items-center gap-1">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+              For Fez/courier companies: save costs then use "Create Settlement" on the card above. For local riders: use "Pay" per row.
+            </p>
+            <div className="flex gap-2 shrink-0">
+              <button onClick={onClose} className="btn-secondary text-sm">Close</button>
+              {hasUnsavedChanges && (
+                <button
+                  onClick={handleSaveCosts}
+                  disabled={saving}
+                  className="btn-primary text-sm flex items-center gap-2"
+                >
+                  {saving ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4" />
+                  )}
+                  Save Costs
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+
+      {/* Per-delivery pay modal — renders above the details modal */}
+      {payRow && (
+        <PayDeliveryModal
+          row={payRow}
+          onClose={() => setPayRow(null)}
+          onSuccess={async () => {
+            setPayRow(null);
+            await loadRows();
+          }}
+        />
+      )}
+    </>
   );
 }
 

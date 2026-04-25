@@ -87,6 +87,111 @@ export async function handler(event) {
       return json(200, { success: true, data: data || [] });
     }
 
+    // ─── POST /api/settlements/pay-delivery ──────────────────────────────────
+    // Quick-pay a single delivery (individual local rider — no batch needed)
+    if (event.httpMethod === 'POST' && sub === 'pay-delivery') {
+      const body = JSON.parse(event.body || '{}');
+      const { sub_order_id, amount, paid_to, payment_reference, payment_method, payment_date, notes } = body;
+
+      if (!sub_order_id || !payment_reference) {
+        return json(400, { success: false, error: 'sub_order_id and payment_reference are required' });
+      }
+
+      // Fetch the sub_order
+      const { data: subOrder, error: soErr } = await db
+        .from('sub_orders')
+        .select('id, courier_id, real_shipping_cost, allocated_shipping_fee, courier_charge, delivered_at, main_order_id, settlement_status')
+        .eq('id', sub_order_id)
+        .single();
+
+      if (soErr || !subOrder) return json(404, { success: false, error: 'Sub-order not found' });
+      if (['paid', 'settled'].includes(subOrder.settlement_status)) {
+        return json(400, { success: false, error: 'This delivery has already been settled' });
+      }
+
+      const amountPaid = amount != null
+        ? Number(amount)
+        : Number(subOrder.real_shipping_cost ?? subOrder.allocated_shipping_fee ?? subOrder.courier_charge ?? 0);
+
+      const paidAt      = payment_date ? new Date(payment_date).toISOString() : new Date().toISOString();
+      const deliveryDay = subOrder.delivered_at
+        ? subOrder.delivered_at.split('T')[0]
+        : new Date().toISOString().split('T')[0];
+
+      // Create settlement record (already paid)
+      const { data: settlement, error: settlErr } = await db
+        .from('courier_settlements')
+        .insert({
+          courier_id:              subOrder.courier_id,
+          settlement_period_start: deliveryDay,
+          settlement_period_end:   deliveryDay,
+          total_shipments:         1,
+          total_amount_due:        amountPaid,
+          total_amount_paid:       amountPaid,
+          status:                  'paid',
+          payment_reference,
+          payment_method:          payment_method || 'cash',
+          payment_date:            paidAt,
+          paid_at:                 paidAt,
+          notes: paid_to
+            ? `Rider: ${paid_to}${notes ? ` — ${notes}` : ''}`
+            : (notes || null),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+
+      if (settlErr) throw settlErr;
+
+      // Link the delivery to the settlement
+      await db.from('settlement_items').insert({
+        settlement_id: settlement.id,
+        sub_order_id,
+        amount:        amountPaid,
+        created_at:    new Date().toISOString(),
+      });
+
+      // Mark sub_order as paid immediately
+      await db.from('sub_orders').update({
+        settlement_status: 'paid',
+        settlement_date:   paidAt,
+        payment_reference,
+        updated_at:        new Date().toISOString(),
+      }).eq('id', sub_order_id);
+
+      // Record as ledger expense with rider name in paid_to
+      await db.from('ledger_expenses').insert({
+        source:           'courier_settlement',
+        source_reference: settlement.id,
+        category:         'courier',
+        subcategory:      'delivery_fees',
+        amount:           amountPaid,
+        currency:         'NGN',
+        tax_deductible:   true,
+        vat_amount:       0,
+        payment_method:   payment_method || 'cash',
+        payment_reference,
+        paid_to:          paid_to || 'Local Rider',
+        paid_at:          paidAt,
+        description:      `Local rider payment — ${paid_to || 'Rider'} (1 delivery, order ${subOrder.main_order_id?.slice(0, 8)})`,
+        metadata: {
+          settlement_id: settlement.id,
+          courier_id:    subOrder.courier_id,
+          sub_order_id,
+          paid_to:       paid_to || null,
+        },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      return json(201, {
+        success: true,
+        message: 'Delivery paid and expense recorded',
+        data:    { settlement_id: settlement.id, amount_paid: amountPaid },
+      });
+    }
+
     // ─── POST /api/settlements ────────────────────────────────────────────────
     // Create a settlement batch for a courier over a date range
     if (event.httpMethod === 'POST' && !sub) {

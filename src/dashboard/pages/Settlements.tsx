@@ -1,9 +1,10 @@
-﻿import { useEffect, useState } from 'react';
-import { 
-  DollarSign, TrendingUp, Clock, CheckCircle, AlertCircle,
-  Calendar, Download, Plus, Eye, FileText, CreditCard
+import { useEffect, useState } from 'react';
+import {
+  DollarSign, TrendingUp, Clock, CheckCircle,
+  Download, Plus, Eye, FileText, CreditCard, X, Package, AlertCircle
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
+import { supabase } from '../../lib/supabase';
 
 interface PendingPayment {
   courier_id: string;
@@ -32,6 +33,239 @@ interface Settlement {
   created_at: string;
 }
 
+interface SubOrderRow {
+  id: string;
+  main_order_id: string;
+  status: string;
+  delivered_at: string | null;
+  real_shipping_cost: number | null;
+  allocated_shipping_fee: number | null;
+  courier_charge: number | null;
+}
+
+interface SettlementItem {
+  id: string;
+  amount: number;
+  sub_order_id: string;
+  sub_orders: SubOrderRow | null;
+}
+
+// ─── Pending Details Modal ────────────────────────────────────────────────────
+function PendingDetailsModal({ courier, onClose }: { courier: PendingPayment; onClose: () => void }) {
+  const [rows, setRows] = useState<SubOrderRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await (supabase as any)
+        .from('sub_orders')
+        .select('id, main_order_id, status, delivered_at, real_shipping_cost, allocated_shipping_fee, courier_charge')
+        .eq('courier_id', courier.courier_id)
+        .eq('status', 'delivered')
+        .not('settlement_status', 'in', '("paid","settled")')
+        .order('delivered_at', { ascending: false });
+
+      if (!error) setRows(data || []);
+      setLoading(false);
+    })();
+  }, [courier.courier_id]);
+
+  const fmt = (n: number | null) =>
+    n != null ? `₦${Number(n).toLocaleString()}` : '—';
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">{courier.courier_name} — Unsettled Deliveries</h2>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {courier.pending_shipments} shipments · Total due ₦{courier.total_amount_due.toLocaleString()}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto flex-1 px-6 py-4">
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">No unsettled deliveries found.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs font-medium text-gray-500 border-b border-gray-100">
+                  <th className="pb-3 pr-4">Sub-order</th>
+                  <th className="pb-3 pr-4">Order</th>
+                  <th className="pb-3 pr-4">Delivered</th>
+                  <th className="pb-3 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {rows.map((r) => {
+                  const amount = r.real_shipping_cost ?? r.allocated_shipping_fee ?? r.courier_charge;
+                  return (
+                    <tr key={r.id} className="hover:bg-gray-50">
+                      <td className="py-3 pr-4 font-mono text-xs text-gray-600">{r.id.slice(0, 8)}…</td>
+                      <td className="py-3 pr-4 font-mono text-xs text-gray-600">{r.main_order_id.slice(0, 8)}…</td>
+                      <td className="py-3 pr-4 text-gray-700">
+                        {r.delivered_at ? new Date(r.delivered_at).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="py-3 text-right font-semibold text-gray-900">{fmt(amount)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-gray-200">
+                  <td colSpan={3} className="pt-3 font-semibold text-gray-700">Total</td>
+                  <td className="pt-3 text-right font-bold text-gray-900">
+                    ₦{courier.total_amount_due.toLocaleString()}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end">
+          <button onClick={onClose} className="btn-secondary text-sm">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Settlement History Details Modal ────────────────────────────────────────
+function SettlementDetailsModal({ settlement, onClose }: { settlement: Settlement; onClose: () => void }) {
+  const [items, setItems] = useState<SettlementItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await (supabase as any)
+        .from('settlement_items')
+        .select('id, amount, sub_order_id, sub_orders(id, main_order_id, status, delivered_at, real_shipping_cost, allocated_shipping_fee, courier_charge)')
+        .eq('settlement_id', settlement.id)
+        .order('created_at', { ascending: false });
+
+      if (!error) setItems(data || []);
+      setLoading(false);
+    })();
+  }, [settlement.id]);
+
+  const getStatusBadge = (status: string) => {
+    const colors: Record<string, string> = {
+      delivered: 'bg-green-100 text-green-700',
+      in_transit: 'bg-blue-100 text-blue-700',
+      out_for_delivery: 'bg-purple-100 text-purple-700',
+    };
+    return colors[status] || 'bg-gray-100 text-gray-700';
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">{settlement.courier_name} — Settlement</h2>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {new Date(settlement.settlement_period_start).toLocaleDateString()} –{' '}
+              {new Date(settlement.settlement_period_end).toLocaleDateString()} ·{' '}
+              {settlement.total_shipments} shipments
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+
+        {/* Payment status banner */}
+        {settlement.status === 'paid' && (
+          <div className="mx-6 mt-4 bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center gap-2 text-sm">
+            <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+            <span className="text-green-900 font-medium">
+              Paid on {new Date(settlement.payment_date).toLocaleDateString()}
+            </span>
+            <span className="text-green-700">· Ref: {settlement.payment_reference}</span>
+          </div>
+        )}
+
+        {/* Items table */}
+        <div className="overflow-y-auto flex-1 px-6 py-4">
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+            </div>
+          ) : items.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">No items found for this settlement.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs font-medium text-gray-500 border-b border-gray-100">
+                  <th className="pb-3 pr-4">Sub-order</th>
+                  <th className="pb-3 pr-4">Order</th>
+                  <th className="pb-3 pr-4">Delivered</th>
+                  <th className="pb-3 pr-4">Status</th>
+                  <th className="pb-3 text-right">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {items.map((item) => {
+                  const so = item.sub_orders;
+                  return (
+                    <tr key={item.id} className="hover:bg-gray-50">
+                      <td className="py-3 pr-4 font-mono text-xs text-gray-600">
+                        {item.sub_order_id.slice(0, 8)}…
+                      </td>
+                      <td className="py-3 pr-4 font-mono text-xs text-gray-600">
+                        {so?.main_order_id?.slice(0, 8) ?? '—'}…
+                      </td>
+                      <td className="py-3 pr-4 text-gray-700">
+                        {so?.delivered_at ? new Date(so.delivered_at).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="py-3 pr-4">
+                        {so?.status ? (
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusBadge(so.status)}`}>
+                            {so.status}
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td className="py-3 text-right font-semibold text-gray-900">
+                        ₦{Number(item.amount).toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-gray-200">
+                  <td colSpan={4} className="pt-3 font-semibold text-gray-700">Total</td>
+                  <td className="pt-3 text-right font-bold text-gray-900">
+                    ₦{Number(settlement.total_amount_due).toLocaleString()}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end">
+          <button onClick={onClose} className="btn-secondary text-sm">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export function SettlementsPage() {
   const notification = useNotification();
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
@@ -40,6 +274,7 @@ export function SettlementsPage() {
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedCourier, setSelectedCourier] = useState<PendingPayment | null>(null);
+  const [viewDetailsCourier, setViewDetailsCourier] = useState<PendingPayment | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -74,7 +309,7 @@ export function SettlementsPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-lg sm:text-lg sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+        <h1 className="text-lg sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
           <DollarSign className="w-5 h-5 sm:w-8 sm:h-8 text-green-600" />
           Courier Settlements
         </h1>
@@ -89,40 +324,40 @@ export function SettlementsPage() {
           <div className="flex items-center justify-between mb-2">
             <Clock className="w-5 h-5 sm:w-8 sm:h-8 text-yellow-600" />
           </div>
-          <div className="text-lg sm:text-lg sm:text-3xl font-bold text-yellow-900">
+          <div className="text-lg sm:text-3xl font-bold text-yellow-900">
             ₦{totalPending.toLocaleString()}
           </div>
-          <div className="text-[11px] sm:text-[11px] sm:text-sm text-yellow-700 mt-1">Pending Payment</div>
+          <div className="text-[11px] sm:text-sm text-yellow-700 mt-1">Pending Payment</div>
         </div>
 
         <div className="card bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 p-3 sm:p-6">
           <div className="flex items-center justify-between mb-2">
             <FileText className="w-5 h-5 sm:w-8 sm:h-8 text-blue-600" />
           </div>
-          <div className="text-lg sm:text-lg sm:text-3xl font-bold text-blue-900">
+          <div className="text-lg sm:text-3xl font-bold text-blue-900">
             ₦{totalApproved.toLocaleString()}
           </div>
-          <div className="text-[11px] sm:text-[11px] sm:text-sm text-blue-700 mt-1">Approved for Payment</div>
+          <div className="text-[11px] sm:text-sm text-blue-700 mt-1">Approved for Payment</div>
         </div>
 
         <div className="card bg-gradient-to-br from-green-50 to-green-100 border-green-200 p-3 sm:p-6">
           <div className="flex items-center justify-between mb-2">
             <CheckCircle className="w-5 h-5 sm:w-8 sm:h-8 text-green-600" />
           </div>
-          <div className="text-lg sm:text-lg sm:text-3xl font-bold text-green-900">
+          <div className="text-lg sm:text-3xl font-bold text-green-900">
             ₦{totalPaid.toLocaleString()}
           </div>
-          <div className="text-[11px] sm:text-[11px] sm:text-sm text-green-700 mt-1">Total Paid (All Time)</div>
+          <div className="text-[11px] sm:text-sm text-green-700 mt-1">Total Paid (All Time)</div>
         </div>
 
         <div className="card bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200 p-3 sm:p-6">
           <div className="flex items-center justify-between mb-2">
             <TrendingUp className="w-5 h-5 sm:w-8 sm:h-8 text-purple-600" />
           </div>
-          <div className="text-lg sm:text-lg sm:text-3xl font-bold text-purple-900">
+          <div className="text-lg sm:text-3xl font-bold text-purple-900">
             {pendingPayments.reduce((sum, p) => sum + p.pending_shipments, 0)}
           </div>
-          <div className="text-[11px] sm:text-[11px] sm:text-sm text-purple-700 mt-1">Pending Shipments</div>
+          <div className="text-[11px] sm:text-sm text-purple-700 mt-1">Pending Shipments</div>
         </div>
       </div>
 
@@ -194,9 +429,14 @@ export function SettlementsPage() {
                       </div>
                       <div>
                         <span className="text-[11px] sm:text-sm text-gray-600">Period</span>
-                        <p className="text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-900">
-                          {new Date(payment.oldest_shipment).toLocaleDateString()} - {' '}
-                          {new Date(payment.newest_shipment).toLocaleDateString()}
+                        <p className="text-[11px] sm:text-sm font-medium text-gray-900">
+                          {payment.oldest_shipment
+                            ? new Date(payment.oldest_shipment).toLocaleDateString()
+                            : '—'}{' '}
+                          -{' '}
+                          {payment.newest_shipment
+                            ? new Date(payment.newest_shipment).toLocaleDateString()
+                            : '—'}
                         </p>
                       </div>
                     </div>
@@ -213,7 +453,10 @@ export function SettlementsPage() {
                       <Plus className="w-4 h-4 mr-2" />
                       Create Settlement
                     </button>
-                    <button className="btn-secondary text-sm flex items-center whitespace-nowrap">
+                    <button
+                      onClick={() => setViewDetailsCourier(payment)}
+                      className="btn-secondary text-sm flex items-center whitespace-nowrap"
+                    >
                       <Eye className="w-4 h-4 mr-2" />
                       View Details
                     </button>
@@ -267,13 +510,22 @@ export function SettlementsPage() {
           notification={notification}
         />
       )}
+
+      {/* View Details Modal — Pending */}
+      {viewDetailsCourier && (
+        <PendingDetailsModal
+          courier={viewDetailsCourier}
+          onClose={() => setViewDetailsCourier(null)}
+        />
+      )}
     </div>
   );
 }
 
-// Settlement History Card Component
+// ─── Settlement History Card ──────────────────────────────────────────────────
 function SettlementHistoryCard({ settlement, onRefresh, notification }: any) {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
@@ -292,7 +544,7 @@ function SettlementHistoryCard({ settlement, onRefresh, notification }: any) {
         <div>
           <h3 className="text-lg font-bold text-gray-900">{settlement.courier_name}</h3>
           <p className="text-[11px] sm:text-sm text-gray-600">
-            {new Date(settlement.settlement_period_start).toLocaleDateString()} - {' '}
+            {new Date(settlement.settlement_period_start).toLocaleDateString()} -{' '}
             {new Date(settlement.settlement_period_end).toLocaleDateString()}
           </p>
         </div>
@@ -304,23 +556,23 @@ function SettlementHistoryCard({ settlement, onRefresh, notification }: any) {
       <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4 mb-4">
         <div>
           <span className="text-[11px] sm:text-sm text-gray-600">Shipments</span>
-          <p className="text-base sm:text-base sm:text-lg font-semibold text-gray-900">{settlement.total_shipments}</p>
+          <p className="text-base sm:text-lg font-semibold text-gray-900">{settlement.total_shipments}</p>
         </div>
         <div>
           <span className="text-[11px] sm:text-sm text-gray-600">Amount Due</span>
-          <p className="text-base sm:text-base sm:text-lg font-semibold text-gray-900">
+          <p className="text-base sm:text-lg font-semibold text-gray-900">
             ₦{settlement.total_amount_due.toLocaleString()}
           </p>
         </div>
         <div>
           <span className="text-[11px] sm:text-sm text-gray-600">Amount Paid</span>
-          <p className="text-base sm:text-base sm:text-lg font-semibold text-green-600">
+          <p className="text-base sm:text-lg font-semibold text-green-600">
             ₦{settlement.total_amount_paid.toLocaleString()}
           </p>
         </div>
         <div>
           <span className="text-[11px] sm:text-sm text-gray-600">Created</span>
-          <p className="text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-900">
+          <p className="text-[11px] sm:text-sm font-medium text-gray-900">
             {new Date(settlement.created_at).toLocaleDateString()}
           </p>
         </div>
@@ -342,11 +594,14 @@ function SettlementHistoryCard({ settlement, onRefresh, notification }: any) {
       )}
 
       <div className="flex gap-2">
-        <button className="btn-secondary text-sm flex items-center">
+        <button
+          onClick={() => setShowDetailsModal(true)}
+          className="btn-secondary text-sm flex items-center"
+        >
           <Eye className="w-4 h-4 mr-2" />
           View Details
         </button>
-        
+
         {settlement.status !== 'paid' && (
           <button
             onClick={() => setShowPaymentModal(true)}
@@ -374,18 +629,29 @@ function SettlementHistoryCard({ settlement, onRefresh, notification }: any) {
           notification={notification}
         />
       )}
+
+      {showDetailsModal && (
+        <SettlementDetailsModal
+          settlement={settlement}
+          onClose={() => setShowDetailsModal(false)}
+        />
+      )}
     </div>
   );
 }
 
-// Create Settlement Modal
+// ─── Create Settlement Modal ──────────────────────────────────────────────────
 function CreateSettlementModal({ courier, onClose, onSuccess, notification }: any) {
   const [loading, setLoading] = useState(false);
   const [startDate, setStartDate] = useState(
-    new Date(courier.oldest_shipment).toISOString().split('T')[0]
+    courier.oldest_shipment
+      ? new Date(courier.oldest_shipment).toISOString().split('T')[0]
+      : new Date().toISOString().split('T')[0]
   );
   const [endDate, setEndDate] = useState(
-    new Date(courier.newest_shipment).toISOString().split('T')[0]
+    courier.newest_shipment
+      ? new Date(courier.newest_shipment).toISOString().split('T')[0]
+      : new Date().toISOString().split('T')[0]
   );
 
   const handleCreate = async () => {
@@ -420,7 +686,7 @@ function CreateSettlementModal({ courier, onClose, onSuccess, notification }: an
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
         <h2 className="text-2xl font-bold mb-4">Create Settlement</h2>
-        
+
         <div className="mb-4">
           <p className="text-gray-600 mb-2">Courier: <span className="font-semibold">{courier.courier_name}</span></p>
           <p className="text-gray-600 mb-2">Shipments: <span className="font-semibold">{courier.pending_shipments}</span></p>
@@ -429,7 +695,7 @@ function CreateSettlementModal({ courier, onClose, onSuccess, notification }: an
 
         <div className="space-y-4 mb-6">
           <div>
-            <label className="block text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               Period Start Date
             </label>
             <input
@@ -441,7 +707,7 @@ function CreateSettlementModal({ courier, onClose, onSuccess, notification }: an
           </div>
 
           <div>
-            <label className="block text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               Period End Date
             </label>
             <input
@@ -477,7 +743,7 @@ function CreateSettlementModal({ courier, onClose, onSuccess, notification }: an
   );
 }
 
-// Mark Paid Modal
+// ─── Mark Paid Modal ──────────────────────────────────────────────────────────
 function MarkPaidModal({ settlement, onClose, onSuccess, notification }: any) {
   const [loading, setLoading] = useState(false);
   const [paymentReference, setPaymentReference] = useState('');
@@ -523,15 +789,15 @@ function MarkPaidModal({ settlement, onClose, onSuccess, notification }: any) {
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
         <h2 className="text-2xl font-bold mb-4">Mark as Paid</h2>
-        
+
         <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-          <p className="text-[11px] sm:text-sm text-gray-600">Courier: <span className="font-semibold">{settlement.courier_name}</span></p>
-          <p className="text-[11px] sm:text-sm text-gray-600">Amount: <span className="font-semibold text-lg">₦{settlement.total_amount_due.toLocaleString()}</span></p>
+          <p className="text-sm text-gray-600">Courier: <span className="font-semibold">{settlement.courier_name}</span></p>
+          <p className="text-sm text-gray-600">Amount: <span className="font-semibold text-lg">₦{settlement.total_amount_due.toLocaleString()}</span></p>
         </div>
 
         <div className="space-y-4 mb-6">
           <div>
-            <label className="block text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               Payment Reference *
             </label>
             <input
@@ -544,7 +810,7 @@ function MarkPaidModal({ settlement, onClose, onSuccess, notification }: any) {
           </div>
 
           <div>
-            <label className="block text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               Payment Method
             </label>
             <select
@@ -560,7 +826,7 @@ function MarkPaidModal({ settlement, onClose, onSuccess, notification }: any) {
           </div>
 
           <div>
-            <label className="block text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               Payment Date
             </label>
             <input
@@ -572,7 +838,7 @@ function MarkPaidModal({ settlement, onClose, onSuccess, notification }: any) {
           </div>
 
           <div>
-            <label className="block text-[11px] sm:text-[11px] sm:text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               Notes (Optional)
             </label>
             <textarea

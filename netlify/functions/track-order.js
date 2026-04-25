@@ -96,15 +96,20 @@ export async function handler(event) {
   if (subOrderIds.length > 0) {
     const { data: events } = await adminClient
       .from('tracking_events')
-      .select('sub_order_id, status, description, location, created_at')
+      .select('sub_order_id, status, description, location_name, event_time, created_at')
       .in('sub_order_id', subOrderIds)
-      .order('created_at', { ascending: true });
+      .order('event_time', { ascending: true, nullsFirst: false });
 
     if (events) {
       const eventsBySubOrder = {};
       for (const e of events) {
         if (!eventsBySubOrder[e.sub_order_id]) eventsBySubOrder[e.sub_order_id] = [];
-        eventsBySubOrder[e.sub_order_id].push(e);
+        eventsBySubOrder[e.sub_order_id].push({
+          status:      e.status,
+          description: e.description,
+          location:    e.location_name || null,
+          timestamp:   e.event_time || e.created_at,
+        });
       }
       order.sub_orders = order.sub_orders.map((s) => ({
         ...s,

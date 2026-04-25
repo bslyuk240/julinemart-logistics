@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft, Store, Mail, Phone, MapPin, CreditCard,
   ShoppingBag, TrendingUp, Send, CheckCircle, XCircle,
-  Edit2, Check, X, RefreshCw, ExternalLink, Power, PowerOff,
+  Edit2, Check, X, RefreshCw, ExternalLink, Power, PowerOff, Package,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
@@ -224,12 +224,13 @@ export default function VendorDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
-  const [vendor, setVendor]       = useState<Vendor | null>(null);
-  const [subOrders, setSubOrders] = useState<SubOrder[]>([]);
-  const [summary, setSummary]     = useState<EarningSummary | null>(null);
-  const [loading, setLoading]     = useState(true);
-  const [saving, setSaving]       = useState(false);
-  const [saveMsg, setSaveMsg]     = useState('');
+  const [vendor, setVendor]               = useState<Vendor | null>(null);
+  const [subOrders, setSubOrders]         = useState<SubOrder[]>([]);
+  const [summary, setSummary]             = useState<EarningSummary | null>(null);
+  const [publishedProducts, setPublished] = useState<number>(0);
+  const [loading, setLoading]             = useState(true);
+  const [saving, setSaving]               = useState(false);
+  const [saveMsg, setSaveMsg]             = useState('');
 
   const [inviting, setInviting]   = useState(false);
   const [inviteMsg, setInviteMsg] = useState('');
@@ -239,7 +240,7 @@ export default function VendorDetail() {
     if (!id) return;
     setLoading(true);
 
-    const [{ data: v }, { data: so }] = await Promise.all([
+    const [{ data: v }, { data: so }, { count: prodCount }] = await Promise.all([
       (supabase as any).from('vendors').select('*').eq('id', id).single(),
       (supabase as any)
         .from('sub_orders')
@@ -247,7 +248,14 @@ export default function VendorDetail() {
         .eq('vendor_id', id)
         .order('created_at', { ascending: false })
         .limit(50),
+      (supabase as any)
+        .from('products')
+        .select('id', { count: 'exact', head: true })
+        .eq('vendor_id', id)
+        .eq('status', 'published'),
     ]);
+
+    setPublished(prodCount || 0);
 
     setVendor(v || null);
 
@@ -453,12 +461,13 @@ export default function VendorDetail() {
 
       {/* Summary stats */}
       {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mb-6">
           {[
-            { label: 'Total Orders',    value: summary.total_orders,   icon: ShoppingBag, color: 'bg-blue-50 text-blue-600' },
-            { label: 'Pending',         value: summary.pending_orders,  icon: RefreshCw,   color: 'bg-yellow-50 text-yellow-600' },
-            { label: 'Gross Sales',     value: fmt(summary.gross_sales), icon: TrendingUp, color: 'bg-purple-50 text-purple-600' },
-            { label: 'Net Earnings',    value: fmt(summary.net_earnings), icon: TrendingUp, color: 'bg-green-50 text-green-600' },
+            { label: 'Total Orders',       value: summary.total_orders,    icon: ShoppingBag, color: 'bg-blue-50 text-blue-600' },
+            { label: 'Pending',            value: summary.pending_orders,  icon: RefreshCw,   color: 'bg-yellow-50 text-yellow-600' },
+            { label: 'Published Products', value: publishedProducts,       icon: Package,     color: 'bg-indigo-50 text-indigo-600' },
+            { label: 'Gross Sales',        value: fmt(summary.gross_sales), icon: TrendingUp, color: 'bg-purple-50 text-purple-600' },
+            { label: 'Net Earnings',       value: fmt(summary.net_earnings), icon: TrendingUp, color: 'bg-green-50 text-green-600' },
           ].map(s => (
             <div key={s.label} className="bg-white rounded-xl border border-gray-100 p-4">
               <div className={`w-8 h-8 rounded-lg flex items-center justify-center mb-2 ${s.color}`}>

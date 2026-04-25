@@ -28,7 +28,8 @@ import {
   DatabaseZap,
   Plus,
   Store,
-  Wallet
+  Wallet,
+  TrendingUp
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
 import { BrandLogo } from '../../shared/BrandLogo';
@@ -73,6 +74,7 @@ const navigation: NavItem[] = [
   // Admin only
   { name: 'Hubs', href: '/admin/hubs', icon: MapPin, roles: ['admin'] },
   { name: 'Couriers', href: '/admin/couriers', icon: Truck, roles: ['admin'] },
+  { name: 'Finance', href: '/admin/finance', icon: TrendingUp, roles: ['admin'] },
   { name: 'Settlements', href: '/admin/settlements', icon: DollarSign, roles: ['admin'] },
   { name: 'Analytics', href: '/admin/analytics', icon: BarChart3, roles: ['admin'] },
   { name: 'Users', href: '/admin/users', icon: Users, roles: ['admin'] },

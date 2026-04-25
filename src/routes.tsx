@@ -37,6 +37,7 @@ import { OrderDetailsPage } from './dashboard/pages/OrderDetails';
 import { OrdersPage } from './dashboard/pages/Orders';
 import RefundsPage from './dashboard/pages/Refunds';
 import { SettingsPage } from './dashboard/pages/Settings';
+import { FinancePage } from './dashboard/pages/Finance';
 import { SettlementsPage } from './dashboard/pages/Settlements';
 import { ShippingDiscountsPage } from './dashboard/pages/ShippingDiscounts';
 import { ShippingRatesPage } from './dashboard/pages/ShippingRates';
@@ -125,6 +126,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'courier-settings', element: <CourierSettingsPage /> },
   { path: 'settings', element: <SettingsPage /> },
   { path: 'email-settings', element: <EmailSettingsPage /> },
+  { path: 'finance', element: <FinancePage /> },
   { path: 'settlements', element: <SettlementsPage /> },
   { path: 'activity-logs', element: <ActivityLogsPage /> },
   { path: 'vouchers', element: <VouchersPage /> },

@@ -1,91 +1,256 @@
-// Netlify Function: /api/settlements and /api/settlements/pending
+/**
+ * Courier Settlements API
+ *
+ * GET  /api/settlements/pending          → list couriers with unsettled delivered sub-orders
+ * GET  /api/settlements                  → settlement history
+ * POST /api/settlements                  → create a new settlement batch for a courier
+ * PUT  /api/settlements/:id/mark-paid    → mark a settlement as paid + record expense
+ */
+
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-const headers = {
+const corsHeaders = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
 };
 
+function json(statusCode, body) {
+  return { statusCode, headers: corsHeaders, body: JSON.stringify(body) };
+}
+
+// Parse path: /api/settlements, /api/settlements/pending, /api/settlements/:id/mark-paid
+function parsePath(path) {
+  const parts = path.split('/').filter(Boolean);
+  const base  = parts.findIndex((p) => p === 'settlements');
+  const after  = parts.slice(base + 1); // e.g. ['pending'] or [':id', 'mark-paid'] or []
+  return { sub: after[0] || null, action: after[1] || null };
+}
+
 export async function handler(event) {
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers, body: '' };
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: corsHeaders, body: '' };
+
+  if (!SUPABASE_URL || !SERVICE_KEY) {
+    return json(503, { success: false, error: 'Database not configured' });
   }
 
-  const parts = event.path.split('/');
-  const idx = parts.findIndex((p) => p === 'settlements');
-  const sub = idx >= 0 && parts.length > idx + 1 ? parts[idx + 1] : undefined;
+  const db = createClient(SUPABASE_URL, SERVICE_KEY);
+  const { sub, action } = parsePath(event.path);
 
   try {
+
+    // ─── GET /api/settlements/pending ────────────────────────────────────────
     if (event.httpMethod === 'GET' && sub === 'pending') {
-      // Prefer view when available
-      const view = await supabase.from('pending_courier_payments').select('*');
-      if (!view.error && view.data) {
-        return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: view.data }) };
-      }
+      // Use the view (fixed to use settlement_status, not allocated_shipping_fee)
+      const { data, error } = await db
+        .from('pending_courier_payments')
+        .select('*')
+        .order('total_amount_due', { ascending: false });
 
-      // Fallback: compute from base tables
-      const { data: couriers } = await supabase.from('couriers').select('id, name, code');
-      const { data: shipments } = await supabase
-        .from('sub_orders')
-        .select('id, courier_id, settlement_status, status, shipping_cost, created_at');
-
-      const grouped = [];
-      const map = new Map();
-      (shipments || [])
-        .filter((s) => ['pending', 'approved'].includes(s.settlement_status) && ['delivered', 'in_transit'].includes(s.status))
-        .forEach((s) => {
-          const key = s.courier_id;
-          if (!key) return;
-          if (!map.has(key)) {
-            const c = (couriers || []).find((c) => c.id === key);
-            map.set(key, {
-              courier_id: key,
-              courier_name: c?.name || 'Unknown',
-              courier_code: c?.code || '',
-              pending_shipments: 0,
-              total_amount_due: 0,
-              approved_amount: 0,
-              oldest_shipment: null,
-              newest_shipment: null
-            });
-          }
-          const g = map.get(key);
-          g.pending_shipments += 1;
-          g.total_amount_due += Number(s.shipping_cost || 0);
-          if (s.settlement_status === 'approved') {
-            g.approved_amount += Number(s.shipping_cost || 0);
-          }
-          const ts = new Date(s.created_at).getTime();
-          g.oldest_shipment = g.oldest_shipment ? (ts < new Date(g.oldest_shipment).getTime() ? s.created_at : g.oldest_shipment) : s.created_at;
-          g.newest_shipment = g.newest_shipment ? (ts > new Date(g.newest_shipment).getTime() ? s.created_at : g.newest_shipment) : s.created_at;
-        });
-      map.forEach((v) => grouped.push(v));
-      grouped.sort((a, b) => b.total_amount_due - a.total_amount_due);
-
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: grouped }) };
-    }
-
-    if (event.httpMethod === 'GET') {
-      // Settlements history (summary view preferred)
-      const limit = 100;
-      let q = supabase.from('courier_settlement_summary').select('*').order('created_at', { ascending: false }).limit(limit);
-      let { data, error } = await q;
-      if (error) {
-        const alt = await supabase.from('courier_settlements').select('*').order('created_at', { ascending: false }).limit(limit);
-        data = alt.data;
-        error = alt.error;
-      }
       if (error) throw error;
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: data || [] }) };
+
+      // Enrich each entry with oldest/newest delivery dates from sub_orders
+      const enriched = await Promise.all((data || []).map(async (row) => {
+        const { data: dates } = await db
+          .from('sub_orders')
+          .select('delivered_at, created_at')
+          .eq('courier_id', row.courier_id)
+          .eq('status', 'delivered')
+          .not('settlement_status', 'in', '("paid","settled")')
+          .order('delivered_at', { ascending: true });
+
+        const timestamps = (dates || []).map((d) => d.delivered_at || d.created_at).filter(Boolean);
+        return {
+          ...row,
+          approved_amount: 0, // approval step not implemented yet — defaults to 0
+          oldest_shipment: timestamps[0] || null,
+          newest_shipment: timestamps[timestamps.length - 1] || null,
+        };
+      }));
+
+      return json(200, { success: true, data: enriched });
     }
 
-    return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method Not Allowed' }) };
-  } catch (e) {
-    return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Failed to handle settlements' }) };
+    // ─── GET /api/settlements ─────────────────────────────────────────────────
+    if (event.httpMethod === 'GET' && !sub) {
+      const { data, error } = await db
+        .from('courier_settlement_summary')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (error) throw error;
+      return json(200, { success: true, data: data || [] });
+    }
+
+    // ─── POST /api/settlements ────────────────────────────────────────────────
+    // Create a settlement batch for a courier over a date range
+    if (event.httpMethod === 'POST' && !sub) {
+      const body = JSON.parse(event.body || '{}');
+      const { courier_id, start_date, end_date, notes } = body;
+
+      if (!courier_id || !start_date || !end_date) {
+        return json(400, { success: false, error: 'courier_id, start_date and end_date are required' });
+      }
+
+      // Find all unsettled delivered sub_orders for this courier in the period
+      const { data: subOrders, error: soErr } = await db
+        .from('sub_orders')
+        .select('id, real_shipping_cost, allocated_shipping_fee, courier_charge, delivered_at, main_order_id')
+        .eq('courier_id', courier_id)
+        .eq('status', 'delivered')
+        .not('settlement_status', 'in', '("paid","settled")')
+        .gte('delivered_at', `${start_date}T00:00:00`)
+        .lte('delivered_at', `${end_date}T23:59:59`);
+
+      if (soErr) throw soErr;
+
+      if (!subOrders || subOrders.length === 0) {
+        return json(400, { success: false, error: 'No unsettled deliveries found for this courier in the selected period' });
+      }
+
+      const totalDue = subOrders.reduce((sum, so) =>
+        sum + Number(so.real_shipping_cost ?? so.allocated_shipping_fee ?? so.courier_charge ?? 0), 0);
+
+      // Create the settlement record
+      const { data: settlement, error: settlErr } = await db
+        .from('courier_settlements')
+        .insert({
+          courier_id,
+          settlement_period_start: start_date,
+          settlement_period_end:   end_date,
+          total_shipments:  subOrders.length,
+          total_amount_due: totalDue,
+          total_amount_paid: 0,
+          status: 'pending',
+          notes: notes || null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .select('id')
+        .single();
+
+      if (settlErr) throw settlErr;
+
+      // Create settlement_items linking each sub_order
+      const items = subOrders.map((so) => ({
+        settlement_id: settlement.id,
+        sub_order_id:  so.id,
+        amount: Number(so.real_shipping_cost ?? so.allocated_shipping_fee ?? so.courier_charge ?? 0),
+        created_at: new Date().toISOString(),
+      }));
+
+      const { error: itemsErr } = await db.from('settlement_items').insert(items);
+      if (itemsErr) throw itemsErr;
+
+      // Mark sub_orders as 'settled' (batched, awaiting payment)
+      const { error: updateErr } = await db
+        .from('sub_orders')
+        .update({ settlement_status: 'settled', updated_at: new Date().toISOString() })
+        .in('id', subOrders.map((s) => s.id));
+
+      if (updateErr) throw updateErr;
+
+      return json(201, { success: true, data: { settlement_id: settlement.id, total_shipments: subOrders.length, total_amount_due: totalDue } });
+    }
+
+    // ─── PUT /api/settlements/:id/mark-paid ───────────────────────────────────
+    if (event.httpMethod === 'PUT' && action === 'mark-paid') {
+      const settlementId = sub;
+      if (!settlementId) return json(400, { success: false, error: 'Settlement ID required' });
+
+      const body = JSON.parse(event.body || '{}');
+      const { payment_reference, payment_method, payment_date, notes } = body;
+
+      if (!payment_reference) {
+        return json(400, { success: false, error: 'payment_reference is required' });
+      }
+
+      // Fetch settlement to get amount + courier
+      const { data: settlement, error: fetchErr } = await db
+        .from('courier_settlements')
+        .select('id, courier_id, total_amount_due, status')
+        .eq('id', settlementId)
+        .single();
+
+      if (fetchErr || !settlement) return json(404, { success: false, error: 'Settlement not found' });
+      if (settlement.status === 'paid') return json(400, { success: false, error: 'Settlement already paid' });
+
+      const paidAt = payment_date
+        ? new Date(payment_date).toISOString()
+        : new Date().toISOString();
+
+      // Mark settlement as paid
+      const { error: updateErr } = await db
+        .from('courier_settlements')
+        .update({
+          status:            'paid',
+          total_amount_paid: settlement.total_amount_due,
+          payment_reference,
+          payment_method:    payment_method || 'bank_transfer',
+          payment_date:      paidAt,
+          paid_at:           paidAt,
+          notes:             notes || null,
+          updated_at:        new Date().toISOString(),
+        })
+        .eq('id', settlementId);
+
+      if (updateErr) throw updateErr;
+
+      // Mark linked sub_orders as paid
+      const { data: items } = await db
+        .from('settlement_items')
+        .select('sub_order_id')
+        .eq('settlement_id', settlementId);
+
+      if (items && items.length > 0) {
+        await db
+          .from('sub_orders')
+          .update({ settlement_status: 'paid', settlement_date: paidAt, payment_reference, updated_at: new Date().toISOString() })
+          .in('id', items.map((i) => i.sub_order_id));
+      }
+
+      // Fetch courier name for expense record
+      const { data: courier } = await db
+        .from('couriers')
+        .select('name')
+        .eq('id', settlement.courier_id)
+        .single();
+
+      // Record as ledger expense
+      await db.from('ledger_expenses').insert({
+        source:           'courier_settlement',
+        source_reference: settlementId,
+        category:         'courier',
+        subcategory:      'delivery_fees',
+        amount:           settlement.total_amount_due,
+        currency:         'NGN',
+        tax_deductible:   true,
+        vat_amount:       0,
+        payment_method:   payment_method || 'bank_transfer',
+        payment_reference,
+        paid_to:          courier?.name || 'Courier',
+        paid_at:          paidAt,
+        description:      `Courier payment — ${courier?.name || 'Courier'} (${(items || []).length} deliveries)`,
+        metadata: {
+          settlement_id: settlementId,
+          courier_id:    settlement.courier_id,
+        },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      return json(200, { success: true, message: 'Settlement marked as paid and expense recorded' });
+    }
+
+    return json(405, { success: false, error: 'Method not allowed' });
+
+  } catch (err) {
+    console.error('Settlements error:', err);
+    return json(500, { success: false, error: err.message || 'Internal server error' });
   }
 }

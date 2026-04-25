@@ -38,9 +38,11 @@ interface SubOrderRow {
   main_order_id: string;
   status: string;
   delivered_at: string | null;
+  updated_at: string | null;
   real_shipping_cost: number | null;
   allocated_shipping_fee: number | null;
   courier_charge: number | null;
+  orders: { order_number: string } | null;
 }
 
 interface SettlementItem {
@@ -59,7 +61,7 @@ function PendingDetailsModal({ courier, onClose }: { courier: PendingPayment; on
     (async () => {
       const { data, error } = await (supabase as any)
         .from('sub_orders')
-        .select('id, main_order_id, status, delivered_at, real_shipping_cost, allocated_shipping_fee, courier_charge')
+        .select('id, main_order_id, status, delivered_at, updated_at, real_shipping_cost, allocated_shipping_fee, courier_charge, orders(order_number)')
         .eq('courier_id', courier.courier_id)
         .eq('status', 'delivered')
         .not('settlement_status', 'in', '("paid","settled")')
@@ -102,7 +104,7 @@ function PendingDetailsModal({ courier, onClose }: { courier: PendingPayment; on
               <thead>
                 <tr className="text-left text-xs font-medium text-gray-500 border-b border-gray-100">
                   <th className="pb-3 pr-4">Sub-order</th>
-                  <th className="pb-3 pr-4">Order</th>
+                  <th className="pb-3 pr-4">Order #</th>
                   <th className="pb-3 pr-4">Delivered</th>
                   <th className="pb-3 text-right">Amount</th>
                 </tr>
@@ -110,12 +112,20 @@ function PendingDetailsModal({ courier, onClose }: { courier: PendingPayment; on
               <tbody className="divide-y divide-gray-50">
                 {rows.map((r) => {
                   const amount = r.real_shipping_cost ?? r.allocated_shipping_fee ?? r.courier_charge;
+                  const deliveredDate = r.delivered_at ?? r.updated_at;
                   return (
                     <tr key={r.id} className="hover:bg-gray-50">
                       <td className="py-3 pr-4 font-mono text-xs text-gray-600">{r.id.slice(0, 8)}…</td>
-                      <td className="py-3 pr-4 font-mono text-xs text-gray-600">{r.main_order_id.slice(0, 8)}…</td>
+                      <td className="py-3 pr-4 text-sm font-medium text-gray-800">
+                        {r.orders?.order_number ? `#${r.orders.order_number}` : r.main_order_id.slice(0, 8) + '…'}
+                      </td>
                       <td className="py-3 pr-4 text-gray-700">
-                        {r.delivered_at ? new Date(r.delivered_at).toLocaleDateString() : '—'}
+                        {deliveredDate
+                          ? new Date(deliveredDate).toLocaleDateString()
+                          : '—'}
+                        {!r.delivered_at && deliveredDate && (
+                          <span className="ml-1 text-[10px] text-gray-400">(est.)</span>
+                        )}
                       </td>
                       <td className="py-3 text-right font-semibold text-gray-900">{fmt(amount)}</td>
                     </tr>
@@ -151,7 +161,7 @@ function SettlementDetailsModal({ settlement, onClose }: { settlement: Settlemen
     (async () => {
       const { data, error } = await (supabase as any)
         .from('settlement_items')
-        .select('id, amount, sub_order_id, sub_orders(id, main_order_id, status, delivered_at, real_shipping_cost, allocated_shipping_fee, courier_charge)')
+        .select('id, amount, sub_order_id, sub_orders(id, main_order_id, status, delivered_at, updated_at, real_shipping_cost, allocated_shipping_fee, courier_charge, orders(order_number))')
         .eq('settlement_id', settlement.id)
         .order('created_at', { ascending: false });
 
@@ -211,7 +221,7 @@ function SettlementDetailsModal({ settlement, onClose }: { settlement: Settlemen
               <thead>
                 <tr className="text-left text-xs font-medium text-gray-500 border-b border-gray-100">
                   <th className="pb-3 pr-4">Sub-order</th>
-                  <th className="pb-3 pr-4">Order</th>
+                  <th className="pb-3 pr-4">Order #</th>
                   <th className="pb-3 pr-4">Delivered</th>
                   <th className="pb-3 pr-4">Status</th>
                   <th className="pb-3 text-right">Amount</th>
@@ -220,16 +230,24 @@ function SettlementDetailsModal({ settlement, onClose }: { settlement: Settlemen
               <tbody className="divide-y divide-gray-50">
                 {items.map((item) => {
                   const so = item.sub_orders;
+                  const deliveredDate = so?.delivered_at ?? so?.updated_at;
                   return (
                     <tr key={item.id} className="hover:bg-gray-50">
                       <td className="py-3 pr-4 font-mono text-xs text-gray-600">
                         {item.sub_order_id.slice(0, 8)}…
                       </td>
-                      <td className="py-3 pr-4 font-mono text-xs text-gray-600">
-                        {so?.main_order_id?.slice(0, 8) ?? '—'}…
+                      <td className="py-3 pr-4 text-sm font-medium text-gray-800">
+                        {so?.orders?.order_number
+                          ? `#${so.orders.order_number}`
+                          : so?.main_order_id?.slice(0, 8)
+                          ? so.main_order_id.slice(0, 8) + '…'
+                          : '—'}
                       </td>
                       <td className="py-3 pr-4 text-gray-700">
-                        {so?.delivered_at ? new Date(so.delivered_at).toLocaleDateString() : '—'}
+                        {deliveredDate ? new Date(deliveredDate).toLocaleDateString() : '—'}
+                        {!so?.delivered_at && deliveredDate && (
+                          <span className="ml-1 text-[10px] text-gray-400">(est.)</span>
+                        )}
                       </td>
                       <td className="py-3 pr-4">
                         {so?.status ? (

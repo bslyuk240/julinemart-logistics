@@ -56,7 +56,7 @@ export async function handler(event) {
   const {
     name, slug, description = '', short_description = '',
     status = 'pending_review', type = 'simple',
-    regular_price, sale_price, sku = '',
+    regular_price, sale_price, cost_price, sku = '',
     manage_stock = false, stock_quantity, stock_status = 'instock',
     is_virtual = false, ships_from_abroad = false,
     seo_title = '', seo_description = '',
@@ -90,6 +90,7 @@ export async function handler(event) {
       regular_price:
         type === 'simple' && regular_price != null && regular_price !== '' ? Number(regular_price) : null,
       sale_price: type === 'simple' && sale_price != null && sale_price !== '' ? Number(sale_price) : null,
+      cost_price: cost_price != null && cost_price !== '' ? Number(cost_price) : null,
       sku: type === 'variable' ? null : (sku || null),
       manage_stock: !!manage_stock,
       stock_quantity:
@@ -184,6 +185,7 @@ export async function handler(event) {
             regular_price:
               v.regular_price != null && v.regular_price !== '' ? Number(v.regular_price) : null,
             sale_price: v.sale_price != null && v.sale_price !== '' ? Number(v.sale_price) : null,
+            cost_price: v.cost_price != null && v.cost_price !== '' ? Number(v.cost_price) : null,
             stock_status: v.stock_status || 'instock',
             manage_stock: !!v.manage_stock,
             stock_quantity:

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Trash2, Upload, X, RefreshCw,
-  ChevronDown, ChevronUp, ImageIcon,
+  ChevronDown, ChevronUp, ImageIcon, Lock,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
@@ -30,6 +30,7 @@ interface VarRow {
   sku: string;
   regular_price: string;
   sale_price: string;
+  cost_price: string;
   stock_status: 'instock' | 'outofstock' | 'onbackorder';
   manage_stock: boolean;
   stock_quantity: string;
@@ -58,6 +59,7 @@ interface FormState {
   type: 'simple' | 'variable';
   regular_price: string;
   sale_price: string;
+  cost_price: string;
   sku: string;
   manage_stock: boolean;
   stock_quantity: string;
@@ -167,6 +169,7 @@ const INITIAL_FORM: FormState = {
   type: 'simple',
   regular_price: '',
   sale_price: '',
+  cost_price: '',
   sku: '',
   manage_stock: false,
   stock_quantity: '',
@@ -266,6 +269,7 @@ export default function AddProduct() {
           type: (prod.type === 'variable' ? 'variable' : 'simple') as 'simple' | 'variable',
           regular_price: prod.regular_price != null ? String(prod.regular_price) : '',
           sale_price: prod.sale_price != null ? String(prod.sale_price) : '',
+          cost_price: prod.cost_price != null ? String(prod.cost_price) : '',
           sku: prod.sku || '',
           manage_stock: prod.manage_stock || false,
           stock_quantity: prod.stock_quantity != null ? String(prod.stock_quantity) : '',
@@ -307,6 +311,7 @@ export default function AddProduct() {
             sku: string | null;
             regular_price: number | null;
             sale_price: number | null;
+            cost_price: number | null;
             stock_status: string;
             manage_stock: boolean;
             stock_quantity: number | null;
@@ -317,6 +322,7 @@ export default function AddProduct() {
             sku: v.sku || '',
             regular_price: v.regular_price != null ? String(v.regular_price) : '',
             sale_price: v.sale_price != null ? String(v.sale_price) : '',
+            cost_price: v.cost_price != null ? String(v.cost_price) : '',
             stock_status: (v.stock_status || 'instock') as VarRow['stock_status'],
             manage_stock: v.manage_stock || false,
             stock_quantity: v.stock_quantity != null ? String(v.stock_quantity) : '',
@@ -401,6 +407,7 @@ export default function AddProduct() {
       sku: '',
       regular_price: '',
       sale_price: '',
+      cost_price: '',
       stock_status: 'instock',
       manage_stock: false,
       stock_quantity: '',
@@ -544,9 +551,11 @@ export default function AddProduct() {
         body.sku = form.sku;
         body.regular_price = form.regular_price;
         body.sale_price = form.sale_price;
+        body.cost_price = form.cost_price !== '' ? Number(form.cost_price) : null;
         body.stock_quantity = form.manage_stock ? form.stock_quantity : null;
       } else {
         body.sku = null;
+        body.cost_price = null;
         body.attributes = varAttrs
           .filter(a => a.name.trim())
           .map(a => ({
@@ -561,6 +570,7 @@ export default function AddProduct() {
           regular_price:
             v.regular_price != null && v.regular_price !== '' ? Number(v.regular_price) : null,
           sale_price: v.sale_price != null && v.sale_price !== '' ? Number(v.sale_price) : null,
+          cost_price: v.cost_price != null && v.cost_price !== '' ? Number(v.cost_price) : null,
           stock_status: v.stock_status,
           manage_stock: v.manage_stock,
           stock_quantity:
@@ -796,6 +806,30 @@ export default function AddProduct() {
                 </div>
               </div>
 
+              {/* Cost Price — private to vendor */}
+              <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-1.5">
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <Lock className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                  <label className="block text-sm font-medium text-amber-800">Your Cost Price (₦)</label>
+                  <span className="ml-auto text-[10px] bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 font-medium">Private · Not visible to admin</span>
+                </div>
+                <input
+                  className="input bg-white"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="What you paid / landed cost"
+                  value={form.cost_price}
+                  onChange={e => setField('cost_price', e.target.value)}
+                />
+                {form.cost_price && form.regular_price && (
+                  <p className="text-xs text-amber-700">
+                    Margin: ₦{(Number(form.regular_price) - Number(form.cost_price)).toLocaleString()}
+                    {' '}({Number(form.regular_price) > 0 ? Math.round((1 - Number(form.cost_price) / Number(form.regular_price)) * 100) : 0}%)
+                  </p>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">SKU</label>
@@ -922,14 +956,26 @@ export default function AddProduct() {
                       <h2 className="font-semibold text-gray-900">Variations</h2>
                       <span className="text-sm text-gray-500">{variations.length} variant{variations.length !== 1 ? 's' : ''}</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleGenerateEmptyVariationSkus()}
-                      disabled={skuGenBusy}
-                      className="text-xs font-medium px-3 py-1.5 rounded-xl border border-primary-200 text-primary-700 bg-primary-50 hover:bg-primary-100 disabled:opacity-50 self-start"
-                    >
-                      {skuGenBusy ? 'Working…' : 'Fill SKUs on empty rows'}
-                    </button>
+                    <div className="flex flex-wrap gap-2 self-start">
+                      <button
+                        type="button"
+                        onClick={() => void handleGenerateEmptyVariationSkus()}
+                        disabled={skuGenBusy}
+                        className="text-xs font-medium px-3 py-1.5 rounded-xl border border-primary-200 text-primary-700 bg-primary-50 hover:bg-primary-100 disabled:opacity-50"
+                      >
+                        {skuGenBusy ? 'Working…' : 'Fill SKUs on empty rows'}
+                      </button>
+                      {form.cost_price && (
+                        <button
+                          type="button"
+                          onClick={() => setVariations(prev => prev.map(v => ({ ...v, cost_price: form.cost_price })))}
+                          className="text-xs font-medium px-3 py-1.5 rounded-xl border border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100 flex items-center gap-1"
+                        >
+                          <Lock className="w-3 h-3" />
+                          Apply cost to all
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="space-y-4">
@@ -1006,6 +1052,29 @@ export default function AddProduct() {
                               onChange={e => updateVariation(idx, 'sale_price', e.target.value)}
                             />
                           </div>
+                        </div>
+
+                        {/* Cost Price per variation — private */}
+                        <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-2.5">
+                          <div className="flex items-center gap-1 mb-1.5">
+                            <Lock className="w-3 h-3 text-amber-600" />
+                            <label className="text-xs font-medium text-amber-800">Your Cost (₦)</label>
+                            <span className="ml-auto text-[9px] bg-amber-100 text-amber-700 rounded-full px-1.5 py-0.5 font-medium">Private</span>
+                          </div>
+                          <input
+                            className="input text-sm py-2 min-h-0 h-9 bg-white"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder="Landed cost"
+                            value={v.cost_price}
+                            onChange={e => updateVariation(idx, 'cost_price', e.target.value)}
+                          />
+                          {v.cost_price && v.regular_price && (
+                            <p className="text-[10px] text-amber-700 mt-1">
+                              Margin: ₦{(Number(v.regular_price) - Number(v.cost_price)).toLocaleString()}
+                            </p>
+                          )}
                         </div>
 
                         {/* Manage stock */}

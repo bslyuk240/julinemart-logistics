@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { TrendingUp, AlertCircle } from 'lucide-react';
+import { TrendingUp, AlertCircle, Lock } from 'lucide-react';
 import { api } from '../lib/api';
 
 const fmt = (n: number) => `₦${Number(n || 0).toLocaleString()}`;
@@ -108,10 +108,10 @@ export default function Earnings() {
           {/* Period stats — 2 col on mobile, 4 col on desktop */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             {[
-              { label: 'Gross Sales',  value: fmt(s.gross_sales),          sub: null },
+              { label: 'Gross Sales',  value: fmt(s.gross_sales),               sub: null },
               { label: 'Commission',   value: `- ${fmt(s.platform_commission)}`, sub: `${data?.commission_rate}% fee` },
-              { label: 'Net Earnings', value: fmt(s.net_earnings),          sub: null, bold: true },
-              { label: 'Orders',       value: s.total_orders || 0,          sub: 'This period' },
+              { label: 'Net Earnings', value: fmt(s.net_earnings),               sub: null, bold: true },
+              { label: 'Orders',       value: s.total_orders || 0,               sub: 'This period' },
             ].map(c => (
               <div key={c.label} className="card text-center p-4">
                 <p className="text-xs text-gray-500 mb-1">{c.label}</p>
@@ -120,6 +120,31 @@ export default function Earnings() {
               </div>
             ))}
           </div>
+
+          {/* COGS & Profit — only shown when cost_price data exists */}
+          {s.cogs_tracked && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4">
+              <div className="flex items-center gap-1.5 mb-3">
+                <Lock className="w-3.5 h-3.5 text-amber-600" />
+                <p className="text-sm font-semibold text-amber-800">Your Profitability</p>
+                <span className="ml-auto text-[10px] bg-amber-100 text-amber-700 rounded-full px-2 py-0.5 font-medium">Private · Admin cannot see this</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white rounded-xl p-3 text-center border border-amber-100">
+                  <p className="text-xs text-gray-500 mb-1">Cost of Goods (COGS)</p>
+                  <p className="text-lg font-bold text-gray-800">- {fmt(s.total_cogs)}</p>
+                  <p className="text-xs text-gray-400">Partial if not all products have cost set</p>
+                </div>
+                <div className="bg-white rounded-xl p-3 text-center border border-amber-100">
+                  <p className="text-xs text-gray-500 mb-1">Gross Profit</p>
+                  <p className={`text-lg font-bold ${(s.gross_profit ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {fmt(s.gross_profit ?? 0)}
+                  </p>
+                  <p className="text-xs text-gray-400">Net earnings minus COGS</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Chart */}
           <div className="card">
@@ -147,7 +172,10 @@ export default function Earnings() {
                       {p.sku && <p className="text-xs text-gray-400">{p.sku} · {p.qty} sold</p>}
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <p className="text-sm font-bold text-green-600">{fmt(p.net)}</p>
+                      {p.profit != null
+                        ? <p className="text-sm font-bold text-green-600">{fmt(p.profit)} profit</p>
+                        : <p className="text-sm font-bold text-green-600">{fmt(p.net)} net</p>
+                      }
                       <p className="text-xs text-gray-400">{fmt(p.gross)} gross</p>
                     </div>
                   </div>
@@ -163,6 +191,9 @@ export default function Earnings() {
                     <th className="pb-2 text-right">Qty Sold</th>
                     <th className="pb-2 text-right">Gross</th>
                     <th className="pb-2 text-right">Net Earnings</th>
+                    {data.top_products.some((p: any) => p.profit != null) && (
+                      <th className="pb-2 text-right text-amber-700">Profit 🔒</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -174,6 +205,11 @@ export default function Earnings() {
                       <td className="py-3 text-right text-gray-700">{p.qty}</td>
                       <td className="py-3 text-right text-gray-700">{fmt(p.gross)}</td>
                       <td className="py-3 text-right font-bold text-green-600">{fmt(p.net)}</td>
+                      {data.top_products.some((pp: any) => pp.profit != null) && (
+                        <td className="py-3 text-right font-bold text-amber-700">
+                          {p.profit != null ? fmt(p.profit) : <span className="text-gray-300 font-normal">—</span>}
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>

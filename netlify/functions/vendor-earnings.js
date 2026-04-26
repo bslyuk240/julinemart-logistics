@@ -37,7 +37,7 @@ export async function handler(event) {
   // Order items for this vendor (paid orders only)
   let itemsQuery = adminClient
     .from('order_items')
-    .select('id, subtotal, quantity, product_name, product_sku, order_id, created_at, orders(overall_status, payment_status, created_at, order_number)')
+    .select('id, subtotal, quantity, cost_price, product_name, product_sku, order_id, created_at, orders(overall_status, payment_status, created_at, order_number)')
     .eq('vendor_id', vendor.id)
     .eq('orders.payment_status', 'paid');
 
@@ -47,9 +47,16 @@ export async function handler(event) {
   const commissionRate = Number(vendor.commission_rate || 0);
   const paid = (items || []).filter(i => i.orders?.payment_status === 'paid');
 
-  const grossSales       = paid.reduce((s, i) => s + Number(i.subtotal), 0);
+  const grossSales         = paid.reduce((s, i) => s + Number(i.subtotal), 0);
   const platformCommission = grossSales * commissionRate / 100;
-  const netEarnings      = grossSales * (1 - commissionRate / 100);
+  const netEarnings        = grossSales * (1 - commissionRate / 100);
+  // COGS: only included for items where cost_price was set
+  const totalCogs          = paid.reduce((s, i) => {
+    if (i.cost_price == null) return s;
+    return s + Number(i.cost_price) * Number(i.quantity || 1);
+  }, 0);
+  const cogsTracked        = paid.some(i => i.cost_price != null);
+  const grossProfit        = cogsTracked ? netEarnings - totalCogs : null;
 
   // Withdrawals in same period
   let wdQuery = adminClient
@@ -84,14 +91,26 @@ export async function handler(event) {
   const productMap = {};
   for (const item of paid) {
     const key = item.product_sku || item.product_name;
-    if (!productMap[key]) productMap[key] = { name: item.product_name, sku: item.product_sku, gross: 0, qty: 0 };
+    if (!productMap[key]) productMap[key] = { name: item.product_name, sku: item.product_sku, gross: 0, qty: 0, cogs: 0, cogs_tracked: false };
     productMap[key].gross += Number(item.subtotal);
     productMap[key].qty   += Number(item.quantity);
+    if (item.cost_price != null) {
+      productMap[key].cogs         += Number(item.cost_price) * Number(item.quantity || 1);
+      productMap[key].cogs_tracked  = true;
+    }
   }
   const topProducts = Object.values(productMap)
     .sort((a, b) => b.gross - a.gross)
     .slice(0, 10)
-    .map(p => ({ ...p, net: p.gross * (1 - commissionRate / 100) }));
+    .map(p => ({
+      name: p.name,
+      sku: p.sku,
+      gross: p.gross,
+      qty: p.qty,
+      net: p.gross * (1 - commissionRate / 100),
+      cogs: p.cogs_tracked ? p.cogs : null,
+      profit: p.cogs_tracked ? p.gross * (1 - commissionRate / 100) - p.cogs : null,
+    }));
 
   return {
     statusCode: 200,
@@ -107,6 +126,9 @@ export async function handler(event) {
           net_earnings:         netEarnings,
           total_orders:         new Set(paid.map(i => i.order_id)).size,
           withdrawn_in_period:  totalWithdrawn,
+          total_cogs:           cogsTracked ? totalCogs : null,
+          gross_profit:         grossProfit,
+          cogs_tracked:         cogsTracked,
         },
         all_time: {
           available_balance: Number(fullEarnings?.available_balance || 0),

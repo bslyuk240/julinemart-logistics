@@ -109,19 +109,19 @@ export function SettingsPage() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-          <Settings className="w-8 h-8 text-primary-600" />
+      <div className="mb-6">
+        <h1 className="text-xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+          <Settings className="w-6 h-6 sm:w-8 sm:h-8 text-primary-600 flex-shrink-0" />
           System Settings & Documentation
         </h1>
-        <p className="text-gray-600 mt-2">
+        <p className="text-gray-600 mt-1 text-sm sm:text-base">
           API documentation, webhooks, and system configuration
         </p>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="flex gap-4">
+      <div className="border-b border-gray-200 mb-6 -mx-4 sm:mx-0">
+        <nav className="flex overflow-x-auto px-4 sm:px-0" style={{ scrollbarWidth: 'none' }}>
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -130,14 +130,14 @@ export function SettingsPage() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as TabType)}
                 className={`
-                  flex items-center gap-2 px-4 py-3 border-b-2 font-medium text-sm transition-colors
-                  ${isActive 
-                    ? 'border-primary-600 text-primary-600' 
+                  flex items-center gap-1.5 px-3 sm:px-4 py-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap flex-shrink-0
+                  ${isActive
+                    ? 'border-primary-600 text-primary-600'
                     : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
                   }
                 `}
               >
-                <Icon className="w-5 h-5" />
+                <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
                 {tab.label}
               </button>
             );
@@ -163,7 +163,7 @@ function DocumentationTab({ copyToClipboard, copiedItem }: any) {
     <div className="space-y-6">
       {/* Quick Start */}
       <div className="card">
-        <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+        <h2 className="text-lg sm:text-2xl font-bold mb-4 flex items-center gap-2">
           <Zap className="w-6 h-6 text-yellow-500" />
           Quick Start Guide
         </h2>
@@ -193,8 +193,8 @@ function DocumentationTab({ copyToClipboard, copiedItem }: any) {
 
           <div>
             <h3 className="font-semibold text-lg mb-2">3. Workflow</h3>
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <pre className="text-sm text-gray-800 whitespace-pre-wrap font-mono">
+            <div className="bg-gray-50 p-4 rounded-lg overflow-x-auto">
+              <pre className="text-xs sm:text-sm text-gray-800 whitespace-pre-wrap font-mono">
 {`Order Received (WooCommerce)
     ↓
 Split by Hub (Automatic)
@@ -218,7 +218,7 @@ Delivery Confirmation`}
 
       {/* Key Concepts */}
       <div className="card">
-        <h2 className="text-2xl font-bold mb-4">Key Concepts</h2>
+        <h2 className="text-lg sm:text-2xl font-bold mb-4">Key Concepts</h2>
         
         <div className="space-y-4">
           <div className="border-l-4 border-blue-500 pl-4">
@@ -250,9 +250,9 @@ Delivery Confirmation`}
 
       {/* Environment Setup */}
       <div className="card">
-        <h2 className="text-2xl font-bold mb-4">Environment Variables</h2>
-        <div className="bg-gray-900 text-gray-100 p-4 rounded-lg">
-          <pre className="text-sm font-mono whitespace-pre-wrap">
+        <h2 className="text-lg sm:text-2xl font-bold mb-4">Environment Variables</h2>
+        <div className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto">
+          <pre className="text-xs sm:text-sm font-mono whitespace-pre-wrap">
 {`# Supabase Configuration
 VITE_SUPABASE_URL=your_supabase_url
 VITE_SUPABASE_ANON_KEY=your_anon_key
@@ -271,7 +271,7 @@ NODE_ENV=production
 
       {/* Links */}
       <div className="card">
-        <h2 className="text-2xl font-bold mb-4">External Resources</h2>
+        <h2 className="text-lg sm:text-2xl font-bold mb-4">External Resources</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           
             <a
@@ -346,7 +346,7 @@ function WebhooksTab({ copyToClipboard, copiedItem }: any) {
   return (
     <div className="space-y-6">
       <div className="card">
-        <h2 className="text-2xl font-bold mb-4">WooCommerce Webhook Configuration</h2>
+        <h2 className="text-lg sm:text-2xl font-bold mb-4">WooCommerce Webhook Configuration</h2>
         
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
           <p className="text-sm text-blue-900">
@@ -359,16 +359,16 @@ function WebhooksTab({ copyToClipboard, copiedItem }: any) {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Webhook URL
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
                 type="text"
                 value={webhookUrl}
                 readOnly
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono text-sm"
+                className="flex-1 min-w-0 px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono text-xs sm:text-sm"
               />
               <button
                 onClick={() => copyToClipboard(webhookUrl, 'Webhook URL')}
-                className="btn-secondary flex items-center gap-2"
+                className="btn-secondary flex items-center gap-2 flex-shrink-0"
               >
                 {copiedItem === 'Webhook URL' ? (
                   <>
@@ -417,38 +417,40 @@ function WebhooksTab({ copyToClipboard, copiedItem }: any) {
               Webhook Secret
               <span className="text-xs text-gray-500 font-normal">(kept secret, reveal to view)</span>
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <input
                 type={secretVisible ? 'text' : 'password'}
                 value={secretValue}
                 onChange={(e) => setSecretValue(e.target.value)}
                 placeholder="Set this in Netlify as WEBHOOK_SECRET"
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm"
+                className="flex-1 min-w-0 px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm"
               />
-              <button
-                onClick={() => setSecretVisible(!secretVisible)}
-                className="btn-secondary text-sm"
-                type="button"
-              >
-                {secretVisible ? 'Hide' : 'Reveal'}
-              </button>
-              <button
-                onClick={() => secretValue && copyToClipboard(secretValue, 'Webhook Secret')}
-                className="btn-secondary text-sm flex items-center gap-2"
-                type="button"
-              >
-                {copiedItem === 'Webhook Secret' ? (
-                  <>
-                    <Check className="w-4 h-4" />
-                    Copied
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-4 h-4" />
-                    Copy
-                  </>
-                )}
-              </button>
+              <div className="flex gap-2 flex-shrink-0">
+                <button
+                  onClick={() => setSecretVisible(!secretVisible)}
+                  className="btn-secondary text-sm"
+                  type="button"
+                >
+                  {secretVisible ? 'Hide' : 'Reveal'}
+                </button>
+                <button
+                  onClick={() => secretValue && copyToClipboard(secretValue, 'Webhook Secret')}
+                  className="btn-secondary text-sm flex items-center gap-2"
+                  type="button"
+                >
+                  {copiedItem === 'Webhook Secret' ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      Copy
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
             <p className="text-xs text-gray-500 mt-2">
               For security, this UI does not fetch server-stored secrets. Set the same value in your hosting environment as
@@ -658,7 +660,7 @@ function APIReferenceTab({ copyToClipboard, copiedItem }: any) {
   return (
     <div className="space-y-6">
       <div className="card">
-        <h2 className="text-2xl font-bold mb-4">API Base URL</h2>
+        <h2 className="text-lg sm:text-2xl font-bold mb-4">API Base URL</h2>
         <div className="flex gap-2">
           <input
             type="text"
@@ -682,25 +684,27 @@ function APIReferenceTab({ copyToClipboard, copiedItem }: any) {
             {category.items.map((endpoint, index) => (
               <div
                 key={index}
-                className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
+                className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
               >
-                <span className={`px-3 py-1 rounded text-xs font-bold ${getMethodColor(endpoint.method)}`}>
-                  {endpoint.method}
-                </span>
-                <code className="flex-1 text-sm font-mono text-gray-700">{endpoint.path}</code>
-                <span className="text-sm text-gray-600">{endpoint.description}</span>
-                <button
-                  className="btn-secondary btn-sm flex items-center gap-1 ml-3"
-                  onClick={() => {
-                    setTestMethod(endpoint.method as any);
-                    setTestPath(endpoint.path);
-                    const el = document.getElementById('api-tester');
-                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  }}
-                >
-                  <Play className="w-4 h-4" />
-                  Test
-                </button>
+                <div className="flex items-center gap-2">
+                  <span className={`flex-shrink-0 px-2 py-0.5 rounded text-xs font-bold ${getMethodColor(endpoint.method)}`}>
+                    {endpoint.method}
+                  </span>
+                  <code className="flex-1 min-w-0 text-xs sm:text-sm font-mono text-gray-700 truncate">{endpoint.path}</code>
+                  <button
+                    className="btn-secondary btn-sm flex items-center gap-1 flex-shrink-0 text-xs"
+                    onClick={() => {
+                      setTestMethod(endpoint.method as any);
+                      setTestPath(endpoint.path);
+                      const el = document.getElementById('api-tester');
+                      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                  >
+                    <Play className="w-3 h-3 sm:w-4 sm:h-4" />
+                    Test
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-gray-500 pl-1">{endpoint.description}</p>
               </div>
             ))}
           </div>
@@ -761,7 +765,7 @@ function APIReferenceTab({ copyToClipboard, copiedItem }: any) {
             <button
               onClick={sendRequest}
               disabled={sending}
-              className="btn-primary flex items-center gap-2"
+              className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto"
             >
               <Play className="w-4 h-4" />
               {sending ? 'Sending...' : 'Send Request'}
@@ -799,7 +803,7 @@ function DatabaseTab({ copyToClipboard, copiedItem }: any) {
   return (
     <div className="space-y-6">
       <div className="card">
-        <h2 className="text-2xl font-bold mb-4">Database Schema</h2>
+        <h2 className="text-lg sm:text-2xl font-bold mb-4">Database Schema</h2>
         <div className="space-y-3">
           {tables.map((table) => (
             <div
@@ -895,7 +899,7 @@ function GlobalSourcingSettingsTab() {
       <div className="card space-y-4">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900">Global Sourcing Provider Health</h2>
+            <h2 className="text-lg sm:text-2xl font-bold text-gray-900">Global Sourcing Provider Health</h2>
             <p className="mt-1 text-sm text-gray-600">
               Backend-only config checks. No secrets are exposed to agents on the sourcing page.
             </p>

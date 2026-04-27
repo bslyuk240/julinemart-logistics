@@ -183,33 +183,30 @@ export default function WhatsAppSupportPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-            <MessageSquare className="w-8 h-8 text-primary-600" />
+          <h1 className="text-xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+            <MessageSquare className="w-6 h-6 sm:w-8 sm:h-8 text-primary-600 flex-shrink-0" />
             WhatsApp Support
           </h1>
-          <p className="text-gray-600 mt-1">
+          <p className="text-gray-600 mt-1 text-sm sm:text-base">
             Manage customer conversations and support tickets
           </p>
         </div>
-        
-        <div className="flex items-center gap-2">
-          <button
-            onClick={fetchChats}
-            className="btn-secondary"
-          >
-            Refresh
-          </button>
-        </div>
+        <button
+          onClick={fetchChats}
+          className="btn-secondary flex-shrink-0"
+        >
+          Refresh
+        </button>
       </div>
       
       {/* Filters */}
       <div className="card">
-        <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {/* Search */}
           <div className="col-span-2">
-            <label className="block text-[11px] sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
               Search Customer
             </label>
             <div className="relative">
@@ -226,7 +223,7 @@ export default function WhatsAppSupportPage() {
           
           {/* Status Filter */}
           <div>
-            <label className="block text-[11px] sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
               Status
             </label>
             <select
@@ -243,7 +240,7 @@ export default function WhatsAppSupportPage() {
           
           {/* Assignment Filter */}
           <div>
-            <label className="block text-[11px] sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1 sm:mb-2">
               Assignment
             </label>
             <select
@@ -260,22 +257,22 @@ export default function WhatsAppSupportPage() {
       </div>
       
       {/* Stats Cards */}
-      <div className="grid grid-cols-4 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
-        <div className="card p-3 sm:p-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="card p-4 sm:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] sm:text-sm text-gray-600">Total Chats</p>
-              <p className="text-lg sm:text-2xl font-bold text-gray-900">{chats.length}</p>
+              <p className="text-xs sm:text-sm text-gray-600">Total Chats</p>
+              <p className="text-xl sm:text-2xl font-bold text-gray-900">{chats.length}</p>
             </div>
             <MessageSquare className="w-5 h-5 sm:w-8 sm:h-8 text-blue-500" />
           </div>
         </div>
         
-        <div className="card p-3 sm:p-6">
+        <div className="card p-4 sm:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] sm:text-sm text-gray-600">Open</p>
-              <p className="text-lg sm:text-2xl font-bold text-green-600">
+              <p className="text-xs sm:text-sm text-gray-600">Open</p>
+              <p className="text-xl sm:text-2xl font-bold text-green-600">
                 {chats.filter(c => c.status === 'open').length}
               </p>
             </div>
@@ -283,11 +280,11 @@ export default function WhatsAppSupportPage() {
           </div>
         </div>
         
-        <div className="card p-3 sm:p-6">
+        <div className="card p-4 sm:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] sm:text-sm text-gray-600">Joined</p>
-              <p className="text-lg sm:text-2xl font-bold text-blue-600">
+              <p className="text-xs sm:text-sm text-gray-600">Joined</p>
+              <p className="text-xl sm:text-2xl font-bold text-blue-600">
                 {chats.filter(c => c.status === 'assigned').length}
               </p>
             </div>
@@ -295,11 +292,11 @@ export default function WhatsAppSupportPage() {
           </div>
         </div>
         
-        <div className="card p-3 sm:p-6">
+        <div className="card p-4 sm:p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[11px] sm:text-sm text-gray-600">Unread</p>
-              <p className="text-lg sm:text-2xl font-bold text-red-600">
+              <p className="text-xs sm:text-sm text-gray-600">Unread</p>
+              <p className="text-xl sm:text-2xl font-bold text-red-600">
                 {chats.filter(c => c.unread_count > 0).length}
               </p>
             </div>
@@ -360,51 +357,53 @@ export default function WhatsAppSupportPage() {
 
                     {/* Chat Info */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between mb-1">
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-900">
-                            {chat.customer_name || 'Unknown Customer'}
-                          </h3>
-                          <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
-                            <Phone className="w-4 h-4" />
-                            <span>{formatPhone(chat.customer_phone)}</span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(chat.status)}`}>
-                            {chat.status}
+                      {/* Name row */}
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <h3 className="text-base sm:text-lg font-semibold text-gray-900 leading-snug">
+                          {chat.customer_name || 'Unknown Customer'}
+                        </h3>
+                        {chat.unread_count > 0 && (
+                          <span className="flex-shrink-0 px-2 py-0.5 bg-red-500 text-white rounded-full text-xs font-bold">
+                            {chat.unread_count}
                           </span>
-                          {user?.role === 'admin' && (
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                handleDeleteChat(chat.id, chat.customer_name);
-                              }}
-                              disabled={deletingChatId === chat.id}
-                              className="inline-flex items-center gap-1 rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-                              title="Delete chat"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              {deletingChatId === chat.id ? 'Deleting...' : 'Delete'}
-                            </button>
-                          )}
-                          {chat.unread_count > 0 && (
-                            <span className="px-2 py-1 bg-red-500 text-white rounded-full text-xs font-bold">
-                              {chat.unread_count}
-                            </span>
-                          )}
-                        </div>
+                        )}
+                      </div>
+
+                      {/* Phone */}
+                      <div className="flex items-center gap-1.5 text-sm text-gray-600 mb-2">
+                        <Phone className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span className="text-xs sm:text-sm">{formatPhone(chat.customer_phone)}</span>
                       </div>
 
                       {/* Last Message */}
-                      <p className="text-sm text-gray-600 truncate mb-2">
+                      <p className="text-xs sm:text-sm text-gray-600 truncate mb-2">
                         {chat.last_message_preview || 'No messages yet'}
                       </p>
 
+                      {/* Status + Delete row */}
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(chat.status)}`}>
+                          {chat.status}
+                        </span>
+                        {user?.role === 'admin' && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleDeleteChat(chat.id, chat.customer_name);
+                            }}
+                            disabled={deletingChatId === chat.id}
+                            className="inline-flex items-center gap-1 rounded-md border border-red-300 px-2 py-0.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            title="Delete chat"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            {deletingChatId === chat.id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        )}
+                      </div>
+
                       {/* Meta Info */}
-                      <div className="flex items-center gap-4 text-xs text-gray-500">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3" />
                           {formatRelativeTime(chat.last_message_at)}

@@ -497,6 +497,49 @@ export async function sendOrderEmails(
       });
     }
 
+    // ── Staff alert emails ────────────────────────────────────────────────────
+    const alertRecipients = Array.isArray(cfg.order_alert_emails) ? cfg.order_alert_emails : [];
+    if (alertRecipients.length > 0) {
+      const staffSubject = `🛍️ New Order #${orderNumber} — ${customer_name} (${fmt(totalAmount)})`;
+      const staffItemRows = safeItems.map((i) => {
+        const label = lineItemDisplayNameFromResolved(i);
+        return `<tr><td style="padding:5px 10px;border-bottom:1px solid #f3f3f3;font-size:13px">${label}</td><td style="padding:5px 10px;border-bottom:1px solid #f3f3f3;text-align:center;font-size:13px">${i.quantity}</td><td style="padding:5px 10px;border-bottom:1px solid #f3f3f3;text-align:right;font-size:13px">${fmt(i.subtotal)}</td></tr>`;
+      }).join('');
+      const adminBase = (process.env.ADMIN_URL || 'https://jlo.julinemart.com').replace(/\/+$/, '');
+      const staffHtml = `
+<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
+  <div style="background:#6b21a8;color:#fff;padding:20px 24px">
+    <h2 style="margin:0;font-size:18px">New Order Received 🛍️</h2>
+    <p style="margin:4px 0 0;opacity:.8;font-size:13px">Order #${orderNumber}</p>
+  </div>
+  <div style="padding:20px 24px;background:#fff">
+    <table style="width:100%;border-collapse:collapse;margin-bottom:12px">
+      <tr><td style="padding:3px 0;font-size:13px;color:#555;width:120px">Customer</td><td style="padding:3px 0;font-size:13px;font-weight:600">${customer_name}</td></tr>
+      <tr><td style="padding:3px 0;font-size:13px;color:#555">Phone</td><td style="padding:3px 0;font-size:13px">${customer_phone || '—'}</td></tr>
+      <tr><td style="padding:3px 0;font-size:13px;color:#555">City</td><td style="padding:3px 0;font-size:13px">${delivery_city}, ${delivery_state}</td></tr>
+      <tr><td style="padding:3px 0;font-size:13px;color:#555">Total</td><td style="padding:3px 0;font-size:14px;font-weight:700;color:#6b21a8">${fmt(totalAmount)}</td></tr>
+    </table>
+    <table style="width:100%;border-collapse:collapse;margin:12px 0">
+      <thead><tr style="background:#f5f5f5"><th style="padding:6px 10px;text-align:left;font-size:12px">Item</th><th style="padding:6px 10px;text-align:center;font-size:12px">Qty</th><th style="padding:6px 10px;text-align:right;font-size:12px">Total</th></tr></thead>
+      <tbody>${staffItemRows}</tbody>
+    </table>
+    <a href="${adminBase}/admin/orders" style="display:inline-block;margin-top:12px;background:#6b21a8;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-size:13px;font-weight:600">View in JLO Admin →</a>
+  </div>
+  <div style="background:#f9f9f9;padding:10px 24px;font-size:11px;color:#999;text-align:center">JulineMart Logistics Orchestrator — Staff Alert</div>
+</div>`;
+
+      for (const alertEmail of alertRecipients) {
+        const recipient = String(alertEmail || '').trim().toLowerCase();
+        if (!recipient) continue;
+        try {
+          await transporter.sendMail({ from, to: recipient, subject: staffSubject, html: staffHtml });
+          await logOrderEmail(supabase, { orderId, recipient, subject: staffSubject, status: 'sent' });
+        } catch (err) {
+          await logOrderEmail(supabase, { orderId, recipient, subject: staffSubject, status: 'failed', errorMessage: err?.message || String(err) });
+        }
+      }
+    }
+
     const vendorItemMap = await buildVendorItemMap(supabase, orderId, safeItems);
 
     if (vendorItemMap.size > 0) {

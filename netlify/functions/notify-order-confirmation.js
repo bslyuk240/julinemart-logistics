@@ -15,6 +15,7 @@
 
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
 import { sendOrderEmails } from '../../shared/orderConfirmationEmail.js';
+import { sendPushToAllStaff } from './services/pushNotifications.js';
 
 const cors = {
   ...headers,
@@ -154,6 +155,14 @@ export async function handler(event) {
   });
 
   console.log('[notify-order-confirmation] sendOrderEmails finished', orderId);
+
+  // Push notification to all staff
+  sendPushToAllStaff({
+    title: '🛍️ New Order',
+    message: `Order #${order.order_number} from ${order.customer_name} — ₦${Number(order.total_amount).toLocaleString()}`,
+    type: 'order_update',
+    data: { order_id: order.id, order_number: String(order.order_number) },
+  }).catch((e) => console.warn('[notify-order-confirmation] staff push failed:', e?.message));
 
   return jsonResponse(200, {
     success: true,

@@ -22,6 +22,7 @@ export const EMAIL_CONFIG_DB_FIELDS = [
   'email_from',
   'email_enabled',
   'portal_url',
+  'order_alert_emails',
 ];
 
 const ALGO = 'aes-256-gcm';

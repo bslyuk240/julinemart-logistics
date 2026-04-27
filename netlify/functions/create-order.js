@@ -28,7 +28,7 @@ import {
 import { autoCreateCjOrdersForSubOrders } from './services/global-sourcing-cj.js';
 import { sendOrderEmails } from '../../shared/orderConfirmationEmail.js';
 import { computeInfluencerShippingDiscount } from './services/influencer-order-sale.js';
-import { sendPushToCustomer } from './services/pushNotifications.js';
+import { sendPushToCustomer, sendPushToAllStaff } from './services/pushNotifications.js';
 
 function generateRef() {
   const ts = Date.now().toString(36).toUpperCase();
@@ -536,6 +536,14 @@ export async function handler(event) {
           data: { order_id: orderId, order_number: String(orderNumber) },
         }).catch((e) => console.warn('Vendor push failed:', e?.message));
       }
+
+      // Notify all admin/staff of the new order
+      sendPushToAllStaff({
+        title: '🛍️ New Order',
+        message: `Order #${orderNumber} from ${customer_name} — ₦${Number(totalAmount).toLocaleString()}`,
+        type: 'order_update',
+        data: { order_id: orderId, order_number: String(orderNumber) },
+      }).catch((e) => console.warn('Staff push failed:', e?.message));
     }
 
     // ── Increment voucher usage ────────────────────────────────────────────

@@ -12,6 +12,9 @@ import {
   Send,
   ScrollText,
   RefreshCw,
+  Plus,
+  Trash2,
+  Bell,
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -28,6 +31,7 @@ interface EmailConfig {
   email_from: string;
   email_enabled: boolean;
   portal_url: string;
+  order_alert_emails: string[];
   /** Present when loaded from API — passwords are never returned; leave fields blank to keep existing secrets */
   secrets_configured?: {
     gmail_password: boolean;
@@ -79,7 +83,9 @@ export function EmailSettingsPage() {
     email_from: '',
     email_enabled: true,
     portal_url: 'http://localhost:3002',
+    order_alert_emails: [],
   });
+  const [newAlertEmail, setNewAlertEmail] = useState('');
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -136,7 +142,10 @@ export function EmailSettingsPage() {
       const response = await fetch('/api/email/config');
       const data = await response.json();
       if (data.success) {
-        setConfig(data.data);
+        setConfig({
+          ...data.data,
+          order_alert_emails: Array.isArray(data.data.order_alert_emails) ? data.data.order_alert_emails : [],
+        });
       }
     } catch (error) {
       console.error('Error fetching config:', error);
@@ -561,6 +570,77 @@ export function EmailSettingsPage() {
                 new secret to replace it.
               </p>
             </div>
+          </div>
+
+          {/* Order Alert Recipients */}
+          <div className="card">
+            <div className="flex items-center gap-2 mb-1">
+              <Bell className="w-5 h-5 text-primary-600" />
+              <h2 className="text-xl font-bold">Order Alert Recipients</h2>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">
+              These email addresses will receive a notification every time a new customer order is placed.
+            </p>
+
+            {/* Current list */}
+            <div className="space-y-2 mb-4">
+              {(config.order_alert_emails ?? []).length === 0 && (
+                <p className="text-sm text-gray-400 italic">No alert recipients yet — add one below.</p>
+              )}
+              {(config.order_alert_emails ?? []).map((email, idx) => (
+                <div key={idx} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <Mail className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                  <span className="flex-1 text-sm font-medium text-gray-800">{email}</span>
+                  <button
+                    type="button"
+                    onClick={() => setConfig(prev => ({
+                      ...prev,
+                      order_alert_emails: prev.order_alert_emails.filter((_, i) => i !== idx),
+                    }))}
+                    className="p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
+                    aria-label="Remove"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Add new */}
+            <div className="flex gap-2">
+              <input
+                type="email"
+                value={newAlertEmail}
+                onChange={e => setNewAlertEmail(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const em = newAlertEmail.trim().toLowerCase();
+                    if (em && !config.order_alert_emails.includes(em)) {
+                      setConfig(prev => ({ ...prev, order_alert_emails: [...prev.order_alert_emails, em] }));
+                      setNewAlertEmail('');
+                    }
+                  }
+                }}
+                placeholder="staff@julinemart.com"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const em = newAlertEmail.trim().toLowerCase();
+                  if (em && !config.order_alert_emails.includes(em)) {
+                    setConfig(prev => ({ ...prev, order_alert_emails: [...prev.order_alert_emails, em] }));
+                    setNewAlertEmail('');
+                  }
+                }}
+                className="btn-primary flex items-center gap-1.5 px-4 py-2 text-sm"
+              >
+                <Plus className="w-4 h-4" />
+                Add
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-2">Changes take effect after you click Save Configuration below.</p>
           </div>
 
           {/* Action Buttons */}

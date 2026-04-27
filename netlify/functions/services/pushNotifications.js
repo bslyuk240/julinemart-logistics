@@ -76,6 +76,61 @@ export const buildOrderDeepLink = (orderReference) => {
   return `/orders/${encodeURIComponent(String(orderReference).trim())}`;
 };
 
+/**
+ * Send a push notification to all active admin/staff users via the PWA's all_staff audience.
+ * Requires NOTIFICATIONS_ADMIN_SECRET + PWA_BASE_URL env vars.
+ */
+export async function sendPushToAllStaff(input) {
+  const baseUrl = sanitizeBaseUrl(process.env.PWA_BASE_URL);
+  if (!baseUrl) {
+    return { success: false, skipped: true, reason: 'missing_pwa_base_url' };
+  }
+  const secret = process.env.NOTIFICATIONS_ADMIN_SECRET;
+  if (!secret) {
+    return { success: false, skipped: true, reason: 'missing_notifications_admin_secret' };
+  }
+
+  const payload = {
+    audience: 'all_staff',
+    title: String(input?.title || '').trim(),
+    message: String(input?.message || '').trim(),
+    type: String(input?.type || 'order_update').trim() || 'order_update',
+  };
+
+  if (!payload.title || !payload.message) {
+    return { success: false, skipped: true, reason: 'missing_title_or_message' };
+  }
+
+  if (isRecord(input?.data) && Object.keys(input.data).length > 0) {
+    payload.data = input.data;
+  }
+
+  const endpoint = `${baseUrl}/api/notifications/send`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-notifications-admin-secret': secret,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const body = await parseResponseBody(response);
+
+    if (!response.ok) {
+      console.error('[Push/Staff] Upstream send error:', { endpoint, status: response.status, body });
+      return { success: false, status: response.status, body };
+    }
+
+    return { success: true, status: response.status, body };
+  } catch (error) {
+    console.error('[Push/Staff] Request failed:', { endpoint, message: error instanceof Error ? error.message : 'Unknown error' });
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+  }
+}
+
 export async function sendPushToCustomer(customerId, input) {
   const normalizedCustomerId = normalizeCustomerId(customerId);
   if (!normalizedCustomerId) {

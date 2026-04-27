@@ -263,12 +263,12 @@ export function EmailSettingsPage() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-          <Mail className="w-8 h-8 text-primary-600" />
+      <div className="mb-6">
+        <h1 className="text-xl sm:text-3xl font-bold text-gray-900 flex items-center gap-2">
+          <Mail className="w-6 h-6 sm:w-8 sm:h-8 text-primary-600 flex-shrink-0" />
           Email Management
         </h1>
-        <p className="text-gray-600 mt-2">
+        <p className="text-gray-600 mt-1 text-sm sm:text-base">
           Configure email providers, customize templates, and test delivery
         </p>
       </div>
@@ -303,8 +303,8 @@ export function EmailSettingsPage() {
       )}
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="flex gap-4">
+      <div className="border-b border-gray-200 mb-6 -mx-4 sm:mx-0">
+        <nav className="flex overflow-x-auto px-4 sm:px-0" style={{ scrollbarWidth: 'none' }}>
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -313,14 +313,14 @@ export function EmailSettingsPage() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`
-                  flex items-center gap-2 px-4 py-3 border-b-2 font-medium text-sm transition-colors
-                  ${isActive 
-                    ? 'border-primary-600 text-primary-600' 
+                  flex items-center gap-1.5 px-3 sm:px-4 py-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap flex-shrink-0
+                  ${isActive
+                    ? 'border-primary-600 text-primary-600'
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                   }
                 `}
               >
-                <Icon className="w-5 h-5" />
+                <Icon className="w-4 h-4 sm:w-5 sm:h-5" />
                 {tab.label}
               </button>
             );
@@ -333,7 +333,7 @@ export function EmailSettingsPage() {
         <div className="space-y-6">
           {/* Provider Selection */}
           <div className="card">
-            <h2 className="text-xl font-bold mb-4">Email Provider</h2>
+            <h2 className="text-lg sm:text-xl font-bold mb-4">Email Provider</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {['gmail', 'sendgrid', 'smtp'].map((provider) => (
                 <button
@@ -359,7 +359,7 @@ export function EmailSettingsPage() {
           {/* Gmail Configuration */}
           {config.provider === 'gmail' && (
             <div className="card">
-              <h2 className="text-xl font-bold mb-4">Gmail Configuration</h2>
+              <h2 className="text-lg sm:text-xl font-bold mb-4">Gmail Configuration</h2>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -396,7 +396,7 @@ export function EmailSettingsPage() {
           {/* SendGrid Configuration */}
           {config.provider === 'sendgrid' && (
             <div className="card">
-              <h2 className="text-xl font-bold mb-4">SendGrid Configuration</h2>
+              <h2 className="text-lg sm:text-xl font-bold mb-4">SendGrid Configuration</h2>
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -420,7 +420,7 @@ export function EmailSettingsPage() {
           {/* SMTP Configuration */}
           {config.provider === 'smtp' && (
             <div className="card">
-              <h2 className="text-xl font-bold mb-4">Custom SMTP Configuration</h2>
+              <h2 className="text-lg sm:text-xl font-bold mb-4">Custom SMTP Configuration</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -479,20 +479,20 @@ export function EmailSettingsPage() {
 
           {/* General Settings */}
           <div className="card">
-            <h2 className="text-xl font-bold mb-4">General Settings</h2>
+            <h2 className="text-lg sm:text-xl font-bold mb-4">General Settings</h2>
             <div className="space-y-4">
               {config.email_secrets_encryption_active !== true &&
                 config.email_secrets_key_env_present === true && (
                   <div
-                    className="rounded-lg border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-950"
+                    className="rounded-lg border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-950 break-words"
                     role="status"
                   >
                     <strong>Encryption key env is set but not valid.</strong> Netlify sees{' '}
-                    <code className="text-xs bg-white/80 px-1 rounded">EMAIL_SECRETS_ENCRYPTION_KEY</code>, but it must
+                    <code className="text-xs bg-white/80 px-1 rounded break-all">EMAIL_SECRETS_ENCRYPTION_KEY</code>, but it must
                     decode to <strong>exactly 32 bytes</strong>. Generate one with{' '}
-                    <code className="text-xs bg-white/80 px-1 rounded">openssl rand -hex 32</code> (paste the 64 hex
+                    <code className="text-xs bg-white/80 px-1 rounded break-all">openssl rand -hex 32</code> (paste the 64 hex
                     characters) or{' '}
-                    <code className="text-xs bg-white/80 px-1 rounded">
+                    <code className="text-xs bg-white/80 px-1 rounded break-all">
                       node -e &quot;console.log(require(&apos;crypto&apos;).randomBytes(32).toString(&apos;base64&apos;))&quot;
                     </code>
                     . Update the value in Netlify, then <strong>redeploy</strong> the site.
@@ -501,15 +501,15 @@ export function EmailSettingsPage() {
               {config.email_secrets_encryption_active !== true &&
                 config.email_secrets_key_env_present !== true && (
                   <div
-                    className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+                    className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 break-words"
                     role="status"
                   >
                     <strong>Encryption key not loaded on this API.</strong> Secrets are saved as plain text until the
                     key works. For local dev, put{' '}
-                    <code className="text-xs bg-white/80 px-1 rounded">EMAIL_SECRETS_ENCRYPTION_KEY</code> in{' '}
-                    <code className="text-xs bg-white/80 px-1 rounded">.env</code> or{' '}
-                    <code className="text-xs bg-white/80 px-1 rounded">.env.local</code> and restart{' '}
-                    <code className="text-xs bg-white/80 px-1 rounded">npm run api:dev</code>. On Netlify, add the same
+                    <code className="text-xs bg-white/80 px-1 rounded break-all">EMAIL_SECRETS_ENCRYPTION_KEY</code> in{' '}
+                    <code className="text-xs bg-white/80 px-1 rounded break-all">.env</code> or{' '}
+                    <code className="text-xs bg-white/80 px-1 rounded break-all">.env.local</code> and restart{' '}
+                    <code className="text-xs bg-white/80 px-1 rounded break-all">npm run api:dev</code>. On Netlify, add the same
                     variable under Site settings → Environment variables and redeploy.
                   </div>
                 )}
@@ -575,8 +575,8 @@ export function EmailSettingsPage() {
           {/* Order Alert Recipients */}
           <div className="card">
             <div className="flex items-center gap-2 mb-1">
-              <Bell className="w-5 h-5 text-primary-600" />
-              <h2 className="text-xl font-bold">Order Alert Recipients</h2>
+              <Bell className="w-5 h-5 text-primary-600 flex-shrink-0" />
+              <h2 className="text-lg sm:text-xl font-bold">Order Alert Recipients</h2>
             </div>
             <p className="text-sm text-gray-500 mb-4">
               These email addresses will receive a notification every time a new customer order is placed.
@@ -644,11 +644,11 @@ export function EmailSettingsPage() {
           </div>
 
           {/* Action Buttons */}
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
             <button
               onClick={handleTestConnection}
               disabled={testing}
-              className="btn-secondary flex items-center gap-2"
+              className="btn-secondary flex items-center justify-center gap-2"
             >
               {testing ? (
                 <>
@@ -666,7 +666,7 @@ export function EmailSettingsPage() {
             <button
               onClick={handleSaveConfig}
               disabled={saving}
-              className="btn-primary flex items-center gap-2"
+              className="btn-primary flex items-center justify-center gap-2"
             >
               {saving ? (
                 <>
@@ -693,7 +693,7 @@ export function EmailSettingsPage() {
       {activeTab === 'test' && (
         <div className="space-y-6">
           <div className="card">
-            <h2 className="text-xl font-bold mb-4">Send Test Email</h2>
+            <h2 className="text-lg sm:text-xl font-bold mb-4">Send Test Email</h2>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -743,7 +743,7 @@ export function EmailSettingsPage() {
               <button
                 onClick={handleSendTestEmail}
                 disabled={testing}
-                className="btn-primary flex items-center gap-2"
+                className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto"
               >
                 {testing ? (
                   <>
@@ -762,7 +762,7 @@ export function EmailSettingsPage() {
 
           {/* Setup Checklist */}
           <div className="card">
-            <h2 className="text-xl font-bold mb-4">Setup Checklist</h2>
+            <h2 className="text-lg sm:text-xl font-bold mb-4">Setup Checklist</h2>
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <CheckCircle className={`w-5 h-5 flex-shrink-0 ${
@@ -814,7 +814,7 @@ export function EmailSettingsPage() {
           <div className="card">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
               <div>
-                <h2 className="text-xl font-bold">Email send log</h2>
+                <h2 className="text-lg sm:text-xl font-bold">Email send log</h2>
                 <p className="text-sm text-gray-600 mt-1">
                   Recent attempts recorded when the app sends mail via your configured provider. &quot;Sent&quot; means the
                   SMTP server accepted the message; inbox placement is not tracked here. Failed rows include the error
@@ -848,7 +848,48 @@ export function EmailSettingsPage() {
                 {logsTotal != null && (
                   <p className="text-xs text-gray-500 mb-2">Showing up to 100 of {logsTotal} total</p>
                 )}
-                <div className="overflow-x-auto -mx-4 sm:mx-0">
+
+                {/* Mobile cards */}
+                <div className="sm:hidden space-y-3">
+                  {emailLogs.map((row) => {
+                    const orderNum = row.orders?.order_number;
+                    const orderHref = row.order_id ? `/admin/orders/${row.order_id}` : undefined;
+                    const isSent = row.status === 'sent';
+                    return (
+                      <div key={row.id} className="border border-gray-200 rounded-lg p-3 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          {isSent ? (
+                            <span className="inline-flex items-center gap-1 text-green-700 text-sm font-medium">
+                              <CheckCircle className="w-4 h-4" /> Sent
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-red-700 text-sm font-medium">
+                              <XCircle className="w-4 h-4" /> Failed
+                            </span>
+                          )}
+                          <span className="text-xs text-gray-500">
+                            {row.sent_at
+                              ? new Date(row.sent_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
+                              : '—'}
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-700 break-all">{row.recipient}</p>
+                        <p className="text-xs text-gray-500 leading-snug">{row.subject}</p>
+                        {orderHref && (
+                          <a href={orderHref} className="text-xs text-primary-600 hover:underline">
+                            {orderNum != null ? `Order #${orderNum}` : 'View order'}
+                          </a>
+                        )}
+                        {row.error_message && (
+                          <p className="text-xs text-red-700 break-words">{row.error_message}</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop table */}
+                <div className="hidden sm:block overflow-x-auto -mx-4 sm:mx-0">
                   <table className="min-w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-200 text-left text-gray-600">
@@ -1030,12 +1071,12 @@ function TemplateEditor({ template, onSave }: { template: EmailTemplate; onSave:
 
   return (
     <div className="card">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-xl font-bold">{template.name}</h3>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h3 className="text-lg sm:text-xl font-bold">{template.name}</h3>
         <button
           onClick={handleSave}
           disabled={saving}
-          className="btn-primary flex items-center gap-2"
+          className="btn-primary flex items-center gap-2 flex-shrink-0"
         >
           {saving ? (
             <>

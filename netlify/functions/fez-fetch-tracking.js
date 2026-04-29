@@ -34,7 +34,7 @@ function resolveEnvironment(subOrder, courier) {
     process.env.NETLIFY_CONTEXT === 'production' ||
     process.env.NODE_ENV === 'production'
   ) {
-    return 'production';
+    return 'live';
   }
 
   return 'sandbox';

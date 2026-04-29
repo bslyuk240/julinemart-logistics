@@ -210,23 +210,35 @@ const getSelectedLane = (subOrder: SubOrder): ShipmentLane => {
 /**
  * Tracking Timeline Component - Shows horizontal progress stepper
  */
-const TrackingTimeline = ({ status }: { status: string }) => {
-  const steps = [
+const TrackingTimeline = ({ status, isLocalRider }: { status: string; isLocalRider?: boolean }) => {
+  const fezSteps = [
     { key: 'pending', label: 'Pending' },
     { key: 'vendor_dispatched', label: 'Sent to Hub' },
     { key: 'assigned', label: 'Assigned' },
+    { key: 'pending_pickup', label: 'Pending\nPick-Up' },
     { key: 'picked_up', label: 'Picked Up' },
     { key: 'in_transit', label: 'In Transit' },
     { key: 'out_for_delivery', label: 'Out for Delivery' },
     { key: 'delivered', label: 'Delivered' },
   ];
 
+  const localRiderSteps = [
+    { key: 'pending', label: 'Pending' },
+    { key: 'vendor_dispatched', label: 'Sent to Hub' },
+    { key: 'assigned', label: 'Assigned' },
+    { key: 'picked_up', label: 'Picked Up' },
+    { key: 'out_for_delivery', label: 'Out for Delivery' },
+    { key: 'delivered', label: 'Delivered' },
+  ];
+
+  const steps = isLocalRider ? localRiderSteps : fezSteps;
+
   // Map various status names to our step keys
   const normalizeStatus = (s: string): string => {
     const statusMap: Record<string, string> = {
       pending: 'pending',
       vendor_dispatched: 'vendor_dispatched',
-      pending_pickup: 'assigned',
+      pending_pickup: 'pending_pickup',
       assigned: 'assigned',
       picked_up: 'picked_up',
       in_transit: 'in_transit',
@@ -1434,7 +1446,7 @@ export function OrderDetailsPage() {
                       )}
 
                       {/* Tracking Timeline - Horizontal Progress Stepper */}
-                      <TrackingTimeline status={subOrder.status} />
+                      <TrackingTimeline status={subOrder.status} isLocalRider={isLocalRider} />
                     </div>
                   </div>
                 )}

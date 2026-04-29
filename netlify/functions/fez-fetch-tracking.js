@@ -103,16 +103,24 @@ async function fetchFezTracking(authToken, secretKey, baseUrl, trackingNumber) {
 // --------------------------------------------------
 function mapFezStatus(status) {
   const map = {
+    // Confirmed from live API responses
     'Pending Pick-Up': 'pending_pickup',
+    'Assigned To A Rider': 'assigned',
+    // Expected progression (unconfirmed labels — update as Fez confirms)
     'Picked-Up': 'picked_up',
-    Dispatched: 'in_transit',
+    'Dispatched': 'in_transit',
+    'Prepared for Delivery': 'in_transit',
     'Out for Delivery': 'out_for_delivery',
-    Delivered: 'delivered',
-    Cancelled: 'cancelled',
-    Returned: 'returned',
+    'Delivery in Progress': 'out_for_delivery',
+    'Delivered': 'delivered',
+    'Cancelled': 'cancelled',
+    'Returned': 'returned',
+    'Return in Progress': 'returned',
   };
 
-  return map[status] || 'processing';
+  const mapped = map[status];
+  if (!mapped) console.warn('⚠️ Unknown Fez status — add to map:', status);
+  return mapped || 'assigned';
 }
 
 function isValidFezTrackingNumber(val) {

@@ -29,16 +29,24 @@ const headers = {
 // Map Fez status to JLO status (align with fez-fetch-tracking.js)
 function mapFezStatus(fezStatus) {
   const statusMap = {
+    // Confirmed from live API responses
     'Pending Pick-Up': 'pending_pickup',
+    'Assigned To A Rider': 'assigned',
+    // Expected progression (unconfirmed labels — update as Fez confirms)
     'Picked-Up': 'picked_up',
-    Dispatched: 'in_transit',
+    'Dispatched': 'in_transit',
+    'Prepared for Delivery': 'in_transit',
     'Out for Delivery': 'out_for_delivery',
-    Delivered: 'delivered',
-    Cancelled: 'cancelled',
-    Returned: 'returned',
+    'Delivery in Progress': 'out_for_delivery',
+    'Delivered': 'delivered',
+    'Cancelled': 'cancelled',
+    'Returned': 'returned',
+    'Return in Progress': 'returned',
   };
 
-  return statusMap[fezStatus] || 'processing';
+  const mapped = statusMap[fezStatus];
+  if (!mapped) console.warn('⚠️ Unknown Fez status — add to map:', fezStatus);
+  return mapped || 'assigned';
 }
 
 exports.handler = async (event) => {

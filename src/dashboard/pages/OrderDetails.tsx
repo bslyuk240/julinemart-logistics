@@ -677,7 +677,7 @@ export function OrderDetailsPage() {
     }
   };
 
-  const updateLocalDeliveryStatus = async (subOrderId: Identifier, targetStatus: 'out_for_delivery' | 'delivered') => {
+  const updateLocalDeliveryStatus = async (subOrderId: Identifier, targetStatus: 'picked_up' | 'out_for_delivery' | 'delivered') => {
     setStatusUpdating(subOrderId);
     try {
       const token =

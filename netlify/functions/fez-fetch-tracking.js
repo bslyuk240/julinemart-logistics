@@ -29,8 +29,12 @@ function resolveEnvironment(subOrder, courier) {
   if (subOrder?.environment) return subOrder.environment;
   if (courier?.api_config?.environment) return courier.api_config.environment;
 
-  if (process.env.NETLIFY_CONTEXT === 'production') {
-    return 'live';
+  if (
+    process.env.CONTEXT === 'production' ||
+    process.env.NETLIFY_CONTEXT === 'production' ||
+    process.env.NODE_ENV === 'production'
+  ) {
+    return 'production';
   }
 
   return 'sandbox';
@@ -48,7 +52,7 @@ async function authenticateFez(environment) {
     .select('api_user_id, api_password, api_base_url, api_config')
     .eq('code', 'fez')
     .eq('api_enabled', true)
-    .eq('api_config->>environment', environment)
+    .eq('environment', environment)
     .single();
 
   if (error || !courier) {

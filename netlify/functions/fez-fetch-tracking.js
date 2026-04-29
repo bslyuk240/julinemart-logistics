@@ -41,36 +41,15 @@ function resolveEnvironment(subOrder, courier) {
 }
 
 // --------------------------------------------------
-// AUTHENTICATE WITH FEZ (DB first, env var fallback)
+// AUTHENTICATE WITH FEZ (env vars — matches fez-create-shipment)
 // --------------------------------------------------
-async function authenticateFez(environment) {
-  console.log('🔍 Fetching Fez credentials from database...');
-  console.log('🌍 Environment:', environment);
-
-  const { data: courier, error } = await supabase
-    .from('couriers')
-    .select('api_user_id, api_password, api_base_url, api_config')
-    .eq('code', 'fez')
-    .eq('api_enabled', true)
-    .eq('environment', environment)
-    .single();
-
-  let userId, password, baseUrl;
-
-  if (courier && !error && courier.api_user_id && courier.api_password) {
-    userId = courier.api_user_id;
-    password = courier.api_password;
-    baseUrl = courier.api_base_url;
-    console.log('✅ Using Fez credentials from database');
-  } else {
-    userId = process.env.FEZ_USER_ID;
-    password = process.env.FEZ_PASSWORD || process.env.FEZ_API_KEY;
-    baseUrl = process.env.FEZ_API_BASE_URL;
-    console.log('⚠️ DB lookup missed — falling back to env vars', { error: error?.message });
-  }
+async function authenticateFez() {
+  const userId = process.env.FEZ_USER_ID;
+  const password = process.env.FEZ_PASSWORD || process.env.FEZ_API_KEY;
+  const baseUrl = process.env.FEZ_API_BASE_URL;
 
   if (!userId || !password || !baseUrl) {
-    throw new Error(`Fez credentials not available for ${environment}`);
+    throw new Error('Missing Fez API credentials (FEZ_USER_ID / FEZ_PASSWORD / FEZ_API_BASE_URL)');
   }
 
   console.log('🔐 Authenticating with Fez...', { userId, baseUrl });
@@ -196,11 +175,8 @@ export async function handler(event) {
       };
     }
 
-    // 🔐 Resolve environment SAFELY
-    const environment = resolveEnvironment(subOrder);
-
     const { authToken, secretKey, baseUrl } =
-      await authenticateFez(environment);
+      await authenticateFez();
 
     const trackingData = await fetchFezTracking(
       authToken,

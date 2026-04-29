@@ -961,6 +961,8 @@ export function OrderDetailsPage() {
             const fezDisabledByLane = selectedLane === 'local_rider';
             const localDisabledByLane = selectedLane === 'fez';
             const isLocalRider = subOrder.couriers?.code?.toLowerCase() === 'local-rider';
+            const canMarkPickedUp =
+              isLocalRider && !['picked_up', 'out_for_delivery', 'delivered'].includes(subOrder.status);
             const canMarkOutForDelivery =
               isLocalRider && !['out_for_delivery', 'delivered'].includes(subOrder.status);
             const canMarkDelivered = isLocalRider && subOrder.status !== 'delivered';
@@ -1443,6 +1445,20 @@ export function OrderDetailsPage() {
                       Manual local delivery status
                     </p>
                     <div className="flex flex-wrap gap-2">
+                      {canMarkPickedUp && (
+                        <button
+                          onClick={() => updateLocalDeliveryStatus(subOrder.id, 'picked_up')}
+                          disabled={statusUpdating === subOrder.id}
+                          className="btn-secondary text-sm flex items-center gap-2"
+                        >
+                          {statusUpdating === subOrder.id ? (
+                            <Loader className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Package className="w-4 h-4" />
+                          )}
+                          Mark Picked Up
+                        </button>
+                      )}
                       {canMarkOutForDelivery && (
                         <button
                           onClick={() => updateLocalDeliveryStatus(subOrder.id, 'out_for_delivery')}

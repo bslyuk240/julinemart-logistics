@@ -16,7 +16,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 );
 
-const ALLOWED_STATUSES = new Set(['out_for_delivery', 'delivered']);
+const ALLOWED_STATUSES = new Set(['picked_up', 'out_for_delivery', 'delivered']);
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -144,8 +144,10 @@ exports.handler = async (event) => {
 
     // Create tracking event
     const description =
-      status === 'out_for_delivery'
-        ? 'Local rider picked up the package and is out for delivery'
+      status === 'picked_up'
+        ? 'Local rider picked up the package from the hub'
+        : status === 'out_for_delivery'
+        ? 'Local rider is out for delivery'
         : 'Local rider confirmed delivery';
 
     const { error: trackingError } = await supabase.from('tracking_events').insert({
@@ -210,7 +212,14 @@ exports.handler = async (event) => {
         };
 
         const pushInput =
-          status === 'out_for_delivery'
+          status === 'picked_up'
+            ? {
+                title: 'Order picked up',
+                message: `Your order ${orderRef} has been picked up by our rider.`,
+                type: 'order_update',
+                data: pushMeta,
+              }
+            : status === 'out_for_delivery'
             ? {
                 title: 'Order out for delivery',
                 message: `Your order ${orderRef} is on the way.`,

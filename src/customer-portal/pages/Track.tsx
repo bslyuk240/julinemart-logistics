@@ -122,11 +122,13 @@ export function OrderTrackingPage() {
       pending: 'bg-yellow-100 text-yellow-800 border-yellow-300',
       processing: 'bg-blue-100 text-blue-800 border-blue-300',
       assigned: 'bg-blue-100 text-blue-800 border-blue-300',
+      pending_pickup: 'bg-indigo-100 text-indigo-800 border-indigo-300',
       picked_up: 'bg-indigo-100 text-indigo-800 border-indigo-300',
       in_transit: 'bg-purple-100 text-purple-800 border-purple-300',
       out_for_delivery: 'bg-orange-100 text-orange-800 border-orange-300',
       delivered: 'bg-green-100 text-green-800 border-green-300',
       cancelled: 'bg-red-100 text-red-800 border-red-300',
+      returned: 'bg-gray-100 text-gray-800 border-gray-300',
     };
     return colors[status] || 'bg-gray-100 text-gray-800 border-gray-300';
   };
@@ -136,11 +138,13 @@ export function OrderTrackingPage() {
       pending: Clock,
       processing: Package,
       assigned: Package,
+      pending_pickup: Clock,
       picked_up: Package,
       in_transit: Truck,
       out_for_delivery: Truck,
       delivered: CheckCircle,
       cancelled: AlertCircle,
+      returned: AlertCircle,
     };
     const Icon = icons[status] || Clock;
     return <Icon className="w-5 h-5" />;
@@ -380,12 +384,14 @@ export function OrderTrackingPage() {
                           pending: 'Order Received',
                           vendor_dispatched: 'Sent to Hub',
                           assigned: 'Rider Assigned',
+                          pending_pickup: 'Awaiting Pickup',
                           picked_up: 'Picked Up',
                           in_transit: 'In Transit',
                           out_for_delivery: 'Out for Delivery',
                           delivered: 'Delivered',
                           returned: 'Returned',
                           failed: 'Delivery Failed',
+                          cancelled: 'Cancelled',
                         };
                         return (
                         <div key={eventIndex} className="flex gap-4">

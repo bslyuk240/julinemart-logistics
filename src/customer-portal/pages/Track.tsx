@@ -64,6 +64,30 @@ interface ReturnShipment {
   created_at?: string;
 }
 
+const SUB_STATUS_PRIORITY: Record<string, number> = {
+  pending: 1,
+  vendor_dispatched: 2,
+  assigned: 3,
+  pending_pickup: 3,
+  picked_up: 4,
+  in_transit: 5,
+  out_for_delivery: 6,
+  delivered: 7,
+  returned: 8,
+  failed: 9,
+  cancelled: 10,
+};
+
+function deriveDisplayStatus(order: Order): string {
+  const subOrders = order.sub_orders || [];
+  if (!subOrders.length) return order.overall_status;
+  return subOrders.reduce((best, so) => {
+    const curr = SUB_STATUS_PRIORITY[so.status] ?? 0;
+    const bestP = SUB_STATUS_PRIORITY[best] ?? 0;
+    return curr > bestP ? so.status : best;
+  }, 'pending');
+}
+
 export function OrderTrackingPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -261,9 +285,9 @@ export function OrderTrackingPage() {
                 })}
               </p>
             </div>
-            <span className={`px-4 py-2 rounded-full text-sm font-medium border-2 flex items-center gap-2 ${getStatusColor(order.overall_status)}`}>
-              {getStatusIcon(order.overall_status)}
-              {order.overall_status.replace('_', ' ').toUpperCase()}
+            <span className={`px-4 py-2 rounded-full text-sm font-medium border-2 flex items-center gap-2 ${getStatusColor(deriveDisplayStatus(order))}`}>
+              {getStatusIcon(deriveDisplayStatus(order))}
+              {deriveDisplayStatus(order).replace(/_/g, ' ').toUpperCase()}
             </span>
           </div>
 

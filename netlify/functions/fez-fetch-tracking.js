@@ -41,7 +41,7 @@ function resolveEnvironment(subOrder, courier) {
 }
 
 // --------------------------------------------------
-// AUTHENTICATE WITH FEZ (DB-DRIVEN)
+// AUTHENTICATE WITH FEZ (DB first, env var fallback)
 // --------------------------------------------------
 async function authenticateFez(environment) {
   console.log('🔍 Fetching Fez credentials from database...');
@@ -55,32 +55,34 @@ async function authenticateFez(environment) {
     .eq('environment', environment)
     .single();
 
-  if (error || !courier) {
-    console.error('❌ Fez credential lookup failed:', error);
-    throw new Error(`Fez credentials not configured for ${environment}`);
+  let userId, password, baseUrl;
+
+  if (courier && !error && courier.api_user_id && courier.api_password) {
+    userId = courier.api_user_id;
+    password = courier.api_password;
+    baseUrl = courier.api_base_url;
+    console.log('✅ Using Fez credentials from database');
+  } else {
+    userId = process.env.FEZ_USER_ID;
+    password = process.env.FEZ_PASSWORD || process.env.FEZ_API_KEY;
+    baseUrl = process.env.FEZ_API_BASE_URL;
+    console.log('⚠️ DB lookup missed — falling back to env vars', { error: error?.message });
   }
 
-  const baseUrl =
-    courier.api_base_url ||
-    (environment === 'live'
-      ? 'https://api.fezdelivery.co/v1'
-      : 'https://apisandbox.fezdelivery.co/v1');
+  if (!userId || !password || !baseUrl) {
+    throw new Error(`Fez credentials not available for ${environment}`);
+  }
 
-  console.log('✅ Using Fez credentials:', {
-    userId: courier.api_user_id,
-    baseUrl,
-  });
+  console.log('🔐 Authenticating with Fez...', { userId, baseUrl });
 
   const response = await fetch(`${baseUrl}/user/authenticate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      user_id: courier.api_user_id,
-      password: courier.api_password,
-    }),
+    body: JSON.stringify({ user_id: userId, password }),
   });
 
   const data = await response.json();
+  console.log('🔑 Fez auth response status:', data.status);
 
   if (data.status !== 'Success') {
     throw new Error(data.description || 'Fez authentication failed');

@@ -60,7 +60,7 @@ export async function handler(event) {
           .select('delivered_at, created_at')
           .eq('courier_id', row.courier_id)
           .eq('status', 'delivered')
-          .not('settlement_status', 'in', '("paid","settled")')
+          .not('settlement_status', 'in', '("paid","approved")')
           .order('delivered_at', { ascending: true });
 
         const timestamps = (dates || []).map((d) => d.delivered_at || d.created_at).filter(Boolean);
@@ -209,7 +209,7 @@ export async function handler(event) {
         .select('id, real_shipping_cost, allocated_shipping_fee, courier_charge, delivered_at, created_at, main_order_id')
         .eq('courier_id', courier_id)
         .eq('status', 'delivered')
-        .not('settlement_status', 'in', '("paid","settled")')
+        .not('settlement_status', 'in', '("paid","approved")')
         .or(
           `delivered_at.is.null,` +
           `and(delivered_at.gte.${start_date}T00:00:00,delivered_at.lte.${end_date}T23:59:59)`
@@ -255,10 +255,10 @@ export async function handler(event) {
       const { error: itemsErr } = await db.from('settlement_items').insert(items);
       if (itemsErr) throw itemsErr;
 
-      // Mark sub_orders as 'settled' (batched, awaiting payment)
+      // Mark sub_orders as 'approved' (batched, awaiting payment)
       const { error: updateErr } = await db
         .from('sub_orders')
-        .update({ settlement_status: 'settled', updated_at: new Date().toISOString() })
+        .update({ settlement_status: 'approved', updated_at: new Date().toISOString() })
         .in('id', subOrders.map((s) => s.id));
 
       if (updateErr) throw updateErr;

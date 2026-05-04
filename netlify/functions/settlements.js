@@ -163,7 +163,7 @@ export async function handler(event) {
       // Record as ledger expense with rider name in paid_to
       await db.from('ledger_expenses').insert({
         source:           'courier_settlement',
-        reference_id: settlement.id,
+        source_reference: settlement.id,
         category:         'courier',
         subcategory:      'delivery_fees',
         amount:           amountPaid,

@@ -163,7 +163,7 @@ export async function handler(event) {
       // Record as ledger expense with rider name in paid_to
       await db.from('ledger_expenses').insert({
         source:           'courier_settlement',
-        source_reference: settlement.id,
+        reference_id: settlement.id,
         category:         'courier',
         subcategory:      'delivery_fees',
         amount:           amountPaid,
@@ -202,15 +202,18 @@ export async function handler(event) {
         return json(400, { success: false, error: 'courier_id, start_date and end_date are required' });
       }
 
-      // Find all unsettled delivered sub_orders for this courier in the period
+      // Find all unsettled delivered sub_orders for this courier in the period.
+      // delivered_at may be NULL on older orders — fall back to created_at for those.
       const { data: subOrders, error: soErr } = await db
         .from('sub_orders')
-        .select('id, real_shipping_cost, allocated_shipping_fee, courier_charge, delivered_at, main_order_id')
+        .select('id, real_shipping_cost, allocated_shipping_fee, courier_charge, delivered_at, created_at, main_order_id')
         .eq('courier_id', courier_id)
         .eq('status', 'delivered')
         .not('settlement_status', 'in', '("paid","settled")')
-        .gte('delivered_at', `${start_date}T00:00:00`)
-        .lte('delivered_at', `${end_date}T23:59:59`);
+        .or(
+          `delivered_at.is.null,` +
+          `and(delivered_at.gte.${start_date}T00:00:00,delivered_at.lte.${end_date}T23:59:59)`
+        );
 
       if (soErr) throw soErr;
 

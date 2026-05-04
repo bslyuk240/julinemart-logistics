@@ -92,7 +92,10 @@ export const handler = async (event) => {
     return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'action must be approve or reject' }) };
   }
 
-  /** Synthetic WC id for vendors created only in JLO (no WooCommerce row). Must fit VARCHAR(50) and stay UNIQUE. */
+  /** Synthetic bridge id for vendors created only in JLO (no WooCommerce user yet). Must fit VARCHAR(50) and stay UNIQUE.
+   * Stored in `vendors.woocommerce_vendor_id` and used by catalog `woo_vendor_id` — keep the `jlo-` prefix so
+   * the storefront treats it as an opaque string route key (not only a numeric WC user id).
+   */
   const syntheticWooId = `jlo-${application_id}`;
 
   function slugifyStoreSlug(name) {

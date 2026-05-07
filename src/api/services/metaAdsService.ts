@@ -156,6 +156,19 @@ export async function rejectDraft(id: string, rejectedBy: string, note: string) 
   return data;
 }
 
+export async function deleteDraft(id: string) {
+  const { data: row, error: fetchErr } = await supabase
+    .from('meta_ad_drafts')
+    .select('id, title')
+    .eq('id', id)
+    .maybeSingle();
+  if (fetchErr) throw fetchErr;
+  if (!row) throw new Error('Draft not found');
+  const { error } = await supabase.from('meta_ad_drafts').delete().eq('id', id);
+  if (error) throw error;
+  return row;
+}
+
 // ─── AI content generation ────────────────────────────────────────────────────
 
 export async function generateAdContent(context: {

@@ -71,6 +71,7 @@ import {
   createDraftHandler,
   approveDraftHandler,
   rejectDraftHandler,
+  deleteDraftHandler,
   generateContentHandler,
   getRecommendationsHandler,
   getAdsContextHandler,
@@ -370,6 +371,7 @@ app.get('/api/meta/drafts',                 authenticate, requireRole('admin', '
 app.post('/api/meta/drafts',                authenticate, requireRole('admin', 'manager'), createDraftHandler);
 app.put('/api/meta/drafts/:id/approve',     authenticate, requireRole('admin'), approveDraftHandler);
 app.put('/api/meta/drafts/:id/reject',      authenticate, requireRole('admin'), rejectDraftHandler);
+app.delete('/api/meta/drafts/:id',          authenticate, requireRole('admin', 'manager'), deleteDraftHandler);
 app.post('/api/meta/ai/generate',           authenticate, requireRole('admin', 'manager'), generateContentHandler);
 app.get('/api/meta/recommendations',        authenticate, requireRole('admin', 'manager'), getRecommendationsHandler);
 app.get('/api/meta/context',                authenticate, requireRole('admin', 'manager'), getAdsContextHandler);

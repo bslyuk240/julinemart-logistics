@@ -20,7 +20,7 @@ const CORS = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
 
 const ok  = (data)        => ({ statusCode: 200, headers: CORS, body: JSON.stringify({ success: true, data }) });
@@ -212,6 +212,20 @@ async function rejectDraft(id, userId, note) {
   if (error) throw error;
   await logAction(userId, 'reject_draft', 'draft', id, { note });
   return ok(data);
+}
+
+async function deleteDraft(id, userId) {
+  const { data: row, error: fetchErr } = await supabase
+    .from('meta_ad_drafts')
+    .select('id, title')
+    .eq('id', id)
+    .maybeSingle();
+  if (fetchErr) throw fetchErr;
+  if (!row) return err('Draft not found', 404);
+  const { error } = await supabase.from('meta_ad_drafts').delete().eq('id', id);
+  if (error) throw error;
+  await logAction(userId, 'delete_draft', 'draft', id, { title: row.title });
+  return ok({ id: row.id });
 }
 
 async function generateContent(body, userId) {
@@ -648,6 +662,10 @@ export async function handler(event) {
     // PUT /api/meta/drafts/:id/reject
     const rejectMatch = path.match(/^drafts\/([^/]+)\/reject$/);
     if (rejectMatch && method === 'PUT') return await rejectDraft(rejectMatch[1], userId, body.note);
+
+    // DELETE /api/meta/drafts/:id
+    const draftDeleteMatch = path.match(/^drafts\/([^/]+)$/);
+    if (draftDeleteMatch && method === 'DELETE') return await deleteDraft(draftDeleteMatch[1], userId);
 
     // POST /api/meta/drafts/:id/publish
     const publishMatch = path.match(/^drafts\/([^/]+)\/publish$/);

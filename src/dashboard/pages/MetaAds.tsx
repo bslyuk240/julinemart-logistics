@@ -3,7 +3,7 @@ import {
   TrendingUp, RefreshCw, Sparkles, CheckCircle, XCircle,
   Clock, Eye, MousePointer, DollarSign, Users, Plus,
   ChevronDown, ChevronUp, AlertCircle, Megaphone, AlertTriangle,
-  Play, Pause, Upload, ImageIcon, X, Search, Send,
+  Play, Pause, Upload, ImageIcon, X, Search, Send, Trash2,
 } from 'lucide-react';
 
 const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
@@ -539,6 +539,7 @@ export function MetaAdsPage() {
   const [publishCampaignName, setPublishCampaignName] = useState('');
   const [publishBudget, setPublishBudget]             = useState('');
   const [publishing, setPublishing]                   = useState(false);
+  const [deletingId, setDeletingId]                   = useState<string | null>(null);
 
   // AI generate form
   const [genObjective, setGenObjective] = useState('sales');
@@ -651,6 +652,27 @@ export function MetaAdsPage() {
       body: JSON.stringify({ note: rejectNote }),
     });
     if (res.success) { setRejectingId(null); setRejectNote(''); loadDrafts(); }
+  };
+
+  const handleDeleteDraft = async (id: string, title: string, published: boolean) => {
+    const extra = published
+      ? ' This only removes the record in JulineMart. The ad may still exist in Meta Ads Manager — delete or pause it there if needed.'
+      : '';
+    if (!window.confirm(`Delete “${title}”?${extra}`)) return;
+    setDeletingId(id);
+    setError('');
+    try {
+      const res = await api(`/api/meta/drafts/${id}`, { method: 'DELETE' });
+      if (res.success) {
+        if (expandedDraft === id) setExpandedDraft(null);
+        if (publishingId === id) setPublishingId(null);
+        loadDrafts();
+      } else setError(res.error || 'Delete failed');
+    } catch {
+      setError('Delete failed');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const handlePublish = async (id: string) => {
@@ -827,10 +849,22 @@ export function MetaAdsPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${STATUS_COLOR[d.status] || 'bg-gray-100'}`}>
                       {d.status}
                     </span>
+                    <button
+                      type="button"
+                      title="Delete draft"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteDraft(d.id, d.title, d.status === 'published');
+                      }}
+                      disabled={deletingId === d.id || publishingId === d.id}
+                      className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                     {expandedDraft === d.id ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
                   </div>
                 </div>

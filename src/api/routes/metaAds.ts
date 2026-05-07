@@ -7,6 +7,7 @@ import {
   createDraft,
   approveDraft,
   rejectDraft,
+  deleteDraft,
   generateAdContent,
   getRecommendations,
   logAction,
@@ -101,6 +102,23 @@ export async function rejectDraftHandler(req: AuthRequest, res: Response) {
   } catch (error) {
     console.error('rejectDraft error:', error);
     return res.status(500).json({ error: 'Failed to reject draft', message: (error as Error).message });
+  }
+}
+
+// ── DELETE /api/meta/drafts/:id ──────────────────────────────────────────────
+export async function deleteDraftHandler(req: AuthRequest, res: Response) {
+  try {
+    const { id } = req.params;
+    const row = await deleteDraft(id);
+    await logAction(req.user?.id, 'delete_draft', 'draft', id, { title: row.title });
+    return res.json({ success: true, data: { id } });
+  } catch (error) {
+    console.error('deleteDraft error:', error);
+    const msg = (error as Error).message;
+    if (msg === 'Draft not found') {
+      return res.status(404).json({ success: false, error: 'Draft not found', message: msg });
+    }
+    return res.status(500).json({ error: 'Failed to delete draft', message: msg });
   }
 }
 

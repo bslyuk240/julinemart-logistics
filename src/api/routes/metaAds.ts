@@ -149,7 +149,7 @@ export async function getAdsContextHandler(_req: AuthRequest, res: Response) {
 
       // Active promo codes / vouchers
       supabase
-        .from('vouchers')
+        .from('campaign_vouchers')
         .select('code, discount_value, discount_type')
         .eq('is_active', true)
         .limit(5),

@@ -1776,6 +1776,265 @@ export type Database = {
         }
         Relationships: []
       }
+      meta_action_logs: {
+        Row: {
+          id: string
+          user_id: string | null
+          action: string
+          resource: string | null
+          resource_id: string | null
+          details: Json | null
+          status: string
+          error_msg: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id?: string | null
+          action: string
+          resource?: string | null
+          resource_id?: string | null
+          details?: Json | null
+          status?: string
+          error_msg?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string | null
+          action?: string
+          resource?: string | null
+          resource_id?: string | null
+          details?: Json | null
+          status?: string
+          error_msg?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_action_logs_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meta_ad_drafts: {
+        Row: {
+          id: string
+          title: string
+          headline: string | null
+          body_text: string
+          call_to_action: string
+          image_url: string | null
+          destination_url: string | null
+          source_products: Json | null
+          source_context: Json | null
+          target_audience: Json | null
+          suggested_budget: number | null
+          status: string
+          ai_generated: boolean
+          created_by: string | null
+          approved_by: string | null
+          approved_at: string | null
+          rejection_note: string | null
+          published_at: string | null
+          meta_ad_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          title: string
+          headline?: string | null
+          body_text: string
+          call_to_action?: string
+          image_url?: string | null
+          destination_url?: string | null
+          source_products?: Json | null
+          source_context?: Json | null
+          target_audience?: Json | null
+          suggested_budget?: number | null
+          status?: string
+          ai_generated?: boolean
+          created_by?: string | null
+          approved_by?: string | null
+          approved_at?: string | null
+          rejection_note?: string | null
+          published_at?: string | null
+          meta_ad_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          title?: string
+          headline?: string | null
+          body_text?: string
+          call_to_action?: string
+          image_url?: string | null
+          destination_url?: string | null
+          source_products?: Json | null
+          source_context?: Json | null
+          target_audience?: Json | null
+          suggested_budget?: number | null
+          status?: string
+          ai_generated?: boolean
+          created_by?: string | null
+          approved_by?: string | null
+          approved_at?: string | null
+          rejection_note?: string | null
+          published_at?: string | null
+          meta_ad_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_ad_drafts_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meta_ad_drafts_approved_by_fkey"
+            columns: ["approved_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meta_ai_recommendations: {
+        Row: {
+          id: string
+          type: string
+          priority: string
+          title: string
+          description: string
+          action_data: Json | null
+          source_data: Json | null
+          campaign_id: string | null
+          status: string
+          actioned_by: string | null
+          actioned_at: string | null
+          expires_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          type: string
+          priority?: string
+          title: string
+          description: string
+          action_data?: Json | null
+          source_data?: Json | null
+          campaign_id?: string | null
+          status?: string
+          actioned_by?: string | null
+          actioned_at?: string | null
+          expires_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          type?: string
+          priority?: string
+          title?: string
+          description?: string
+          action_data?: Json | null
+          source_data?: Json | null
+          campaign_id?: string | null
+          status?: string
+          actioned_by?: string | null
+          actioned_at?: string | null
+          expires_at?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meta_ai_recommendations_actioned_by_fkey"
+            columns: ["actioned_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meta_campaigns_cache: {
+        Row: {
+          id: string
+          meta_campaign_id: string
+          name: string
+          status: string
+          objective: string | null
+          daily_budget: number | null
+          lifetime_budget: number | null
+          spend_cap: number | null
+          start_time: string | null
+          stop_time: string | null
+          impressions: number
+          reach: number
+          clicks: number
+          spend: number
+          ctr: number
+          cpc: number
+          cpm: number
+          ad_account_id: string
+          synced_at: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          meta_campaign_id: string
+          name: string
+          status: string
+          objective?: string | null
+          daily_budget?: number | null
+          lifetime_budget?: number | null
+          spend_cap?: number | null
+          start_time?: string | null
+          stop_time?: string | null
+          impressions?: number
+          reach?: number
+          clicks?: number
+          spend?: number
+          ctr?: number
+          cpc?: number
+          cpm?: number
+          ad_account_id: string
+          synced_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          meta_campaign_id?: string
+          name?: string
+          status?: string
+          objective?: string | null
+          daily_budget?: number | null
+          lifetime_budget?: number | null
+          spend_cap?: number | null
+          start_time?: string | null
+          stop_time?: string | null
+          impressions?: number
+          reach?: number
+          clicks?: number
+          spend?: number
+          ctr?: number
+          cpc?: number
+          cpm?: number
+          ad_account_id?: string
+          synced_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       manual_supplier_order_items: {
         Row: {
           cj_inbound_shipment_id: string | null

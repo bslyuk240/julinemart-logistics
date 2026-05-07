@@ -417,20 +417,37 @@ async function publishDraft(draftId, body, userId) {
   }
 
   // 1. Create Ad Creative
-  const creativePayload = {
+  // Only use image if it's from a public CDN (Supabase, CDN links) — not WordPress admin
+  const isPublicImage = draft.image_url &&
+    !draft.image_url.includes('admin.julinemart.com') &&
+    !draft.image_url.includes('wp-content') &&
+    (draft.image_url.startsWith('https://') || draft.image_url.startsWith('http://'));
+
+  const buildCreativePayload = (withImage) => ({
     name: draft.title,
     object_story_spec: {
       page_id: META_PAGE_ID,
       link_data: {
-        message:     draft.body_text,
-        link:        destinationUrl,
-        name:        draft.headline || draft.title,
+        message:        draft.body_text,
+        link:           destinationUrl,
+        name:           draft.headline || draft.title,
         call_to_action: { type: draft.call_to_action || 'SHOP_NOW', value: { link: destinationUrl } },
-        ...(draft.image_url ? { picture: draft.image_url } : {}),
+        ...(withImage ? { picture: draft.image_url } : {}),
       },
     },
-  };
-  const creative = await metaPost(`${AD_ACCOUNT_ID}/adcreatives`, creativePayload);
+  });
+
+  let creative;
+  try {
+    creative = await metaPost(`${AD_ACCOUNT_ID}/adcreatives`, buildCreativePayload(isPublicImage));
+  } catch (e) {
+    if (isPublicImage && e.message?.includes('image')) {
+      // Retry without image if Meta couldn't fetch it
+      creative = await metaPost(`${AD_ACCOUNT_ID}/adcreatives`, buildCreativePayload(false));
+    } else {
+      throw e;
+    }
+  }
 
   // 2. Create Ad Set under the campaign
   const adSetPayload = {

@@ -79,7 +79,13 @@ async function getOrCreateChat(customerPhone, customerName = null, profilePicUrl
     .single();
   
   if (existingChat) {
-    const updates = {};
+    // Always reset the service window and update activity on every inbound message
+    const updates = {
+      customer_service_window_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      last_message_at: new Date().toISOString(),
+      unread_count: (existingChat.unread_count || 0) + 1,
+      updated_at: new Date().toISOString(),
+    };
 
     if (customerName && customerName !== existingChat.customer_name) {
       updates.customer_name = customerName;
@@ -94,21 +100,14 @@ async function getOrCreateChat(customerPhone, customerName = null, profilePicUrl
       updates.status = 'open';
     }
 
-    if (Object.keys(updates).length > 0) {
-      updates.updated_at = new Date().toISOString();
-      const { data: updatedChat } = await supabase
-        .from('whatsapp_chats')
-        .update(updates)
-        .eq('id', existingChat.id)
-        .select('*')
-        .single();
+    const { data: updatedChat } = await supabase
+      .from('whatsapp_chats')
+      .update(updates)
+      .eq('id', existingChat.id)
+      .select('*')
+      .single();
 
-      if (updatedChat) {
-        return updatedChat;
-      }
-    }
-
-    return existingChat;
+    return updatedChat || existingChat;
   }
   
   // Create new chat
@@ -192,12 +191,19 @@ async function processIncomingMessage(message, chat) {
     .insert(messageData)
     .select()
     .single();
-  
+
   if (error) {
     console.error('Error inserting message:', error);
     throw error;
   }
-  
+
+  // Update chat's last message preview
+  const preview = (messageData.content || '').substring(0, 100);
+  await supabase
+    .from('whatsapp_chats')
+    .update({ last_message_preview: preview })
+    .eq('id', chat.id);
+
   return data;
 }
 
@@ -292,11 +298,11 @@ export async function handler(event) {
       console.log('📨 Webhook received:', JSON.stringify(body, null, 2));
       
       // Log webhook event for debugging
-      await supabase.from('whatsapp_webhook_events').insert({
+      const { data: webhookEvent } = await supabase.from('whatsapp_webhook_events').insert({
         event_type: body.object || 'unknown',
         payload: body,
         processed: false
-      });
+      }).select('id').single();
       
       // Validate webhook structure
       if (body.object !== 'whatsapp_business_account') {
@@ -354,13 +360,12 @@ export async function handler(event) {
       }
       
       // Mark webhook as processed
-      await supabase
-        .from('whatsapp_webhook_events')
-        .update({ 
-          processed: true,
-          processed_at: new Date().toISOString()
-        })
-        .eq('payload', body);
+      if (webhookEvent?.id) {
+        await supabase
+          .from('whatsapp_webhook_events')
+          .update({ processed: true, processed_at: new Date().toISOString() })
+          .eq('id', webhookEvent.id);
+      }
       
       // Always return 200 to acknowledge receipt
       return {

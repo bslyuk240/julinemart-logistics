@@ -64,6 +64,17 @@ import {
 import { sendTestEmail, sendTestEmailWithTemplate } from './services/emailService.js';
 import { getRefundRequests, updateRefundRequestMeta, addRefundOrderNote, createWooRefund } from './routes/refundRequests.js';
 import { getReturnShipmentsByOrder, updateReturnShipmentStatus, getReturnRequestIdByWooOrder, createReturnRequest, createReturnShipment } from './routes/returnShipments.js';
+import {
+  getCampaignsHandler,
+  syncCampaignsHandler,
+  getDraftsHandler,
+  createDraftHandler,
+  approveDraftHandler,
+  rejectDraftHandler,
+  generateContentHandler,
+  getRecommendationsHandler,
+  getAdsContextHandler,
+} from './routes/metaAds.js';
 
 const supabaseFunctionUrl = (name: string) => {
   const base =
@@ -351,6 +362,19 @@ app.post('/api/return-requests', createReturnRequest);
 app.post('/api/create-return-shipment', createReturnShipment);
 
 console.log('💰 Refund routes registered');
+
+// Meta Ads routes (admin and manager)
+app.get('/api/meta/campaigns',              authenticate, requireRole('admin', 'manager'), getCampaignsHandler);
+app.post('/api/meta/campaigns/sync',        authenticate, requireRole('admin', 'manager'), syncCampaignsHandler);
+app.get('/api/meta/drafts',                 authenticate, requireRole('admin', 'manager'), getDraftsHandler);
+app.post('/api/meta/drafts',                authenticate, requireRole('admin', 'manager'), createDraftHandler);
+app.put('/api/meta/drafts/:id/approve',     authenticate, requireRole('admin'), approveDraftHandler);
+app.put('/api/meta/drafts/:id/reject',      authenticate, requireRole('admin'), rejectDraftHandler);
+app.post('/api/meta/ai/generate',           authenticate, requireRole('admin', 'manager'), generateContentHandler);
+app.get('/api/meta/recommendations',        authenticate, requireRole('admin', 'manager'), getRecommendationsHandler);
+app.get('/api/meta/context',                authenticate, requireRole('admin', 'manager'), getAdsContextHandler);
+
+console.log('📣 Meta Ads routes registered');
 
 // 404 handler
 app.use((req: Request, res: Response) => {

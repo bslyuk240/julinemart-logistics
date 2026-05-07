@@ -49,6 +49,7 @@ import { VendorsPage } from './dashboard/pages/Vendors';
 import VendorDetail from './dashboard/pages/VendorDetail';
 import VendorWithdrawals from './dashboard/pages/VendorWithdrawals';
 import { UnauthorizedPage } from './shared/UnauthorizedPage';
+import { MetaAdsPage } from './dashboard/pages/MetaAds';
 
 // Routes accessible by both admin and agent
 const sharedRoutes = [
@@ -121,6 +122,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'analytics', element: <AnalyticsPage /> },
   { path: 'users', element: <UsersPage /> },
   { path: 'discounts', element: <ShippingDiscountsPage /> },
+  { path: 'meta-ads', element: <MetaAdsPage />, allowedRoles: ['admin', 'manager'] },
   { path: 'influencers', element: <InfluencersPage /> },
   { path: 'influencers/:id', element: <InfluencerDetailPage /> },
   { path: 'courier-settings', element: <CourierSettingsPage /> },

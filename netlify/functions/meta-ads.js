@@ -387,8 +387,8 @@ async function publishDraft(draftId, body, userId) {
   if (!META_PAGE_ID) return err('META_PAGE_ID env var is not configured', 500);
   if (!AD_ACCOUNT_ID) return err('META_AD_ACCOUNT_ID env var is not configured', 500);
 
-  const { campaign_id, daily_budget } = body;
-  if (!campaign_id) return err('campaign_id is required', 400);
+  const { campaign_id, new_campaign_name, daily_budget } = body;
+  if (!campaign_id && !new_campaign_name) return err('campaign_id or new_campaign_name is required', 400);
   if (!daily_budget || Number(daily_budget) < 1) return err('daily_budget (₦) is required', 400);
 
   // Load draft
@@ -402,6 +402,18 @@ async function publishDraft(draftId, body, userId) {
 
   const destinationUrl = draft.destination_url || STORE_URL;
   const budgetCents    = Math.round(Number(daily_budget) * 100); // Meta expects cents
+
+  // 0. Create campaign if not provided
+  let resolvedCampaignId = campaign_id;
+  if (!resolvedCampaignId) {
+    const newCampaign = await metaPost(`${AD_ACCOUNT_ID}/campaigns`, {
+      name:      new_campaign_name,
+      objective: 'OUTCOME_TRAFFIC',
+      status:    'PAUSED',
+      special_ad_categories: [],
+    });
+    resolvedCampaignId = newCampaign.id;
+  }
 
   // 1. Create Ad Creative
   const creativePayload = {
@@ -419,10 +431,10 @@ async function publishDraft(draftId, body, userId) {
   };
   const creative = await metaPost(`${AD_ACCOUNT_ID}/adcreatives`, creativePayload);
 
-  // 2. Create Ad Set under the chosen campaign
+  // 2. Create Ad Set under the campaign
   const adSetPayload = {
     name:              `${draft.title} — Ad Set`,
-    campaign_id,
+    campaign_id:       resolvedCampaignId,
     daily_budget:      budgetCents,
     billing_event:     'IMPRESSIONS',
     optimization_goal: 'REACH',
@@ -455,7 +467,7 @@ async function publishDraft(draftId, body, userId) {
     .eq('id', draftId);
 
   await logAction(userId, 'publish_draft', 'draft', draftId, {
-    campaign_id, creative_id: creative.id, ad_id: ad.id, adset_id: adSet.id,
+    campaign_id: resolvedCampaignId, creative_id: creative.id, ad_id: ad.id, adset_id: adSet.id,
   });
 
   return ok({ creative_id: creative.id, adset_id: adSet.id, ad_id: ad.id });

@@ -532,9 +532,10 @@ export function MetaAdsPage() {
   const [rejectNote, setRejectNote]     = useState('');
   const [rejectingId, setRejectingId]   = useState<string | null>(null);
   const [publishingId, setPublishingId] = useState<string | null>(null);
-  const [publishCampaign, setPublishCampaign] = useState('');
-  const [publishBudget, setPublishBudget]     = useState('');
-  const [publishing, setPublishing]     = useState(false);
+  const [publishCampaign, setPublishCampaign]         = useState('');
+  const [publishCampaignName, setPublishCampaignName] = useState('');
+  const [publishBudget, setPublishBudget]             = useState('');
+  const [publishing, setPublishing]                   = useState(false);
 
   // AI generate form
   const [genObjective, setGenObjective] = useState('sales');
@@ -650,20 +651,27 @@ export function MetaAdsPage() {
   };
 
   const handlePublish = async (id: string) => {
-    if (!publishCampaign) { setError('Select a campaign first'); return; }
+    const hasExisting = campaigns.filter((c) => c.status === 'ACTIVE' || c.status === 'PAUSED').length > 0;
+    if (hasExisting && !publishCampaign) { setError('Select a campaign first'); return; }
+    if (!hasExisting && !publishCampaignName.trim()) { setError('Enter a campaign name'); return; }
     if (!publishBudget || Number(publishBudget) < 100) { setError('Enter a daily budget (min ₦100)'); return; }
     setPublishing(true);
     setError('');
     try {
+      const payload: Record<string, unknown> = { daily_budget: Number(publishBudget) };
+      if (publishCampaign) payload.campaign_id = publishCampaign;
+      else payload.new_campaign_name = publishCampaignName.trim();
       const res = await api(`/api/meta/drafts/${id}/publish`, {
         method: 'POST',
-        body: JSON.stringify({ campaign_id: publishCampaign, daily_budget: Number(publishBudget) }),
+        body: JSON.stringify(payload),
       });
       if (res.success) {
         setPublishingId(null);
         setPublishCampaign('');
+        setPublishCampaignName('');
         setPublishBudget('');
         loadDrafts();
+        loadCampaigns();
       } else setError(res.error || 'Publish failed');
     } catch { setError('Publish failed'); }
     finally { setPublishing(false); }
@@ -868,7 +876,7 @@ export function MetaAdsPage() {
                       <div className="space-y-3">
                         {publishingId !== d.id ? (
                           <button
-                            onClick={() => { setPublishingId(d.id); setPublishCampaign(''); setPublishBudget(String(d.suggested_budget || '')); }}
+                            onClick={() => { setPublishingId(d.id); setPublishCampaign(''); setPublishCampaignName(''); setPublishBudget(String(d.suggested_budget || '')); }}
                             className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
                           >
                             <Send className="w-4 h-4" /> Publish to Meta
@@ -878,16 +886,31 @@ export function MetaAdsPage() {
                             <p className="text-sm font-semibold text-blue-900">Publish to Meta Ads</p>
                             <div>
                               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Campaign</label>
-                              <select
-                                value={publishCampaign}
-                                onChange={(e) => setPublishCampaign(e.target.value)}
-                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              >
-                                <option value="">Select a campaign…</option>
-                                {campaigns.filter((c) => c.status === 'ACTIVE' || c.status === 'PAUSED').map((c) => (
-                                  <option key={c.meta_campaign_id} value={c.meta_campaign_id}>{c.name}</option>
-                                ))}
-                              </select>
+                              {campaigns.filter((c) => c.status === 'ACTIVE' || c.status === 'PAUSED').length > 0 ? (
+                                <select
+                                  value={publishCampaign}
+                                  onChange={(e) => setPublishCampaign(e.target.value)}
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                >
+                                  <option value="">Select a campaign…</option>
+                                  {campaigns.filter((c) => c.status === 'ACTIVE' || c.status === 'PAUSED').map((c) => (
+                                    <option key={c.meta_campaign_id} value={c.meta_campaign_id}>{c.name}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={publishCampaignName}
+                                  onChange={(e) => setPublishCampaignName(e.target.value)}
+                                  placeholder="e.g. JulineMart May Sales"
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                              )}
+                              <p className="text-xs text-gray-400 mt-1">
+                                {campaigns.filter((c) => c.status === 'ACTIVE' || c.status === 'PAUSED').length > 0
+                                  ? 'Select an existing campaign'
+                                  : 'No campaigns yet — a new one will be created automatically'}
+                              </p>
                             </div>
                             <div>
                               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Daily Budget (₦)</label>

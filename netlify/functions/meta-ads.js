@@ -36,6 +36,12 @@ async function metaGet(path, params = {}) {
   return json;
 }
 
+function metaErrMsg(err, fallback) {
+  if (!err) return fallback;
+  const parts = [err.message, err.error_user_msg].filter(Boolean);
+  return parts.length ? parts.join(' — ') : fallback;
+}
+
 async function metaPost(path, payload) {
   const url = new URL(`${META_API_BASE}/${path}`);
   url.searchParams.set('access_token', ACCESS_TOKEN);
@@ -45,7 +51,10 @@ async function metaPost(path, payload) {
     body:    JSON.stringify(payload),
   });
   const json = await res.json();
-  if (!res.ok || json.error) throw new Error(json.error?.message || `Meta API error on ${path}`);
+  if (!res.ok || json.error) {
+    console.error('[metaPost]', path, 'payload_keys:', Object.keys(payload), 'meta_error:', JSON.stringify(json.error));
+    throw new Error(metaErrMsg(json.error, `Meta API error on ${path}`));
+  }
   return json;
 }
 
@@ -446,6 +455,18 @@ async function publishDraft(draftId, body, userId) {
     resolvedCampaignId = newCampaign.id;
   }
 
+  // Whether this campaign holds budget at campaign level (CBO) — Meta rejects daily_budget on new ad sets in that case
+  let campaignHoldsBudget = false;
+  try {
+    const cMeta = await metaGet(resolvedCampaignId, {
+      fields: 'daily_budget,lifetime_budget',
+    });
+    campaignHoldsBudget =
+      Number(cMeta?.daily_budget) > 0 || Number(cMeta?.lifetime_budget) > 0;
+  } catch {
+    campaignHoldsBudget = false;
+  }
+
   // 1. Create Ad Creative
   // Upload image to Meta first (server-side fetch avoids CDN crawl restrictions).
   // Skip only for known-bad WordPress/admin URLs or missing image.
@@ -487,15 +508,23 @@ async function publishDraft(draftId, body, userId) {
   console.log('[publishDraft] step=adcreatives ok id:', creative.id);
 
   // 2. Create Ad Set under the campaign
+  // Billing + optimization must align (LINK_CLICKS + LINK_CLICKS for traffic/link clicks — see Meta ad set examples).
+  // Ongoing daily_budget ad sets must set end_time=0 per Marketing API docs.
   const adSetPayload = {
-    name:              `${draft.title} — Ad Set`,
-    campaign_id:       resolvedCampaignId,
-    daily_budget:      budgetCents,
-    billing_event:     'IMPRESSIONS',
+    name:               `${draft.title} — Ad Set`,
+    campaign_id:        resolvedCampaignId,
+    ...(!campaignHoldsBudget ? { daily_budget: budgetCents } : {}),
+    billing_event:      'LINK_CLICKS',
     optimization_goal: 'LINK_CLICKS',
-    targeting:         { geo_locations: { countries: ['NG'] } },
+    promoted_object:    { link: destinationUrl },
+    targeting:          {
+      geo_locations:      { countries: ['NG'] },
+      publisher_platforms: ['facebook', 'instagram'],
+    },
+    destination_type: 'WEBSITE',
     status:            'PAUSED',
     start_time:        new Date().toISOString(),
+    ...(!campaignHoldsBudget ? { end_time: 0 } : {}),
   };
   console.log('[publishDraft] step=adsets payload:', JSON.stringify(adSetPayload));
   let adSet;

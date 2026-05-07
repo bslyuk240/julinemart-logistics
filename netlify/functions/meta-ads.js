@@ -49,6 +49,36 @@ async function metaPost(path, payload) {
   return json;
 }
 
+/**
+ * Download image from a URL and upload it to Meta's ad images endpoint.
+ * Returns the image_hash Meta assigns to it, which can be used in ad creatives
+ * without Meta having to crawl the original URL.
+ */
+async function uploadImageToMeta(imageUrl) {
+  const imgRes = await fetch(imageUrl);
+  if (!imgRes.ok) throw new Error(`Could not fetch image: ${imgRes.status} ${imageUrl}`);
+
+  const buffer     = await imgRes.arrayBuffer();
+  const mimeType   = imgRes.headers.get('content-type') || 'image/jpeg';
+  const ext        = mimeType.split('/')[1]?.split(';')[0] || 'jpg';
+  const filename   = `ad_image.${ext}`;
+
+  const form = new FormData();
+  form.append('access_token', ACCESS_TOKEN);
+  form.append('filename', new Blob([buffer], { type: mimeType }), filename);
+
+  const url = new URL(`${META_API_BASE}/${AD_ACCOUNT_ID}/adimages`);
+  const res  = await fetch(url.toString(), { method: 'POST', body: form });
+  const json = await res.json();
+  if (!res.ok || json.error) throw new Error(json.error?.message || 'Failed to upload image to Meta');
+
+  // Response shape: { images: { <filename>: { hash, url, ... } } }
+  const images = json.images || {};
+  const entry  = Object.values(images)[0];
+  if (!entry?.hash) throw new Error('Meta did not return an image hash after upload');
+  return entry.hash;
+}
+
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
 async function getCampaigns() {
@@ -417,13 +447,22 @@ async function publishDraft(draftId, body, userId) {
   }
 
   // 1. Create Ad Creative
-  // Only use image if it's from a public CDN (Supabase, CDN links) — not WordPress admin
-  const isPublicImage = draft.image_url &&
+  // Upload image to Meta first (server-side fetch avoids CDN crawl restrictions).
+  // Skip only for known-bad WordPress/admin URLs or missing image.
+  const hasImage = draft.image_url &&
     !draft.image_url.includes('admin.julinemart.com') &&
-    !draft.image_url.includes('wp-content') &&
-    (draft.image_url.startsWith('https://') || draft.image_url.startsWith('http://'));
+    !draft.image_url.includes('wp-content');
 
-  const buildCreativePayload = (withImage) => ({
+  let imageHash = null;
+  if (hasImage) {
+    try {
+      imageHash = await uploadImageToMeta(draft.image_url);
+    } catch (imgErr) {
+      console.warn('Image upload to Meta failed, continuing without image:', imgErr.message);
+    }
+  }
+
+  const buildCreativePayload = (hash) => ({
     name: draft.title,
     object_story_spec: {
       page_id: META_PAGE_ID,
@@ -432,22 +471,12 @@ async function publishDraft(draftId, body, userId) {
         link:           destinationUrl,
         name:           draft.headline || draft.title,
         call_to_action: { type: draft.call_to_action || 'SHOP_NOW', value: { link: destinationUrl } },
-        ...(withImage ? { picture: draft.image_url } : {}),
+        ...(hash ? { image_hash: hash } : {}),
       },
     },
   });
 
-  let creative;
-  try {
-    creative = await metaPost(`${AD_ACCOUNT_ID}/adcreatives`, buildCreativePayload(isPublicImage));
-  } catch (e) {
-    if (isPublicImage) {
-      // Retry without image — Meta may reject external image URLs for various reasons
-      creative = await metaPost(`${AD_ACCOUNT_ID}/adcreatives`, buildCreativePayload(false));
-    } else {
-      throw e;
-    }
-  }
+  const creative = await metaPost(`${AD_ACCOUNT_ID}/adcreatives`, buildCreativePayload(imageHash));
 
   // 2. Create Ad Set under the campaign
   const adSetPayload = {

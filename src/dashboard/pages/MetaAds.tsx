@@ -13,6 +13,9 @@ const api = (path: string, opts?: RequestInit) =>
     ...opts,
   }).then((r) => r.json());
 
+/** Meta rejects ad-set budgets below about ₦3.5k for some setups; ₦4k is a practical floor */
+const META_PUBLISH_MIN_DAILY_BUDGET_NGN = 4000;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Campaign {
@@ -654,7 +657,10 @@ export function MetaAdsPage() {
     const hasExisting = campaigns.filter((c) => c.status === 'ACTIVE' || c.status === 'PAUSED').length > 0;
     if (hasExisting && !publishCampaign) { setError('Select a campaign first'); return; }
     if (!hasExisting && !publishCampaignName.trim()) { setError('Enter a campaign name'); return; }
-    if (!publishBudget || Number(publishBudget) < 100) { setError('Enter a daily budget (min ₦100)'); return; }
+    if (!publishBudget || Number(publishBudget) < META_PUBLISH_MIN_DAILY_BUDGET_NGN) {
+      setError(`Enter a daily budget of at least ₦${META_PUBLISH_MIN_DAILY_BUDGET_NGN.toLocaleString()} per Meta`);
+      return;
+    }
     setPublishing(true);
     setError('');
     try {
@@ -916,12 +922,15 @@ export function MetaAdsPage() {
                               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Daily Budget (₦)</label>
                               <input
                                 type="number"
-                                min={100}
+                                min={META_PUBLISH_MIN_DAILY_BUDGET_NGN}
                                 value={publishBudget}
                                 onChange={(e) => setPublishBudget(e.target.value)}
                                 placeholder="e.g. 5000"
                                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                               />
+                              <p className="text-xs text-gray-400 mt-1">
+                                Minimum ₦{META_PUBLISH_MIN_DAILY_BUDGET_NGN.toLocaleString()} (Meta account minimum varies by optimisation)
+                              </p>
                             </div>
                             <p className="text-xs text-gray-500">Ad will be created as <strong>PAUSED</strong> — activate it in Meta Ads Manager after review.</p>
                             <div className="flex gap-2">

@@ -11,6 +11,9 @@ const META_PAGE_ID   = process.env.META_PAGE_ID || '';
 const ANTHROPIC_KEY  = process.env.ANTHROPIC_API_KEY || '';
 const STORE_URL      = process.env.STORE_URL || 'https://julinemart.com';
 
+/** Meta floors vary by optimisation (often ~₦1.4k–₦3.5k/day); publishing below this wastes API calls */
+const META_MIN_DAILY_BUDGET_NGN = Number(process.env.META_MIN_DAILY_BUDGET_NGN) || 4000;
+
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
 const CORS = {
@@ -39,6 +42,14 @@ async function metaGet(path, params = {}) {
 function metaErrMsg(err, fallback) {
   if (!err) return fallback;
   const parts = [err.message, err.error_user_msg].filter(Boolean);
+
+  const sc = Number(err.error_subcode);
+  // No payment method on the ad account (final /ads step commonly fails here first)
+  if (sc === 1359188) {
+    const headline = parts.length ? parts.join(' — ') : fallback;
+    return `${headline} Open Meta Ads Manager → Billing & payments → Payment settings and add a valid payment method for this ad account.`;
+  }
+
   return parts.length ? parts.join(' — ') : fallback;
 }
 
@@ -428,7 +439,9 @@ async function publishDraft(draftId, body, userId) {
 
   const { campaign_id, new_campaign_name, daily_budget } = body;
   if (!campaign_id && !new_campaign_name) return err('campaign_id or new_campaign_name is required', 400);
-  if (!daily_budget || Number(daily_budget) < 1) return err('daily_budget (₦) is required', 400);
+  if (!daily_budget || Number(daily_budget) < META_MIN_DAILY_BUDGET_NGN) {
+    return err(`daily_budget (₦) must be at least ${META_MIN_DAILY_BUDGET_NGN} — Meta rejects lower ad set budgets`, 400);
+  }
 
   // Load draft
   const { data: draft, error: draftErr } = await supabase

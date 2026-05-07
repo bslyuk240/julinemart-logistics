@@ -177,13 +177,18 @@ Return a JSON array only, no extra text.`;
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
+      model: 'claude-haiku-4-5',
       max_tokens: 1024,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
 
-  if (!res.ok) return err(`Anthropic API error: ${res.status}`, 500);
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}));
+    const msg = errBody?.error?.message || `Anthropic API error: ${res.status}`;
+    console.error('Anthropic error:', JSON.stringify(errBody));
+    return err(msg, 500);
+  }
   const json  = await res.json();
   const text  = json.content?.[0]?.text || '[]';
   const match = text.match(/\[[\s\S]*\]/);

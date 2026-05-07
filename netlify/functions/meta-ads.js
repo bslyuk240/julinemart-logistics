@@ -269,6 +269,38 @@ async function getProductsWithImages() {
   return ok(flat);
 }
 
+// ── Catalog product search (for product selector combobox) ───────────────────
+
+async function searchCatalogProducts(search) {
+  let q = supabase
+    .from('products')
+    .select('id, name, short_description, regular_price, sale_price, product_images(src, is_thumbnail)')
+    .eq('status', 'published')
+    .order('name', { ascending: true })
+    .limit(200);
+
+  if (search && search.trim().length > 0) {
+    q = q.ilike('name', `%${search.trim()}%`);
+  }
+
+  const { data, error } = await q;
+  if (error) throw error;
+
+  const products = (data || []).map((p) => {
+    const thumb = (p.product_images || []).find((img) => img.is_thumbnail) || p.product_images?.[0];
+    return {
+      id:          p.id,
+      name:        p.name,
+      description: p.short_description || '',
+      price:       Number(p.sale_price || p.regular_price || 0),
+      image_url:   thumb?.src || null,
+      category:    'general',
+    };
+  });
+
+  return ok(products);
+}
+
 // ── Image upload to Supabase Storage ─────────────────────────────────────────
 
 const ALLOWED_IMG_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -393,6 +425,9 @@ export async function handler(event) {
 
     // GET /api/meta/products-images
     if (path === 'products-images' && method === 'GET') return await getProductsWithImages();
+
+    // GET /api/meta/catalog-products?search=xxx
+    if (path === 'catalog-products' && method === 'GET') return await searchCatalogProducts(qs.search);
 
     // POST /api/meta/upload-image
     if (path === 'upload-image' && method === 'POST') return await uploadAdImage(body);

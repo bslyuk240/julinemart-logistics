@@ -3,7 +3,7 @@ import {
   TrendingUp, RefreshCw, Sparkles, CheckCircle, XCircle,
   Clock, Eye, MousePointer, DollarSign, Users, Plus,
   ChevronDown, ChevronUp, AlertCircle, Megaphone, AlertTriangle,
-  Play, Pause, Upload, ImageIcon, X, Search,
+  Play, Pause, Upload, ImageIcon, X, Search, Send,
 } from 'lucide-react';
 
 const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
@@ -43,6 +43,8 @@ interface Draft {
   ai_generated: boolean;
   suggested_budget: number | null;
   created_at: string;
+  meta_ad_id?: string | null;
+  published_at?: string | null;
   users?: { full_name: string; email: string };
 }
 
@@ -529,6 +531,10 @@ export function MetaAdsPage() {
   const [expandedDraft, setExpandedDraft] = useState<string | null>(null);
   const [rejectNote, setRejectNote]     = useState('');
   const [rejectingId, setRejectingId]   = useState<string | null>(null);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [publishCampaign, setPublishCampaign] = useState('');
+  const [publishBudget, setPublishBudget]     = useState('');
+  const [publishing, setPublishing]     = useState(false);
 
   // AI generate form
   const [genObjective, setGenObjective] = useState('sales');
@@ -641,6 +647,26 @@ export function MetaAdsPage() {
       body: JSON.stringify({ note: rejectNote }),
     });
     if (res.success) { setRejectingId(null); setRejectNote(''); loadDrafts(); }
+  };
+
+  const handlePublish = async (id: string) => {
+    if (!publishCampaign) { setError('Select a campaign first'); return; }
+    if (!publishBudget || Number(publishBudget) < 100) { setError('Enter a daily budget (min ₦100)'); return; }
+    setPublishing(true);
+    setError('');
+    try {
+      const res = await api(`/api/meta/drafts/${id}/publish`, {
+        method: 'POST',
+        body: JSON.stringify({ campaign_id: publishCampaign, daily_budget: Number(publishBudget) }),
+      });
+      if (res.success) {
+        setPublishingId(null);
+        setPublishCampaign('');
+        setPublishBudget('');
+        loadDrafts();
+      } else setError(res.error || 'Publish failed');
+    } catch { setError('Publish failed'); }
+    finally { setPublishing(false); }
   };
 
   // Aggregate stats
@@ -839,8 +865,67 @@ export function MetaAdsPage() {
                     )}
 
                     {d.status === 'approved' && (
-                      <div className="flex items-center gap-2 text-green-700 text-sm">
-                        <CheckCircle className="w-4 h-4" /> Approved — ready for publishing
+                      <div className="space-y-3">
+                        {publishingId !== d.id ? (
+                          <button
+                            onClick={() => { setPublishingId(d.id); setPublishCampaign(''); setPublishBudget(String(d.suggested_budget || '')); }}
+                            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                          >
+                            <Send className="w-4 h-4" /> Publish to Meta
+                          </button>
+                        ) : (
+                          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 space-y-3">
+                            <p className="text-sm font-semibold text-blue-900">Publish to Meta Ads</p>
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Campaign</label>
+                              <select
+                                value={publishCampaign}
+                                onChange={(e) => setPublishCampaign(e.target.value)}
+                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="">Select a campaign…</option>
+                                {campaigns.filter((c) => c.status === 'ACTIVE' || c.status === 'PAUSED').map((c) => (
+                                  <option key={c.meta_campaign_id} value={c.meta_campaign_id}>{c.name}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Daily Budget (₦)</label>
+                              <input
+                                type="number"
+                                min={100}
+                                value={publishBudget}
+                                onChange={(e) => setPublishBudget(e.target.value)}
+                                placeholder="e.g. 5000"
+                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            </div>
+                            <p className="text-xs text-gray-500">Ad will be created as <strong>PAUSED</strong> — activate it in Meta Ads Manager after review.</p>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handlePublish(d.id)}
+                                disabled={publishing}
+                                className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
+                              >
+                                <Send className={`w-4 h-4 ${publishing ? 'animate-pulse' : ''}`} />
+                                {publishing ? 'Publishing…' : 'Confirm Publish'}
+                              </button>
+                              <button
+                                onClick={() => setPublishingId(null)}
+                                className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {d.status === 'published' && (
+                      <div className="flex items-center gap-2 text-blue-700 bg-blue-50 rounded-lg px-3 py-2 text-sm">
+                        <Send className="w-4 h-4" />
+                        Published to Meta{d.published_at ? ` · ${new Date(d.published_at).toLocaleDateString()}` : ''}{d.meta_ad_id ? ` · Ad ID: ${d.meta_ad_id}` : ''}
                       </div>
                     )}
                   </div>

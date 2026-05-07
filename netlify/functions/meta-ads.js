@@ -2,12 +2,14 @@
 // Handles all Meta Ads module routes
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const META_API_BASE = 'https://graph.facebook.com/v19.0';
-const AD_ACCOUNT_ID = process.env.META_AD_ACCOUNT_ID || '';
-const ACCESS_TOKEN  = process.env.META_ADS_ACCESS_TOKEN || '';
-const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
+const SUPABASE_URL   = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const SERVICE_KEY    = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const META_API_BASE  = 'https://graph.facebook.com/v19.0';
+const AD_ACCOUNT_ID  = process.env.META_AD_ACCOUNT_ID || '';
+const ACCESS_TOKEN   = process.env.META_ADS_ACCESS_TOKEN || '';
+const META_PAGE_ID   = process.env.META_PAGE_ID || '';
+const ANTHROPIC_KEY  = process.env.ANTHROPIC_API_KEY || '';
+const STORE_URL      = process.env.STORE_URL || 'https://julinemart.com';
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -22,13 +24,26 @@ const ok  = (data)        => ({ statusCode: 200, headers: CORS, body: JSON.strin
 const created = (data)    => ({ statusCode: 201, headers: CORS, body: JSON.stringify({ success: true, data }) });
 const err = (msg, code=500) => ({ statusCode: code, headers: CORS, body: JSON.stringify({ success: false, error: msg }) });
 
-// ── Meta API helper ──────────────────────────────────────────────────────────
+// ── Meta API helpers ─────────────────────────────────────────────────────────
 
 async function metaGet(path, params = {}) {
   const url = new URL(`${META_API_BASE}/${path}`);
   url.searchParams.set('access_token', ACCESS_TOKEN);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   const res  = await fetch(url.toString());
+  const json = await res.json();
+  if (!res.ok || json.error) throw new Error(json.error?.message || `Meta API error on ${path}`);
+  return json;
+}
+
+async function metaPost(path, payload) {
+  const url = new URL(`${META_API_BASE}/${path}`);
+  url.searchParams.set('access_token', ACCESS_TOKEN);
+  const res  = await fetch(url.toString(), {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+  });
   const json = await res.json();
   if (!res.ok || json.error) throw new Error(json.error?.message || `Meta API error on ${path}`);
   return json;
@@ -365,6 +380,87 @@ async function updateCampaignStatus(campaignId, status, userId) {
   return ok({ campaign_id: campaignId, status });
 }
 
+// ── Publish approved draft → Meta Ad ─────────────────────────────────────────
+// Flow: Ad Creative → Ad Set (under chosen campaign) → Ad
+
+async function publishDraft(draftId, body, userId) {
+  if (!META_PAGE_ID) return err('META_PAGE_ID env var is not configured', 500);
+  if (!AD_ACCOUNT_ID) return err('META_AD_ACCOUNT_ID env var is not configured', 500);
+
+  const { campaign_id, daily_budget } = body;
+  if (!campaign_id) return err('campaign_id is required', 400);
+  if (!daily_budget || Number(daily_budget) < 1) return err('daily_budget (₦) is required', 400);
+
+  // Load draft
+  const { data: draft, error: draftErr } = await supabase
+    .from('meta_ad_drafts')
+    .select('*')
+    .eq('id', draftId)
+    .single();
+  if (draftErr || !draft) return err('Draft not found', 404);
+  if (draft.status !== 'approved') return err('Only approved drafts can be published', 400);
+
+  const destinationUrl = draft.destination_url || STORE_URL;
+  const budgetCents    = Math.round(Number(daily_budget) * 100); // Meta expects cents
+
+  // 1. Create Ad Creative
+  const creativePayload = {
+    name: draft.title,
+    object_story_spec: {
+      page_id: META_PAGE_ID,
+      link_data: {
+        message:     draft.body_text,
+        link:        destinationUrl,
+        name:        draft.headline || draft.title,
+        call_to_action: { type: draft.call_to_action || 'SHOP_NOW', value: { link: destinationUrl } },
+        ...(draft.image_url ? { picture: draft.image_url } : {}),
+      },
+    },
+  };
+  const creative = await metaPost(`${AD_ACCOUNT_ID}/adcreatives`, creativePayload);
+
+  // 2. Create Ad Set under the chosen campaign
+  const adSetPayload = {
+    name:              `${draft.title} — Ad Set`,
+    campaign_id,
+    daily_budget:      budgetCents,
+    billing_event:     'IMPRESSIONS',
+    optimization_goal: 'REACH',
+    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
+    targeting:         { geo_locations: { countries: ['NG'] } },
+    status:            'PAUSED',
+    start_time:        new Date().toISOString(),
+  };
+  const adSet = await metaPost(`${AD_ACCOUNT_ID}/adsets`, adSetPayload);
+
+  // 3. Create Ad
+  const adPayload = {
+    name:       draft.title,
+    adset_id:   adSet.id,
+    creative:   { creative_id: creative.id },
+    status:     'PAUSED',
+  };
+  const ad = await metaPost(`${AD_ACCOUNT_ID}/ads`, adPayload);
+
+  // 4. Mark draft published
+  await supabase
+    .from('meta_ad_drafts')
+    .update({
+      status:            'published',
+      meta_creative_id:  creative.id,
+      meta_ad_id:        ad.id,
+      meta_adset_id:     adSet.id,
+      published_at:      new Date().toISOString(),
+    })
+    .eq('id', draftId);
+
+  await logAction(userId, 'publish_draft', 'draft', draftId, {
+    campaign_id, creative_id: creative.id, ad_id: ad.id, adset_id: adSet.id,
+  });
+
+  return ok({ creative_id: creative.id, adset_id: adSet.id, ad_id: ad.id });
+}
+
 async function logAction(userId, action, resource, resourceId, details, status = 'success', errorMsg) {
   await supabase.from('meta_action_logs').insert({
     user_id: userId || null, action,
@@ -413,6 +509,10 @@ export async function handler(event) {
     // PUT /api/meta/drafts/:id/reject
     const rejectMatch = path.match(/^drafts\/([^/]+)\/reject$/);
     if (rejectMatch && method === 'PUT') return await rejectDraft(rejectMatch[1], userId, body.note);
+
+    // POST /api/meta/drafts/:id/publish
+    const publishMatch = path.match(/^drafts\/([^/]+)\/publish$/);
+    if (publishMatch && method === 'POST') return await publishDraft(publishMatch[1], body, userId);
 
     // POST /api/meta/ai/generate
     if (path === 'ai/generate' && method === 'POST') return await generateContent(body, userId);

@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL   = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SERVICE_KEY    = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const META_API_BASE  = 'https://graph.facebook.com/v19.0';
+const META_API_BASE  = 'https://graph.facebook.com/v21.0';
 const AD_ACCOUNT_ID  = process.env.META_AD_ACCOUNT_ID || '';
 const ACCESS_TOKEN   = process.env.META_ADS_ACCESS_TOKEN || '';
 const META_PAGE_ID   = process.env.META_PAGE_ID || '';
@@ -508,31 +508,40 @@ async function publishDraft(draftId, body, userId) {
   console.log('[publishDraft] step=adcreatives ok id:', creative.id);
 
   // 2. Create Ad Set under the campaign
-  // Billing + optimization must align (LINK_CLICKS + LINK_CLICKS for traffic/link clicks — see Meta ad set examples).
-  // Ongoing daily_budget ad sets must set end_time=0 per Marketing API docs.
-  const adSetPayload = {
-    name:               `${draft.title} — Ad Set`,
-    campaign_id:        resolvedCampaignId,
+  // ODAX Traffic + Website: Meta maps this to LANDING_PAGE_VIEWS / LINK_CLICKS + IMPRESSIONS billing
+  // (see ODAX mapping). Avoid promoted_object here — it is not used for plain website traffic and
+  // often triggers "Invalid parameter". Ongoing daily_budget sets need end_time=0.
+  const adSetBase = {
+    name:             `${draft.title} — Ad Set`,
+    campaign_id:      resolvedCampaignId,
     ...(!campaignHoldsBudget ? { daily_budget: budgetCents } : {}),
-    billing_event:      'LINK_CLICKS',
-    optimization_goal: 'LINK_CLICKS',
-    promoted_object:    { link: destinationUrl },
-    targeting:          {
-      geo_locations:      { countries: ['NG'] },
-      publisher_platforms: ['facebook', 'instagram'],
-    },
+    targeting:        { geo_locations: { countries: ['NG'] } },
     destination_type: 'WEBSITE',
-    status:            'PAUSED',
-    start_time:        new Date().toISOString(),
+    status:           'PAUSED',
+    start_time:       new Date().toISOString(),
     ...(!campaignHoldsBudget ? { end_time: 0 } : {}),
   };
-  console.log('[publishDraft] step=adsets payload:', JSON.stringify(adSetPayload));
+
+  const adSetAttempts = [
+    { ...adSetBase, billing_event: 'IMPRESSIONS', optimization_goal: 'LANDING_PAGE_VIEWS' },
+    { ...adSetBase, billing_event: 'LINK_CLICKS', optimization_goal: 'LINK_CLICKS' },
+  ];
+
   let adSet;
-  try {
-    adSet = await metaPost(`${AD_ACCOUNT_ID}/adsets`, adSetPayload);
-  } catch (e) {
-    throw new Error(`[adsets] ${e.message}`);
+  let adSetErr;
+  for (let i = 0; i < adSetAttempts.length; i++) {
+    const adSetPayload = adSetAttempts[i];
+    console.log(`[publishDraft] step=adsets try=${i + 1} payload:`, JSON.stringify(adSetPayload));
+    try {
+      adSet = await metaPost(`${AD_ACCOUNT_ID}/adsets`, adSetPayload);
+      adSetErr = null;
+      break;
+    } catch (e) {
+      adSetErr = e;
+      console.warn(`[publishDraft] step=adsets try=${i + 1} failed:`, e.message);
+    }
   }
+  if (!adSet) throw new Error(`[adsets] ${adSetErr?.message || 'Meta rejected all ad set configurations'}`);
   console.log('[publishDraft] step=adsets ok id:', adSet.id);
 
   // 3. Create Ad

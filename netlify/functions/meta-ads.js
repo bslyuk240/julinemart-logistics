@@ -476,7 +476,15 @@ async function publishDraft(draftId, body, userId) {
     },
   });
 
-  const creative = await metaPost(`${AD_ACCOUNT_ID}/adcreatives`, buildCreativePayload(imageHash));
+  const creativePayload = buildCreativePayload(imageHash);
+  console.log('[publishDraft] step=adcreatives payload:', JSON.stringify(creativePayload));
+  let creative;
+  try {
+    creative = await metaPost(`${AD_ACCOUNT_ID}/adcreatives`, creativePayload);
+  } catch (e) {
+    throw new Error(`[adcreatives] ${e.message}`);
+  }
+  console.log('[publishDraft] step=adcreatives ok id:', creative.id);
 
   // 2. Create Ad Set under the campaign
   const adSetPayload = {
@@ -484,13 +492,19 @@ async function publishDraft(draftId, body, userId) {
     campaign_id:       resolvedCampaignId,
     daily_budget:      budgetCents,
     billing_event:     'IMPRESSIONS',
-    optimization_goal: 'REACH',
-    bid_strategy:      'LOWEST_COST_WITHOUT_CAP',
+    optimization_goal: 'LINK_CLICKS',
     targeting:         { geo_locations: { countries: ['NG'] } },
     status:            'PAUSED',
     start_time:        new Date().toISOString(),
   };
-  const adSet = await metaPost(`${AD_ACCOUNT_ID}/adsets`, adSetPayload);
+  console.log('[publishDraft] step=adsets payload:', JSON.stringify(adSetPayload));
+  let adSet;
+  try {
+    adSet = await metaPost(`${AD_ACCOUNT_ID}/adsets`, adSetPayload);
+  } catch (e) {
+    throw new Error(`[adsets] ${e.message}`);
+  }
+  console.log('[publishDraft] step=adsets ok id:', adSet.id);
 
   // 3. Create Ad
   const adPayload = {
@@ -499,7 +513,14 @@ async function publishDraft(draftId, body, userId) {
     creative:   { creative_id: creative.id },
     status:     'PAUSED',
   };
-  const ad = await metaPost(`${AD_ACCOUNT_ID}/ads`, adPayload);
+  console.log('[publishDraft] step=ads payload:', JSON.stringify(adPayload));
+  let ad;
+  try {
+    ad = await metaPost(`${AD_ACCOUNT_ID}/ads`, adPayload);
+  } catch (e) {
+    throw new Error(`[ads] ${e.message}`);
+  }
+  console.log('[publishDraft] step=ads ok id:', ad.id);
 
   // 4. Mark draft published
   await supabase

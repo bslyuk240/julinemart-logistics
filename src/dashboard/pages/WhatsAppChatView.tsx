@@ -161,17 +161,22 @@ export default function WhatsAppChatView() {
       });
       
       const result = await response.json();
-      
+
       if (result.success) {
         setMessageText('');
         await fetchChatData(); // Refresh to show sent message
         notification.success('Sent', 'Message sent successfully');
+      } else if (result.error === 'outside_24h_window') {
+        notification.error(
+          '24-hour window expired',
+          'You cannot send free-form messages after 24 hours of customer inactivity. Go to Meta Business Manager → WhatsApp → Message Templates, create and get a template approved, then use the Templates button to send.'
+        );
       } else {
-        throw new Error(result.error || 'Failed to send message');
+        throw new Error(result.message || result.error || 'Failed to send message');
       }
     } catch (error: any) {
       console.error('Error sending message:', error);
-      notification.error('Error', error.message || 'Failed to send message');
+      notification.error('Send failed', error.message || 'Failed to send message');
     } finally {
       setSending(false);
     }
@@ -545,9 +550,13 @@ export default function WhatsAppChatView() {
           </div>
           
           {!chat.within_service_window && (
-            <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-xs sm:text-sm text-amber-800">
-              <Clock className="w-4 h-4" />
-              <span>24-hour service window expired. Use templates for new messages.</span>
+            <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2 text-xs sm:text-sm text-amber-800">
+              <Clock className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>
+                <strong>24-hour window expired.</strong> Free-form messaging is disabled. To re-engage this customer, create and get a WhatsApp message template approved in{' '}
+                <a href="https://business.facebook.com" target="_blank" rel="noreferrer" className="underline font-medium">Meta Business Manager</a>
+                {' '}→ WhatsApp → Message Templates, then use it here.
+              </span>
             </div>
           )}
         </div>

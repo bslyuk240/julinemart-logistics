@@ -427,13 +427,23 @@ export async function handler(event) {
     
     // Check if we should use template (outside 24h window)
     if (use_template || !isWithinServiceWindow(chat)) {
-      // Send template message
-      const templateToUse = template_name || 'support_response';
+      // Outside 24h window — must use an approved Meta template
+      if (!template_name) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            success: false,
+            error: 'outside_24h_window',
+            message: "The 24-hour messaging window has expired. You must select an approved WhatsApp template to contact this customer.",
+          }),
+        };
+      }
+
       const params = template_params || [chat.customer_name || 'Customer', message];
-      
       metaResponse = await sendTemplateMessage(
         whatsappPhone,
-        templateToUse,
+        template_name,
         'en',
         params,
         whatsappConfig

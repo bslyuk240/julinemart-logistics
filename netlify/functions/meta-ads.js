@@ -242,6 +242,82 @@ async function getAdsContext() {
   return ok({ top_products, top_region, active_promos });
 }
 
+// ── Products with thumbnail images ───────────────────────────────────────────
+
+async function getProductsWithImages() {
+  const { data, error } = await supabase
+    .from('product_images')
+    .select('src, alt, product_id, is_thumbnail')
+    .eq('is_thumbnail', true)
+    .limit(40);
+  if (error) throw error;
+  return ok(data || []);
+}
+
+// ── Image upload to Supabase Storage ─────────────────────────────────────────
+
+const ALLOWED_IMG_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+function extFromType(ct) {
+  if (ct === 'image/png') return 'png';
+  if (ct === 'image/webp') return 'webp';
+  return 'jpg';
+}
+
+function ensurePublicUrl(url) {
+  if (!url) return '';
+  if (url.includes('/storage/v1/object/public/')) return url;
+  return url.replace(/(\/storage\/v1\/object\/)(?!public\/)([^/]+)\//, '$1public/$2/');
+}
+
+async function uploadAdImage(body) {
+  const { file_base64, content_type } = body;
+  if (!file_base64) return err('file_base64 is required', 400);
+
+  const ct = ALLOWED_IMG_TYPES.has(content_type) ? content_type : 'image/jpeg';
+  let buffer;
+  try { buffer = Buffer.from(String(file_base64), 'base64'); }
+  catch { return err('Invalid base64 payload', 400); }
+
+  if (buffer.length > 4 * 1024 * 1024) return err('Image must be 4 MB or smaller', 400);
+  if (buffer.length < 16) return err('File too small', 400);
+
+  const path = `meta-ads/${Date.now()}_${Math.random().toString(36).slice(2)}.${extFromType(ct)}`;
+  const { data, error } = await supabase.storage.from('vendor-documents').upload(path, buffer, {
+    contentType: ct, upsert: false,
+  });
+  if (error) throw error;
+
+  const { data: pub } = supabase.storage.from('vendor-documents').getPublicUrl(data.path);
+  return ok({ url: ensurePublicUrl(pub.publicUrl) });
+}
+
+// ── Campaign status toggle (pause / resume via Meta API) ─────────────────────
+
+async function updateCampaignStatus(campaignId, status, userId) {
+  if (!['ACTIVE', 'PAUSED'].includes(status)) return err('status must be ACTIVE or PAUSED', 400);
+
+  const url = new URL(`${META_API_BASE}/${campaignId}`);
+  url.searchParams.set('access_token', ACCESS_TOKEN);
+
+  const res  = await fetch(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  const json = await res.json();
+  if (!res.ok || json.error) throw new Error(json.error?.message || 'Meta API error');
+
+  // Update cache
+  await supabase
+    .from('meta_campaigns_cache')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('meta_campaign_id', campaignId);
+
+  await logAction(userId, status === 'PAUSED' ? 'pause_campaign' : 'resume_campaign', 'campaign', campaignId);
+  return ok({ campaign_id: campaignId, status });
+}
+
 async function logAction(userId, action, resource, resourceId, details, status = 'success', errorMsg) {
   await supabase.from('meta_action_logs').insert({
     user_id: userId || null, action,
@@ -299,6 +375,16 @@ export async function handler(event) {
 
     // GET /api/meta/context
     if (path === 'context' && method === 'GET') return await getAdsContext();
+
+    // GET /api/meta/products-images
+    if (path === 'products-images' && method === 'GET') return await getProductsWithImages();
+
+    // POST /api/meta/upload-image
+    if (path === 'upload-image' && method === 'POST') return await uploadAdImage(body);
+
+    // PUT /api/meta/campaigns/:id/status
+    const campaignStatusMatch = path.match(/^campaigns\/([^/]+)\/status$/);
+    if (campaignStatusMatch && method === 'PUT') return await updateCampaignStatus(campaignStatusMatch[1], body.status, userId);
 
     return err(`Unknown route: ${method} /api/meta/${path}`, 404);
   } catch (e) {

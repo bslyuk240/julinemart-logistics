@@ -677,7 +677,14 @@ export function MetaAdsPage() {
         setPublishCampaignName('');
         setPublishBudget('');
         loadDrafts();
-        loadCampaigns();
+        // Campaign tab reads meta_campaigns_cache; publishing only creates objects in Meta.
+        const syncRes = await api('/api/meta/campaigns/sync', { method: 'POST' });
+        await loadCampaigns();
+        if (!syncRes?.success && syncRes?.error) {
+          setError(
+            `Publish succeeded but campaign list didn’t refresh: ${syncRes.error}. Click Sync Campaigns.`
+          );
+        }
       } else setError(res.error || 'Publish failed');
     } catch { setError('Publish failed'); }
     finally { setPublishing(false); }

@@ -53,7 +53,7 @@ interface AiVariation {
 }
 
 interface AdsContext {
-  top_products: Array<{ name: string; price: number; category: string }>;
+  top_products: Array<{ id: string; name: string; price: number; category: string; description: string; image_url: string | null }>;
   top_region: string | null;
   active_promos: Array<{ code: string; value: number; type: string }>;
 }
@@ -61,7 +61,8 @@ interface AdsContext {
 interface ProductImage {
   src: string;
   alt: string | null;
-  product_id: number | null;
+  product_id: string | null;
+  name?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -338,9 +339,10 @@ function ImagePicker({ value, onChange }: {
                 <button
                   key={i}
                   onClick={() => onChange(img.src)}
+                  title={img.name || img.alt || ''}
                   className={`aspect-square rounded-lg overflow-hidden border-2 transition-all ${value === img.src ? 'border-blue-500' : 'border-transparent hover:border-gray-300'}`}
                 >
-                  <img src={img.src} alt={img.alt || ''} className="w-full h-full object-cover" />
+                  <img src={img.src} alt={img.alt || img.name || ''} className="w-full h-full object-cover" />
                 </button>
               ))}
             </div>
@@ -462,6 +464,10 @@ export function MetaAdsPage() {
       const products = selectedProducts.length
         ? selectedProducts.map((i) => context.top_products[i])
         : context.top_products.slice(0, 3);
+
+      // Pre-fill variation images with the first selected product's image
+      const defaultImage = products[0]?.image_url || '';
+
       const res = await api('/api/meta/ai/generate', {
         method: 'POST',
         body: JSON.stringify({
@@ -475,7 +481,7 @@ export function MetaAdsPage() {
       });
       if (res.success) {
         setVariations(res.data);
-        setVariationImages(new Array(res.data.length).fill(''));
+        setVariationImages(new Array(res.data.length).fill(defaultImage));
         setPreviewIdx(0);
       } else setError(res.error || 'Generation failed');
     } catch { setError('Generation failed'); }
@@ -736,23 +742,43 @@ export function MetaAdsPage() {
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                     Select Products (leave empty for top 3)
                   </label>
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                    {context.top_products.map((p, i) => (
-                      <label key={i} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 px-2 py-1 rounded">
-                        <input
-                          type="checkbox"
-                          checked={selectedProducts.includes(i)}
-                          onChange={(e) =>
-                            setSelectedProducts(e.target.checked
-                              ? [...selectedProducts, i]
-                              : selectedProducts.filter((x) => x !== i))
-                          }
-                          className="rounded border-gray-300"
-                        />
-                        <span className="text-gray-700 truncate">{p.name}</span>
-                        <span className="text-gray-400 ml-auto shrink-0">{fmt(p.price)}</span>
-                      </label>
-                    ))}
+                  <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                    {context.top_products.map((p, i) => {
+                      const checked = selectedProducts.includes(i);
+                      return (
+                        <label
+                          key={i}
+                          className={`flex items-center gap-3 text-sm cursor-pointer px-2 py-2 rounded-lg border transition-colors ${
+                            checked ? 'border-purple-300 bg-purple-50' : 'border-transparent hover:bg-gray-50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) =>
+                              setSelectedProducts(e.target.checked
+                                ? [...selectedProducts, i]
+                                : selectedProducts.filter((x) => x !== i))
+                            }
+                            className="rounded border-gray-300 shrink-0"
+                          />
+                          {p.image_url ? (
+                            <img src={p.image_url} alt={p.name} className="w-9 h-9 rounded-md object-cover border border-gray-200 shrink-0" />
+                          ) : (
+                            <div className="w-9 h-9 rounded-md bg-gray-100 flex items-center justify-center shrink-0">
+                              <ImageIcon className="w-4 h-4 text-gray-400" />
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-gray-800 font-medium truncate">{p.name}</p>
+                            {p.description && (
+                              <p className="text-xs text-gray-400 truncate">{p.description}</p>
+                            )}
+                          </div>
+                          <span className="text-gray-500 shrink-0 text-xs font-medium">{fmt(p.price)}</span>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
               )}

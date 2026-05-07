@@ -148,7 +148,11 @@ async function generateContent(body, userId) {
 
   const { products = [], promo_code, top_region, objective = 'sales', tone = 'engaging', count = 3 } = body;
   const productList = products.length
-    ? products.map((p) => `- ${p.name} (₦${Number(p.price).toLocaleString()}, ${p.category})`).join('\n')
+    ? products.map((p) => {
+        const price = p.price ? `₦${Number(p.price).toLocaleString()}` : '';
+        const desc  = p.description ? ` — ${p.description.slice(0, 120)}` : '';
+        return `- ${p.name}${price ? ` (${price})` : ''}${desc}`;
+      }).join('\n')
     : 'JulineMart products';
 
   const prompt = `You are a creative Nigerian e-commerce ad copywriter for JulineMart, an online marketplace.
@@ -212,21 +216,25 @@ async function getRecommendations() {
 
 async function getAdsContext() {
   const [productsRes, regionRes, promosRes] = await Promise.all([
-    supabase.from('order_items').select('product_name, unit_price').limit(200),
+    // Pull from catalog with descriptions and thumbnail images
+    supabase
+      .from('products')
+      .select('id, name, short_description, description, regular_price, sale_price, product_images!inner(src, is_thumbnail)')
+      .eq('status', 'published')
+      .eq('product_images.is_thumbnail', true)
+      .limit(50),
     supabase.from('orders').select('delivery_state').not('delivery_state', 'is', null).limit(500),
     supabase.from('campaign_vouchers').select('code, discount_value, discount_type').eq('is_active', true).limit(5),
   ]);
 
-  const productCount = {};
-  for (const item of productsRes.data || []) {
-    const key = item.product_name || 'Unknown';
-    if (!productCount[key]) productCount[key] = { name: key, price: Number(item.unit_price || 0), count: 0 };
-    productCount[key].count++;
-  }
-  const top_products = Object.values(productCount)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 10)
-    .map(({ name, price }) => ({ name, price, category: 'general' }));
+  const top_products = (productsRes.data || []).map((p) => ({
+    id:          p.id,
+    name:        p.name,
+    price:       Number(p.sale_price || p.regular_price || 0),
+    description: p.short_description || p.description || '',
+    image_url:   p.product_images?.[0]?.src || null,
+    category:    'general',
+  }));
 
   const regionCount = {};
   for (const o of regionRes.data || []) {
@@ -242,16 +250,23 @@ async function getAdsContext() {
   return ok({ top_products, top_region, active_promos });
 }
 
-// ── Products with thumbnail images ───────────────────────────────────────────
+// ── Products with thumbnail images (used by image picker) ────────────────────
 
 async function getProductsWithImages() {
   const { data, error } = await supabase
-    .from('product_images')
-    .select('src, alt, product_id, is_thumbnail')
-    .eq('is_thumbnail', true)
-    .limit(40);
+    .from('products')
+    .select('id, name, product_images!inner(src, alt, is_thumbnail)')
+    .eq('status', 'published')
+    .eq('product_images.is_thumbnail', true)
+    .limit(50);
   if (error) throw error;
-  return ok(data || []);
+  const flat = (data || []).map((p) => ({
+    product_id: p.id,
+    name:       p.name,
+    src:        p.product_images?.[0]?.src || '',
+    alt:        p.product_images?.[0]?.alt || p.name,
+  })).filter((p) => p.src);
+  return ok(flat);
 }
 
 // ── Image upload to Supabase Storage ─────────────────────────────────────────

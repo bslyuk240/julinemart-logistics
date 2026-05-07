@@ -332,6 +332,7 @@ function UserForm({ user, roles, onClose, onSave }: UserFormProps) {
     { name: 'agent', display_name: 'Agent', description: 'Orders, dispatch & support' },
     { name: 'viewer', display_name: 'Viewer (legacy)', description: 'Ops pages; no catalog write routes' },
     { name: 'vendor', display_name: 'Vendor', description: 'Vendor portal only' },
+    { name: 'social_media_manager', display_name: 'Social Media Manager', description: 'Meta Ads only' },
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {

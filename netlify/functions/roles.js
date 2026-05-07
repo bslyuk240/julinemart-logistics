@@ -34,6 +34,11 @@ const FALLBACK_ROLES = [
     display_name: 'Vendor',
     description: 'Vendor portal account (not JLO); create only if they should log into the vendor app'
   },
+  {
+    name: 'social_media_manager',
+    display_name: 'Social Media Manager',
+    description: 'Access to Meta Ads only — campaign management, AI content generation, draft approval'
+  },
 ];
 
 export async function handler(event) {

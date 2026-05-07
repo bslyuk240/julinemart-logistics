@@ -14,7 +14,7 @@ const READ_ONLY_KEY =
 // Use READ_ONLY_KEY only for auth token verification; all DB access goes through the service key
 const supabaseAuth = createClient(SUPABASE_URL || '', READ_ONLY_KEY || '');
 const supabaseAdmin = SERVICE_ROLE_KEY ? createClient(SUPABASE_URL || '', SERVICE_ROLE_KEY) : null;
-const allowedRoles = ['admin', 'agent', 'shop_manager', 'vendor', 'manager', 'viewer'];
+const allowedRoles = ['admin', 'agent', 'shop_manager', 'vendor', 'manager', 'viewer', 'social_media_manager'];
 
 const headers = {
   'Content-Type': 'application/json',

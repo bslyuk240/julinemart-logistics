@@ -1,8 +1,9 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   TrendingUp, RefreshCw, Sparkles, CheckCircle, XCircle,
   Clock, Eye, MousePointer, DollarSign, Users, Plus,
-  ChevronDown, ChevronUp, AlertCircle, Megaphone,
+  ChevronDown, ChevronUp, AlertCircle, Megaphone, AlertTriangle,
+  Play, Pause, Upload, ImageIcon, X,
 } from 'lucide-react';
 
 const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
@@ -21,6 +22,7 @@ interface Campaign {
   status: string;
   objective: string;
   daily_budget: number | null;
+  lifetime_budget: number | null;
   impressions: number;
   reach: number;
   clicks: number;
@@ -36,6 +38,7 @@ interface Draft {
   headline: string;
   body_text: string;
   call_to_action: string;
+  image_url?: string | null;
   status: string;
   ai_generated: boolean;
   suggested_budget: number | null;
@@ -55,6 +58,12 @@ interface AdsContext {
   active_promos: Array<{ code: string; value: number; type: string }>;
 }
 
+interface ProductImage {
+  src: string;
+  alt: string | null;
+  product_id: number | null;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const fmt    = (n: number) => `₦${Number(n || 0).toLocaleString()}`;
@@ -70,6 +79,10 @@ const STATUS_COLOR: Record<string, string> = {
   rejected: 'bg-red-100 text-red-700',
   published:'bg-blue-100 text-blue-800',
 };
+
+function isAlertCampaign(c: Campaign) {
+  return Number(c.spend) > 0 && Number(c.ctr) < 1.0;
+}
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
@@ -90,21 +103,299 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
   );
 }
 
+// ─── Campaign card ────────────────────────────────────────────────────────────
+
+function CampaignCard({ campaign, onStatusChange }: {
+  campaign: Campaign;
+  onStatusChange: (id: string, status: 'ACTIVE' | 'PAUSED') => void;
+}) {
+  const alert = isAlertCampaign(campaign);
+  const budget = campaign.daily_budget || campaign.lifetime_budget || 0;
+  const spendPct = budget > 0 ? Math.min(100, (Number(campaign.spend) / budget) * 100) : 0;
+  const [toggling, setToggling] = useState(false);
+
+  const handleToggle = async () => {
+    setToggling(true);
+    const next = campaign.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
+    await onStatusChange(campaign.meta_campaign_id, next);
+    setToggling(false);
+  };
+
+  return (
+    <div className={`bg-white rounded-xl border ${alert ? 'border-amber-300' : 'border-gray-200'} p-5 space-y-4`}>
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            {alert && <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />}
+            <p className="font-semibold text-gray-900 text-sm truncate">{campaign.name}</p>
+          </div>
+          {campaign.objective && (
+            <p className="text-xs text-gray-500 mt-0.5 uppercase tracking-wide">{campaign.objective}</p>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`text-xs px-2 py-1 rounded-full font-medium ${STATUS_COLOR[campaign.status] || 'bg-gray-100 text-gray-700'}`}>
+            {campaign.status}
+          </span>
+          {(campaign.status === 'ACTIVE' || campaign.status === 'PAUSED') && (
+            <button
+              onClick={handleToggle}
+              disabled={toggling}
+              title={campaign.status === 'ACTIVE' ? 'Pause campaign' : 'Resume campaign'}
+              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors disabled:opacity-50 ${
+                campaign.status === 'ACTIVE'
+                  ? 'bg-yellow-50 text-yellow-600 hover:bg-yellow-100'
+                  : 'bg-green-50 text-green-600 hover:bg-green-100'
+              }`}
+            >
+              {toggling
+                ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                : campaign.status === 'ACTIVE'
+                  ? <Pause className="w-3.5 h-3.5" />
+                  : <Play className="w-3.5 h-3.5" />
+              }
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Metrics */}
+      <div className="grid grid-cols-4 gap-3 text-center">
+        <div className="bg-gray-50 rounded-lg py-2.5 px-2">
+          <p className="text-xs text-gray-400 mb-0.5">Spend</p>
+          <p className="text-sm font-bold text-gray-900">{fmt(campaign.spend)}</p>
+        </div>
+        <div className="bg-gray-50 rounded-lg py-2.5 px-2">
+          <p className="text-xs text-gray-400 mb-0.5">Impressions</p>
+          <p className="text-sm font-bold text-gray-900">{fmtNum(campaign.impressions)}</p>
+        </div>
+        <div className="bg-gray-50 rounded-lg py-2.5 px-2">
+          <p className="text-xs text-gray-400 mb-0.5">Clicks</p>
+          <p className="text-sm font-bold text-gray-900">{fmtNum(campaign.clicks)}</p>
+        </div>
+        <div className={`rounded-lg py-2.5 px-2 ${alert ? 'bg-amber-50' : 'bg-gray-50'}`}>
+          <p className="text-xs text-gray-400 mb-0.5">CTR</p>
+          <p className={`text-sm font-bold ${alert ? 'text-amber-600' : 'text-gray-900'}`}>
+            {Number(campaign.ctr || 0).toFixed(2)}%
+          </p>
+        </div>
+      </div>
+
+      {/* Budget bar */}
+      {budget > 0 && (
+        <div>
+          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+            <span>{campaign.daily_budget ? 'Daily budget' : 'Lifetime budget'}</span>
+            <span>{fmt(campaign.spend)} / {fmt(budget)}</span>
+          </div>
+          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${spendPct > 85 ? 'bg-red-500' : 'bg-blue-500'}`}
+              style={{ width: `${spendPct}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {alert && (
+        <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 flex items-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+          Low CTR with active spend — review targeting or creative
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Facebook Ad Preview ──────────────────────────────────────────────────────
+
+function FbAdPreview({ headline, body, cta, imageUrl }: {
+  headline: string; body: string; cta: string; imageUrl?: string;
+}) {
+  const ctaLabel: Record<string, string> = {
+    SHOP_NOW: 'Shop Now', LEARN_MORE: 'Learn More',
+    ORDER_NOW: 'Order Now', GET_OFFER: 'Get Offer',
+  };
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm max-w-sm mx-auto">
+      {/* Top bar */}
+      <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-100">
+        <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
+          <span className="text-white font-bold text-xs">J</span>
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-gray-900">JulineMart</p>
+          <p className="text-xs text-gray-400">Sponsored · <span className="text-blue-500">🌍</span></p>
+        </div>
+      </div>
+
+      {/* Body text */}
+      <div className="px-4 py-3">
+        <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{body || 'Ad body text will appear here…'}</p>
+      </div>
+
+      {/* Image area */}
+      <div className="w-full aspect-[1.91/1] bg-gradient-to-br from-blue-50 to-purple-50 overflow-hidden flex items-center justify-center">
+        {imageUrl ? (
+          <img src={imageUrl} alt="Ad" className="w-full h-full object-cover" />
+        ) : (
+          <div className="text-center">
+            <ImageIcon className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+            <p className="text-xs text-gray-400">No image selected</p>
+          </div>
+        )}
+      </div>
+
+      {/* CTA row */}
+      <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-100">
+        <div className="min-w-0">
+          <p className="text-xs text-gray-400 uppercase tracking-wide">julinemart.com</p>
+          <p className="text-sm font-semibold text-gray-900 truncate mt-0.5">{headline || 'Headline here'}</p>
+        </div>
+        <button className="shrink-0 ml-3 bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded-lg">
+          {ctaLabel[cta] || cta || 'Shop Now'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Image Picker ─────────────────────────────────────────────────────────────
+
+function ImagePicker({ value, onChange }: {
+  value: string; onChange: (url: string) => void;
+}) {
+  const [pickerTab, setPickerTab] = useState<'products' | 'upload'>('products');
+  const [productImages, setProductImages] = useState<ProductImage[]>([]);
+  const [loadingImages, setLoadingImages] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (pickerTab === 'products' && productImages.length === 0) {
+      setLoadingImages(true);
+      api('/api/meta/products-images')
+        .then((res) => { if (res.success) setProductImages(res.data); })
+        .finally(() => setLoadingImages(false));
+    }
+  }, [pickerTab]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) { setUploadError('File must be 4 MB or smaller'); return; }
+    setUploadError('');
+    setUploading(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          resolve(result.split(',')[1]);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await api('/api/meta/upload-image', {
+        method: 'POST',
+        body: JSON.stringify({ file_base64: base64, content_type: file.type }),
+      });
+      if (res.success) onChange(res.data.url);
+      else setUploadError(res.error || 'Upload failed');
+    } catch { setUploadError('Upload failed'); }
+    finally { setUploading(false); }
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Tab selector */}
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit text-xs">
+        <button
+          onClick={() => setPickerTab('products')}
+          className={`px-3 py-1.5 rounded-md font-medium transition-colors ${pickerTab === 'products' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'}`}
+        >
+          From Products
+        </button>
+        <button
+          onClick={() => setPickerTab('upload')}
+          className={`px-3 py-1.5 rounded-md font-medium transition-colors ${pickerTab === 'upload' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'}`}
+        >
+          Upload Image
+        </button>
+      </div>
+
+      {pickerTab === 'products' && (
+        <div>
+          {loadingImages ? (
+            <p className="text-xs text-gray-500 py-2">Loading product images…</p>
+          ) : productImages.length === 0 ? (
+            <p className="text-xs text-gray-500 py-2">No product images found.</p>
+          ) : (
+            <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
+              {productImages.map((img, i) => (
+                <button
+                  key={i}
+                  onClick={() => onChange(img.src)}
+                  className={`aspect-square rounded-lg overflow-hidden border-2 transition-all ${value === img.src ? 'border-blue-500' : 'border-transparent hover:border-gray-300'}`}
+                >
+                  <img src={img.src} alt={img.alt || ''} className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {pickerTab === 'upload' && (
+        <div>
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleFileUpload} />
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="flex items-center gap-2 border border-dashed border-gray-300 rounded-lg px-4 py-3 text-sm text-gray-600 hover:border-blue-400 hover:text-blue-600 transition-colors disabled:opacity-50 w-full justify-center"
+          >
+            <Upload className="w-4 h-4" />
+            {uploading ? 'Uploading…' : 'Click to upload (JPG / PNG / WebP, max 4 MB)'}
+          </button>
+          {uploadError && <p className="text-xs text-red-600 mt-1">{uploadError}</p>}
+        </div>
+      )}
+
+      {/* Selected preview */}
+      {value && (
+        <div className="flex items-center gap-2">
+          <img src={value} alt="selected" className="w-12 h-12 rounded-lg object-cover border border-gray-200" />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-gray-600 truncate">{value.split('/').pop()}</p>
+          </div>
+          <button onClick={() => onChange('')} className="text-gray-400 hover:text-red-500 transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function MetaAdsPage() {
-  const [tab, setTab]                 = useState<'campaigns' | 'drafts' | 'generate'>('campaigns');
-  const [campaigns, setCampaigns]     = useState<Campaign[]>([]);
-  const [drafts, setDrafts]           = useState<Draft[]>([]);
-  const [context, setContext]         = useState<AdsContext | null>(null);
-  const [variations, setVariations]   = useState<AiVariation[]>([]);
-  const [loading, setLoading]         = useState(false);
-  const [syncing, setSyncing]         = useState(false);
-  const [generating, setGenerating]   = useState(false);
-  const [error, setError]             = useState('');
+  const [tab, setTab]                   = useState<'campaigns' | 'drafts' | 'generate'>('campaigns');
+  const [campaigns, setCampaigns]       = useState<Campaign[]>([]);
+  const [drafts, setDrafts]             = useState<Draft[]>([]);
+  const [context, setContext]           = useState<AdsContext | null>(null);
+  const [variations, setVariations]     = useState<AiVariation[]>([]);
+  const [variationImages, setVariationImages] = useState<string[]>([]);
+  const [previewIdx, setPreviewIdx]     = useState<number | null>(null);
+  const [loading, setLoading]           = useState(false);
+  const [syncing, setSyncing]           = useState(false);
+  const [generating, setGenerating]     = useState(false);
+  const [error, setError]               = useState('');
   const [expandedDraft, setExpandedDraft] = useState<string | null>(null);
-  const [rejectNote, setRejectNote]   = useState('');
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectNote, setRejectNote]     = useState('');
+  const [rejectingId, setRejectingId]   = useState<string | null>(null);
 
   // AI generate form
   const [genObjective, setGenObjective] = useState('sales');
@@ -150,10 +441,22 @@ export function MetaAdsPage() {
     finally { setSyncing(false); }
   };
 
+  const handleStatusChange = async (metaId: string, status: 'ACTIVE' | 'PAUSED') => {
+    try {
+      await api(`/api/meta/campaigns/${metaId}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status }),
+      });
+      setCampaigns((prev) => prev.map((c) => c.meta_campaign_id === metaId ? { ...c, status } : c));
+    } catch { setError('Failed to update campaign status'); }
+  };
+
   const handleGenerate = async () => {
     if (!context) return;
     setGenerating(true);
     setVariations([]);
+    setVariationImages([]);
+    setPreviewIdx(null);
     setError('');
     try {
       const products = selectedProducts.length
@@ -170,13 +473,16 @@ export function MetaAdsPage() {
           count:       genCount,
         }),
       });
-      if (res.success) setVariations(res.data);
-      else setError(res.error || 'Generation failed');
+      if (res.success) {
+        setVariations(res.data);
+        setVariationImages(new Array(res.data.length).fill(''));
+        setPreviewIdx(0);
+      } else setError(res.error || 'Generation failed');
     } catch { setError('Generation failed'); }
     finally { setGenerating(false); }
   };
 
-  const saveDraft = async (v: AiVariation) => {
+  const saveDraft = async (v: AiVariation, imageUrl: string) => {
     const res = await api('/api/meta/drafts', {
       method: 'POST',
       body: JSON.stringify({
@@ -184,6 +490,7 @@ export function MetaAdsPage() {
         headline:       v.headline,
         body_text:      v.body_text,
         call_to_action: v.call_to_action,
+        image_url:      imageUrl || null,
         ai_generated:   true,
         source_products: selectedProducts.length ? selectedProducts.map((i) => context!.top_products[i]) : [],
         source_context:  { top_region: context?.top_region, promo: context?.active_promos[0] },
@@ -205,7 +512,7 @@ export function MetaAdsPage() {
     if (res.success) { setRejectingId(null); setRejectNote(''); loadDrafts(); }
   };
 
-  // Aggregate campaign stats
+  // Aggregate stats
   const totals = campaigns.reduce(
     (acc, c) => ({
       spend:       acc.spend + Number(c.spend || 0),
@@ -216,6 +523,8 @@ export function MetaAdsPage() {
     { spend: 0, impressions: 0, clicks: 0, reach: 0 }
   );
   const avgCtr = totals.impressions > 0 ? ((totals.clicks / totals.impressions) * 100).toFixed(2) : '0.00';
+  const alertCampaigns = campaigns.filter(isAlertCampaign);
+  const pendingDrafts  = drafts.filter((d) => d.status === 'draft').length;
 
   return (
     <div className="space-y-6">
@@ -247,12 +556,27 @@ export function MetaAdsPage() {
         </div>
       )}
 
+      {/* Performance alert banner */}
+      {alertCampaigns.length > 0 && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800">
+              {alertCampaigns.length} campaign{alertCampaigns.length > 1 ? 's' : ''} with low CTR
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              {alertCampaigns.map((c) => c.name).join(', ')} — spending but CTR below 1%. Consider pausing or refreshing creative.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Stats row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={DollarSign} label="Total Spend"    value={fmt(totals.spend)}           color="bg-blue-50 text-blue-600" />
-        <StatCard icon={Eye}        label="Impressions"    value={fmtNum(totals.impressions)}   color="bg-purple-50 text-purple-600" />
-        <StatCard icon={MousePointer} label="Clicks"       value={fmtNum(totals.clicks)}        sub={`${avgCtr}% CTR`} color="bg-green-50 text-green-600" />
-        <StatCard icon={Users}      label="Reach"          value={fmtNum(totals.reach)}          color="bg-orange-50 text-orange-600" />
+        <StatCard icon={DollarSign}    label="Total Spend"  value={fmt(totals.spend)}          color="bg-blue-50 text-blue-600" />
+        <StatCard icon={Eye}           label="Impressions"  value={fmtNum(totals.impressions)}  color="bg-purple-50 text-purple-600" />
+        <StatCard icon={MousePointer}  label="Clicks"       value={fmtNum(totals.clicks)}       sub={`${avgCtr}% CTR`} color="bg-green-50 text-green-600" />
+        <StatCard icon={Users}         label="Reach"        value={fmtNum(totals.reach)}        color="bg-orange-50 text-orange-600" />
       </div>
 
       {/* Tabs */}
@@ -266,9 +590,14 @@ export function MetaAdsPage() {
             }`}
           >
             {t === 'generate' ? 'AI Generate' : t}
-            {t === 'drafts' && drafts.filter((d) => d.status === 'draft').length > 0 && (
+            {t === 'campaigns' && alertCampaigns.length > 0 && (
+              <span className="ml-2 bg-amber-100 text-amber-700 text-xs px-1.5 py-0.5 rounded-full">
+                {alertCampaigns.length}
+              </span>
+            )}
+            {t === 'drafts' && pendingDrafts > 0 && (
               <span className="ml-2 bg-blue-100 text-blue-700 text-xs px-1.5 py-0.5 rounded-full">
-                {drafts.filter((d) => d.status === 'draft').length}
+                {pendingDrafts}
               </span>
             )}
           </button>
@@ -277,46 +606,23 @@ export function MetaAdsPage() {
 
       {/* ── Campaigns tab ────────────────────────────────────────────────────── */}
       {tab === 'campaigns' && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <>
           {loading ? (
-            <div className="py-12 text-center text-gray-500 text-sm">Loading campaigns…</div>
+            <div className="bg-white rounded-xl border border-gray-200 py-12 text-center text-gray-500 text-sm">
+              Loading campaigns…
+            </div>
           ) : campaigns.length === 0 ? (
-            <div className="py-12 text-center text-gray-500 text-sm">
+            <div className="bg-white rounded-xl border border-gray-200 py-12 text-center text-gray-500 text-sm">
               No campaigns cached. Click <strong>Sync Campaigns</strong> to fetch from Meta.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50">
-                    {['Campaign', 'Status', 'Daily Budget', 'Spend', 'Impressions', 'Clicks', 'CTR'].map((h) => (
-                      <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {campaigns.map((c) => (
-                    <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px] truncate">{c.name}</td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${STATUS_COLOR[c.status] || 'bg-gray-100 text-gray-700'}`}>
-                          {c.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-700">{c.daily_budget ? fmt(c.daily_budget) : '—'}</td>
-                      <td className="px-4 py-3 text-gray-700">{fmt(c.spend)}</td>
-                      <td className="px-4 py-3 text-gray-700">{fmtNum(c.impressions)}</td>
-                      <td className="px-4 py-3 text-gray-700">{fmtNum(c.clicks)}</td>
-                      <td className="px-4 py-3 text-gray-700">{Number(c.ctr || 0).toFixed(2)}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {campaigns.map((c) => (
+                <CampaignCard key={c.id} campaign={c} onStatusChange={handleStatusChange} />
+              ))}
             </div>
           )}
-        </div>
+        </>
       )}
 
       {/* ── Drafts tab ───────────────────────────────────────────────────────── */}
@@ -353,8 +659,18 @@ export function MetaAdsPage() {
 
                 {expandedDraft === d.id && (
                   <div className="border-t border-gray-100 px-5 py-4 space-y-4">
-                    {d.headline && <p className="font-semibold text-gray-900">{d.headline}</p>}
-                    <p className="text-gray-700 text-sm leading-relaxed">{d.body_text}</p>
+                    <div className="grid lg:grid-cols-2 gap-5">
+                      <div className="space-y-3">
+                        {d.headline && <p className="font-semibold text-gray-900">{d.headline}</p>}
+                        <p className="text-gray-700 text-sm leading-relaxed">{d.body_text}</p>
+                      </div>
+                      <FbAdPreview
+                        headline={d.headline}
+                        body={d.body_text}
+                        cta={d.call_to_action}
+                        imageUrl={d.image_url || ''}
+                      />
+                    </div>
 
                     {d.status === 'draft' && (
                       <div className="flex flex-col gap-3">
@@ -406,140 +722,185 @@ export function MetaAdsPage() {
 
       {/* ── AI Generate tab ──────────────────────────────────────────────────── */}
       {tab === 'generate' && (
-        <div className="grid lg:grid-cols-2 gap-6">
-          {/* Controls */}
-          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-5">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-purple-600" />
-              <h2 className="font-semibold text-gray-900">Generate Ad Content</h2>
-            </div>
+        <div className="space-y-6">
+          <div className="grid lg:grid-cols-2 gap-6">
+            {/* Controls */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-5">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-purple-600" />
+                <h2 className="font-semibold text-gray-900">Generate Ad Content</h2>
+              </div>
 
-            {context && context.top_products.length > 0 && (
+              {context && context.top_products.length > 0 && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    Select Products (leave empty for top 3)
+                  </label>
+                  <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                    {context.top_products.map((p, i) => (
+                      <label key={i} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 px-2 py-1 rounded">
+                        <input
+                          type="checkbox"
+                          checked={selectedProducts.includes(i)}
+                          onChange={(e) =>
+                            setSelectedProducts(e.target.checked
+                              ? [...selectedProducts, i]
+                              : selectedProducts.filter((x) => x !== i))
+                          }
+                          className="rounded border-gray-300"
+                        />
+                        <span className="text-gray-700 truncate">{p.name}</span>
+                        <span className="text-gray-400 ml-auto shrink-0">{fmt(p.price)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Objective</label>
+                  <select
+                    value={genObjective}
+                    onChange={(e) => setGenObjective(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="sales">Sales</option>
+                    <option value="awareness">Awareness</option>
+                    <option value="traffic">Traffic</option>
+                    <option value="leads">Leads</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Tone</label>
+                  <select
+                    value={genTone}
+                    onChange={(e) => setGenTone(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="engaging">Engaging</option>
+                    <option value="urgent">Urgent</option>
+                    <option value="friendly">Friendly</option>
+                    <option value="bold">Bold</option>
+                    <option value="professional">Professional</option>
+                  </select>
+                </div>
+              </div>
+
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  Select Products (leave empty for top 3)
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                  Number of Variations
                 </label>
-                <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                  {context.top_products.map((p, i) => (
-                    <label key={i} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 px-2 py-1 rounded">
-                      <input
-                        type="checkbox"
-                        checked={selectedProducts.includes(i)}
-                        onChange={(e) =>
-                          setSelectedProducts(e.target.checked
-                            ? [...selectedProducts, i]
-                            : selectedProducts.filter((x) => x !== i))
-                        }
-                        className="rounded border-gray-300"
-                      />
-                      <span className="text-gray-700 truncate">{p.name}</span>
-                      <span className="text-gray-400 ml-auto shrink-0">{fmt(p.price)}</span>
-                    </label>
-                  ))}
-                </div>
+                <input
+                  type="number" min={1} max={5} value={genCount}
+                  onChange={(e) => setGenCount(Number(e.target.value))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
-            )}
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Objective</label>
-                <select
-                  value={genObjective}
-                  onChange={(e) => setGenObjective(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="sales">Sales</option>
-                  <option value="awareness">Awareness</option>
-                  <option value="traffic">Traffic</option>
-                  <option value="leads">Leads</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Tone</label>
-                <select
-                  value={genTone}
-                  onChange={(e) => setGenTone(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="engaging">Engaging</option>
-                  <option value="urgent">Urgent</option>
-                  <option value="friendly">Friendly</option>
-                  <option value="bold">Bold</option>
-                  <option value="professional">Professional</option>
-                </select>
-              </div>
+              {context?.top_region && (
+                <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+                  Top buying region: <strong>{context.top_region}</strong>
+                </p>
+              )}
+              {context?.active_promos[0] && (
+                <p className="text-xs text-gray-500 bg-blue-50 rounded-lg px-3 py-2">
+                  Active promo: <strong>{context.active_promos[0].code}</strong>
+                </p>
+              )}
+
+              <button
+                onClick={handleGenerate}
+                disabled={generating}
+                className="w-full flex items-center justify-center gap-2 bg-purple-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-60 transition-colors"
+              >
+                <Sparkles className={`w-4 h-4 ${generating ? 'animate-pulse' : ''}`} />
+                {generating ? 'Generating…' : 'Generate with AI'}
+              </button>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                Number of Variations
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={5}
-                value={genCount}
-                onChange={(e) => setGenCount(Number(e.target.value))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            {context?.top_region && (
-              <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-                Top buying region: <strong>{context.top_region}</strong> — will be included in AI context
-              </p>
-            )}
-
-            {context?.active_promos[0] && (
-              <p className="text-xs text-gray-500 bg-blue-50 rounded-lg px-3 py-2">
-                Active promo: <strong>{context.active_promos[0].code}</strong> — will be included if relevant
-              </p>
-            )}
-
-            <button
-              onClick={handleGenerate}
-              disabled={generating}
-              className="w-full flex items-center justify-center gap-2 bg-purple-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-60 transition-colors"
-            >
-              <Sparkles className={`w-4 h-4 ${generating ? 'animate-pulse' : ''}`} />
-              {generating ? 'Generating…' : 'Generate with AI'}
-            </button>
-          </div>
-
-          {/* Results */}
-          <div className="space-y-3">
-            {generating && (
-              <div className="bg-purple-50 rounded-xl border border-purple-100 py-12 text-center">
-                <Sparkles className="w-8 h-8 text-purple-400 mx-auto animate-pulse mb-3" />
-                <p className="text-purple-700 text-sm font-medium">Generating ad copy using your JulineMart data…</p>
-              </div>
-            )}
-
-            {!generating && variations.length === 0 && (
-              <div className="bg-gray-50 rounded-xl border border-gray-200 py-12 text-center text-gray-500 text-sm">
-                Generated variations will appear here
-              </div>
-            )}
-
-            {variations.map((v, i) => (
-              <div key={i} className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-purple-600 uppercase tracking-wide flex items-center gap-1">
-                    <Sparkles className="w-3.5 h-3.5" /> Variation {i + 1}
-                  </span>
-                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{v.call_to_action}</span>
+            {/* FB Preview panel */}
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-gray-700">Preview</h3>
+              {variations.length > 0 && previewIdx !== null ? (
+                <>
+                  <div className="flex gap-2 flex-wrap">
+                    {variations.map((_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setPreviewIdx(i)}
+                        className={`text-xs px-2.5 py-1 rounded-full font-medium transition-colors ${previewIdx === i ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                      >
+                        Var {i + 1}
+                      </button>
+                    ))}
+                  </div>
+                  <FbAdPreview
+                    headline={variations[previewIdx].headline}
+                    body={variations[previewIdx].body_text}
+                    cta={variations[previewIdx].call_to_action}
+                    imageUrl={variationImages[previewIdx]}
+                  />
+                </>
+              ) : (
+                <div className="bg-gray-50 rounded-xl border border-gray-200 py-12 text-center text-gray-500 text-sm">
+                  {generating ? (
+                    <>
+                      <Sparkles className="w-8 h-8 text-purple-400 mx-auto animate-pulse mb-3" />
+                      <p className="text-purple-700 font-medium">Generating with your JulineMart data…</p>
+                    </>
+                  ) : (
+                    'Generate variations to see a Facebook preview'
+                  )}
                 </div>
-                <p className="font-semibold text-gray-900">{v.headline}</p>
-                <p className="text-gray-700 text-sm leading-relaxed">{v.body_text}</p>
-                <button
-                  onClick={() => saveDraft(v)}
-                  className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
-                >
-                  <Plus className="w-4 h-4" /> Save as Draft
-                </button>
-              </div>
-            ))}
+              )}
+            </div>
           </div>
+
+          {/* Variations list */}
+          {variations.length > 0 && (
+            <div className="space-y-4">
+              <h3 className="text-sm font-semibold text-gray-700">Variations</h3>
+              {variations.map((v, i) => (
+                <div
+                  key={i}
+                  className={`bg-white rounded-xl border p-5 space-y-4 cursor-pointer transition-all ${previewIdx === i ? 'border-purple-300 ring-1 ring-purple-200' : 'border-gray-200 hover:border-gray-300'}`}
+                  onClick={() => setPreviewIdx(i)}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-purple-600 uppercase tracking-wide flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5" /> Variation {i + 1}
+                    </span>
+                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{v.call_to_action}</span>
+                  </div>
+                  <p className="font-semibold text-gray-900">{v.headline}</p>
+                  <p className="text-gray-700 text-sm leading-relaxed">{v.body_text}</p>
+
+                  {/* Per-variation image picker */}
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Ad Image</p>
+                    <ImagePicker
+                      value={variationImages[i] || ''}
+                      onChange={(url) =>
+                        setVariationImages((prev) => {
+                          const next = [...prev];
+                          next[i] = url;
+                          return next;
+                        })
+                      }
+                    />
+                  </div>
+
+                  <button
+                    onClick={(e) => { e.stopPropagation(); saveDraft(v, variationImages[i] || ''); }}
+                    className="flex items-center gap-1.5 text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" /> Save as Draft
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

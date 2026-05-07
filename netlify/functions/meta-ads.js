@@ -441,8 +441,8 @@ async function publishDraft(draftId, body, userId) {
   try {
     creative = await metaPost(`${AD_ACCOUNT_ID}/adcreatives`, buildCreativePayload(isPublicImage));
   } catch (e) {
-    if (isPublicImage && e.message?.includes('image')) {
-      // Retry without image if Meta couldn't fetch it
+    if (isPublicImage) {
+      // Retry without image — Meta may reject external image URLs for various reasons
       creative = await metaPost(`${AD_ACCOUNT_ID}/adcreatives`, buildCreativePayload(false));
     } else {
       throw e;

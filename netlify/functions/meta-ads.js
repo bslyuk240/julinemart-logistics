@@ -515,6 +515,8 @@ async function publishDraft(draftId, body, userId) {
     name:             `${draft.title} — Ad Set`,
     campaign_id:      resolvedCampaignId,
     ...(!campaignHoldsBudget ? { daily_budget: budgetCents } : {}),
+    // Some ad accounts default to a bid-cap strategy unless this is explicit (error_subcode 2490487).
+    ...(!campaignHoldsBudget ? { bid_strategy: 'LOWEST_COST_WITHOUT_CAP' } : {}),
     targeting:        { geo_locations: { countries: ['NG'] } },
     destination_type: 'WEBSITE',
     status:           'PAUSED',

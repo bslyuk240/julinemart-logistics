@@ -122,7 +122,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'analytics', element: <AnalyticsPage /> },
   { path: 'users', element: <UsersPage /> },
   { path: 'discounts', element: <ShippingDiscountsPage /> },
-  { path: 'meta-ads', element: <MetaAdsPage />, allowedRoles: ['admin', 'manager'] },
+  { path: 'meta-ads', element: <MetaAdsPage />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
   { path: 'influencers', element: <InfluencersPage /> },
   { path: 'influencers/:id', element: <InfluencerDetailPage /> },
   { path: 'courier-settings', element: <CourierSettingsPage /> },
@@ -181,7 +181,7 @@ export const router = createBrowserRouter([
   {
     path: '/admin',
     element: (
-      <ProtectedRoute allowedRoles={['admin', 'agent', 'shop_manager', 'manager', 'viewer']}>
+      <ProtectedRoute allowedRoles={['admin', 'agent', 'shop_manager', 'manager', 'viewer', 'social_media_manager']}>
         <DashboardLayout>
           <Outlet />
         </DashboardLayout>

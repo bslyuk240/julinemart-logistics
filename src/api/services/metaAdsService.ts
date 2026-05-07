@@ -71,10 +71,14 @@ export async function syncCampaigns() {
     };
   });
 
+  const { error: delErr } = await supabase
+    .from('meta_campaigns_cache')
+    .delete()
+    .eq('ad_account_id', AD_ACCOUNT_ID);
+  if (delErr) throw delErr;
+
   if (rows.length > 0) {
-    const { error } = await supabase
-      .from('meta_campaigns_cache')
-      .upsert(rows, { onConflict: 'meta_campaign_id' });
+    const { error } = await supabase.from('meta_campaigns_cache').insert(rows);
     if (error) throw error;
   }
 
@@ -84,10 +88,9 @@ export async function syncCampaigns() {
 // ─── Get cached campaigns ─────────────────────────────────────────────────────
 
 export async function getCampaigns() {
-  const { data, error } = await supabase
-    .from('meta_campaigns_cache')
-    .select('*')
-    .order('synced_at', { ascending: false });
+  let q = supabase.from('meta_campaigns_cache').select('*');
+  if (AD_ACCOUNT_ID) q = q.eq('ad_account_id', AD_ACCOUNT_ID);
+  const { data, error } = await q.order('synced_at', { ascending: false });
   if (error) throw error;
   return data || [];
 }

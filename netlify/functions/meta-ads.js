@@ -102,10 +102,9 @@ async function uploadImageToMeta(imageUrl) {
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
 async function getCampaigns() {
-  const { data, error } = await supabase
-    .from('meta_campaigns_cache')
-    .select('*')
-    .order('synced_at', { ascending: false });
+  let q = supabase.from('meta_campaigns_cache').select('*');
+  if (AD_ACCOUNT_ID) q = q.eq('ad_account_id', AD_ACCOUNT_ID);
+  const { data, error } = await q.order('synced_at', { ascending: false });
   if (error) throw error;
   return ok(data || []);
 }
@@ -143,10 +142,17 @@ async function syncCampaigns(userId) {
     };
   });
 
+  // Replace cache for this ad account so Meta-deleted campaigns disappear locally
+  const { error: delErr } = await supabase
+    .from('meta_campaigns_cache')
+    .delete()
+    .eq('ad_account_id', AD_ACCOUNT_ID);
+  if (delErr) throw delErr;
+
   if (rows.length > 0) {
     const { error } = await supabase
       .from('meta_campaigns_cache')
-      .upsert(rows, { onConflict: 'meta_campaign_id' });
+      .insert(rows);
     if (error) throw error;
   }
 

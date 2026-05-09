@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Users as UsersIcon, Plus, Edit, Trash2, Shield, Eye, EyeOff, Mail } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../contexts/AuthContext';
 
 interface User {
   id: string;
@@ -108,11 +107,20 @@ export function UsersPage() {
 
   const handleSendReset = async (email: string) => {
     try {
-      const origin = window.location.origin;
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${origin}/auth/callback?type=recovery`,
+      // Must be server-side so the reset link uses implicit flow (no PKCE).
+      // If we call resetPasswordForEmail from the browser (PKCE default), the code
+      // verifier ends up in the admin's localStorage — the staff member's browser
+      // can never exchange it and gets "link expired" on first click.
+      const res = await fetch(`${apiBase}/api/users/send-reset`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ email }),
       });
-      if (error) throw error;
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to send reset email');
       notification.success('Reset Email Sent', `A password reset link has been sent to ${email}`);
     } catch (err: any) {
       notification.error('Error', err?.message || 'Failed to send reset email');

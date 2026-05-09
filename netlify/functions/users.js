@@ -14,6 +14,21 @@ const READ_ONLY_KEY =
 // Use READ_ONLY_KEY only for auth token verification; all DB access goes through the service key
 const supabaseAuth = createClient(SUPABASE_URL || '', READ_ONLY_KEY || '');
 const supabaseAdmin = SERVICE_ROLE_KEY ? createClient(SUPABASE_URL || '', SERVICE_ROLE_KEY) : null;
+
+// Implicit-flow client for server-triggered password reset emails.
+// Must NOT use PKCE: the code verifier would be stuck in this Node.js process
+// and the user's browser could never exchange it. Implicit flow embeds the
+// token directly in the redirect hash, which our /reset-password page handles.
+const supabaseImplicit = SERVICE_ROLE_KEY
+  ? createClient(SUPABASE_URL || '', SERVICE_ROLE_KEY, {
+      auth: {
+        flowType: 'implicit',
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false,
+      },
+    })
+  : null;
 const allowedRoles = ['admin', 'agent', 'shop_manager', 'vendor', 'manager', 'viewer', 'social_media_manager'];
 
 const headers = {
@@ -167,7 +182,21 @@ export async function handler(event) {
         },
       });
 
-      if (authError) throw authError;
+      if (authError) {
+        const msg = String(authError.message || '');
+        // Supabase returns this when the email is already in auth.users
+        if (/already registered|already been invited|user already exists/i.test(msg)) {
+          return {
+            statusCode: 409,
+            headers,
+            body: JSON.stringify({
+              success: false,
+              error: 'A user with this email already exists. Use the Reset button to resend a password link, or edit their existing account.'
+            })
+          };
+        }
+        throw authError;
+      }
 
       // Set app_metadata so DB triggers know this is a JLO staff account
       if (authData?.user?.id) {
@@ -363,6 +392,48 @@ export async function handler(event) {
           hint: isFkBlock ? fkHint : undefined
         })
       };
+    }
+
+    // POST /api/users/send-reset  — admin sends a password-reset email to a staff member.
+    // Must be server-side so we can use implicit flow (no PKCE), meaning the email link
+    // contains the token directly and works in any browser without a stored code verifier.
+    if (event.httpMethod === 'POST' && id === 'send-reset') {
+      const auth = await requireRole(event, ['admin']);
+      if (auth.errorResponse) return auth.errorResponse;
+
+      if (!supabaseImplicit) {
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ success: false, error: 'Service role key is required to send reset emails' })
+        };
+      }
+
+      const payload = JSON.parse(event.body || '{}');
+      const { email } = payload;
+      if (!email) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ success: false, error: 'email is required' })
+        };
+      }
+
+      const JLO_URL = process.env.JLO_URL || process.env.VITE_APP_URL || 'https://jlo.julinemart.com';
+      const { error: resetErr } = await supabaseImplicit.auth.resetPasswordForEmail(email, {
+        redirectTo: `${JLO_URL}/auth/callback?type=recovery`,
+      });
+
+      if (resetErr) {
+        console.error('send-reset error:', resetErr);
+        return {
+          statusCode: 500,
+          headers,
+          body: JSON.stringify({ success: false, error: resetErr.message || 'Failed to send reset email' })
+        };
+      }
+
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
     if (event.httpMethod === 'PUT' && id) {

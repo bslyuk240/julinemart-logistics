@@ -173,7 +173,8 @@ async function getDrafts(status) {
 
 async function createDraft(body, userId) {
   const { title, headline, body_text, call_to_action, image_url, destination_url,
-          source_products, source_context, target_audience, suggested_budget, ai_generated } = body;
+          source_products, source_context, target_audience, suggested_budget,
+          ai_generated, ad_format, meta_video_id } = body;
   if (!title || !body_text) return err('title and body_text are required', 400);
 
   const { data, error } = await supabase
@@ -184,6 +185,8 @@ async function createDraft(body, userId) {
       image_url, destination_url, source_products, source_context,
       target_audience, suggested_budget,
       ai_generated: ai_generated || false,
+      ad_format: ad_format || 'image',
+      meta_video_id: meta_video_id || null,
       created_by: userId || null,
       status: 'draft',
     })
@@ -388,7 +391,7 @@ async function searchCatalogProducts(search) {
 }
 
 async function updateDraft(draftId, body, userId) {
-  const { destination_url } = body;
+  const { destination_url, ad_format, meta_video_id } = body;
   if (!draftId) return err('Draft ID required', 400);
 
   const { data: draft } = await supabase.from('meta_ad_drafts').select('status').eq('id', draftId).single();
@@ -397,11 +400,94 @@ async function updateDraft(draftId, body, userId) {
 
   const updates = {};
   if (destination_url !== undefined) updates.destination_url = destination_url || null;
+  if (ad_format !== undefined) updates.ad_format = ad_format;
+  if (meta_video_id !== undefined) updates.meta_video_id = meta_video_id || null;
 
   const { error } = await supabase.from('meta_ad_drafts').update(updates).eq('id', draftId);
   if (error) throw error;
 
   return ok({ updated: true });
+}
+
+// ── AI writing assistant (brief → headline + body suggestions) ────────────────
+
+async function aiAssist(body) {
+  if (!ANTHROPIC_KEY) return err('ANTHROPIC_API_KEY not configured', 500);
+
+  const { brief, tone = 'engaging', cta = 'SHOP_NOW' } = body;
+  if (!brief || !brief.trim()) return err('brief is required', 400);
+
+  const ctaLabel = {
+    SHOP_NOW: 'Shop Now', LEARN_MORE: 'Learn More', SIGN_UP: 'Sign Up',
+    CONTACT_US: 'Contact Us', BOOK_NOW: 'Book Now', GET_OFFER: 'Get Offer',
+    SUBSCRIBE: 'Subscribe', WATCH_MORE: 'Watch More',
+  }[cta] || 'Shop Now';
+
+  const prompt = `You are a creative Nigerian social media ad copywriter for JulineMart.
+
+Brief from the marketing team: "${brief.trim()}"
+Tone: ${tone}
+Call to action button: ${ctaLabel}
+
+Write 3 variations of ad copy. Each variation must have:
+1. A punchy headline (max 40 characters)
+2. Body text (max 120 characters, engaging, relevant to Nigerian audience)
+
+Respond with ONLY a JSON array, no explanation:
+[
+  { "headline": "...", "body_text": "..." },
+  { "headline": "...", "body_text": "..." },
+  { "headline": "...", "body_text": "..." }
+]`;
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': ANTHROPIC_KEY,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'claude-3-haiku-20240307',
+      max_tokens: 600,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  const result = await response.json();
+  const text = result.content?.[0]?.text || '';
+
+  try {
+    const match = text.match(/\[[\s\S]*\]/);
+    const suggestions = JSON.parse(match[0]);
+    return ok(suggestions);
+  } catch {
+    return err('AI returned unexpected format — try again', 500);
+  }
+}
+
+// ── Upload video to Meta (/advideos) ─────────────────────────────────────────
+
+async function uploadVideoToMeta(body) {
+  const { file_base64, content_type, title } = body;
+  if (!file_base64 || !content_type) return err('file_base64 and content_type are required', 400);
+  if (!AD_ACCOUNT_ID) return err('META_AD_ACCOUNT_ID not configured', 500);
+
+  const buffer = Buffer.from(file_base64, 'base64');
+  const ext    = content_type.split('/')[1]?.split(';')[0] || 'mp4';
+  const filename = `ad_video_${Date.now()}.${ext}`;
+
+  const form = new FormData();
+  form.append('access_token', ACCESS_TOKEN);
+  form.append('title', title || filename);
+  form.append('source', new Blob([buffer], { type: content_type }), filename);
+
+  const url = `https://graph-video.facebook.com/${META_API_BASE.split('/').pop()}/${AD_ACCOUNT_ID}/advideos`;
+  const res  = await fetch(url, { method: 'POST', body: form });
+  const json = await res.json();
+
+  if (!res.ok || json.error) throw new Error(json.error?.message || 'Failed to upload video to Meta');
+  return ok({ video_id: json.id });
 }
 
 // ── Image upload to Supabase Storage ─────────────────────────────────────────
@@ -519,36 +605,52 @@ async function publishDraft(draftId, body, userId) {
   }
 
   // 1. Create Ad Creative
-  // Upload image to Meta first (server-side fetch avoids CDN crawl restrictions).
-  // Skip only for known-bad WordPress/admin URLs or missing image.
-  const hasImage = draft.image_url &&
-    !draft.image_url.includes('admin.julinemart.com') &&
-    !draft.image_url.includes('wp-content');
+  let creativePayload;
 
-  let imageHash = null;
-  if (hasImage) {
-    try {
-      imageHash = await uploadImageToMeta(draft.image_url);
-    } catch (imgErr) {
-      console.warn('Image upload to Meta failed, continuing without image:', imgErr.message);
+  if (draft.ad_format === 'video' && draft.meta_video_id) {
+    // ── Video creative ──────────────────────────────────────────────────────
+    creativePayload = {
+      name: draft.title,
+      object_story_spec: {
+        page_id: META_PAGE_ID,
+        video_data: {
+          video_id:       draft.meta_video_id,
+          message:        draft.body_text,
+          title:          draft.headline || draft.title,
+          call_to_action: { type: draft.call_to_action || 'SHOP_NOW', value: { link: destinationUrl } },
+        },
+      },
+    };
+  } else {
+    // ── Image / text creative ───────────────────────────────────────────────
+    const hasImage = draft.image_url &&
+      !draft.image_url.includes('admin.julinemart.com') &&
+      !draft.image_url.includes('wp-content');
+
+    let imageHash = null;
+    if (hasImage) {
+      try {
+        imageHash = await uploadImageToMeta(draft.image_url);
+      } catch (imgErr) {
+        console.warn('Image upload to Meta failed, continuing without image:', imgErr.message);
+      }
     }
+
+    creativePayload = {
+      name: draft.title,
+      object_story_spec: {
+        page_id: META_PAGE_ID,
+        link_data: {
+          message:        draft.body_text,
+          link:           destinationUrl,
+          name:           draft.headline || draft.title,
+          call_to_action: { type: draft.call_to_action || 'SHOP_NOW', value: { link: destinationUrl } },
+          ...(imageHash ? { image_hash: imageHash } : {}),
+        },
+      },
+    };
   }
 
-  const buildCreativePayload = (hash) => ({
-    name: draft.title,
-    object_story_spec: {
-      page_id: META_PAGE_ID,
-      link_data: {
-        message:        draft.body_text,
-        link:           destinationUrl,
-        name:           draft.headline || draft.title,
-        call_to_action: { type: draft.call_to_action || 'SHOP_NOW', value: { link: destinationUrl } },
-        ...(hash ? { image_hash: hash } : {}),
-      },
-    },
-  });
-
-  const creativePayload = buildCreativePayload(imageHash);
   console.log('[publishDraft] step=adcreatives payload:', JSON.stringify(creativePayload));
   let creative;
   try {
@@ -695,6 +797,12 @@ export async function handler(event) {
 
     // POST /api/meta/ai/generate
     if (path === 'ai/generate' && method === 'POST') return await generateContent(body, userId);
+
+    // POST /api/meta/ai/assist  (Smart Creator writing assistant)
+    if (path === 'ai/assist' && method === 'POST') return await aiAssist(body);
+
+    // POST /api/meta/upload-video
+    if (path === 'upload-video' && method === 'POST') return await uploadVideoToMeta(body);
 
     // GET /api/meta/recommendations
     if (path === 'recommendations' && method === 'GET') return await getRecommendations();

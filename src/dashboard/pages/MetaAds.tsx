@@ -3,7 +3,7 @@ import {
   TrendingUp, RefreshCw, Sparkles, CheckCircle, XCircle,
   Clock, Eye, MousePointer, DollarSign, Users, Plus,
   ChevronDown, ChevronUp, AlertCircle, Megaphone, AlertTriangle,
-  Play, Pause, Upload, ImageIcon, X, Search, Send, Trash2,
+  Play, Pause, Upload, ImageIcon, X, Search, Send, Trash2, Video, Wand2, FileText,
 } from 'lucide-react';
 
 const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
@@ -565,7 +565,7 @@ function DestinationUrlField({ value, onSave }: { value: string; onSave: (url: s
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function MetaAdsPage() {
-  const [tab, setTab]                   = useState<'campaigns' | 'drafts' | 'generate'>('campaigns');
+  const [tab, setTab]                   = useState<'campaigns' | 'drafts' | 'generate' | 'creator'>('campaigns');
   const [campaigns, setCampaigns]       = useState<Campaign[]>([]);
   const [drafts, setDrafts]             = useState<Draft[]>([]);
   const [context, setContext]           = useState<AdsContext | null>(null);
@@ -840,7 +840,7 @@ export function MetaAdsPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-        {(['campaigns', 'drafts', 'generate'] as const).map((t) => (
+        {(['campaigns', 'drafts', 'generate', 'creator'] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -848,7 +848,7 @@ export function MetaAdsPage() {
               tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
             }`}
           >
-            {t === 'generate' ? 'AI Generate' : t}
+            {t === 'generate' ? 'AI Generate' : t === 'creator' ? 'Smart Creator' : t}
             {t === 'campaigns' && alertCampaigns.length > 0 && (
               <span className="ml-2 bg-amber-100 text-amber-700 text-xs px-1.5 py-0.5 rounded-full">
                 {alertCampaigns.length}
@@ -1266,6 +1266,270 @@ export function MetaAdsPage() {
           )}
         </div>
       )}
+
+      {/* ── Smart Creator tab ─────────────────────────────────────────────────── */}
+      {tab === "creator" && <SmartCreator onSaved={() => { loadDrafts(); setTab("drafts"); }} />}
+    </div>
+  );
+}
+
+// ─── Smart Creator ────────────────────────────────────────────────────────────
+
+type MediaMode = "image" | "video" | "none";
+
+function SmartCreator({ onSaved }: { onSaved: () => void }) {
+  const [headline, setHeadline]       = useState("");
+  const [bodyText, setBodyText]       = useState("");
+  const [cta, setCta]                 = useState("SHOP_NOW");
+  const [destUrl, setDestUrl]         = useState("");
+  const [mediaMode, setMediaMode]     = useState<MediaMode>("image");
+  const [imageUrl, setImageUrl]       = useState("");
+  const [videoId, setVideoId]         = useState("");
+  const [videoTitle, setVideoTitle]   = useState("");
+  const [brief, setBrief]             = useState("");
+  const [assistTone, setAssistTone]   = useState("engaging");
+  const [assisting, setAssisting]     = useState(false);
+  const [suggestions, setSuggestions] = useState<{ headline: string; body_text: string }[]>([]);
+  const [uploading, setUploading]     = useState(false);
+  const [uploadProgress, setUploadProgress] = useState("");
+  const [saving, setSaving]           = useState(false);
+  const [error, setError]             = useState("");
+  const videoRef                      = useRef<HTMLInputElement>(null);
+
+  const CTA_OPTIONS = [
+    { value: "SHOP_NOW", label: "Shop Now" },
+    { value: "LEARN_MORE", label: "Learn More" },
+    { value: "SIGN_UP", label: "Sign Up" },
+    { value: "CONTACT_US", label: "Contact Us" },
+    { value: "BOOK_NOW", label: "Book Now" },
+    { value: "GET_OFFER", label: "Get Offer" },
+    { value: "SUBSCRIBE", label: "Subscribe" },
+    { value: "WATCH_MORE", label: "Watch More" },
+  ];
+
+  const handleAiAssist = async () => {
+    if (!brief.trim()) { setError("Enter a brief first"); return; }
+    setAssisting(true); setError(""); setSuggestions([]);
+    try {
+      const res = await api("/api/meta/ai/assist", {
+        method: "POST",
+        body: JSON.stringify({ brief, tone: assistTone, cta }),
+      });
+      if (res.success) setSuggestions(res.data);
+      else setError(res.error || "AI assist failed");
+    } catch { setError("AI assist failed"); }
+    finally { setAssisting(false); }
+  };
+
+  const applySuggestion = (s: { headline: string; body_text: string }) => {
+    setHeadline(s.headline); setBodyText(s.body_text); setSuggestions([]);
+  };
+
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 200 * 1024 * 1024) { setError("Video must be under 200 MB"); return; }
+    setError(""); setUploading(true); setUploadProgress("Reading file...");
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      setUploadProgress("Uploading to Meta...");
+      const res = await api("/api/meta/upload-video", {
+        method: "POST",
+        body: JSON.stringify({ file_base64: base64, content_type: file.type, title: file.name }),
+      });
+      if (res.success) { setVideoId(res.data.video_id); setVideoTitle(file.name); setUploadProgress(""); }
+      else { setError(res.error || "Upload failed"); setUploadProgress(""); }
+    } catch { setError("Upload failed"); setUploadProgress(""); }
+    finally { setUploading(false); }
+  };
+
+  const handleSave = async () => {
+    if (!headline.trim()) { setError("Headline is required"); return; }
+    if (!bodyText.trim()) { setError("Body text is required"); return; }
+    if (mediaMode === "video" && !videoId) { setError("Upload a video first"); return; }
+    setSaving(true); setError("");
+    try {
+      const res = await api("/api/meta/drafts", {
+        method: "POST",
+        body: JSON.stringify({
+          title: headline.trim(), headline: headline.trim(),
+          body_text: bodyText.trim(), call_to_action: cta,
+          destination_url: destUrl.trim() || null,
+          image_url: mediaMode === "image" ? (imageUrl || null) : null,
+          ad_format: mediaMode === "video" ? "video" : mediaMode === "none" ? "text" : "image",
+          meta_video_id: mediaMode === "video" ? videoId : null,
+          ai_generated: false,
+        }),
+      });
+      if (res.success) onSaved();
+      else setError(res.error || "Save failed");
+    } catch { setError("Save failed"); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid lg:grid-cols-2 gap-6">
+
+        {/* Form */}
+        <div className="space-y-5">
+
+          {/* AI Brief box */}
+          <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Wand2 className="w-4 h-4 text-purple-600" />
+              <p className="text-sm font-semibold text-purple-900">AI Writing Assistant</p>
+            </div>
+            <textarea
+              value={brief} onChange={(e) => setBrief(e.target.value)} rows={2}
+              placeholder="e.g. Promote our Eid sale — 30% off electronics, urgent tone, target young Nigerians"
+              className="w-full border border-purple-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white resize-none"
+            />
+            <div className="flex items-center gap-3">
+              <select value={assistTone} onChange={(e) => setAssistTone(e.target.value)}
+                className="border border-purple-200 rounded-lg px-2 py-1.5 text-xs bg-white focus:outline-none">
+                {["engaging","urgent","friendly","bold","professional","humorous"].map((t) => (
+                  <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                ))}
+              </select>
+              <button onClick={handleAiAssist} disabled={assisting}
+                className="flex items-center gap-1.5 bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-purple-700 disabled:opacity-60 transition-colors">
+                <Sparkles className={`w-3.5 h-3.5 ${assisting ? "animate-pulse" : ""}`} />
+                {assisting ? "Generating..." : "Generate Suggestions"}
+              </button>
+            </div>
+            {suggestions.length > 0 && (
+              <div className="space-y-2">
+                {suggestions.map((s, i) => (
+                  <button key={i} onClick={() => applySuggestion(s)}
+                    className="w-full text-left bg-white border border-purple-200 rounded-lg px-3 py-2 hover:border-purple-400 hover:bg-purple-50 transition-colors">
+                    <p className="text-xs font-semibold text-gray-900">{s.headline}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 truncate">{s.body_text}</p>
+                  </button>
+                ))}
+                <p className="text-xs text-purple-600">Click a suggestion to apply it to the form</p>
+              </div>
+            )}
+          </div>
+
+          {/* Headline */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Headline</label>
+            <input type="text" value={headline} onChange={(e) => setHeadline(e.target.value)} maxLength={40}
+              placeholder="e.g. Save Big This Eid!"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p className="text-xs text-gray-400 mt-1">{headline.length}/40</p>
+          </div>
+
+          {/* Body */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Body Text</label>
+            <textarea value={bodyText} onChange={(e) => setBodyText(e.target.value)} rows={3} maxLength={200}
+              placeholder="e.g. Up to 30% off electronics this Eid. Fast delivery across Nigeria!"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+            <p className="text-xs text-gray-400 mt-1">{bodyText.length}/200</p>
+          </div>
+
+          {/* CTA + URL */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Button</label>
+              <select value={cta} onChange={(e) => setCta(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                {CTA_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Destination URL</label>
+              <input type="url" value={destUrl} onChange={(e) => setDestUrl(e.target.value)}
+                placeholder="https://julinemart.com/..."
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+
+          {/* Media picker */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Media</label>
+            <div className="flex gap-2 mb-3">
+              {([["image", "Image", ImageIcon], ["video", "Video", Video], ["none", "Text Only", FileText]] as [MediaMode, string, React.ElementType][]).map(([mode, label, Icon]) => (
+                <button key={mode} onClick={() => setMediaMode(mode)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                    mediaMode === mode ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-200 text-gray-600 hover:border-gray-300"}`}>
+                  <Icon className="w-3.5 h-3.5" /> {label}
+                </button>
+              ))}
+            </div>
+            {mediaMode === "image" && <ImagePicker value={imageUrl} onChange={setImageUrl} />}
+            {mediaMode === "video" && (
+              <div className="space-y-2">
+                <input ref={videoRef} type="file" accept="video/mp4,video/quicktime" className="hidden" onChange={handleVideoUpload} />
+                {!videoId ? (
+                  <button onClick={() => videoRef.current?.click()} disabled={uploading}
+                    className="flex items-center gap-2 border border-dashed border-gray-300 rounded-lg px-4 py-4 text-sm text-gray-600 hover:border-blue-400 hover:text-blue-600 transition-colors disabled:opacity-50 w-full justify-center">
+                    <Video className="w-4 h-4" />
+                    {uploading ? (uploadProgress || "Uploading...") : "Click to upload video (MP4, max 200 MB)"}
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                    <Video className="w-4 h-4 text-green-600 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-green-800 truncate">{videoTitle}</p>
+                      <p className="text-xs text-green-600">Video ID: {videoId}</p>
+                    </div>
+                    <button onClick={() => { setVideoId(""); setVideoTitle(""); }} className="text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+
+          <button onClick={handleSave} disabled={saving}
+            className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 transition-colors">
+            <Plus className={`w-4 h-4 ${saving ? "animate-pulse" : ""}`} />
+            {saving ? "Saving..." : "Save as Draft"}
+          </button>
+        </div>
+
+        {/* Live preview */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-gray-700">Live Preview</h3>
+          {mediaMode === "video" && videoId ? (
+            <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-xs font-bold">J</div>
+                <div><p className="text-sm font-semibold">JulineMart</p><p className="text-xs text-gray-500">Sponsored</p></div>
+              </div>
+              {bodyText && <p className="text-sm text-gray-800">{bodyText}</p>}
+              <div className="bg-gray-100 rounded-lg aspect-video flex items-center justify-center">
+                <div className="text-center">
+                  <Video className="w-10 h-10 mx-auto mb-2 text-gray-400" />
+                  <p className="text-xs font-medium text-gray-600">{videoTitle || "Your video"}</p>
+                  <p className="text-xs text-gray-400">Uploaded to Meta</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between border-t border-gray-100 pt-3">
+                <div>
+                  <p className="text-xs text-gray-400 uppercase">julinemart.com</p>
+                  <p className="text-sm font-semibold text-gray-900">{headline || "Headline here"}</p>
+                </div>
+                <button className="bg-blue-600 text-white text-xs font-semibold px-3 py-2 rounded-lg">
+                  {CTA_OPTIONS.find((o) => o.value === cta)?.label || "Shop Now"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <FbAdPreview headline={headline} body={bodyText} cta={cta} imageUrl={imageUrl} />
+          )}
+          <p className="text-xs text-gray-400 text-center">Preview is approximate</p>
+        </div>
+      </div>
     </div>
   );
 }

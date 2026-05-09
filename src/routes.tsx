@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
+import { useAuth } from './dashboard/contexts/AuthContext';
 
 import { CustomerContactPage } from './customer-portal/pages/Contact';
 import { CustomerPortalLanding } from './customer-portal/pages/Landing';
@@ -52,10 +53,19 @@ import VendorWithdrawals from './dashboard/pages/VendorWithdrawals';
 import { UnauthorizedPage } from './shared/UnauthorizedPage';
 import { MetaAdsPage } from './dashboard/pages/MetaAds';
 
+// Role-aware landing: social_media_manager goes straight to Meta Ads
+function AdminLanding() {
+  const { user } = useAuth();
+  if (user?.role === 'social_media_manager') {
+    return <Navigate to="/admin/meta-ads" replace />;
+  }
+  return <DashboardHome />;
+}
+
 // Routes accessible by both admin and agent
 const sharedRoutes = [
-  { path: '', element: <DashboardHome /> },
-  { path: 'dashboard', element: <DashboardHome /> },
+  { path: '', element: <AdminLanding /> },
+  { path: 'dashboard', element: <AdminLanding /> },
   { path: 'orders', element: <OrdersPage /> },
   { path: 'orders/create', element: <CreateOrderPage /> },
   {

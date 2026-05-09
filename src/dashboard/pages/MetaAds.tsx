@@ -42,6 +42,7 @@ interface Draft {
   body_text: string;
   call_to_action: string;
   image_url?: string | null;
+  destination_url?: string | null;
   status: string;
   ai_generated: boolean;
   suggested_budget: number | null;
@@ -64,6 +65,7 @@ interface CatalogProduct {
   description: string;
   image_url: string | null;
   category: string;
+  product_url: string | null;
 }
 
 interface AdsContext {
@@ -517,6 +519,49 @@ function ProductSearchCombobox({ selected, onChange }: {
   );
 }
 
+// ─── Destination URL inline editor ───────────────────────────────────────────
+
+function DestinationUrlField({ value, onSave }: { value: string; onSave: (url: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft]     = useState(value);
+
+  useEffect(() => { setDraft(value); }, [value]);
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-2 text-xs">
+        <span className="font-medium text-gray-500">Shop Now link:</span>
+        {value
+          ? <a href={value} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline truncate max-w-xs">{value}</a>
+          : <span className="text-amber-600 font-medium">⚠ Not set — ad will link to homepage</span>
+        }
+        <button onClick={() => setEditing(true)} className="text-gray-400 hover:text-blue-600 underline ml-1">Edit</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="url"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder="https://julinemart.com/product/slug"
+        className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        autoFocus
+      />
+      <button
+        onClick={() => { onSave(draft); setEditing(false); }}
+        className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-700"
+      >Save</button>
+      <button
+        onClick={() => { setDraft(value); setEditing(false); }}
+        className="text-gray-500 px-2 py-1.5 rounded-lg text-xs hover:bg-gray-100"
+      >Cancel</button>
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export function MetaAdsPage() {
@@ -546,6 +591,7 @@ export function MetaAdsPage() {
   const [genTone, setGenTone]           = useState('engaging');
   const [genCount, setGenCount]         = useState(3);
   const [selectedProducts, setSelectedProducts] = useState<CatalogProduct[]>([]);
+  const [destinationUrl, setDestinationUrl]     = useState('');
 
   const loadCampaigns = useCallback(async () => {
     setLoading(true);
@@ -595,6 +641,12 @@ export function MetaAdsPage() {
     } catch { setError('Failed to update campaign status'); }
   };
 
+  // Auto-populate destination URL from the first selected product
+  useEffect(() => {
+    const url = selectedProducts[0]?.product_url || '';
+    if (url) setDestinationUrl(url);
+  }, [selectedProducts]);
+
   const handleGenerate = async () => {
     setGenerating(true);
     setVariations([]);
@@ -628,17 +680,26 @@ export function MetaAdsPage() {
     const res = await api('/api/meta/drafts', {
       method: 'POST',
       body: JSON.stringify({
-        title:          v.headline || v.body_text.slice(0, 50),
-        headline:       v.headline,
-        body_text:      v.body_text,
-        call_to_action: v.call_to_action,
-        image_url:      imageUrl || null,
-        ai_generated:   true,
+        title:           v.headline || v.body_text.slice(0, 50),
+        headline:        v.headline,
+        body_text:       v.body_text,
+        call_to_action:  v.call_to_action,
+        image_url:       imageUrl || null,
+        destination_url: destinationUrl.trim() || null,
+        ai_generated:    true,
         source_products: selectedProducts,
         source_context:  { top_region: context?.top_region, promo: context?.active_promos[0] },
       }),
     });
     if (res.success) { await loadDrafts(); setTab('drafts'); }
+  };
+
+  const handleUpdateDestinationUrl = async (draftId: string, url: string) => {
+    await api(`/api/meta/drafts/${draftId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ destination_url: url.trim() || null }),
+    });
+    await loadDrafts();
   };
 
   const handleApprove = async (id: string) => {
@@ -884,6 +945,19 @@ export function MetaAdsPage() {
                       />
                     </div>
 
+                    {/* Destination URL — editable on non-published drafts */}
+                    {d.status !== 'published' ? (
+                      <DestinationUrlField
+                        value={d.destination_url || ''}
+                        onSave={(url) => handleUpdateDestinationUrl(d.id, url)}
+                      />
+                    ) : d.destination_url ? (
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <span className="font-medium">Shop Now link:</span>
+                        <a href={d.destination_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline truncate">{d.destination_url}</a>
+                      </div>
+                    ) : null}
+
                     {d.status === 'draft' && (
                       <div className="flex flex-col gap-3">
                         <div className="flex gap-2">
@@ -1028,6 +1102,24 @@ export function MetaAdsPage() {
                   selected={selectedProducts}
                   onChange={setSelectedProducts}
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                  Shop Now Link (Destination URL)
+                </label>
+                <input
+                  type="url"
+                  value={destinationUrl}
+                  onChange={(e) => setDestinationUrl(e.target.value)}
+                  placeholder="https://julinemart.com/product/product-slug"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  {selectedProducts[0]?.product_url
+                    ? 'Auto-filled from selected product — edit if needed'
+                    : 'Where the "Shop Now" button takes customers'}
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

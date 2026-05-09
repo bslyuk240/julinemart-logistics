@@ -756,20 +756,17 @@ export function MetaAdsPage() {
       });
       if (res.success) {
         setPublishingId(null);
-        setPublishCampaign(‘’);
-        setPublishCampaignName(‘’);
-        setPublishBudget(‘’);
+        setPublishCampaign("");
+        setPublishCampaignName("");
+        setPublishBudget("");
         loadDrafts();
-        // Sync Meta campaigns so the new campaign/ad appears immediately in the Campaigns tab
-        const syncRes = await api(‘/api/meta/campaigns/sync’, { method: ‘POST’ });
+        const syncRes = await api("/api/meta/campaigns/sync", { method: "POST" });
         await loadCampaigns();
-        setTab(‘campaigns’); // Take the user to Campaigns tab to see the result
+        setTab("campaigns");
         if (!syncRes?.success && syncRes?.error) {
-          setError(
-            `Published! But campaign list didn’t refresh: ${syncRes.error}. Click Sync Campaigns.`
-          );
+          setError("Published! But campaign list did not refresh: " + syncRes.error + ". Click Sync Campaigns.");
         }
-      } else setError(res.error || ‘Publish failed’);
+      } else setError(res.error || "Publish failed");
     } catch { setError('Publish failed'); }
     finally { setPublishing(false); }
   };

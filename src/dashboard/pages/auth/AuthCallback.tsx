@@ -19,11 +19,25 @@ export function AuthCallbackPage() {
       const type  = params.get('type'); // 'invite' | 'recovery' | 'email_change' | null
 
       if (!code) {
-        // Older implicit-flow links put tokens in the hash — hand off to reset-password
+        // Supabase puts success tokens in the hash for implicit flow
         if (window.location.hash.includes('access_token')) {
           navigate('/reset-password', { replace: true });
           return;
         }
+
+        // Supabase reports errors in the hash (e.g. otp_expired, access_denied)
+        if (window.location.hash.includes('error')) {
+          const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+          const errorCode = hashParams.get('error_code');
+          if (errorCode === 'otp_expired') {
+            setError('This link has already been used or has expired. Please request a new one — only the most recent link is valid.');
+          } else {
+            const desc = hashParams.get('error_description');
+            setError(desc ? decodeURIComponent(desc.replace(/\+/g, ' ')) : 'Invalid or expired link. Please request a new one.');
+          }
+          return;
+        }
+
         setError('Invalid or expired link. Please request a new one.');
         return;
       }

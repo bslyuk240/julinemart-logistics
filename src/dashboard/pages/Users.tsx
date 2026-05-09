@@ -344,9 +344,10 @@ function UserForm({ user, roles, onClose, onSave }: UserFormProps) {
         : `${apiBase}/api/users`;
 
       const method = user ? 'PUT' : 'POST';
-      const body = user 
+      // For new users we only send email/name/role — password is set by the user via invite email
+      const body = user
         ? { full_name: formData.full_name, role: formData.role, is_active: formData.is_active }
-        : formData;
+        : { email: formData.email, full_name: formData.full_name, role: formData.role };
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
@@ -358,8 +359,8 @@ function UserForm({ user, roles, onClose, onSave }: UserFormProps) {
 
       if (response.ok) {
         notification.success(
-          user ? 'User Updated' : 'User Created',
-          'User saved successfully'
+          user ? 'User Updated' : 'Invitation Sent',
+          user ? 'User saved successfully' : 'An invite email has been sent. The user will set their own password.'
         );
         onSave();
       } else {
@@ -408,19 +409,9 @@ function UserForm({ user, roles, onClose, onSave }: UserFormProps) {
           </div>
 
           {!user && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Password *
-              </label>
-              <input
-                type="password"
-                name="password"
-                value={formData.password}
-                onChange={handleChange}
-                required
-                minLength={6}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
-              />
+            <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 text-sm text-blue-800">
+              <span className="text-base leading-none mt-0.5">✉️</span>
+              <p>An invitation email will be sent to this address. The user will set their own password when they accept the invite.</p>
             </div>
           )}
 

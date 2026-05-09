@@ -119,7 +119,7 @@ export async function handler(event) {
       if (auth.errorResponse) return auth.errorResponse;
 
       const payload = JSON.parse(event.body || '{}');
-      const { email, password, full_name, role } = payload;
+      const { email, full_name, role } = payload;
 
       if (!supabaseAdmin) {
         return {
@@ -132,13 +132,13 @@ export async function handler(event) {
         };
       }
 
-      if (!email || !password) {
+      if (!email) {
         return {
           statusCode: 400,
           headers,
           body: JSON.stringify({
             success: false,
-            error: 'Email and password are required'
+            error: 'Email is required'
           })
         };
       }
@@ -156,24 +156,25 @@ export async function handler(event) {
         };
       }
 
-      // Create user in auth.users with role in user_metadata.
-      // app_metadata is server-only: triggers that sync auth → public.customers should skip when
-      // public.is_jlo_staff_auth_creation(NEW.raw_app_meta_data) is true (see migration jlo_staff_skip_customers_helper).
-      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: {
+      // Invite the user via email — Supabase sends a "Set up your account" link.
+      // The user clicks it, sets their own password, and lands on the JLO dashboard.
+      const JLO_URL = process.env.JLO_URL || process.env.VITE_APP_URL || 'https://jlo.julinemart.com';
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+        redirectTo: `${JLO_URL}/auth/callback`,
+        data: {
           full_name: full_name || '',
-          role: finalRole
+          role: finalRole,
         },
-        app_metadata: {
-          jlo_staff: true,
-          signup_source: 'jlo'
-        }
       });
 
       if (authError) throw authError;
+
+      // Set app_metadata so DB triggers know this is a JLO staff account
+      if (authData?.user?.id) {
+        await supabaseAdmin.auth.admin.updateUserById(authData.user.id, {
+          app_metadata: { jlo_staff: true, signup_source: 'jlo' },
+        });
+      }
 
       if (!authData?.user) {
         throw new Error('Failed to resolve created user');

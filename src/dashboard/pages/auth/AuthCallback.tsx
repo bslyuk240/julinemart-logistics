@@ -19,8 +19,18 @@ export function AuthCallbackPage() {
       const type  = params.get('type'); // 'invite' | 'recovery' | 'email_change' | null
 
       if (!code) {
-        // Supabase puts success tokens in the hash for implicit flow
+        // Implicit flow — Supabase puts tokens in the URL hash.
+        // Set the session NOW (before navigating) so /reset-password
+        // can find it immediately via getSession(). Without this,
+        // the hash is dropped during navigation and the session isn't
+        // in localStorage yet → "Link Expired" on first load.
         if (window.location.hash.includes('access_token')) {
+          const hp = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+          const accessToken  = hp.get('access_token');
+          const refreshToken = hp.get('refresh_token');
+          if (accessToken && refreshToken) {
+            await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+          }
           navigate('/reset-password', { replace: true });
           return;
         }

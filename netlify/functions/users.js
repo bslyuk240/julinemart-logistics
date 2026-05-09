@@ -175,7 +175,7 @@ export async function handler(event) {
       // The user clicks it, sets their own password, and lands on the JLO dashboard.
       const JLO_URL = process.env.JLO_URL || process.env.VITE_APP_URL || 'https://jlo.julinemart.com';
       const { data: authData, error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-        redirectTo: `${JLO_URL}/auth/callback`,
+        redirectTo: `${JLO_URL}/auth/callback?type=invite`,
         data: {
           full_name: full_name || '',
           role: finalRole,

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Users as UsersIcon, Plus, Edit, Trash2, Shield, Eye, EyeOff } from 'lucide-react';
+import { Users as UsersIcon, Plus, Edit, Trash2, Shield, Eye, EyeOff, Mail } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../contexts/AuthContext';
 
 interface User {
   id: string;
@@ -103,6 +104,19 @@ export function UsersPage() {
   const handleEdit = (user: User) => {
     setEditingUser(user);
     setShowForm(true);
+  };
+
+  const handleSendReset = async (email: string) => {
+    try {
+      const origin = window.location.origin;
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${origin}/auth/callback?type=recovery`,
+      });
+      if (error) throw error;
+      notification.success('Reset Email Sent', `A password reset link has been sent to ${email}`);
+    } catch (err: any) {
+      notification.error('Error', err?.message || 'Failed to send reset email');
+    }
   };
 
   const handleDelete = async (userId: string, email: string) => {
@@ -266,6 +280,15 @@ export function UsersPage() {
                   >
                     <Edit className="w-4 h-4 mr-1" />
                     Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSendReset(user.email)}
+                    className="flex-1 flex items-center justify-center gap-1 text-sm border border-gray-300 rounded-lg px-3 py-2 text-gray-700 hover:bg-gray-50 transition-colors"
+                    title="Send password reset email"
+                  >
+                    <Mail className="w-4 h-4" />
+                    Reset
                   </button>
                   <button
                     type="button"

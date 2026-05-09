@@ -12,6 +12,7 @@ import { ProtectedRoute } from './components/ProtectedRoute';
 import { DashboardLayout } from './dashboard/components/DashboardLayout';
 import { ActivityLogsPage } from './dashboard/pages/ActivityLogs';
 import { AnalyticsPage } from './dashboard/pages/Analytics';
+import { AuthCallbackPage } from './dashboard/pages/auth/AuthCallback';
 import { ForgotPasswordPage } from './dashboard/pages/auth/ForgotPassword';
 import { LoginPage } from './dashboard/pages/auth/Login';
 import { ResetPasswordPage } from './dashboard/pages/auth/ResetPassword';
@@ -165,6 +166,10 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     element: <LoginPage />,
+  },
+  {
+    path: '/auth/callback',
+    element: <AuthCallbackPage />,
   },
   {
     path: '/forgot-password',

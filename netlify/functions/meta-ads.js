@@ -359,7 +359,7 @@ async function getProductsWithImages() {
 async function searchCatalogProducts(search) {
   let q = supabase
     .from('products')
-    .select('id, name, short_description, regular_price, sale_price, product_images(src, is_thumbnail)')
+    .select('id, name, slug, short_description, regular_price, sale_price, product_images(src, is_thumbnail)')
     .eq('status', 'published')
     .order('name', { ascending: true })
     .limit(200);
@@ -380,10 +380,28 @@ async function searchCatalogProducts(search) {
       price:       Number(p.sale_price || p.regular_price || 0),
       image_url:   thumb?.src || null,
       category:    'general',
+      product_url: p.slug ? `${STORE_URL}/product/${p.slug}` : null,
     };
   });
 
   return ok(products);
+}
+
+async function updateDraft(draftId, body, userId) {
+  const { destination_url } = body;
+  if (!draftId) return err('Draft ID required', 400);
+
+  const { data: draft } = await supabase.from('meta_ad_drafts').select('status').eq('id', draftId).single();
+  if (!draft) return err('Draft not found', 404);
+  if (draft.status === 'published') return err('Cannot edit a published draft', 400);
+
+  const updates = {};
+  if (destination_url !== undefined) updates.destination_url = destination_url || null;
+
+  const { error } = await supabase.from('meta_ad_drafts').update(updates).eq('id', draftId);
+  if (error) throw error;
+
+  return ok({ updated: true });
 }
 
 // ── Image upload to Supabase Storage ─────────────────────────────────────────
@@ -662,6 +680,10 @@ export async function handler(event) {
     // PUT /api/meta/drafts/:id/reject
     const rejectMatch = path.match(/^drafts\/([^/]+)\/reject$/);
     if (rejectMatch && method === 'PUT') return await rejectDraft(rejectMatch[1], userId, body.note);
+
+    // PUT /api/meta/drafts/:id  (update fields like destination_url)
+    const draftUpdateMatch = path.match(/^drafts\/([^/]+)$/);
+    if (draftUpdateMatch && method === 'PUT') return await updateDraft(draftUpdateMatch[1], body, userId);
 
     // DELETE /api/meta/drafts/:id
     const draftDeleteMatch = path.match(/^drafts\/([^/]+)$/);

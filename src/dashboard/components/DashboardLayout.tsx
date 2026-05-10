@@ -81,6 +81,7 @@ const navigation: NavItem[] = [
   { name: 'Shipping Discounts', href: '/admin/discounts', icon: Percent, roles: ['admin'] },
   { name: 'Vendors', href: '/admin/vendors', icon: Store, roles: ['admin', 'manager'] },
   { name: 'Vendor Payouts', href: '/admin/vendor-withdrawals', icon: Wallet, roles: ['admin', 'manager'] },
+  { name: 'Vendor Locations', href: '/admin/vendor-locations', icon: MapPin, roles: ['admin', 'manager'] },
   { name: 'Vouchers', href: '/admin/vouchers', icon: Ticket, roles: ['admin'] },
   { name: 'Meta Ads', href: '/admin/meta-ads', icon: TrendingUp, roles: ['admin', 'manager', 'social_media_manager'] },
   { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },

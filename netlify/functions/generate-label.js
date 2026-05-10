@@ -458,7 +458,16 @@ exports.handler = async (event) => {
           address,
           city,
           state,
-          phone
+          phone,
+          is_sub_hub,
+          parent_hub_id,
+          parent_hub:hubs!parent_hub_id (
+            name,
+            address,
+            city,
+            state,
+            phone
+          )
         ),
         vendors (
           fez_collection_method,
@@ -508,7 +517,9 @@ exports.handler = async (event) => {
     const labelData = {
       tracking_number: subOrder.tracking_number,
       order_number: subOrder.orders.order_number,
-      // Sender address: vendor's shop for fez_pickup, hub address for hub_dropoff
+      // Sender address: vendor's shop for fez_pickup, dispatch hub for hub_dropoff.
+      // If vendor's hub is a sub-hub, the parcel is consolidated at the parent (main) hub
+      // before Fez collects — so the label sender is the main hub.
       ...(subOrder.vendors?.fez_collection_method === 'fez_pickup'
         ? {
             sender_name:    subOrder.vendors.store_name || subOrder.hubs?.name || 'JulineMart',
@@ -516,12 +527,17 @@ exports.handler = async (event) => {
             sender_city:    `${subOrder.vendors.city || ''}, ${subOrder.vendors.state || ''}`.replace(/^,\s*|,\s*$/, ''),
             sender_phone:   subOrder.vendors.phone      || subOrder.hubs?.phone || '',
           }
-        : {
-            sender_name:    subOrder.hubs?.name    || 'JulineMart',
-            sender_address: subOrder.hubs?.address || '',
-            sender_city:    `${subOrder.hubs?.city || ''}, ${subOrder.hubs?.state || ''}`.replace(/^,\s*|,\s*$/, ''),
-            sender_phone:   subOrder.hubs?.phone   || '',
-          }
+        : (() => {
+            const senderHub = subOrder.hubs?.is_sub_hub && subOrder.hubs?.parent_hub
+              ? subOrder.hubs.parent_hub
+              : subOrder.hubs;
+            return {
+              sender_name:    senderHub?.name    || 'JulineMart',
+              sender_address: senderHub?.address || '',
+              sender_city:    `${senderHub?.city || ''}, ${senderHub?.state || ''}`.replace(/^,\s*|,\s*$/, ''),
+              sender_phone:   senderHub?.phone   || '',
+            };
+          })()
       ),
       recipient_name: subOrder.orders.customer_name,
       recipient_address: subOrder.orders.delivery_address,

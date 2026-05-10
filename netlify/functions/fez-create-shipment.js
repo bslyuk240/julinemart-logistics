@@ -241,7 +241,15 @@ exports.handler = async (event) => {
           name,
           address,
           city,
-          state
+          state,
+          is_sub_hub,
+          parent_hub_id,
+          parent_hub:hubs!parent_hub_id (
+            name,
+            address,
+            city,
+            state
+          )
         ),
         vendors (
           fez_collection_method,
@@ -344,18 +352,25 @@ exports.handler = async (event) => {
       weight: Math.max(1, Math.round(totalWeight)) || 1,
       // Pickup address depends on vendor's collection preference:
       // fez_pickup  → Fez rides to vendor's shop
-      // hub_dropoff → Fez collects from JulineMart hub (default / legacy behaviour)
+      // hub_dropoff → Fez collects from the dispatch hub
+      //               Sub-hub: parcel has been consolidated at main hub → use parent hub address
+      //               Main hub: use this hub's address directly
       ...(subOrder.vendors?.fez_collection_method === 'fez_pickup'
         ? {
             pickUpAddress:    subOrder.vendors.address || subOrder.hubs?.address || "",
             pickUpState:      subOrder.vendors.state   || subOrder.hubs?.state   || "",
             additionalDetails: `Vendor pickup: ${subOrder.vendors.city || ''} — ${subOrder.vendors.address || ''}`,
           }
-        : {
-            pickUpAddress:    subOrder.hubs?.address || "",
-            pickUpState:      subOrder.hubs?.state   || "",
-            additionalDetails: `Hub: ${subOrder.hubs?.name || 'JulineMart'}, ${subOrder.hubs?.city || ''}`,
-          }
+        : (() => {
+            const dispatchHub = subOrder.hubs?.is_sub_hub && subOrder.hubs?.parent_hub
+              ? subOrder.hubs.parent_hub
+              : subOrder.hubs;
+            return {
+              pickUpAddress:    dispatchHub?.address || "",
+              pickUpState:      dispatchHub?.state   || "",
+              additionalDetails: `Hub: ${dispatchHub?.name || 'JulineMart'}, ${dispatchHub?.city || ''}`,
+            };
+          })()
       )
     };
 

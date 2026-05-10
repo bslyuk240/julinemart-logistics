@@ -27,6 +27,7 @@ interface Vendor {
     fez_hub_name: string | null;
     fez_hub_address: string | null;
     vendor_pickup_surcharge: number | null;
+    hubs: { name: string; address: string | null; city: string | null } | null;
   } | null;
   woocommerce_vendor_id: string;
 }

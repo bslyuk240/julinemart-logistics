@@ -397,14 +397,25 @@ export default function Orders() {
                       <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-3 items-start">
                         <Truck className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
                         <div>
-                          <p className="text-sm font-semibold text-amber-800">Drop off at Fez hub</p>
-                          <p className="text-xs text-amber-700 mt-0.5">
-                            Stick the label on the package and drop it at your nearest Fez collection hub.
-                            {vendor?.approved_vendor_locations?.fez_hub_name &&
-                              ` Nearest hub: ${vendor.approved_vendor_locations.fez_hub_name}`}
-                            {vendor?.approved_vendor_locations?.fez_hub_address &&
-                              ` — ${vendor.approved_vendor_locations.fez_hub_address}.`}
-                          </p>
+                          {(() => {
+                            const jloHub = vendor?.approved_vendor_locations?.hubs;
+                            const hubName = jloHub?.name || vendor?.approved_vendor_locations?.fez_hub_name;
+                            const hubAddress = jloHub?.address || vendor?.approved_vendor_locations?.fez_hub_address;
+                            const isJloHub = !!jloHub?.name;
+                            return (
+                              <>
+                                <p className="text-sm font-semibold text-amber-800">
+                                  Drop off at {isJloHub ? 'JulineMart hub' : 'Fez hub'}
+                                </p>
+                                <p className="text-xs text-amber-700 mt-0.5">
+                                  Stick the label on the package and drop it at{' '}
+                                  {isJloHub ? 'the JulineMart hub' : 'your nearest Fez collection hub'}.
+                                  {hubName && ` Hub: ${hubName}`}
+                                  {hubAddress && ` — ${hubAddress}.`}
+                                </p>
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                     )}

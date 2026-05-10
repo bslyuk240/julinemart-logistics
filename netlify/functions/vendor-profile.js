@@ -17,7 +17,7 @@ export async function handler(event) {
     // Join approved_vendor_locations so vendor portal can display hub name/address
     const { data: fullVendor } = await getAdminClient()
       .from('vendors')
-      .select('*, approved_vendor_locations(fez_hub_name, fez_hub_address, vendor_pickup_surcharge)')
+      .select('*, approved_vendor_locations(fez_hub_name, fez_hub_address, vendor_pickup_surcharge, hubs(name, address, city))')
       .eq('id', vendor.id)
       .single();
     return {

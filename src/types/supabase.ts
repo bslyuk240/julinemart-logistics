@@ -2965,6 +2965,45 @@ export type Database = {
           },
         ]
       }
+      pwa_install_events: {
+        Row: {
+          id: string
+          event_name: string
+          platform: string | null
+          is_standalone: boolean | null
+          customer_id: string | null
+          anonymous_id: string | null
+          user_agent: string | null
+          source_page: string | null
+          metadata: Json | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          event_name: string
+          platform?: string | null
+          is_standalone?: boolean | null
+          customer_id?: string | null
+          anonymous_id?: string | null
+          user_agent?: string | null
+          source_page?: string | null
+          metadata?: Json | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          event_name?: string
+          platform?: string | null
+          is_standalone?: boolean | null
+          customer_id?: string | null
+          anonymous_id?: string | null
+          user_agent?: string | null
+          source_page?: string | null
+          metadata?: Json | null
+          created_at?: string | null
+        }
+        Relationships: []
+      }
       return_requests: {
         Row: {
           created_at: string | null

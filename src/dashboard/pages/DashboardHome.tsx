@@ -406,6 +406,7 @@ export function DashboardHome() {
         {!pwaStats ? (
           <p className="text-sm text-gray-500">No install data yet. Data will appear once customers interact with the install prompt.</p>
         ) : (
+          <>
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
             <div className="bg-purple-50 rounded-lg p-3 text-center">
               <p className="text-2xl font-bold text-purple-700">{pwaStats.promptShown}</p>
@@ -463,6 +464,7 @@ export function DashboardHome() {
               </div>
             </div>
           </div>
+          </>
         )}
       </div>
     </div>

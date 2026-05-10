@@ -64,6 +64,7 @@ import {
 import { sendTestEmail, sendTestEmailWithTemplate } from './services/emailService.js';
 import { getRefundRequests, updateRefundRequestMeta, addRefundOrderNote, createWooRefund } from './routes/refundRequests.js';
 import { getReturnShipmentsByOrder, updateReturnShipmentStatus, getReturnRequestIdByWooOrder, createReturnRequest, createReturnShipment } from './routes/returnShipments.js';
+import { getPwaStatsHandler } from './routes/pwaStats.js';
 import {
   getCampaignsHandler,
   syncCampaignsHandler,
@@ -377,6 +378,10 @@ app.get('/api/meta/recommendations',        authenticate, requireRole('admin', '
 app.get('/api/meta/context',                authenticate, requireRole('admin', 'manager'), getAdsContextHandler);
 
 console.log('📣 Meta Ads routes registered');
+
+// PWA install analytics (admin only)
+app.get('/api/pwa-stats', authenticate, requireRole('admin', 'manager'), getPwaStatsHandler);
+console.log('📲 PWA stats route registered');
 
 // 404 handler
 app.use((req: Request, res: Response) => {

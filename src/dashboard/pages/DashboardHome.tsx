@@ -1,5 +1,5 @@
 import { MapPin, Package, TrendingUp, Truck } from 'lucide-react';
-import { MessageSquare, Tag, Users } from 'lucide-react';
+import { MessageSquare, Tag, Users, Smartphone } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { callSupabaseFunction, callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
 import { supabase } from '../contexts/AuthContext';
@@ -58,6 +58,18 @@ interface ZoneOrderCount {
   orders: number;
 }
 
+interface PwaStats {
+  promptShown: number;
+  installClicked: number;
+  installAccepted: number;
+  installDismissed: number;
+  appInstalled: number;
+  standaloneOpens: number;
+  androidInstalls: number;
+  iosStandaloneOpens: number;
+  androidStandaloneOpens: number;
+}
+
 export function DashboardHome() {
   const [stats, setStats] = useState<Stats>({
     totalOrders: 0,
@@ -71,10 +83,11 @@ export function DashboardHome() {
   const [recentChats, setRecentChats] = useState<WhatsAppChatSummary[]>([]);
   const [activeDiscounts, setActiveDiscounts] = useState<ShippingDiscountSummary[]>([]);
   const [ordersByZone, setOrdersByZone] = useState<ZoneOrderCount[]>([]);
+  const [pwaStats, setPwaStats] = useState<PwaStats | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
-      const [statsData, ordersData, influencersData, chatsResponse, discountsResponse] = await Promise.all([
+      const [statsData, ordersData, influencersData, chatsResponse, discountsResponse, pwaResponse] = await Promise.all([
         callSupabaseFunction('stats', { method: 'GET' }),
         callSupabaseFunctionWithQuery('orders', { limit: '200', offset: '0' }, { method: 'GET' }),
         callSupabaseFunctionWithQuery('influencers', { status: 'active' }, { method: 'GET' }),
@@ -85,6 +98,7 @@ export function DashboardHome() {
           .eq('is_active', true)
           .order('created_at', { ascending: false })
           .limit(5),
+        callSupabaseFunction('pwa-stats', { method: 'GET' }),
       ]);
 
       console.log('[DEBUG] Raw statsData response:', JSON.stringify(statsData, null, 2));
@@ -138,6 +152,12 @@ export function DashboardHome() {
         setActiveDiscounts(discountsResponse.data);
       } else {
         setActiveDiscounts([]);
+      }
+
+      if (pwaResponse?.success && pwaResponse?.data) {
+        setPwaStats(pwaResponse.data as PwaStats);
+      } else if (pwaResponse?.data) {
+        setPwaStats(pwaResponse.data as PwaStats);
       }
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -323,6 +343,51 @@ export function DashboardHome() {
                     <span className="text-sm text-blue-600">{zone.orders} orders</span>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+
+          <div className="card col-span-1 sm:col-span-2">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">PWA App Installs</h2>
+              <Smartphone className="w-5 h-5 text-purple-600" />
+            </div>
+            {!pwaStats ? (
+              <p className="text-sm text-gray-500">No install data yet.</p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="bg-purple-50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-purple-700">{pwaStats.promptShown}</p>
+                  <p className="text-xs text-gray-500 mt-1">Prompt Shown</p>
+                </div>
+                <div className="bg-blue-50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-blue-700">{pwaStats.installClicked}</p>
+                  <p className="text-xs text-gray-500 mt-1">Install Clicked</p>
+                </div>
+                <div className="bg-green-50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-green-700">{pwaStats.appInstalled}</p>
+                  <p className="text-xs text-gray-500 mt-1">Confirmed Installs</p>
+                </div>
+                <div className="bg-orange-50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-orange-700">{pwaStats.standaloneOpens}</p>
+                  <p className="text-xs text-gray-500 mt-1">Standalone Opens</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-gray-700">{pwaStats.androidInstalls}</p>
+                  <p className="text-xs text-gray-500 mt-1">Android Installs</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-gray-700">{pwaStats.iosStandaloneOpens}</p>
+                  <p className="text-xs text-gray-500 mt-1">iOS App Opens</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-gray-700">{pwaStats.installDismissed}</p>
+                  <p className="text-xs text-gray-500 mt-1">Dismissed</p>
+                </div>
+                <div className="bg-gray-50 rounded-lg p-3 text-center">
+                  <p className="text-2xl font-bold text-gray-700">{pwaStats.androidStandaloneOpens}</p>
+                  <p className="text-xs text-gray-500 mt-1">Android App Opens</p>
+                </div>
               </div>
             )}
           </div>

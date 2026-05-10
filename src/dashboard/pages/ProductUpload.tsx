@@ -26,8 +26,8 @@ import { clearProductListSessionCache } from '../lib/productListSessionCache';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface VendorOption { id: string; store_name: string; store_slug: string }
-interface HubOption    { id: string; name: string; code: string }
+interface VendorOption { id: string; store_name: string; store_slug: string; hub_id?: string }
+interface HubOption    { id: string; name: string; code: string; is_sub_hub?: boolean; parent_hub_name?: string }
 interface CatOption    { id: string; name: string; slug: string; parent_id: string | null }
 interface TagOption    { id: string; name: string; slug: string }
 
@@ -489,7 +489,12 @@ export default function ProductUpload() {
           meta('vendors'), meta('hubs'), meta('categories'), meta('tags'),
         ]);
         setVendors(vData.data || []);
-        setHubs(hData.data || []);
+        setHubs(
+          (hData.data || []).map((h: any) => ({
+            ...h,
+            parent_hub_name: h.parent_hub?.name ?? undefined,
+          }))
+        );
         setAllCategories(cData.data || []);
         setAllTags(tData.data || []);
       } finally {
@@ -967,7 +972,12 @@ export default function ProductUpload() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Vendor *</label>
               <select
                 value={form.vendor_id}
-                onChange={(e) => set('vendor_id', e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  set('vendor_id', val);
+                  const v = vendors.find((v) => v.id === val);
+                  if (v?.hub_id) set('hub_id', v.hub_id);
+                }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
               >
                 <option value="">Select vendor...</option>
@@ -985,7 +995,11 @@ export default function ProductUpload() {
               >
                 <option value="">No hub (ships from vendor)</option>
                 {hubs.map((h) => (
-                  <option key={h.id} value={h.id}>{h.name} ({h.code})</option>
+                  <option key={h.id} value={h.id}>
+                    {h.is_sub_hub
+                      ? `↳ ${h.name} (Sub-hub → ${h.parent_hub_name ?? '?'})`
+                      : `${h.name} (${h.code})`}
+                  </option>
                 ))}
               </select>
             </div>

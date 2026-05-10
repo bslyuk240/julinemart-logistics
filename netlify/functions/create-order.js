@@ -385,27 +385,39 @@ export async function handler(event) {
     )];
 
     const hubCourierMap = {};
+    const hubCityMap = {};
+
     if (hubIds.length > 0) {
-      const { data: hcRows } = await adminClient
-        .from('hub_couriers')
-        .select('hub_id, courier_id, priority, couriers!inner(code)')
-        .in('hub_id', hubIds)
-        .eq('is_primary', true)
-        .order('hub_id')
-        .order('priority', { ascending: false });
+      const [{ data: hcRows }, { data: hubRows }] = await Promise.all([
+        adminClient
+          .from('hub_couriers')
+          .select('hub_id, courier_id, priority, couriers!inner(code)')
+          .in('hub_id', hubIds)
+          .eq('is_primary', true)
+          .order('hub_id')
+          .order('priority', { ascending: false }),
+        adminClient
+          .from('hubs')
+          .select('id, city')
+          .in('id', hubIds),
+      ]);
 
       for (const row of (hcRows || [])) {
         const hubId = row.hub_id;
         const isFez = row.couriers?.code?.toLowerCase() === 'fez';
         if (!hubCourierMap[hubId]) {
-          // First result for this hub (highest priority)
           hubCourierMap[hubId] = { courierId: row.courier_id, hasFez: isFez };
         } else if (isFez && !hubCourierMap[hubId].hasFez) {
-          // Override with Fez if we haven't found one yet
           hubCourierMap[hubId] = { courierId: row.courier_id, hasFez: true };
         }
       }
+
+      for (const h of (hubRows || [])) {
+        hubCityMap[h.id] = (h.city || '').trim().toLowerCase();
+      }
     }
+
+    const custCity = (delivery_city || '').trim().toLowerCase();
 
     const subOrderRows = Array.from(vendorGroups.values()).map((g) => {
       const sourcedItems = g.items.filter(
@@ -413,9 +425,16 @@ export async function handler(event) {
       );
       const sourceSeed = sourcedItems[0]?.globalSourcing || null;
 
+      const hubCity = hubCityMap[g.hub_id] || '';
+      const isLocalEligible = hubCity && custCity && hubCity === custCity;
+      const eligible_lanes = isLocalEligible ? ['local_rider', 'fez'] : ['fez'];
+      const selected_lane = isLocalEligible ? 'local_rider' : 'fez';
+
       const baseMetadata = {
         source: 'pwa',
         order_confirmation_handler: 'netlify_create_order',
+        eligible_lanes,
+        selected_lane,
       };
 
       const metadata = sourceSeed

@@ -1,22 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader, RefreshCw, Truck } from 'lucide-react';
+import { Loader, RefreshCw, Truck, User } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 
-type Hub = {
-  id: string;
-  name: string;
-  city?: string | null;
-};
+type Hub = { id: string; name: string; city?: string | null };
 
-type ShipmentRow = {
+type SubOrderRow = {
   id: string;
+  main_order_id: string;
   hub_id: string | null;
+  vendor_id: string | null;
   courier_shipment_id?: string | null;
   tracking_number?: string | null;
   metadata?: Record<string, any> | null;
   subtotal?: number | null;
+  items?: Array<{ weight?: number; quantity?: number; name?: string }> | null;
+  vendors?: { store_name?: string | null } | null;
   orders?: {
     woocommerce_order_id?: string | null;
+    order_number?: string | number | null;
     customer_name?: string | null;
     customer_phone?: string | null;
     delivery_address?: string | null;
@@ -25,109 +26,139 @@ type ShipmentRow = {
   } | null;
 };
 
-const getSelectedLane = (row: ShipmentRow): string => {
-  return row?.metadata?.selected_lane === 'local_rider' ? 'local_rider' : 'fez';
+type OrderGroup = {
+  orderKey: string; // main_order_id
+  orderLabel: string;
+  customer: string;
+  destination: string;
+  vendorNames: string[];
+  combinedWeight: number;
+  combinedSubtotal: number;
+  subOrderIds: string[];
+  alreadyDispatched: boolean;
 };
+
+function isValidTracking(v?: string | null) {
+  if (!v) return false;
+  const bad = ['error', 'cannot', 'failed', 'jlo-', 'cr-'];
+  return !bad.some((b) => v.toLowerCase().includes(b));
+}
+
+function calcWeight(items?: SubOrderRow['items']) {
+  if (!Array.isArray(items)) return 0;
+  return items.reduce((s, i) => s + Number(i.weight || 0) * Number(i.quantity || 1), 0);
+}
 
 export function HubDispatchPage() {
   const notification = useNotification();
   const [hubs, setHubs] = useState<Hub[]>([]);
   const [selectedHubId, setSelectedHubId] = useState<string>('');
-  const [subOrders, setSubOrders] = useState<ShipmentRow[]>([]);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [refreshing, setRefreshing] = useState<boolean>(false);
-  const [dispatching, setDispatching] = useState<boolean>(false);
-  const [force, setForce] = useState<boolean>(false);
+  const [subOrders, setSubOrders] = useState<SubOrderRow[]>([]);
+  const [selectedGroupKeys, setSelectedGroupKeys] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
+  const [force, setForce] = useState(false);
+  const [riderModal, setRiderModal] = useState<string | null>(null);
+  const [riderInfo, setRiderInfo] = useState({ name: '', phone: '', vehicle: '' });
+  const [assigningRider, setAssigningRider] = useState(false);
 
-  const filteredSubOrders = useMemo(() => {
-    return subOrders.filter((row) => {
-      if (getSelectedLane(row) !== 'fez') return false;
-      if (!force && row.courier_shipment_id) return false;
-      return true;
+  const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
+
+  // ── Split into Fez groups and local deliveries ───────────────────────────
+  const fezGroups = useMemo<OrderGroup[]>(() => {
+    const fezRows = subOrders.filter((r) => {
+      const lane = r.metadata?.selected_lane || 'fez';
+      return lane === 'fez';
     });
+
+    const map = new Map<string, OrderGroup>();
+    for (const row of fezRows) {
+      const key = row.main_order_id;
+      if (!map.has(key)) {
+        const o = row.orders;
+        const label = o?.order_number
+          ? `#${o.order_number}`
+          : o?.woocommerce_order_id
+          ? `#${o.woocommerce_order_id}`
+          : `#${key.slice(0, 8)}`;
+        map.set(key, {
+          orderKey: key,
+          orderLabel: label,
+          customer: o?.customer_name || '—',
+          destination: [o?.delivery_city, o?.delivery_state].filter(Boolean).join(', '),
+          vendorNames: [],
+          combinedWeight: 0,
+          combinedSubtotal: 0,
+          subOrderIds: [],
+          alreadyDispatched: true,
+        });
+      }
+      const g = map.get(key)!;
+      if (row.vendors?.store_name) g.vendorNames.push(row.vendors.store_name);
+      g.combinedWeight += calcWeight(row.items);
+      g.combinedSubtotal += Number(row.subtotal || 0);
+      g.subOrderIds.push(row.id);
+      if (!force && !isValidTracking(row.tracking_number)) {
+        g.alreadyDispatched = false;
+      }
+    }
+
+    return Array.from(map.values()).filter((g) => force || !g.alreadyDispatched);
   }, [subOrders, force]);
 
-  const selectedRows = useMemo(
-    () => filteredSubOrders.filter((row) => selectedIds.includes(row.id)),
-    [filteredSubOrders, selectedIds]
-  );
+  const localRows = useMemo(() => {
+    return subOrders.filter((r) => {
+      const lane = r.metadata?.selected_lane;
+      return lane === 'local_rider';
+    });
+  }, [subOrders]);
 
-  const formatDestination = (row: ShipmentRow) => {
-    const address = row.orders?.delivery_address || '';
-    const city = row.orders?.delivery_city || '';
-    const state = row.orders?.delivery_state || '';
-    return `${address}${address && (city || state) ? ', ' : ''}${city}${city && state ? ', ' : ''}${state}`.trim();
+  const allFezSelected =
+    fezGroups.length > 0 && fezGroups.every((g) => selectedGroupKeys.includes(g.orderKey));
+
+  const toggleAllFez = () => {
+    if (allFezSelected) setSelectedGroupKeys([]);
+    else setSelectedGroupKeys(fezGroups.map((g) => g.orderKey));
   };
 
-  const fetchHubs = async () => {
-    const response = await fetch('/.netlify/functions/hubs');
-    const payload = await response.json();
-    if (!response.ok || !payload?.success) {
-      throw new Error(payload?.error || payload?.message || 'Unable to load hubs');
-    }
-
-    const rows = ((payload.data || []) as Hub[]).filter((hub: any) =>
-      hub?.is_active !== false
+  const toggleGroup = (key: string) =>
+    setSelectedGroupKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
     );
+
+  const fetchHubs = async () => {
+    const res = await fetch('/.netlify/functions/hubs');
+    const payload = await res.json();
+    if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load hubs');
+    const rows = ((payload.data || []) as any[]).filter((h) => h?.is_active !== false);
     setHubs(rows);
-    if (!selectedHubId && rows.length > 0) {
-      setSelectedHubId(rows[0].id);
-    }
+    if (!selectedHubId && rows.length > 0) setSelectedHubId(rows[0].id);
   };
 
   const fetchSubOrders = async (hubId: string) => {
-    if (!hubId) {
-      setSubOrders([]);
-      return;
-    }
-
-    const response = await fetch(
-      `/.netlify/functions/hub-dispatch-list?hubId=${encodeURIComponent(hubId)}`
-    );
-    const payload = await response.json();
-    if (!response.ok || !payload?.success) {
-      throw new Error(
-        payload?.error || payload?.message || 'Unable to load hub shipments'
-      );
-    }
-
-    setSubOrders((payload.data || []) as ShipmentRow[]);
-    setSelectedIds([]);
+    if (!hubId) { setSubOrders([]); return; }
+    const res = await fetch(`/.netlify/functions/hub-dispatch-list?hubId=${encodeURIComponent(hubId)}`);
+    const payload = await res.json();
+    if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load hub shipments');
+    setSubOrders((payload.data || []) as SubOrderRow[]);
+    setSelectedGroupKeys([]);
   };
 
   const refreshAll = async () => {
     setRefreshing(true);
-    try {
-      await fetchSubOrders(selectedHubId);
-    } catch (error) {
-      console.error('Failed to refresh hub dispatch list:', error);
-      notification.error(
-        'Refresh Failed',
-        error instanceof Error ? error.message : 'Unable to load shipments'
-      );
-    } finally {
-      setRefreshing(false);
-    }
+    try { await fetchSubOrders(selectedHubId); }
+    catch (err) { notification.error('Refresh Failed', err instanceof Error ? err.message : 'Unable to load shipments'); }
+    finally { setRefreshing(false); }
   };
 
   useEffect(() => {
-    const boot = async () => {
+    (async () => {
       setLoading(true);
-      try {
-        await fetchHubs();
-      } catch (error) {
-        console.error('Failed to load hubs:', error);
-        notification.error(
-          'Load Failed',
-          error instanceof Error ? error.message : 'Unable to load hubs'
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void boot();
+      try { await fetchHubs(); }
+      catch (err) { notification.error('Load Failed', err instanceof Error ? err.message : 'Unable to load hubs'); }
+      finally { setLoading(false); }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -137,61 +168,57 @@ export function HubDispatchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedHubId, force]);
 
-  const allSelected =
-    filteredSubOrders.length > 0 &&
-    filteredSubOrders.every((row) => selectedIds.includes(row.id));
-
-  const toggleAll = () => {
-    if (allSelected) {
-      setSelectedIds([]);
-      return;
-    }
-    setSelectedIds(filteredSubOrders.map((row) => row.id));
-  };
-
-  const toggleOne = (id: string) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
-  };
-
   const dispatchSelected = async () => {
-    if (!selectedHubId || selectedIds.length === 0) {
-      return;
-    }
+    if (!selectedHubId || selectedGroupKeys.length === 0) return;
+    const subOrderIds = fezGroups
+      .filter((g) => selectedGroupKeys.includes(g.orderKey))
+      .flatMap((g) => g.subOrderIds);
 
     setDispatching(true);
     try {
-      const response = await fetch('/.netlify/functions/fez-create-shipment-batch', {
+      const res = await fetch(`${functionsBase}/fez-create-shipment-batch`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          hubId: selectedHubId,
-          subOrderIds: selectedIds,
-          force,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hubId: selectedHubId, subOrderIds, force }),
       });
-
-      const payload = await response.json();
-      if (!response.ok || !payload?.success) {
-        throw new Error(payload?.error || payload?.message || 'Batch dispatch failed');
-      }
-
+      const payload = await res.json();
+      if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Batch dispatch failed');
       notification.success(
         'Batch Dispatch Complete',
         `Success: ${payload.counts?.successes || 0}, Failed: ${payload.counts?.failures || 0}, Skipped: ${payload.counts?.skipped || 0}`
       );
       await refreshAll();
-    } catch (error) {
-      console.error('Batch dispatch failed:', error);
-      notification.error(
-        'Dispatch Failed',
-        error instanceof Error ? error.message : 'Unable to dispatch selected shipments'
-      );
+    } catch (err) {
+      notification.error('Dispatch Failed', err instanceof Error ? err.message : 'Unable to dispatch');
     } finally {
       setDispatching(false);
+    }
+  };
+
+  const assignRider = async (subOrderId: string) => {
+    if (!riderInfo.name || !riderInfo.phone) return;
+    setAssigningRider(true);
+    try {
+      const res = await fetch(`${functionsBase}/assign-rider`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sub_order_id: subOrderId,
+          rider_name: riderInfo.name.trim(),
+          rider_phone: riderInfo.phone.trim(),
+          rider_vehicle: riderInfo.vehicle || null,
+        }),
+      });
+      const payload = await res.json();
+      if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Failed to assign rider');
+      notification.success('Rider Assigned', 'Local rider saved for this shipment');
+      setRiderModal(null);
+      setRiderInfo({ name: '', phone: '', vehicle: '' });
+      await refreshAll();
+    } catch (err) {
+      notification.error('Assignment Failed', err instanceof Error ? err.message : 'Unable to assign rider');
+    } finally {
+      setAssigningRider(false);
     }
   };
 
@@ -205,159 +232,111 @@ export function HubDispatchPage() {
 
   return (
     <div className="space-y-6">
+      {/* Header controls */}
       <div className="card">
         <h1 className="text-2xl font-bold text-gray-900">Hub Dispatch</h1>
         <p className="text-sm text-gray-600 mt-1">
-          Dispatch FEZ-eligible shipments in one action by hub.
+          Consolidate and dispatch Fez shipments by hub. Local deliveries are managed separately.
         </p>
       </div>
 
       <div className="card">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
           <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Hub
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Hub</label>
             {hubs.length === 0 ? (
-              <div className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-500 bg-gray-50">
-                No hubs available
-              </div>
+              <div className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-500 bg-gray-50">No hubs available</div>
             ) : (
               <select
                 value={selectedHubId}
-                onChange={(event) => setSelectedHubId(event.target.value)}
+                onChange={(e) => setSelectedHubId(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2"
               >
-                {hubs.map((hub) => (
-                  <option key={hub.id} value={hub.id}>
-                    {hub.name} {hub.city ? `(${hub.city})` : ''}
-                  </option>
+                {hubs.map((h) => (
+                  <option key={h.id} value={h.id}>{h.name}{h.city ? ` (${h.city})` : ''}</option>
                 ))}
               </select>
             )}
           </div>
-
           <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
-            <input
-              type="checkbox"
-              checked={force}
-              onChange={(event) => setForce(event.target.checked)}
-            />
+            <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
             Force re-dispatch
           </label>
-
-          <button
-            onClick={refreshAll}
-            disabled={refreshing}
-            className="btn-secondary flex items-center justify-center gap-2"
-          >
-            {refreshing ? (
-              <Loader className="w-4 h-4 animate-spin" />
-            ) : (
-              <RefreshCw className="w-4 h-4" />
-            )}
+          <button onClick={refreshAll} disabled={refreshing} className="btn-secondary flex items-center justify-center gap-2">
+            {refreshing ? <Loader className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             Refresh
           </button>
         </div>
       </div>
 
+      {/* ── FEZ SHIPMENTS ─────────────────────────────────────────────────── */}
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">
-              FEZ Candidate Shipments
+            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <Truck className="w-5 h-5 text-blue-600" />
+              Fez Shipments
             </h2>
             <p className="text-sm text-gray-600">
-              {filteredSubOrders.length} shipment(s) match lane and dispatch filters.
+              Orders grouped for consolidated Fez dispatch — one shipment per order per hub.
             </p>
           </div>
           <button
             onClick={dispatchSelected}
-            disabled={dispatching || selectedIds.length === 0}
+            disabled={dispatching || selectedGroupKeys.length === 0}
             className="btn-primary flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {dispatching ? (
-              <Loader className="w-4 h-4 animate-spin" />
-            ) : (
-              <Truck className="w-4 h-4" />
-            )}
-            Dispatch Selected to Fez
+            {dispatching ? <Loader className="w-4 h-4 animate-spin" /> : <Truck className="w-4 h-4" />}
+            Dispatch Selected ({selectedGroupKeys.length})
           </button>
         </div>
 
-        {selectedRows.length > 0 && (
-          <div className="mb-4 border border-blue-200 bg-blue-50 rounded-lg p-3">
-            <p className="text-sm font-semibold text-blue-900 mb-2">
-              Destination Preview ({selectedRows.length} selected)
-            </p>
-            <div className="space-y-1 text-xs text-blue-900">
-              {selectedRows.slice(0, 8).map((row) => (
-                <div key={row.id}>
-                  #{row.orders?.woocommerce_order_id || '-'} - {row.orders?.customer_name || 'Unknown'} - {formatDestination(row) || 'No address'}
-                </div>
-              ))}
-              {selectedRows.length > 8 && (
-                <div>...and {selectedRows.length - 8} more</div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {filteredSubOrders.length === 0 ? (
-          <div className="text-sm text-gray-600 py-8 text-center">
-            No FEZ-eligible shipments found for this hub.
+        {fezGroups.length === 0 ? (
+          <div className="text-sm text-gray-500 py-8 text-center">
+            No Fez-eligible orders pending dispatch for this hub.
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left border-b border-gray-200">
-                  <th className="py-2 pr-2">
-                    <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+                <tr className="text-left border-b border-gray-200 text-gray-600">
+                  <th className="py-2 pr-3">
+                    <input type="checkbox" checked={allFezSelected} onChange={toggleAllFez} />
                   </th>
-                  <th className="py-2 pr-2">Order</th>
-                  <th className="py-2 pr-2">Customer</th>
-                  <th className="py-2 pr-2">Destination</th>
-                  <th className="py-2 pr-2">Subtotal</th>
-                  <th className="py-2 pr-2">Lane</th>
-                  <th className="py-2">Shipment ID</th>
+                  <th className="py-2 pr-3">Order</th>
+                  <th className="py-2 pr-3">Customer → Destination</th>
+                  <th className="py-2 pr-3">Vendors</th>
+                  <th className="py-2 pr-3">Weight</th>
+                  <th className="py-2">Value</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredSubOrders.map((row) => (
-                  <tr key={row.id} className="border-b border-gray-100">
-                    <td className="py-2 pr-2 align-top">
+                {fezGroups.map((g) => (
+                  <tr key={g.orderKey} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="py-2 pr-3">
                       <input
                         type="checkbox"
-                        checked={selectedIds.includes(row.id)}
-                        onChange={() => toggleOne(row.id)}
+                        checked={selectedGroupKeys.includes(g.orderKey)}
+                        onChange={() => toggleGroup(g.orderKey)}
                       />
                     </td>
-                    <td className="py-2 pr-2 align-top">
-                      #{row.orders?.woocommerce_order_id || '-'}
+                    <td className="py-2 pr-3 font-medium">{g.orderLabel}</td>
+                    <td className="py-2 pr-3">
+                      <p className="font-medium text-gray-900">{g.customer}</p>
+                      <p className="text-xs text-gray-500">{g.destination}</p>
                     </td>
-                    <td className="py-2 pr-2 align-top">
-                      {row.orders?.customer_name || '-'}
+                    <td className="py-2 pr-3">
+                      <p className="text-gray-700">{g.vendorNames.length} vendor{g.vendorNames.length !== 1 ? 's' : ''}</p>
+                      {g.vendorNames.length > 0 && (
+                        <p className="text-xs text-gray-400 truncate max-w-[160px]" title={g.vendorNames.join(', ')}>
+                          {g.vendorNames.join(', ')}
+                        </p>
+                      )}
                     </td>
-                    <td className="py-2 pr-2 align-top">
-                      <div className="max-w-xs">
-                        <div className="truncate" title={formatDestination(row)}>
-                          {formatDestination(row) || '-'}
-                        </div>
-                        {row.orders?.customer_phone && (
-                          <div className="text-xs text-gray-500">
-                            {row.orders.customer_phone}
-                          </div>
-                        )}
-                      </div>
+                    <td className="py-2 pr-3">
+                      <span className="font-medium">{g.combinedWeight.toFixed(2)}kg</span>
                     </td>
-                    <td className="py-2 pr-2 align-top">
-                      ₦{Number(row.subtotal || 0).toLocaleString()}
-                    </td>
-                    <td className="py-2 pr-2 align-top">{getSelectedLane(row)}</td>
-                    <td className="py-2 align-top font-mono text-xs">
-                      {row.courier_shipment_id || '-'}
-                    </td>
+                    <td className="py-2">₦{g.combinedSubtotal.toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -365,6 +344,131 @@ export function HubDispatchPage() {
           </div>
         )}
       </div>
+
+      {/* ── LOCAL DELIVERIES ──────────────────────────────────────────────── */}
+      <div className="card">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+            <User className="w-5 h-5 text-green-600" />
+            Local Deliveries
+          </h2>
+          <p className="text-sm text-gray-600">
+            Sub-orders where the customer's city matches this hub — assign a local rider.
+          </p>
+        </div>
+
+        {localRows.length === 0 ? (
+          <div className="text-sm text-gray-500 py-8 text-center">
+            No local deliveries pending for this hub.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left border-b border-gray-200 text-gray-600">
+                  <th className="py-2 pr-3">Order</th>
+                  <th className="py-2 pr-3">Customer → Destination</th>
+                  <th className="py-2 pr-3">Vendor</th>
+                  <th className="py-2 pr-3">Value</th>
+                  <th className="py-2">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {localRows.map((row) => {
+                  const o = row.orders;
+                  const label = o?.order_number
+                    ? `#${o.order_number}`
+                    : o?.woocommerce_order_id
+                    ? `#${o.woocommerce_order_id}`
+                    : `#${row.main_order_id.slice(0, 8)}`;
+                  return (
+                    <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="py-2 pr-3 font-medium">{label}</td>
+                      <td className="py-2 pr-3">
+                        <p className="font-medium text-gray-900">{o?.customer_name || '—'}</p>
+                        <p className="text-xs text-gray-500">
+                          {[o?.delivery_city, o?.delivery_state].filter(Boolean).join(', ')}
+                        </p>
+                      </td>
+                      <td className="py-2 pr-3 text-gray-700">{row.vendors?.store_name || '—'}</td>
+                      <td className="py-2 pr-3">₦{Number(row.subtotal || 0).toLocaleString()}</td>
+                      <td className="py-2">
+                        <button
+                          onClick={() => { setRiderModal(row.id); setRiderInfo({ name: '', phone: '', vehicle: '' }); }}
+                          className="btn-secondary text-xs px-3 py-1"
+                        >
+                          Assign Rider
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Rider Assignment Modal ─────────────────────────────────────────── */}
+      {riderModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold mb-4">Assign Local Rider</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Rider Name <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  value={riderInfo.name}
+                  onChange={(e) => setRiderInfo({ ...riderInfo, name: e.target.value })}
+                  className="w-full px-3 py-2 border rounded"
+                  placeholder="Enter rider name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Phone Number <span className="text-red-500">*</span></label>
+                <input
+                  type="tel"
+                  value={riderInfo.phone}
+                  onChange={(e) => setRiderInfo({ ...riderInfo, phone: e.target.value })}
+                  className="w-full px-3 py-2 border rounded"
+                  placeholder="+234 800 000 0000"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Vehicle Type</label>
+                <select
+                  value={riderInfo.vehicle}
+                  onChange={(e) => setRiderInfo({ ...riderInfo, vehicle: e.target.value })}
+                  className="w-full px-3 py-2 border rounded"
+                >
+                  <option value="">Select vehicle</option>
+                  <option value="Motorcycle">Motorcycle</option>
+                  <option value="Bicycle">Bicycle</option>
+                  <option value="Van">Van</option>
+                  <option value="Car">Car</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => { setRiderModal(null); setRiderInfo({ name: '', phone: '', vehicle: '' }); }}
+                className="flex-1 px-4 py-2 border rounded hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => assignRider(riderModal)}
+                disabled={!riderInfo.name || !riderInfo.phone || assigningRider}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {assigningRider && <Loader className="w-4 h-4 animate-spin" />}
+                Assign Rider
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

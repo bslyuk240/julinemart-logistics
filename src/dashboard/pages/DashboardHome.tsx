@@ -68,6 +68,10 @@ interface PwaStats {
   androidInstalls: number;
   iosStandaloneOpens: number;
   androidStandaloneOpens: number;
+  notifPromptShown: number;
+  notifAllowed: number;
+  notifDeclined: number;
+  notifSnoozed: number;
 }
 
 export function DashboardHome() {
@@ -171,6 +175,10 @@ export function DashboardHome() {
           androidInstalls: countPlat('pwa_appinstalled', 'android_desktop') + countPlat('pwa_install_accepted', 'android_desktop'),
           iosStandaloneOpens: countPlat('pwa_opened_standalone', 'ios'),
           androidStandaloneOpens: countPlat('pwa_opened_standalone', 'android_desktop'),
+          notifPromptShown: count('notification_prompt_shown'),
+          notifAllowed: count('notification_prompt_allowed'),
+          notifDeclined: count('notification_prompt_declined'),
+          notifSnoozed: count('notification_prompt_snoozed'),
         });
       }
     } catch (error) {
@@ -430,6 +438,29 @@ export function DashboardHome() {
             <div className="bg-gray-50 rounded-lg p-3 text-center">
               <p className="text-2xl font-bold text-gray-700">{pwaStats.androidStandaloneOpens}</p>
               <p className="text-xs text-gray-500 mt-1">Android App Opens</p>
+            </div>
+          </div>
+
+          {/* Push notification prompt stats */}
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <p className="text-xs font-medium text-gray-500 mb-3">Push Notification Prompts</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-purple-50 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-purple-700">{pwaStats.notifPromptShown}</p>
+                <p className="text-xs text-gray-500 mt-1">Prompt Shown</p>
+              </div>
+              <div className="bg-green-50 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-green-700">{pwaStats.notifAllowed}</p>
+                <p className="text-xs text-gray-500 mt-1">Enabled</p>
+              </div>
+              <div className="bg-red-50 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-red-600">{pwaStats.notifDeclined}</p>
+                <p className="text-xs text-gray-500 mt-1">Declined</p>
+              </div>
+              <div className="bg-orange-50 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-orange-600">{pwaStats.notifSnoozed}</p>
+                <p className="text-xs text-gray-500 mt-1">Snoozed</p>
+              </div>
             </div>
           </div>
         )}

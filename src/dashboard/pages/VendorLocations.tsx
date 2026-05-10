@@ -60,16 +60,26 @@ export function VendorLocationsPage() {
   const [activatingId, setActivatingId] = useState<string | null>(null);
   const notification                    = useNotification();
 
-  const emptyForm = {
+  type FormStatus = 'active' | 'paused' | 'waitlist_only' | 'coming_soon';
+  type FormState = {
+    state: string; city: string; lga: string; country: string;
+    fez_hub_name: string; fez_hub_address: string; notes: string;
+    supports_vendor_direct_fez: boolean;
+    supports_vendor_to_hub: boolean;
+    supports_local_delivery: boolean;
+    vendor_pickup_surcharge: number;
+    status: FormStatus;
+  };
+  const emptyForm: FormState = {
     state: '', city: '', lga: '', country: 'Nigeria',
     fez_hub_name: '', fez_hub_address: '', notes: '',
     supports_vendor_direct_fez: true,
     supports_vendor_to_hub: false,
     supports_local_delivery: false,
     vendor_pickup_surcharge: 0,
-    status: 'active' as const,
+    status: 'active',
   };
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState<FormState>(emptyForm);
 
   useEffect(() => { fetchLocations(); }, []);
   useEffect(() => { if (tab === 'waitlist') fetchWaitlist(); }, [tab]);

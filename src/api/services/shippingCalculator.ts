@@ -68,19 +68,36 @@ export async function calculateShipping(
 
     // Fetch all vendor rows for items in one query
     const vendorIds = [...new Set(request.items.map(i => i.vendorId))];
-    const { data: vendorRows } = await supabase
+    // Cast to any: generated types predate fez_collection_method, hub_id, and approved_vendor_locations join
+    const { data: vendorRows } = await (supabase as any)
       .from('vendors')
       .select('id, hub_id, fez_collection_method, address, city, state, approved_vendor_locations(zone_id, default_courier_id, vendor_pickup_surcharge)')
-      .in('id', vendorIds);
+      .in('id', vendorIds) as { data: Array<{
+        id: string;
+        hub_id: string | null;
+        fez_collection_method: 'fez_pickup' | 'hub_dropoff' | null;
+        address: string | null;
+        city: string | null;
+        state: string | null;
+        approved_vendor_locations: {
+          zone_id: string | null;
+          default_courier_id: string | null;
+          vendor_pickup_surcharge: number | null;
+        } | null;
+      }> | null };
 
     const vendorMap = new Map((vendorRows ?? []).map(v => [v.id, v]));
 
-    // Fetch shipping_settings for multi-dispatch discount
-    const { data: settingsRow } = await supabase
+    // Cast to any: shipping_settings is a new table not yet in generated types
+    const { data: settingsRow } = await (supabase as any)
       .from('shipping_settings')
       .select('multi_dispatch_discount_pct, multi_dispatch_discount_cap, multi_dispatch_discount_active')
       .limit(1)
-      .maybeSingle();
+      .maybeSingle() as { data: {
+        multi_dispatch_discount_pct: number | null;
+        multi_dispatch_discount_cap: number | null;
+        multi_dispatch_discount_active: boolean | null;
+      } | null };
 
     // Group items by dispatch location key
     const groups = new Map<string, CartItem[]>();

@@ -263,14 +263,14 @@ export function DashboardHome() {
         })}
       </div>
 
-      {/* Recent Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Row 2: Recent Orders + 4 activity cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         <div className="card">
           <h2 className="text-xl font-semibold mb-4">Recent Orders</h2>
           {recentOrders.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
-              {stats.totalOrders === 0 
-                ? 'No orders yet. Orders will appear here once created.' 
+              {stats.totalOrders === 0
+                ? 'No orders yet. Orders will appear here once created.'
                 : 'View all orders in the Orders page'}
             </div>
           ) : (
@@ -290,6 +290,7 @@ export function DashboardHome() {
             </div>
           )}
         </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           <div className="card">
             <div className="flex items-center justify-between mb-4">
@@ -316,7 +317,7 @@ export function DashboardHome() {
 
           <div className="card">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Recent WhatsApp Messages</h2>
+              <h2 className="text-lg font-semibold">Recent WhatsApp</h2>
               <MessageSquare className="w-5 h-5 text-green-600" />
             </div>
             {recentChats.length === 0 ? (
@@ -326,10 +327,10 @@ export function DashboardHome() {
                 {recentChats.map((chat) => (
                   <div key={chat.id} className="border-b border-gray-100 pb-2">
                     <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-gray-800">
+                      <p className="text-sm font-medium text-gray-800 truncate max-w-[120px]">
                         {chat.customer_name || chat.customer_phone}
                       </p>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500 shrink-0">
                         {new Date(chat.last_message_at).toLocaleDateString()}
                       </span>
                     </div>
@@ -361,54 +362,9 @@ export function DashboardHome() {
             )}
           </div>
 
-          <div className="card col-span-1 sm:col-span-2">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">PWA App Installs</h2>
-              <Smartphone className="w-5 h-5 text-purple-600" />
-            </div>
-            {!pwaStats ? (
-              <p className="text-sm text-gray-500">No install data yet.</p>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="bg-purple-50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-purple-700">{pwaStats.promptShown}</p>
-                  <p className="text-xs text-gray-500 mt-1">Prompt Shown</p>
-                </div>
-                <div className="bg-blue-50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-blue-700">{pwaStats.installClicked}</p>
-                  <p className="text-xs text-gray-500 mt-1">Install Clicked</p>
-                </div>
-                <div className="bg-green-50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-green-700">{pwaStats.appInstalled}</p>
-                  <p className="text-xs text-gray-500 mt-1">Confirmed Installs</p>
-                </div>
-                <div className="bg-orange-50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-orange-700">{pwaStats.standaloneOpens}</p>
-                  <p className="text-xs text-gray-500 mt-1">Standalone Opens</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-gray-700">{pwaStats.androidInstalls}</p>
-                  <p className="text-xs text-gray-500 mt-1">Android Installs</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-gray-700">{pwaStats.iosStandaloneOpens}</p>
-                  <p className="text-xs text-gray-500 mt-1">iOS App Opens</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-gray-700">{pwaStats.installDismissed}</p>
-                  <p className="text-xs text-gray-500 mt-1">Dismissed</p>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3 text-center">
-                  <p className="text-2xl font-bold text-gray-700">{pwaStats.androidStandaloneOpens}</p>
-                  <p className="text-xs text-gray-500 mt-1">Android App Opens</p>
-                </div>
-              </div>
-            )}
-          </div>
-
           <div className="card">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Active Shipping Discounts</h2>
+              <h2 className="text-lg font-semibold">Active Discounts</h2>
               <Tag className="w-5 h-5 text-orange-500" />
             </div>
             {activeDiscounts.length === 0 ? (
@@ -428,6 +384,55 @@ export function DashboardHome() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Row 3: PWA App Installs — full width */}
+      <div className="card">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h2 className="text-lg font-semibold">PWA App Installs</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Tracks install events from JulineMart customer app</p>
+          </div>
+          <Smartphone className="w-5 h-5 text-purple-600" />
+        </div>
+        {!pwaStats ? (
+          <p className="text-sm text-gray-500">No install data yet. Data will appear once customers interact with the install prompt.</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+            <div className="bg-purple-50 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-purple-700">{pwaStats.promptShown}</p>
+              <p className="text-xs text-gray-500 mt-1">Prompt Shown</p>
+            </div>
+            <div className="bg-blue-50 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-blue-700">{pwaStats.installClicked}</p>
+              <p className="text-xs text-gray-500 mt-1">Install Clicked</p>
+            </div>
+            <div className="bg-green-50 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-green-700">{pwaStats.appInstalled}</p>
+              <p className="text-xs text-gray-500 mt-1">Confirmed Installs</p>
+            </div>
+            <div className="bg-orange-50 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-orange-700">{pwaStats.standaloneOpens}</p>
+              <p className="text-xs text-gray-500 mt-1">Standalone Opens</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-gray-700">{pwaStats.androidInstalls}</p>
+              <p className="text-xs text-gray-500 mt-1">Android Installs</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-gray-700">{pwaStats.iosStandaloneOpens}</p>
+              <p className="text-xs text-gray-500 mt-1">iOS App Opens</p>
+            </div>
+            <div className="bg-red-50 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-red-600">{pwaStats.installDismissed}</p>
+              <p className="text-xs text-gray-500 mt-1">Dismissed</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-gray-700">{pwaStats.androidStandaloneOpens}</p>
+              <p className="text-xs text-gray-500 mt-1">Android App Opens</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

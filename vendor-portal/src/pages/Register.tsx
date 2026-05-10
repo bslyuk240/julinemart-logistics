@@ -97,12 +97,29 @@ export default function Register() {
 
   // ── Load approved locations once ────────────────────────────────────────────
   useEffect(() => {
-    fetch(`${JLO_API}/.netlify/functions/vendor-locations`)
-      .then(r => r.json())
-      .then(d => {
-        if (d.grouped) setGrouped(d.grouped);
+    (supabase as any)
+      .from('approved_vendor_locations')
+      .select('id,state,city,lga,supports_vendor_direct_fez,supports_vendor_to_hub,supports_local_delivery,fez_hub_name,fez_hub_address,vendor_pickup_surcharge')
+      .eq('status', 'active')
+      .order('state').order('city').order('lga')
+      .then(({ data, error }: { data: any[] | null; error: any }) => {
+        if (error || !data) return;
+        const g: GroupedLocations = {};
+        for (const loc of data) {
+          if (!g[loc.state]) g[loc.state] = {};
+          if (!g[loc.state][loc.city]) g[loc.state][loc.city] = [];
+          g[loc.state][loc.city].push({
+            id: loc.id, lga: loc.lga,
+            supports_vendor_direct_fez: loc.supports_vendor_direct_fez,
+            supports_vendor_to_hub: loc.supports_vendor_to_hub,
+            supports_local_delivery: loc.supports_local_delivery,
+            fez_hub_name: loc.fez_hub_name,
+            fez_hub_address: loc.fez_hub_address,
+            vendor_pickup_surcharge: loc.vendor_pickup_surcharge,
+          });
+        }
+        setGrouped(g);
       })
-      .catch(() => { /* silently fallback — waitlist prompt will show */ })
       .finally(() => setLocationsLoading(false));
   }, []);
 

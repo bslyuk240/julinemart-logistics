@@ -459,6 +459,18 @@ exports.handler = async (event) => {
           city,
           state,
           phone
+        ),
+        vendors (
+          fez_collection_method,
+          store_name,
+          address,
+          city,
+          state,
+          phone,
+          approved_vendor_locations (
+            fez_hub_name,
+            fez_hub_address
+          )
         )
       `)
       .eq('id', subOrderId)
@@ -496,10 +508,21 @@ exports.handler = async (event) => {
     const labelData = {
       tracking_number: subOrder.tracking_number,
       order_number: subOrder.orders.order_number,
-      sender_name: subOrder.hubs.name,
-      sender_address: subOrder.hubs.address,
-      sender_city: `${subOrder.hubs.city}, ${subOrder.hubs.state}`,
-      sender_phone: subOrder.hubs.phone || '',
+      // Sender address: vendor's shop for fez_pickup, hub address for hub_dropoff
+      ...(subOrder.vendors?.fez_collection_method === 'fez_pickup'
+        ? {
+            sender_name:    subOrder.vendors.store_name || subOrder.hubs?.name || 'JulineMart',
+            sender_address: subOrder.vendors.address    || subOrder.hubs?.address || '',
+            sender_city:    `${subOrder.vendors.city || ''}, ${subOrder.vendors.state || ''}`.replace(/^,\s*|,\s*$/, ''),
+            sender_phone:   subOrder.vendors.phone      || subOrder.hubs?.phone || '',
+          }
+        : {
+            sender_name:    subOrder.hubs?.name    || 'JulineMart',
+            sender_address: subOrder.hubs?.address || '',
+            sender_city:    `${subOrder.hubs?.city || ''}, ${subOrder.hubs?.state || ''}`.replace(/^,\s*|,\s*$/, ''),
+            sender_phone:   subOrder.hubs?.phone   || '',
+          }
+      ),
       recipient_name: subOrder.orders.customer_name,
       recipient_address: subOrder.orders.delivery_address,
       recipient_city: subOrder.orders.delivery_city,

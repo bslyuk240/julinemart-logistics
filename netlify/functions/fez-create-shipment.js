@@ -242,6 +242,17 @@ exports.handler = async (event) => {
           address,
           city,
           state
+        ),
+        vendors (
+          fez_collection_method,
+          address,
+          city,
+          state,
+          approved_location_id,
+          approved_vendor_locations (
+            fez_hub_name,
+            fez_hub_address
+          )
         )
       `)
       .eq("id", subOrderId)
@@ -331,9 +342,21 @@ exports.handler = async (event) => {
       itemDescription: items.map(i => `${i.quantity}x ${i.name}`).join(", ") || "Package",
       valueOfItem: String(shippingValue),
       weight: Math.max(1, Math.round(totalWeight)) || 1,
-      pickUpAddress: subOrder.hubs?.address || "",
-      pickUpState: subOrder.hubs?.state || "",
-      additionalDetails: `Hub: ${subOrder.hubs?.name || 'JulineMart'}, ${subOrder.hubs?.city || ''}`
+      // Pickup address depends on vendor's collection preference:
+      // fez_pickup  → Fez rides to vendor's shop
+      // hub_dropoff → Fez collects from JulineMart hub (default / legacy behaviour)
+      ...(subOrder.vendors?.fez_collection_method === 'fez_pickup'
+        ? {
+            pickUpAddress:    subOrder.vendors.address || subOrder.hubs?.address || "",
+            pickUpState:      subOrder.vendors.state   || subOrder.hubs?.state   || "",
+            additionalDetails: `Vendor pickup: ${subOrder.vendors.city || ''} — ${subOrder.vendors.address || ''}`,
+          }
+        : {
+            pickUpAddress:    subOrder.hubs?.address || "",
+            pickUpState:      subOrder.hubs?.state   || "",
+            additionalDetails: `Hub: ${subOrder.hubs?.name || 'JulineMart'}, ${subOrder.hubs?.city || ''}`,
+          }
+      )
     };
 
     console.log("SHIPMENT DATA TO SEND:", JSON.stringify(shipmentData, null, 2));

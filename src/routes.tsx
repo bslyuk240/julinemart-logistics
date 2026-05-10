@@ -50,6 +50,7 @@ import { VouchersPage } from './dashboard/pages/Vouchers';
 import { VendorsPage } from './dashboard/pages/Vendors';
 import VendorDetail from './dashboard/pages/VendorDetail';
 import VendorWithdrawals from './dashboard/pages/VendorWithdrawals';
+import { VendorLocationsPage } from './dashboard/pages/VendorLocations';
 import { UnauthorizedPage } from './shared/UnauthorizedPage';
 import { MetaAdsPage } from './dashboard/pages/MetaAds';
 
@@ -146,6 +147,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'vendors', element: <VendorsPage />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendors/:id', element: <VendorDetail />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-withdrawals', element: <VendorWithdrawals />, allowedRoles: ['admin', 'manager'] },
+  { path: 'vendor-locations', element: <VendorLocationsPage />, allowedRoles: ['admin', 'manager'] },
   { path: 'notifications', element: <NotificationsPage /> },
   { path: 'notifications/new', element: <NotificationsNewPage /> },
   { path: 'notifications/:id', element: <NotificationDetailsPage /> },

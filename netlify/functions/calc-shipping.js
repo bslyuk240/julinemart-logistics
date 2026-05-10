@@ -179,58 +179,82 @@ export const handler = async (event) => {
 
     console.log('Zone found:', zone.name);
 
-    // Group items by hub
-    const itemsByHub = {};
-    for (const item of items) {
-      const hubId = item.hubId || item.hub_id || 'default';
-      if (!itemsByHub[hubId]) {
-        itemsByHub[hubId] = [];
-      }
-      itemsByHub[hubId].push(item);
-    }
-
-    // Get hubs and couriers
-    const { data: hubs } = await supabase
-      .from('hubs')
-      .select('id, name, city, state');
-
-    const { data: couriers } = await supabase
-      .from('couriers')
-      .select('id, name, code');
+    // ── Fetch hubs, couriers, and shipping settings ──────────────────────────
+    const { data: hubs } = await supabase.from('hubs').select('id, name, city, state');
+    const { data: couriers } = await supabase.from('couriers').select('id, name, code');
+    const { data: shippingSettings } = await supabase
+      .from('shipping_settings')
+      .select('multi_dispatch_discount_pct, multi_dispatch_discount_cap, multi_dispatch_discount_active')
+      .eq('id', 1)
+      .single();
 
     const normalizedState = state.toLowerCase();
     const defaultHub =
       hubs?.find((h) => h.state?.toLowerCase() === normalizedState) || hubs?.[0];
-
     const hubMap = new Map((hubs || []).map((h) => [h.id, h]));
 
-    const hubIdResolution = {};
-    Object.keys(itemsByHub).forEach((hubKey) => {
-      let actualHubId = hubKey;
-      if (hubKey === 'default') {
-        actualHubId = defaultHub?.id || hubKey;
-      }
-      if (actualHubId && hubMap.has(actualHubId)) {
-        hubIdResolution[hubKey] = actualHubId;
-      }
-    });
+    // ── Resolve vendor fez_collection_method for items that carry vendorId ───
+    // Items may optionally carry vendorId to enable vendor-direct dispatch routing.
+    const vendorIds = [...new Set(items.map((i) => i.vendorId || i.vendor_id).filter(Boolean))];
+    const vendorMap = new Map();
+    if (vendorIds.length > 0) {
+      const { data: vendorRows } = await supabase
+        .from('vendors')
+        .select(`
+          id, fez_collection_method, address, city, state, hub_id,
+          approved_vendor_locations ( id, zone_id, default_courier_id, vendor_pickup_surcharge )
+        `)
+        .in('id', vendorIds);
+      (vendorRows || []).forEach((v) => vendorMap.set(v.id, v));
+    }
 
-    // Get courier assignments for hubs
-    const hubIds = Array.from(
-      new Set(Object.values(hubIdResolution).filter((id) => Boolean(id)))
-    );
-    const hubCourierAssignments =
-      hubIds.length > 0
-        ? (
-            await supabase
-              .from('hub_couriers')
-              .select('hub_id, courier_id')
-              .in('hub_id', hubIds)
-              .order('is_primary', { ascending: false })
-              .order('priority', { ascending: false })
-          ).data
-        : [];
+    // ── Group items by DISPATCH LOCATION ─────────────────────────────────────
+    // Dispatch location key:
+    //   vendor-direct (fez_pickup) → "vendor:{vendorId}"
+    //   hub-based (or hub_dropoff) → "hub:{hubId}"
+    // Items from the same dispatch location are merged (one Fez pickup).
+    const itemsByDispatch = {};
 
+    for (const item of items) {
+      const vendorId = item.vendorId || item.vendor_id;
+      const vendor   = vendorId ? vendorMap.get(vendorId) : null;
+
+      let dispatchKey;
+      let dispatchMeta;
+
+      if (vendor?.fez_collection_method === 'fez_pickup') {
+        dispatchKey  = `vendor:${vendorId}`;
+        dispatchMeta = { type: 'vendor_direct', vendor, vendorId };
+      } else {
+        const rawHubId  = item.hubId || item.hub_id || 'default';
+        const actualHub = rawHubId === 'default'
+          ? defaultHub?.id
+          : (hubMap.has(rawHubId) ? rawHubId : defaultHub?.id);
+        dispatchKey  = `hub:${actualHub || 'default'}`;
+        dispatchMeta = { type: 'hub', hubId: actualHub, vendor };
+      }
+
+      if (!itemsByDispatch[dispatchKey]) {
+        itemsByDispatch[dispatchKey] = { meta: dispatchMeta, items: [] };
+      }
+      itemsByDispatch[dispatchKey].items.push(item);
+    }
+
+    // ── Get courier assignments for hub-based dispatch points ─────────────────
+    const hubIds = [...new Set(
+      Object.values(itemsByDispatch)
+        .filter((g) => g.meta.type === 'hub' && g.meta.hubId)
+        .map((g) => g.meta.hubId)
+    )];
+    const hubCourierAssignments = hubIds.length > 0
+      ? (await supabase
+          .from('hub_couriers')
+          .select('hub_id, courier_id')
+          .in('hub_id', hubIds)
+          .order('is_primary', { ascending: false })
+          .order('priority', { ascending: false })
+        ).data
+      : [];
     const hubCourierMap = {};
     (hubCourierAssignments || []).forEach((row) => {
       if (row?.hub_id && row?.courier_id && !hubCourierMap[row.hub_id]) {
@@ -238,135 +262,154 @@ export const handler = async (event) => {
       }
     });
 
-    // Calculate shipping for each hub
-    const subOrders = [];
-    let totalShippingFee = 0;
+    // ── Calculate shipping cost per dispatch location ─────────────────────────
+    const dispatchGroups = [];
 
-    for (const [hubId, hubItems] of Object.entries(itemsByHub)) {
-      const actualHubId = hubIdResolution[hubId] || hubId;
+    for (const [dispatchKey, group] of Object.entries(itemsByDispatch)) {
+      const { meta, items: groupItems } = group;
+      const groupWeight = groupItems.reduce(
+        (sum, i) => sum + (Number(i.weight || 0) * Number(i.quantity || 1)), 0
+      );
 
-      const hub = hubMap.get(actualHubId);
-      if (!hub) {
-        console.warn('Hub not found:', actualHubId);
-        continue;
-      }
+      let rate = null;
+      let pickupSurcharge = 0;
+      let resolvedZoneId = zone.id;
+      let courierId = null;
+      let courierName = 'Standard Courier';
+      let hubName = null;
 
-      // Calculate weight for this hub
-      const hubWeight = hubItems.reduce((sum, item) => {
-        return sum + (Number(item.weight || 0) * Number(item.quantity || 1));
-      }, 0);
+      if (meta.type === 'vendor_direct') {
+        // Use vendor's approved location zone + default courier for rate lookup
+        const loc = meta.vendor?.approved_vendor_locations;
+        if (loc?.zone_id) resolvedZoneId = loc.zone_id;
+        if (loc?.default_courier_id) courierId = loc.default_courier_id;
+        pickupSurcharge = Number(loc?.vendor_pickup_surcharge || 0);
+        hubName = `${meta.vendor?.city || ''} (Vendor Direct)`;
 
-      // Get shipping rate — try hub-specific first, fall back to any active rate for this zone
-      const { data: rates } = await supabase
-        .from('shipping_rates')
-        .select('*, couriers(id, name, code)')
-        .eq('hub_id', actualHubId)
-        .eq('zone_id', zone.id)
-        .eq('is_active', true)
-        .limit(1);
-
-      let rate = rates && rates[0];
-
-      if (!rate) {
-        console.warn(`No hub-specific rate for hub ${actualHubId} / zone ${zone.id} — trying zone fallback`);
-        const { data: fallbackRates } = await supabase
+        // Rate lookup by zone + courier for vendor-direct
+        const { data: vendorRates } = await supabase
           .from('shipping_rates')
           .select('*, couriers(id, name, code)')
+          .eq('zone_id', resolvedZoneId)
+          .eq('is_active', true)
+          .order('priority', { ascending: false })
+          .limit(1);
+        rate = vendorRates?.[0] || null;
+      } else {
+        // Hub-based dispatch
+        const actualHubId = meta.hubId;
+        const hub = hubMap.get(actualHubId);
+        hubName = hub?.name || 'JulineMart Hub';
+
+        const { data: hubRates } = await supabase
+          .from('shipping_rates')
+          .select('*, couriers(id, name, code)')
+          .eq('hub_id', actualHubId)
           .eq('zone_id', zone.id)
           .eq('is_active', true)
           .limit(1);
-        rate = fallbackRates && fallbackRates[0];
+        rate = hubRates?.[0] || null;
+
+        if (!rate) {
+          const { data: fallbackRates } = await supabase
+            .from('shipping_rates')
+            .select('*, couriers(id, name, code)')
+            .eq('zone_id', zone.id)
+            .eq('is_active', true)
+            .limit(1);
+          rate = fallbackRates?.[0] || null;
+        }
+
+        courierId = rate?.courier_id || hubCourierMap[actualHubId] || null;
       }
 
       if (!rate) {
-        console.error('No rate found for hub:', actualHubId, 'zone:', zone.id);
+        console.error('No rate found for dispatch:', dispatchKey);
         continue;
       }
 
-      // ? FIXED: Calculate shipping WITHOUT VAT
-      const baseRate = Number(rate.flat_rate || 0);
-      const ratePerKg = Number(rate.per_kg_rate || 0);
+      const baseRate  = Number(rate.flat_rate || 0);
+      const perKgRate = Number(rate.per_kg_rate || 0);
+      const dispatchCost = baseRate + (groupWeight * perKgRate) + pickupSurcharge;
 
-      const additionalWeightCharge = hubWeight * ratePerKg;
-      const totalShippingCost = baseRate + additionalWeightCharge; // NO VAT ADDED
+      const resolvedCourier = rate.couriers || couriers?.[0] || null;
+      courierName = resolvedCourier?.name || courierName;
+      if (!courierId) courierId = resolvedCourier?.id || null;
 
-      console.log('Hub calculation:', {
-        hub: hub.name,
-        baseRate,
-        ratePerKg,
-        weight: hubWeight,
-        additionalCharge: additionalWeightCharge,
-        total: totalShippingCost
-      });
-
-      // Get courier info
-      const courier = rate.couriers || (couriers ? couriers[0] : null);
-      const courierId =
-        rate.courier_id ||
-        hubCourierMap[actualHubId] ||
-        courier?.id ||
-        null;
-
-      subOrders.push({
-        hubId: actualHubId,
-        hubName: hub.name,
+      dispatchGroups.push({
+        dispatchKey,
+        dispatchType:     meta.type,
+        hubName,
         courierId,
-        courierName: courier?.name || 'Standard Courier',
-        totalWeight: Math.round(hubWeight * 100) / 100,
-        baseRate: Math.round(baseRate * 100) / 100,
-        additionalWeightCharge: Math.round(additionalWeightCharge * 100) / 100,
-        subtotal: Math.round(totalShippingCost * 100) / 100,
-        vat: 0, // Not adding VAT
-        totalShippingFee: Math.round(totalShippingCost * 100) / 100,
+        courierName,
+        totalWeight:      Math.round(groupWeight * 100) / 100,
+        baseRate:         Math.round(baseRate * 100) / 100,
+        pickupSurcharge:  Math.round(pickupSurcharge * 100) / 100,
+        subtotal:         Math.round(dispatchCost * 100) / 100,
+        totalShippingFee: Math.round(dispatchCost * 100) / 100,
+        vat: 0,
         deliveryTimelineDays: 3,
-        items: hubItems
+        items: groupItems,
       });
-
-      totalShippingFee += totalShippingCost;
     }
 
-    if (subOrders.length === 0) {
+    if (dispatchGroups.length === 0) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({
-          success: false,
-          error: 'Unable to calculate shipping for the given items'
-        })
+        body: JSON.stringify({ success: false, error: 'Unable to calculate shipping for the given items' }),
       };
     }
 
-    const finalTotal = Math.round(totalShippingFee * 100) / 100;
+    // ── Multi-dispatch discount logic ─────────────────────────────────────────
+    // Single dispatch location → full price, no discount.
+    // Multiple dispatch locations → sum all, apply configurable discount on total.
+    const rawTotal = dispatchGroups.reduce((sum, g) => sum + g.subtotal, 0);
+    let finalTotal = rawTotal;
+    let multiDiscountApplied = 0;
+
+    if (
+      dispatchGroups.length > 1 &&
+      shippingSettings?.multi_dispatch_discount_active &&
+      Number(shippingSettings.multi_dispatch_discount_pct) > 0
+    ) {
+      const pct = Number(shippingSettings.multi_dispatch_discount_pct);
+      const cap = Number(shippingSettings.multi_dispatch_discount_cap || 0);
+      let discount = rawTotal * (pct / 100);
+      if (cap > 0) discount = Math.min(discount, cap);
+      multiDiscountApplied = Math.round(discount * 100) / 100;
+      finalTotal = rawTotal - multiDiscountApplied;
+    }
+
     const discountedTotal = await applyDiscounts({
       originalShipping: finalTotal,
       orderValue: totalOrderValue,
       deliveryState: state,
-      supabase
+      supabase,
     });
     const finalShippingFee = Math.round(discountedTotal * 100) / 100;
-    
+
     console.log('Final calculation:', {
       zone: zone.name,
-      totalWeight,
-      totalShippingFee: finalShippingFee
-    });
-
-    console.log('Discount context:', {
-      orderValue: totalOrderValue,
-      originalShipping: finalTotal,
-      discountedShipping: finalShippingFee
+      dispatchPoints: dispatchGroups.length,
+      rawTotal,
+      multiDiscountApplied,
+      finalShippingFee,
     });
 
     const response = {
       success: true,
       data: {
-        zoneName: zone.name || zone.code,
-        deliveryState: state,
-        deliveryCity: city,
-        totalWeight: Math.round(totalWeight * 100) / 100,
-        totalShippingFee: finalShippingFee,
-        subOrders: subOrders
-      }
+        zoneName:           zone.name || zone.code,
+        deliveryState:      state,
+        deliveryCity:       city,
+        totalWeight:        Math.round(totalWeight * 100) / 100,
+        totalShippingFee:   finalShippingFee,
+        rawShippingTotal:   Math.round(rawTotal * 100) / 100,
+        multiDiscountApplied,
+        multiDispatchPoints: dispatchGroups.length,
+        subOrders:          dispatchGroups,
+      },
     };
 
     return {

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { ShoppingBag, AlertCircle, X, ChevronRight, Truck } from 'lucide-react';
+import { ShoppingBag, AlertCircle, X, ChevronRight, Truck, Printer, Download, Package } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+
+const JLO_API = import.meta.env.VITE_JLO_API_URL || 'https://jlo.julinemart.com';
 
 const fmt = (n: number) => `₦${Number(n || 0).toLocaleString()}`;
 
@@ -26,6 +28,8 @@ export default function Orders() {
   const [statusFilter, setStatus]         = useState('');
   const [page, setPage]                   = useState(1);
   const [dispatching, setDispatching]     = useState(false);
+  const [sendingToFez, setSendingToFez]   = useState(false);
+  const [fezError, setFezError]           = useState('');
 
   useEffect(() => {
     setLoading(true);
@@ -68,6 +72,59 @@ export default function Orders() {
     finally { setDispatching(false); }
   };
 
+  const sendToFez = async () => {
+    if (!selected || sendingToFez) return;
+    setSendingToFez(true);
+    setFezError('');
+    try {
+      const { data: { session } } = await (await import('../lib/supabase')).supabase.auth.getSession();
+      const token = session?.access_token || '';
+      const res = await fetch(`${JLO_API}/.netlify/functions/fez-create-shipment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ subOrderId: selected.id }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error || 'Failed to create Fez shipment');
+      // Refresh order detail to get updated tracking number + status
+      const updated = await api.getOrder(selected.id);
+      setSelected(updated);
+      setData((prev: any) => prev ? {
+        ...prev,
+        orders: prev.orders.map((o: any) => o.id === selected.id ? { ...o, status: updated.status } : o),
+      } : prev);
+    } catch (e: any) {
+      setFezError(e.message || 'Failed to send to Fez. Please try again.');
+    } finally {
+      setSendingToFez(false);
+    }
+  };
+
+  const printLabel = () => {
+    if (!selected?.id) return;
+    window.open(`${JLO_API}/.netlify/functions/generate-label?subOrderId=${selected.id}&print=true`, '_blank');
+  };
+
+  const downloadWaybill = async () => {
+    if (!selected?.id) return;
+    const { data: { session } } = await (await import('../lib/supabase')).supabase.auth.getSession();
+    const token = session?.access_token || '';
+    const res = await fetch(`${JLO_API}/.netlify/functions/generate-waybill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ subOrderId: selected.id }),
+    });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `waybill-${selected.id}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const fezCollectionMethod = vendor?.fez_collection_method || 'hub_dropoff';
   const commissionRate = Number(vendor?.commission_rate || 0);
 
   return (
@@ -280,16 +337,78 @@ export default function Orders() {
                   </div>
                 </div>
 
-                {/* Dispatch to hub CTA — only visible when pending */}
-                {selected.status === 'pending' && (
-                  <button
-                    onClick={markDispatched}
-                    disabled={dispatching}
-                    className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors"
-                  >
-                    <Truck className="w-4 h-4" />
-                    {dispatching ? 'Marking as dispatched…' : 'Mark as Dispatched to Hub'}
-                  </button>
+                {/* Send to Fez CTA — visible when pending and no tracking yet */}
+                {selected.status === 'pending' && !selected.tracking_number && (
+                  <div className="space-y-2">
+                    <button
+                      onClick={sendToFez}
+                      disabled={sendingToFez}
+                      className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors"
+                    >
+                      <Package className="w-4 h-4" />
+                      {sendingToFez ? 'Creating Fez shipment…' : 'Send to Fez'}
+                    </button>
+                    {fezError && (
+                      <p className="text-xs text-red-600 text-center">{fezError}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* After Fez shipment created — label, waybill, collection instructions */}
+                {selected.tracking_number && (
+                  <div className="space-y-3">
+                    {/* Tracking info */}
+                    <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 flex items-center justify-between">
+                      <div>
+                        <p className="text-xs text-purple-600 font-medium">Fez Tracking Number</p>
+                        <p className="text-sm font-bold text-purple-900 font-mono">{selected.tracking_number}</p>
+                      </div>
+                      {selected.courier_tracking_url && (
+                        <a href={selected.courier_tracking_url} target="_blank" rel="noreferrer"
+                          className="text-xs text-purple-600 underline">Track</a>
+                      )}
+                    </div>
+
+                    {/* Print label + download waybill */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={printLabel}
+                        className="flex items-center justify-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition">
+                        <Printer className="w-4 h-4" /> Print Label
+                      </button>
+                      <button onClick={downloadWaybill}
+                        className="flex items-center justify-center gap-2 border border-gray-300 text-gray-700 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition">
+                        <Download className="w-4 h-4" /> Waybill PDF
+                      </button>
+                    </div>
+
+                    {/* Collection instruction card */}
+                    {fezCollectionMethod === 'fez_pickup' ? (
+                      <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex gap-3 items-start">
+                        <Truck className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="text-sm font-semibold text-green-800">Fez will come to your shop</p>
+                          <p className="text-xs text-green-700 mt-0.5">
+                            Stick the label on the package and have it ready at your business address.
+                            A Fez rider will pick it up shortly.
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-3 items-start">
+                        <Truck className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                        <div>
+                          <p className="text-sm font-semibold text-amber-800">Drop off at Fez hub</p>
+                          <p className="text-xs text-amber-700 mt-0.5">
+                            Stick the label on the package and drop it at your nearest Fez collection hub.
+                            {vendor?.approved_vendor_locations?.fez_hub_name &&
+                              ` Nearest hub: ${vendor.approved_vendor_locations.fez_hub_name}`}
+                            {vendor?.approved_vendor_locations?.fez_hub_address &&
+                              ` — ${vendor.approved_vendor_locations.fez_hub_address}.`}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {/* Payout summary */}

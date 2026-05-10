@@ -5,7 +5,12 @@
  *
  * Body:
  *   personal: { full_name, email, phone, nin_bvn }
- *   business: { store_name, business_type, rc_number, business_address, state, city }
+ *   business: {
+ *     store_name, business_type, rc_number, business_address,
+ *     state, city, lga,
+ *     approved_location_id,   // UUID from approved_vendor_locations
+ *     fez_collection_method   // 'fez_pickup' | 'hub_dropoff'
+ *   }
  *   bank:     { bank_name, account_number, account_name }
  *   documents: { id_url, cac_url }   (pre-uploaded to Supabase Storage)
  */
@@ -42,6 +47,28 @@ export const handler = async (event) => {
   }
   if (!business?.store_name) {
     return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'Missing field: business.store_name' }) };
+  }
+  if (!business?.approved_location_id) {
+    return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'Missing field: business.approved_location_id — vendor must select an approved location' }) };
+  }
+  if (!business?.fez_collection_method || !['fez_pickup', 'hub_dropoff'].includes(business.fez_collection_method)) {
+    return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'Missing or invalid field: business.fez_collection_method (fez_pickup | hub_dropoff)' }) };
+  }
+
+  // Verify the location is still active (prevents race condition if admin pauses mid-registration)
+  const { data: approvedLocation, error: locationError } = await adminClient
+    .from('approved_vendor_locations')
+    .select('id, state, city, lga, status')
+    .eq('id', business.approved_location_id)
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (locationError || !approvedLocation) {
+    return {
+      statusCode: 400,
+      headers: cors,
+      body: JSON.stringify({ error: 'The selected location is no longer accepting vendor registrations. Please check back later or join the waitlist.' }),
+    };
   }
 
   // Check for duplicate email
@@ -81,9 +108,12 @@ export const handler = async (event) => {
       business_type:    business.business_type || null,
       rc_number:        business.rc_number || null,
       business_address: business.business_address || null,
-      state:            business.state || null,
-      city:             business.city || null,
-      bank_name:        bank?.bank_name || null,
+      state:                   business.state || null,
+      city:                    business.city || null,
+      lga:                     business.lga || null,
+      approved_location_id:    business.approved_location_id,
+      fez_collection_method:   business.fez_collection_method,
+      bank_name:               bank?.bank_name || null,
       bank_account_number: bank?.account_number || null,
       bank_account_name:   bank?.account_name || null,
       id_document_url:  documents?.id_url || null,

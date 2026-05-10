@@ -121,7 +121,18 @@ export const handler = async (event) => {
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: 'Failed to create auth account: ' + invErr.message }) };
   }
 
-  // 2. Create vendors record (DB requires woocommerce_vendor_id; column is `address` not business_address)
+  // 2. Resolve hub_id from the vendor's approved location
+  let resolvedHubId = null;
+  if (app.approved_location_id) {
+    const { data: loc } = await adminClient
+      .from('approved_vendor_locations')
+      .select('hub_id')
+      .eq('id', app.approved_location_id)
+      .maybeSingle();
+    resolvedHubId = loc?.hub_id || null;
+  }
+
+  // 3. Create vendors record (DB requires woocommerce_vendor_id; column is `address` not business_address)
   const store_slug = `${slugifyStoreSlug(app.store_name)}-${String(application_id).slice(0, 8)}`;
 
   const { data: vendor, error: vErr } = await adminClient.from('vendors').insert({
@@ -133,6 +144,10 @@ export const handler = async (event) => {
     address:               app.business_address,
     state:                 app.state,
     city:                  app.city,
+    lga:                   app.lga || null,
+    approved_location_id:  app.approved_location_id || null,
+    fez_collection_method: app.fez_collection_method || 'hub_dropoff',
+    hub_id:                resolvedHubId,
     bank_name:             app.bank_name,
     bank_account_number:   app.bank_account_number,
     bank_account_name:     app.bank_account_name,

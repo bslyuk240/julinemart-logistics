@@ -3,6 +3,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { sendApiCourierStatusCustomerEmail } from '../../shared/riderAssignedEmail.js';
+import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
 import {
   buildOrderDeepLink,
@@ -95,7 +96,7 @@ exports.handler = async (event) => {
     const { data: subOrders, error: findError } = await supabase
       .from('sub_orders')
       .select(
-        '*, orders(id, order_number, overall_status, woocommerce_order_id, customer_name, customer_email, customer_phone, delivery_city, delivery_state, delivery_address, metadata)',
+        '*, orders(id, order_number, overall_status, woocommerce_order_id, customer_name, customer_email, customer_phone, delivery_city, delivery_state, delivery_address, metadata), vendors(email, store_name, fez_collection_method)',
       )
       .eq('tracking_number', orderNo);
 
@@ -149,6 +150,24 @@ exports.handler = async (event) => {
 
     if (subOrder.orders?.id) {
       await refreshOverallOrderStatus(supabase, subOrder.orders.id);
+    }
+
+    // Vendor pickup alert — when Fez physically collects from vendor's shop
+    if (
+      jloStatus === 'picked_up' &&
+      previousStatus !== 'picked_up' &&
+      subOrder.vendors?.fez_collection_method === 'fez_pickup' &&
+      subOrder.vendors?.email
+    ) {
+      sendTransactionalEmail({
+        templateName: 'Vendor Fez Pickup Confirmed',
+        to: subOrder.vendors.email,
+        data: {
+          vendor_name:    subOrder.vendors.store_name || 'Vendor',
+          order_number:   subOrder.orders?.order_number || subOrder.id,
+          tracking_number: orderNo,
+        },
+      }).catch(err => console.error('vendor pickup alert email failed:', err));
     }
 
     if (previousStatus !== jloStatus) {

@@ -16,6 +16,9 @@ interface Hub {
   manager_name: string;
   manager_phone?: string;
   is_active: boolean;
+  is_sub_hub: boolean;
+  parent_hub_id: string | null;
+  parent_hub?: { id: string; name: string; city: string } | null;
 }
 
 export function HubsPage() {
@@ -127,13 +130,18 @@ export function HubsPage() {
                     <p className="text-sm text-gray-500">{hub.code}</p>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap justify-end">
                   <button
                     onClick={() => handleEdit(hub)}
                     className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                   >
                     <Edit className="w-4 h-4 text-gray-600" />
                   </button>
+                  {hub.is_sub_hub && (
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                      Sub-hub
+                    </span>
+                  )}
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                     hub.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                   }`}>
@@ -145,6 +153,11 @@ export function HubsPage() {
                 <p className="text-gray-600">📍 {hub.city}, {hub.state}</p>
                 <p className="text-gray-600">👤 {hub.manager_name}</p>
                 <p className="text-gray-600">📞 {hub.phone}</p>
+                {hub.is_sub_hub && hub.parent_hub && (
+                  <p className="text-purple-600 text-xs font-medium">
+                    Routes via: {hub.parent_hub.name}, {hub.parent_hub.city}
+                  </p>
+                )}
               </div>
             </div>
           ))
@@ -154,6 +167,7 @@ export function HubsPage() {
       {showForm && (
         <HubForm
           hub={editingHub}
+          allHubs={hubs}
           onClose={() => {
             setShowForm(false);
             setEditingHub(null);

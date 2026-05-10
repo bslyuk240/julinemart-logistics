@@ -5,9 +5,10 @@ interface HubFormProps {
   onClose: () => void;
   onSave: (hub: any) => void;
   hub?: any;
+  allHubs?: { id: string; name: string; city: string; is_sub_hub?: boolean }[];
 }
 
-export function HubForm({ onClose, onSave, hub }: HubFormProps) {
+export function HubForm({ onClose, onSave, hub, allHubs = [] }: HubFormProps) {
   const [formData, setFormData] = useState({
     name: hub?.name || '',
     code: hub?.code || '',
@@ -20,7 +21,14 @@ export function HubForm({ onClose, onSave, hub }: HubFormProps) {
     manager_phone: hub?.manager_phone || '',
     email: hub?.email || '',
     is_active: hub?.is_active ?? true,
+    is_sub_hub: hub?.is_sub_hub ?? false,
+    parent_hub_id: hub?.parent_hub_id || '',
   });
+
+  // Candidate parent hubs: active, not a sub-hub themselves, and not the hub being edited
+  const parentCandidates = allHubs.filter(
+    h => !h.is_sub_hub && h.id !== hub?.id
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -187,6 +195,42 @@ export function HubForm({ onClose, onSave, hub }: HubFormProps) {
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               />
             </div>
+
+            <div className="md:col-span-2 border-t pt-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  name="is_sub_hub"
+                  checked={formData.is_sub_hub}
+                  onChange={handleChange}
+                  className="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
+                />
+                <span className="text-sm font-medium text-gray-700">This is a sub-hub</span>
+              </label>
+              <p className="text-xs text-gray-500 mt-1 ml-6">
+                Sub-hubs collect from local vendors and route parcels to a main hub for Fez dispatch. They can also handle local delivery directly.
+              </p>
+            </div>
+
+            {formData.is_sub_hub && (
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Parent Hub (main hub for Fez dispatch) *
+                </label>
+                <select
+                  name="parent_hub_id"
+                  value={formData.parent_hub_id}
+                  onChange={handleChange}
+                  required={formData.is_sub_hub}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="">Select parent hub…</option>
+                  {parentCandidates.map(h => (
+                    <option key={h.id} value={h.id}>{h.name} — {h.city}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="md:col-span-2">
               <label className="flex items-center">

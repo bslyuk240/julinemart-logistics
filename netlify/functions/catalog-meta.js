@@ -27,7 +27,7 @@ export async function handler(event) {
       case 'vendors': {
         const { data, error } = await auth.adminClient
           .from('vendors')
-          .select('id, store_name, store_slug, woocommerce_vendor_id')
+          .select('id, store_name, store_slug, woocommerce_vendor_id, hub_id')
           .order('store_name');
         if (error) return jsonResponse(500, { error: error.message });
         return jsonResponse(200, { success: true, data: data || [] });
@@ -35,7 +35,7 @@ export async function handler(event) {
       case 'hubs': {
         const { data, error } = await auth.adminClient
           .from('hubs')
-          .select('id, name, code, city, state')
+          .select('id, name, code, city, state, is_sub_hub, parent_hub_id, parent_hub:hubs!parent_hub_id(name)')
           .order('name');
         if (error) return jsonResponse(500, { error: error.message });
         return jsonResponse(200, { success: true, data: data || [] });

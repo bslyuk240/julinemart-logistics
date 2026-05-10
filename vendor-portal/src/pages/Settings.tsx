@@ -1,5 +1,5 @@
 import { useState, FormEvent, useRef } from 'react';
-import { Settings as SettingsIcon, Store, CreditCard, CheckCircle, AlertCircle, Upload } from 'lucide-react';
+import { Settings as SettingsIcon, Store, CreditCard, CheckCircle, AlertCircle, Upload, Truck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
 import { formatVendorAddressForDisplay } from '../lib/formatVendorAddress';
@@ -29,6 +29,29 @@ export default function Settings() {
   const [error, setError]     = useState<string | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
+
+  // Fez collection method toggle
+  const currentMethod = vendor?.fez_collection_method ?? null;
+  const [selectedMethod, setSelectedMethod] = useState<'fez_pickup' | 'hub_dropoff' | null>(currentMethod);
+  const [addressConfirmed, setAddressConfirmed] = useState(false);
+
+  const canSaveMethod =
+    selectedMethod !== null &&
+    selectedMethod !== currentMethod &&
+    (selectedMethod !== 'fez_pickup' || addressConfirmed || currentMethod === 'fez_pickup');
+
+  const saveMethod = async () => {
+    if (!selectedMethod) return;
+    setSaving('method'); setSuccess(null); setError(null);
+    try {
+      await api.updateProfile({ fez_collection_method: selectedMethod });
+      await refreshVendor();
+      setAddressConfirmed(false);
+      setSuccess('method');
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(null); }
+  };
 
   const save = async (section: string, updates: object) => {
     setSaving(section); setSuccess(null); setError(null);
@@ -281,6 +304,104 @@ export default function Settings() {
               {saving === 'bank' ? 'Saving…' : 'Save Bank Details'}
             </button>
           </form>
+
+          {/* Fez collection method — only visible if vendor has an approved location */}
+          {currentMethod !== null && (
+            <div className="card">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Truck className="w-5 h-5 text-primary-600" />
+                  <h2 className="font-semibold text-gray-900">Fez Collection Method</h2>
+                </div>
+                {success === 'method' && (
+                  <span className="text-sm text-green-600 flex items-center gap-1">
+                    <CheckCircle className="w-4 h-4" /> Saved
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mb-4">
+                Choose how Fez collects your parcels. This applies to all future orders.
+              </p>
+
+              <div className="space-y-3">
+                {/* fez_pickup option */}
+                <label
+                  className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                    selectedMethod === 'fez_pickup'
+                      ? 'border-primary-400 bg-primary-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="fez_method"
+                    value="fez_pickup"
+                    checked={selectedMethod === 'fez_pickup'}
+                    onChange={() => { setSelectedMethod('fez_pickup'); setAddressConfirmed(false); }}
+                    className="mt-0.5 accent-primary-600"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">Fez picks up from my shop</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      A Fez rider will come to your store address to collect packed parcels.
+                    </p>
+                  </div>
+                </label>
+
+                {/* hub_dropoff option */}
+                <label
+                  className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${
+                    selectedMethod === 'hub_dropoff'
+                      ? 'border-primary-400 bg-primary-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="fez_method"
+                    value="hub_dropoff"
+                    checked={selectedMethod === 'hub_dropoff'}
+                    onChange={() => { setSelectedMethod('hub_dropoff'); setAddressConfirmed(false); }}
+                    className="mt-0.5 accent-primary-600"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">I drop off at Fez hub</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      You bring packed parcels to the nearest Fez collection hub.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Address confirmation — only required when switching TO fez_pickup for the first time */}
+              {selectedMethod === 'fez_pickup' && currentMethod !== 'fez_pickup' && (
+                <div className="mt-4 p-3 rounded-xl bg-amber-50 border border-amber-200">
+                  <p className="text-xs font-semibold text-amber-800 mb-1">Confirm your pickup address</p>
+                  <p className="text-xs text-amber-700 mb-3">
+                    Fez will come to: <strong>{formatVendorAddressForDisplay(vendor?.address, { omitCityStateWhenStructured: false }) || `${vendor?.city}, ${vendor?.state}`}</strong>
+                  </p>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={addressConfirmed}
+                      onChange={e => setAddressConfirmed(e.target.checked)}
+                      className="accent-primary-600"
+                    />
+                    <span className="text-xs text-amber-800">This address is correct and accessible for Fez riders</span>
+                  </label>
+                </div>
+              )}
+
+              <button
+                type="button"
+                disabled={!canSaveMethod || saving === 'method'}
+                onClick={saveMethod}
+                className="btn-primary w-full mt-5 disabled:opacity-40"
+              >
+                {saving === 'method' ? 'Saving…' : 'Save Collection Method'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

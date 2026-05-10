@@ -14,17 +14,23 @@ export async function handler(event) {
 
   // ── GET ──────────────────────────────────────────────────────────────────
   if (event.httpMethod === 'GET') {
+    // Join approved_vendor_locations so vendor portal can display hub name/address
+    const { data: fullVendor } = await getAdminClient()
+      .from('vendors')
+      .select('*, approved_vendor_locations(fez_hub_name, fez_hub_address, vendor_pickup_surcharge)')
+      .eq('id', vendor.id)
+      .single();
     return {
       statusCode: 200,
       headers: corsHeaders(origin),
-      body: JSON.stringify({ success: true, data: vendor }),
+      body: JSON.stringify({ success: true, data: fullVendor ?? vendor }),
     };
   }
 
   // ── PUT ──────────────────────────────────────────────────────────────────
   if (event.httpMethod === 'PUT') {
     const body = event.body ? JSON.parse(event.body) : {};
-    const allowed = ['phone', 'description', 'bank_name', 'bank_account_number', 'bank_account_name', 'logo_url', 'banner_url'];
+    const allowed = ['phone', 'description', 'bank_name', 'bank_account_number', 'bank_account_name', 'logo_url', 'banner_url', 'fez_collection_method'];
     const updates = {};
     for (const key of allowed) {
       if (body[key] !== undefined) updates[key] = body[key];

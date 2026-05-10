@@ -19,6 +19,15 @@ interface Vendor {
   address: string | null;
   city: string;
   state: string;
+  lga: string | null;
+  fez_collection_method: 'fez_pickup' | 'hub_dropoff' | null;
+  approved_location_id: string | null;
+  hub_id: string | null;
+  approved_vendor_locations: {
+    fez_hub_name: string | null;
+    fez_hub_address: string | null;
+    vendor_pickup_surcharge: number | null;
+  } | null;
   woocommerce_vendor_id: string;
 }
 

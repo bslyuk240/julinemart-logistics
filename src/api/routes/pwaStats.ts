@@ -32,7 +32,7 @@ export async function getPwaStatsHandler(_req: Request, res: Response) {
 
     // Last 10 events for activity feed
     const recent = [...events]
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())
       .slice(0, 10)
       .map((e) => ({ event_name: e.event_name, platform: e.platform, created_at: e.created_at }));
 

@@ -191,7 +191,7 @@ exports.handler = async (event) => {
           data: {
             status: 'assigned',
             orderReference: String(orderRef),
-            ...(deepLink ? { deepLink } : {}),
+            ...(deepLink ? { targetPath: deepLink } : {}),
           },
         });
 

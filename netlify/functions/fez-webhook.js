@@ -185,7 +185,7 @@ exports.handler = async (event) => {
             status: jloStatus,
             orderReference: String(orderRef),
             trackingNumber: orderNo,
-            ...(deepLink ? { deepLink } : {}),
+            ...(deepLink ? { targetPath: deepLink } : {}),
           },
         };
       } else if (jloStatus === 'out_for_delivery') {
@@ -197,7 +197,7 @@ exports.handler = async (event) => {
             status: jloStatus,
             orderReference: String(orderRef),
             trackingNumber: orderNo,
-            ...(deepLink ? { deepLink } : {}),
+            ...(deepLink ? { targetPath: deepLink } : {}),
           },
         };
       } else if (jloStatus === 'delivered') {
@@ -209,7 +209,7 @@ exports.handler = async (event) => {
             status: jloStatus,
             orderReference: String(orderRef),
             trackingNumber: orderNo,
-            ...(deepLink ? { deepLink } : {}),
+            ...(deepLink ? { targetPath: deepLink } : {}),
           },
         };
       }

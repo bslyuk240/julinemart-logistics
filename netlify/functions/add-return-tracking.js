@@ -142,7 +142,7 @@ export async function handler(event) {
           returnCode: shipment.return_code || null,
           trackingNumber: tracking_number,
           orderReference: String(orderRef),
-          ...(deepLink ? { deepLink } : {}),
+          ...(deepLink ? { targetPath: deepLink } : {}),
         },
       });
 

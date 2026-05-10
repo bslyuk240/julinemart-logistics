@@ -208,7 +208,7 @@ exports.handler = async (event) => {
         const pushMeta = {
           status,
           orderReference: String(orderRef),
-          ...(deepLink ? { deepLink } : {}),
+          ...(deepLink ? { targetPath: deepLink } : {}),
         };
 
         const pushInput =

@@ -691,7 +691,7 @@ async function markReceivedAtHub(client, shipmentId) {
               status: SUPPLIER_ORDER_STATUS_RECEIVED,
               orderReference: String(orderRef),
               shipmentId: shipmentId,
-              ...(deepLink ? { deepLink } : {}),
+              ...(deepLink ? { targetPath: deepLink } : {}),
             },
           });
 

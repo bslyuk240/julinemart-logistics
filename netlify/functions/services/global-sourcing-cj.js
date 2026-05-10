@@ -1054,7 +1054,7 @@ async function recordSupplierOrderTracking(client, subOrder, shipment, orderReco
       status: INBOUND_STATUS_CREATED,
       orderReference: String(orderRef),
       cjOrderId,
-      ...(deepLink ? { deepLink } : {}),
+      ...(deepLink ? { targetPath: deepLink } : {}),
     },
   });
 

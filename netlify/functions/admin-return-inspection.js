@@ -180,7 +180,7 @@ export async function handler(event) {
             data: {
               status: nextStatus,
               orderReference: String(orderRef),
-              ...(deepLink ? { deepLink } : {}),
+              ...(deepLink ? { targetPath: deepLink } : {}),
             },
           }
         : nextStatus === "rejected"
@@ -191,7 +191,7 @@ export async function handler(event) {
             data: {
               status: nextStatus,
               orderReference: String(orderRef),
-              ...(deepLink ? { deepLink } : {}),
+              ...(deepLink ? { targetPath: deepLink } : {}),
             },
           }
         : null;

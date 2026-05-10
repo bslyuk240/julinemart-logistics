@@ -245,9 +245,13 @@ export async function handler(event) {
     }
 
     if (!upstreamResponse.ok) {
+      const upstreamMessage =
+        isRecord(upstreamBody) && typeof upstreamBody.message === 'string'
+          ? upstreamBody.message
+          : null;
       return jsonResponse(upstreamResponse.status, {
         success: false,
-        error: 'PWA notification service returned an error',
+        error: upstreamMessage || 'PWA notification service returned an error',
         upstream: upstreamBody,
       });
     }
@@ -257,6 +261,28 @@ export async function handler(event) {
       : isRecord(upstreamBody.data)
       ? upstreamBody.data
       : upstreamBody;
+
+    // Upstream returned HTTP 200 but reported success: false (e.g. no devices matched)
+    if (isRecord(upstreamBody) && upstreamBody.success === false) {
+      return jsonResponse(200, {
+        success: false,
+        error:
+          typeof upstreamBody.message === 'string'
+            ? upstreamBody.message
+            : 'Notification service returned failure',
+        upstream: upstreamBody,
+        meta: {
+          audience: validated.audience,
+          sent: extractMetric(metricSource, ['sent', 'sentCount', 'successCount']),
+          failed: extractMetric(metricSource, ['failed', 'failedCount', 'errorCount']),
+          matchedTokensCount: extractMetric(metricSource, [
+            'matchedTokensCount',
+            'matched_tokens_count',
+            'matchedCount',
+          ]),
+        },
+      });
+    }
 
     return jsonResponse(200, {
       success: true,

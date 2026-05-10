@@ -40,17 +40,35 @@ export async function handler(event) {
       };
     }
 
+    // Also fetch sub-orders from sub-hubs that route through this hub for Fez dispatch
+    const { data: subHubRows } = await supabase
+      .from('hubs')
+      .select('id')
+      .eq('parent_hub_id', hubId)
+      .eq('is_sub_hub', true);
+
+    const subHubIds = (subHubRows || []).map((h) => h.id);
+    const allHubIds = [hubId, ...subHubIds];
+
     const { data, error } = await supabase
       .from('sub_orders')
       .select(
         `
           id,
+          main_order_id,
           hub_id,
+          vendor_id,
           courier_shipment_id,
           tracking_number,
           metadata,
           subtotal,
-          orders:main_order_id(
+          status,
+          items,
+          vendors (
+            store_name
+          ),
+          orders:main_order_id (
+            woocommerce_order_id,
             order_number,
             customer_name,
             customer_phone,
@@ -60,13 +78,11 @@ export async function handler(event) {
           )
         `
       )
-      .eq('hub_id', hubId)
+      .in('hub_id', allHubIds)
       .order('created_at', { ascending: false })
       .limit(500);
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     return {
       statusCode: 200,

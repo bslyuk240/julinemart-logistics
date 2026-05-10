@@ -72,7 +72,7 @@ export async function handler(event) {
     if (event.httpMethod === 'GET') {
       const { data, error } = await supabase
         .from('hubs')
-        .select('id, name, code, address, city, state, phone, email, manager_name, manager_phone, is_active, metadata')
+        .select('id, name, code, address, city, state, phone, email, manager_name, manager_phone, is_active, is_sub_hub, parent_hub_id, metadata, parent_hub:hubs!parent_hub_id(id, name, city)')
         .order('created_at', { ascending: false });
       if (error) throw error;
       return {
@@ -90,9 +90,10 @@ export async function handler(event) {
           return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: `Missing required field: ${k}` }) };
         }
       }
+      const isSubHub = Boolean(body.is_sub_hub);
       const { data, error } = await supabase
         .from('hubs')
-        .insert([{ 
+        .insert([{
           name: body.name,
           code: body.code,
           address: body.address,
@@ -103,6 +104,8 @@ export async function handler(event) {
           manager_name: body.manager_name,
           manager_phone: body.manager_phone,
           is_active: body.is_active ?? true,
+          is_sub_hub: isSubHub,
+          parent_hub_id: isSubHub ? (body.parent_hub_id || null) : null,
           metadata: buildHubMetadata({}, body),
         }])
         .select('*')
@@ -116,6 +119,10 @@ export async function handler(event) {
       const update = {};
       ['name','code','address','city','state','phone','email','manager_name','manager_phone','is_active']
         .forEach((k) => { if (body[k] !== undefined) update[k] = body[k]; });
+      if (body.is_sub_hub !== undefined) {
+        update.is_sub_hub = Boolean(body.is_sub_hub);
+        update.parent_hub_id = update.is_sub_hub ? (body.parent_hub_id || null) : null;
+      }
       if (body.postcode !== undefined) {
         const { data: currentHub, error: currentHubError } = await supabase
           .from('hubs')

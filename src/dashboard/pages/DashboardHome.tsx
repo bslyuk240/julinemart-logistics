@@ -87,7 +87,7 @@ export function DashboardHome() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [statsData, ordersData, influencersData, chatsResponse, discountsResponse, pwaResponse] = await Promise.all([
+      const [statsData, ordersData, influencersData, chatsResponse, discountsResponse, pwaEventsResponse] = await Promise.all([
         callSupabaseFunction('stats', { method: 'GET' }),
         callSupabaseFunctionWithQuery('orders', { limit: '200', offset: '0' }, { method: 'GET' }),
         callSupabaseFunctionWithQuery('influencers', { status: 'active' }, { method: 'GET' }),
@@ -98,7 +98,9 @@ export function DashboardHome() {
           .eq('is_active', true)
           .order('created_at', { ascending: false })
           .limit(5),
-        callSupabaseFunction('pwa-stats', { method: 'GET' }),
+        supabase
+          .from('pwa_install_events')
+          .select('event_name, platform, created_at'),
       ]);
 
       console.log('[DEBUG] Raw statsData response:', JSON.stringify(statsData, null, 2));
@@ -154,10 +156,22 @@ export function DashboardHome() {
         setActiveDiscounts([]);
       }
 
-      if (pwaResponse?.success && pwaResponse?.data) {
-        setPwaStats(pwaResponse.data as PwaStats);
-      } else if (pwaResponse?.data) {
-        setPwaStats(pwaResponse.data as PwaStats);
+      const pwaEvents = pwaEventsResponse?.data ?? [];
+      if (pwaEvents.length > 0) {
+        const count = (name: string) => pwaEvents.filter((e) => e.event_name === name).length;
+        const countPlat = (name: string, platform: string) =>
+          pwaEvents.filter((e) => e.event_name === name && e.platform === platform).length;
+        setPwaStats({
+          promptShown: count('pwa_install_prompt_shown'),
+          installClicked: count('pwa_install_clicked'),
+          installAccepted: count('pwa_install_accepted'),
+          installDismissed: count('pwa_install_dismissed'),
+          appInstalled: count('pwa_appinstalled'),
+          standaloneOpens: count('pwa_opened_standalone'),
+          androidInstalls: countPlat('pwa_appinstalled', 'android_desktop') + countPlat('pwa_install_accepted', 'android_desktop'),
+          iosStandaloneOpens: countPlat('pwa_opened_standalone', 'ios'),
+          androidStandaloneOpens: countPlat('pwa_opened_standalone', 'android_desktop'),
+        });
       }
     } catch (error) {
       console.error('Error fetching dashboard data:', error);

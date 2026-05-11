@@ -661,6 +661,7 @@ async function publishDraft(draftId, body, userId) {
           message:        draft.body_text,
           title:          draft.headline || draft.title,
           call_to_action: { type: draft.call_to_action || 'SHOP_NOW', value: { link: destinationUrl } },
+          ...(draft.image_url ? { image_url: draft.image_url } : {}),
         },
       },
     };

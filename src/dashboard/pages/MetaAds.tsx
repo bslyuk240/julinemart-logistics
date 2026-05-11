@@ -1375,11 +1375,8 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
         .upload(thumbPath, blob, { contentType: "image/jpeg", upsert: false });
       if (thumbErr) throw new Error(thumbErr.message);
       const { data: pub } = supabase.storage.from("vendor-documents").getPublicUrl(thumbData.path);
-      const res = await api("/api/meta/video-thumbnail", {
-        method: "POST",
-        body: JSON.stringify({ video_id: videoId, thumb_url: pub.publicUrl }),
-      });
-      if (!res.success) throw new Error(res.error || "Failed to set thumbnail");
+      // Thumbnail is applied to the Meta video creative at draft publish time via image_url in video_data.
+      // The Meta video thumbnail API requires pages_manage_posts (App Review only), so we skip it here.
       setVideoThumbUrl(pub.publicUrl);
     } catch (e: any) { setError(e?.message || "Failed to capture thumbnail"); }
     finally { setThumbSetting(false); }
@@ -1397,7 +1394,7 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
           title: headline.trim(), headline: headline.trim(),
           body_text: bodyText.trim(), call_to_action: cta,
           destination_url: destUrl.trim() || null,
-          image_url: mediaMode === "image" ? (imageUrl || null) : null,
+          image_url: mediaMode === "image" ? (imageUrl || null) : mediaMode === "video" ? (videoThumbUrl || null) : null,
           ad_format: mediaMode === "video" ? "video" : mediaMode === "none" ? "text" : "image",
           meta_video_id: mediaMode === "video" ? videoId : null,
           ai_generated: false,
@@ -1582,7 +1579,7 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
                     {thumbSetting ? "Setting thumbnail…" : videoThumbUrl ? "Recapture thumbnail" : "Capture current frame as thumbnail"}
                   </button>
                   {videoThumbUrl && (
-                    <p className="text-xs text-green-600 text-center">Thumbnail set on Meta</p>
+                    <p className="text-xs text-green-600 text-center">Thumbnail captured — will be applied when published</p>
                   )}
                 </div>
               ) : (

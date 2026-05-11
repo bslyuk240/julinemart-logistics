@@ -1288,6 +1288,8 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
   const [videoId, setVideoId]         = useState("");
   const [videoTitle, setVideoTitle]   = useState("");
   const [videoPreviewUrl, setVideoPreviewUrl] = useState("");
+  const [videoThumbUrl, setVideoThumbUrl] = useState("");
+  const [thumbSetting, setThumbSetting] = useState(false);
   const [brief, setBrief]             = useState("");
   const [assistTone, setAssistTone]   = useState("engaging");
   const [assisting, setAssisting]     = useState(false);
@@ -1297,6 +1299,7 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState("");
   const videoRef                      = useRef<HTMLInputElement>(null);
+  const videoElRef                    = useRef<HTMLVideoElement>(null);
 
   const CTA_OPTIONS = [
     { value: "SHOP_NOW", label: "Shop Now" },
@@ -1351,6 +1354,34 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
       else { setError(res.error || "Upload failed"); setUploadProgress(""); }
     } catch (uploadErr: any) { setError(uploadErr?.message || "Upload failed"); setUploadProgress(""); }
     finally { setUploading(false); }
+  };
+
+  const handleCaptureThumb = async () => {
+    const videoEl = videoElRef.current;
+    if (!videoEl || !videoId) return;
+    setThumbSetting(true); setError("");
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = videoEl.videoWidth || 1280;
+      canvas.height = videoEl.videoHeight || 720;
+      canvas.getContext("2d")!.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Failed to capture frame"))), "image/jpeg", 0.9)
+      );
+      const thumbPath = `meta-ads-temp/thumb_${Date.now()}.jpg`;
+      const { data: thumbData, error: thumbErr } = await supabase.storage
+        .from("vendor-documents")
+        .upload(thumbPath, blob, { contentType: "image/jpeg", upsert: false });
+      if (thumbErr) throw new Error(thumbErr.message);
+      const { data: pub } = supabase.storage.from("vendor-documents").getPublicUrl(thumbData.path);
+      const res = await api("/api/meta/video-thumbnail", {
+        method: "POST",
+        body: JSON.stringify({ video_id: videoId, thumb_url: pub.publicUrl }),
+      });
+      if (!res.success) throw new Error(res.error || "Failed to set thumbnail");
+      setVideoThumbUrl(pub.publicUrl);
+    } catch (e: any) { setError(e?.message || "Failed to capture thumbnail"); }
+    finally { setThumbSetting(false); }
   };
 
   const handleSave = async () => {
@@ -1486,7 +1517,7 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
                       <p className="text-xs font-medium text-green-800 truncate">{videoTitle}</p>
                       <p className="text-xs text-green-600">Video ID: {videoId}</p>
                     </div>
-                    <button onClick={() => { setVideoId(""); setVideoTitle(""); setVideoPreviewUrl(""); }} className="text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>
+                    <button onClick={() => { setVideoId(""); setVideoTitle(""); setVideoPreviewUrl(""); setVideoThumbUrl(""); }} className="text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>
                   </div>
                 )}
               </div>
@@ -1513,7 +1544,20 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
               </div>
               {bodyText && <p className="text-sm text-gray-800">{bodyText}</p>}
               {videoPreviewUrl ? (
-                <video src={videoPreviewUrl} controls className="w-full rounded-lg aspect-video object-cover bg-black" />
+                <div className="space-y-2">
+                  <video ref={videoElRef} src={videoPreviewUrl} controls poster={videoThumbUrl || undefined} className="w-full rounded-lg aspect-video object-cover bg-black" />
+                  <button
+                    onClick={handleCaptureThumb}
+                    disabled={thumbSetting}
+                    className="w-full flex items-center justify-center gap-1.5 text-xs text-gray-600 border border-dashed border-gray-300 rounded-lg py-1.5 hover:border-blue-400 hover:text-blue-600 transition-colors disabled:opacity-50"
+                  >
+                    <ImageIcon className="w-3.5 h-3.5" />
+                    {thumbSetting ? "Setting thumbnail…" : videoThumbUrl ? "Recapture thumbnail" : "Capture current frame as thumbnail"}
+                  </button>
+                  {videoThumbUrl && (
+                    <p className="text-xs text-green-600 text-center">Thumbnail set on Meta</p>
+                  )}
+                </div>
               ) : (
                 <div className="bg-gray-100 rounded-lg aspect-video flex items-center justify-center">
                   <div className="text-center">

@@ -777,6 +777,46 @@ async function publishDraft(draftId, body, userId) {
   return ok({ creative_id: creative.id, adset_id: adSet.id, ad_id: ad.id });
 }
 
+async function setVideoThumbnail(body) {
+  const { video_id, thumb_url } = body;
+  if (!video_id || !thumb_url) return err('video_id and thumb_url are required', 400);
+  if (!ACCESS_TOKEN) return err('META_ADS_ACCESS_TOKEN not configured', 500);
+
+  let thumbRes;
+  try {
+    thumbRes = await fetch(thumb_url);
+  } catch (e) {
+    throw new Error(`Failed to fetch thumbnail: ${e.message}`);
+  }
+  if (!thumbRes.ok) throw new Error(`Could not download thumbnail (HTTP ${thumbRes.status})`);
+
+  const buffer = Buffer.from(await thumbRes.arrayBuffer());
+  const form = new FormData();
+  form.append('access_token', ACCESS_TOKEN);
+  form.append('thumb', new Blob([buffer], { type: 'image/jpeg' }), 'thumb.jpg');
+
+  const apiVersion = META_API_BASE.split('/').pop();
+  const url = `https://graph-video.facebook.com/${apiVersion}/${video_id}`;
+
+  let res, rawText;
+  try {
+    res = await fetch(url, { method: 'POST', body: form });
+    rawText = await res.text();
+  } catch (fetchErr) {
+    throw new Error(`Network error setting thumbnail: ${fetchErr.message}`);
+  }
+
+  let json = {};
+  try { json = JSON.parse(rawText); } catch {}
+
+  if (!res.ok || json.error) {
+    const detail = json.error?.message || rawText || `HTTP ${res.status}`;
+    throw new Error(`Meta thumbnail update failed: ${detail}`);
+  }
+
+  return ok({ set: true });
+}
+
 async function logAction(userId, action, resource, resourceId, details, status = 'success', errorMsg) {
   await supabase.from('meta_action_logs').insert({
     user_id: userId || null, action,
@@ -858,6 +898,9 @@ export async function handler(event) {
 
     // POST /api/meta/upload-video
     if (path === 'upload-video' && method === 'POST') return await uploadVideoToMeta(body);
+
+    // POST /api/meta/video-thumbnail
+    if (path === 'video-thumbnail' && method === 'POST') return await setVideoThumbnail(body);
 
     // GET /api/meta/recommendations
     if (path === 'recommendations' && method === 'GET') return await getRecommendations();

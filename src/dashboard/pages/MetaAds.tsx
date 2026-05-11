@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { supabase } from '../../lib/supabase';
 import {
   TrendingUp, RefreshCw, Sparkles, CheckCircle, XCircle,
   Clock, Eye, MousePointer, DollarSign, Users, Plus,
@@ -1329,22 +1330,25 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 200 * 1024 * 1024) { setError("Video must be under 200 MB"); return; }
-    setError(""); setUploading(true); setUploadProgress("Reading file...");
+    setError(""); setUploading(true); setUploadProgress("Uploading video...");
     try {
-      const base64 = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve((reader.result as string).split(",")[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      setUploadProgress("Uploading to Meta...");
+      // Upload to Supabase Storage first — bypasses Netlify's 6 MB request body limit
+      const ext = file.name.split(".").pop() || "mp4";
+      const storagePath = `meta-ads-temp/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+      const { data: storageData, error: storageErr } = await supabase.storage
+        .from("vendor-documents")
+        .upload(storagePath, file, { contentType: file.type, upsert: false });
+      if (storageErr) throw new Error(storageErr.message);
+      const { data: pub } = supabase.storage.from("vendor-documents").getPublicUrl(storageData.path);
+
+      setUploadProgress("Sending to Meta...");
       const res = await api("/api/meta/upload-video", {
         method: "POST",
-        body: JSON.stringify({ file_base64: base64, content_type: file.type, title: file.name }),
+        body: JSON.stringify({ video_url: pub.publicUrl, content_type: file.type, title: file.name }),
       });
       if (res.success) { setVideoId(res.data.video_id); setVideoTitle(file.name); setUploadProgress(""); }
       else { setError(res.error || "Upload failed"); setUploadProgress(""); }
-    } catch { setError("Upload failed"); setUploadProgress(""); }
+    } catch (uploadErr: any) { setError(uploadErr?.message || "Upload failed"); setUploadProgress(""); }
     finally { setUploading(false); }
   };
 
@@ -1472,7 +1476,7 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
                   <button onClick={() => videoRef.current?.click()} disabled={uploading}
                     className="flex items-center gap-2 border border-dashed border-gray-300 rounded-lg px-4 py-4 text-sm text-gray-600 hover:border-blue-400 hover:text-blue-600 transition-colors disabled:opacity-50 w-full justify-center">
                     <Video className="w-4 h-4" />
-                    {uploading ? (uploadProgress || "Uploading...") : "Click to upload video (MP4, max 200 MB)"}
+                    {uploading ? (uploadProgress || "Uploading...") : "Click to upload video (MP4, MOV — up to 200 MB)"}
                   </button>
                 ) : (
                   <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg px-3 py-2">

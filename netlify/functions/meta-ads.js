@@ -469,23 +469,35 @@ Respond with ONLY a JSON array, no explanation:
 // ── Upload video to Meta (/advideos) ─────────────────────────────────────────
 
 async function uploadVideoToMeta(body) {
-  const { file_base64, content_type, title } = body;
-  if (!file_base64 || !content_type) return err('file_base64 and content_type are required', 400);
+  const { video_url, file_base64, content_type, title } = body;
+  if (!video_url && !file_base64) return err('video_url or file_base64 is required', 400);
+  if (!content_type) return err('content_type is required', 400);
   if (!AD_ACCOUNT_ID) return err('META_AD_ACCOUNT_ID not configured', 500);
   if (!ACCESS_TOKEN)  return err('META_ADS_ACCESS_TOKEN not configured', 500);
 
-  // Netlify sync functions cap request bodies at 6 MB; base64 adds ~33 % overhead.
-  // Warn early so the error is clear instead of a confusing parse failure.
-  const approxBytes = Math.ceil((file_base64.length * 3) / 4);
-  if (approxBytes > 50 * 1024 * 1024) {
-    return err('Video file is too large for direct upload (max ~50 MB). Use resumable upload for larger files.', 413);
-  }
-
   let buffer;
-  try {
-    buffer = Buffer.from(file_base64, 'base64');
-  } catch (e) {
-    return err(`Invalid base64 payload: ${e.message}`, 400);
+
+  if (video_url) {
+    // Preferred path: fetch video from Supabase Storage URL (avoids Netlify's 6 MB body limit)
+    let storageRes;
+    try {
+      storageRes = await fetch(video_url);
+    } catch (e) {
+      throw new Error(`Failed to fetch video from storage: ${e.message}`);
+    }
+    if (!storageRes.ok) throw new Error(`Could not download video from storage (HTTP ${storageRes.status})`);
+    buffer = Buffer.from(await storageRes.arrayBuffer());
+  } else {
+    // Legacy base64 path (kept for backwards compatibility)
+    const approxBytes = Math.ceil((file_base64.length * 3) / 4);
+    if (approxBytes > 50 * 1024 * 1024) {
+      return err('Video file is too large — upload via storage URL instead', 413);
+    }
+    try {
+      buffer = Buffer.from(file_base64, 'base64');
+    } catch (e) {
+      return err(`Invalid base64 payload: ${e.message}`, 400);
+    }
   }
 
   const ext      = content_type.split('/')[1]?.split(';')[0] || 'mp4';

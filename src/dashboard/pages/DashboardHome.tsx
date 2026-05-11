@@ -161,26 +161,24 @@ export function DashboardHome() {
       }
 
       const pwaEvents = pwaEventsResponse?.data ?? [];
-      if (pwaEvents.length > 0) {
-        const count = (name: string) => pwaEvents.filter((e) => e.event_name === name).length;
-        const countPlat = (name: string, platform: string) =>
-          pwaEvents.filter((e) => e.event_name === name && e.platform === platform).length;
-        setPwaStats({
-          promptShown: count('pwa_install_prompt_shown'),
-          installClicked: count('pwa_install_clicked'),
-          installAccepted: count('pwa_install_accepted'),
-          installDismissed: count('pwa_install_dismissed'),
-          appInstalled: count('pwa_appinstalled'),
-          standaloneOpens: count('pwa_opened_standalone'),
-          androidInstalls: countPlat('pwa_appinstalled', 'android_desktop') + countPlat('pwa_install_accepted', 'android_desktop'),
-          iosStandaloneOpens: countPlat('pwa_opened_standalone', 'ios'),
-          androidStandaloneOpens: countPlat('pwa_opened_standalone', 'android_desktop'),
-          notifPromptShown: count('notification_prompt_shown'),
-          notifAllowed: count('notification_prompt_allowed'),
-          notifDeclined: count('notification_prompt_declined'),
-          notifSnoozed: count('notification_prompt_snoozed'),
-        });
-      }
+      const count = (name: string) => pwaEvents.filter((e) => e.event_name === name).length;
+      const countPlat = (name: string, platform: string) =>
+        pwaEvents.filter((e) => e.event_name === name && e.platform === platform).length;
+      setPwaStats({
+        promptShown: count('pwa_install_prompt_shown'),
+        installClicked: count('pwa_install_clicked'),
+        installAccepted: count('pwa_install_accepted'),
+        installDismissed: count('pwa_install_dismissed'),
+        appInstalled: count('pwa_appinstalled'),
+        standaloneOpens: count('pwa_opened_standalone'),
+        androidInstalls: countPlat('pwa_appinstalled', 'android_desktop') + countPlat('pwa_install_accepted', 'android_desktop'),
+        iosStandaloneOpens: countPlat('pwa_opened_standalone', 'ios'),
+        androidStandaloneOpens: countPlat('pwa_opened_standalone', 'android_desktop'),
+        notifPromptShown: count('notification_prompt_shown'),
+        notifAllowed: count('notification_prompt_allowed'),
+        notifDeclined: count('notification_prompt_declined'),
+        notifSnoozed: count('notification_prompt_snoozed'),
+      });
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {

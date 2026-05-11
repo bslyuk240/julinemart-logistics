@@ -1287,6 +1287,7 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
   const [imageUrl, setImageUrl]       = useState("");
   const [videoId, setVideoId]         = useState("");
   const [videoTitle, setVideoTitle]   = useState("");
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState("");
   const [brief, setBrief]             = useState("");
   const [assistTone, setAssistTone]   = useState("engaging");
   const [assisting, setAssisting]     = useState(false);
@@ -1346,7 +1347,7 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
         method: "POST",
         body: JSON.stringify({ video_url: pub.publicUrl, content_type: file.type, title: file.name }),
       });
-      if (res.success) { setVideoId(res.data.video_id); setVideoTitle(file.name); setUploadProgress(""); }
+      if (res.success) { setVideoId(res.data.video_id); setVideoTitle(file.name); setVideoPreviewUrl(pub.publicUrl); setUploadProgress(""); }
       else { setError(res.error || "Upload failed"); setUploadProgress(""); }
     } catch (uploadErr: any) { setError(uploadErr?.message || "Upload failed"); setUploadProgress(""); }
     finally { setUploading(false); }
@@ -1485,7 +1486,7 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
                       <p className="text-xs font-medium text-green-800 truncate">{videoTitle}</p>
                       <p className="text-xs text-green-600">Video ID: {videoId}</p>
                     </div>
-                    <button onClick={() => { setVideoId(""); setVideoTitle(""); }} className="text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>
+                    <button onClick={() => { setVideoId(""); setVideoTitle(""); setVideoPreviewUrl(""); }} className="text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>
                   </div>
                 )}
               </div>
@@ -1511,13 +1512,17 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
                 <div><p className="text-sm font-semibold">JulineMart</p><p className="text-xs text-gray-500">Sponsored</p></div>
               </div>
               {bodyText && <p className="text-sm text-gray-800">{bodyText}</p>}
-              <div className="bg-gray-100 rounded-lg aspect-video flex items-center justify-center">
-                <div className="text-center">
-                  <Video className="w-10 h-10 mx-auto mb-2 text-gray-400" />
-                  <p className="text-xs font-medium text-gray-600">{videoTitle || "Your video"}</p>
-                  <p className="text-xs text-gray-400">Uploaded to Meta</p>
+              {videoPreviewUrl ? (
+                <video src={videoPreviewUrl} controls className="w-full rounded-lg aspect-video object-cover bg-black" />
+              ) : (
+                <div className="bg-gray-100 rounded-lg aspect-video flex items-center justify-center">
+                  <div className="text-center">
+                    <Video className="w-10 h-10 mx-auto mb-2 text-gray-400" />
+                    <p className="text-xs font-medium text-gray-600">{videoTitle || "Your video"}</p>
+                    <p className="text-xs text-gray-400">Uploaded to Meta</p>
+                  </div>
                 </div>
-              </div>
+              )}
               <div className="flex items-center justify-between border-t border-gray-100 pt-3">
                 <div>
                   <p className="text-xs text-gray-400 uppercase">julinemart.com</p>

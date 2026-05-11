@@ -1562,6 +1562,7 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
                     ref={videoElRef}
                     src={videoPreviewUrl}
                     controls
+                    crossOrigin="anonymous"
                     poster={videoThumbUrl || undefined}
                     onLoadedMetadata={(e) => {
                       const v = e.currentTarget;

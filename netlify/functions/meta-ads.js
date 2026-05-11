@@ -789,7 +789,19 @@ export async function handler(event) {
 
   const path   = (event.path || '').replace(/^\/api\/meta\/?/, '').replace(/\/$/, '');
   const method = event.httpMethod;
-  const body   = event.body ? JSON.parse(event.body) : {};
+
+  let body = {};
+  if (event.body) {
+    const rawBody = event.isBase64Encoded
+      ? Buffer.from(event.body, 'base64').toString('utf8')
+      : event.body;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return err('Request body is not valid JSON — it may be too large or malformed', 400);
+    }
+  }
+
   const qs     = event.queryStringParameters || {};
   const userId = await getUserId(event);
 

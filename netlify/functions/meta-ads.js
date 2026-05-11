@@ -472,9 +472,23 @@ async function uploadVideoToMeta(body) {
   const { file_base64, content_type, title } = body;
   if (!file_base64 || !content_type) return err('file_base64 and content_type are required', 400);
   if (!AD_ACCOUNT_ID) return err('META_AD_ACCOUNT_ID not configured', 500);
+  if (!ACCESS_TOKEN)  return err('META_ADS_ACCESS_TOKEN not configured', 500);
 
-  const buffer = Buffer.from(file_base64, 'base64');
-  const ext    = content_type.split('/')[1]?.split(';')[0] || 'mp4';
+  // Netlify sync functions cap request bodies at 6 MB; base64 adds ~33 % overhead.
+  // Warn early so the error is clear instead of a confusing parse failure.
+  const approxBytes = Math.ceil((file_base64.length * 3) / 4);
+  if (approxBytes > 50 * 1024 * 1024) {
+    return err('Video file is too large for direct upload (max ~50 MB). Use resumable upload for larger files.', 413);
+  }
+
+  let buffer;
+  try {
+    buffer = Buffer.from(file_base64, 'base64');
+  } catch (e) {
+    return err(`Invalid base64 payload: ${e.message}`, 400);
+  }
+
+  const ext      = content_type.split('/')[1]?.split(';')[0] || 'mp4';
   const filename = `ad_video_${Date.now()}.${ext}`;
 
   const form = new FormData();
@@ -482,11 +496,28 @@ async function uploadVideoToMeta(body) {
   form.append('title', title || filename);
   form.append('source', new Blob([buffer], { type: content_type }), filename);
 
-  const url = `https://graph-video.facebook.com/${META_API_BASE.split('/').pop()}/${AD_ACCOUNT_ID}/advideos`;
-  const res  = await fetch(url, { method: 'POST', body: form });
-  const json = await res.json();
+  const apiVersion = META_API_BASE.split('/').pop();
+  const url = `https://graph-video.facebook.com/${apiVersion}/${AD_ACCOUNT_ID}/advideos`;
 
-  if (!res.ok || json.error) throw new Error(json.error?.message || 'Failed to upload video to Meta');
+  let res, rawText;
+  try {
+    res     = await fetch(url, { method: 'POST', body: form });
+    rawText = await res.text();
+  } catch (fetchErr) {
+    throw new Error(`Network error reaching Meta video API: ${fetchErr.message}`);
+  }
+
+  let json = {};
+  try { json = JSON.parse(rawText); } catch { /* rawText may not be JSON */ }
+
+  if (!res.ok || json.error) {
+    const code    = json.error?.code    ? `(#${json.error.code}) ` : '';
+    const subcode = json.error?.error_subcode ? ` [subcode ${json.error.error_subcode}]` : '';
+    const detail  = json.error?.message || rawText || `HTTP ${res.status}`;
+    throw new Error(`Meta video upload failed: ${code}${detail}${subcode}`);
+  }
+
+  if (!json.id) throw new Error(`Meta did not return a video ID. Response: ${rawText}`);
   return ok({ video_id: json.id });
 }
 

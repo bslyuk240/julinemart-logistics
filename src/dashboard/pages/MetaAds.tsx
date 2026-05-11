@@ -1290,6 +1290,7 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
   const [videoPreviewUrl, setVideoPreviewUrl] = useState("");
   const [videoThumbUrl, setVideoThumbUrl] = useState("");
   const [thumbSetting, setThumbSetting] = useState(false);
+  const [adRatio, setAdRatio] = useState<"16/9" | "9/16" | "1/1">("16/9");
   const [brief, setBrief]             = useState("");
   const [assistTone, setAssistTone]   = useState("engaging");
   const [assisting, setAssisting]     = useState(false);
@@ -1517,7 +1518,7 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
                       <p className="text-xs font-medium text-green-800 truncate">{videoTitle}</p>
                       <p className="text-xs text-green-600">Video ID: {videoId}</p>
                     </div>
-                    <button onClick={() => { setVideoId(""); setVideoTitle(""); setVideoPreviewUrl(""); setVideoThumbUrl(""); }} className="text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>
+                    <button onClick={() => { setVideoId(""); setVideoTitle(""); setVideoPreviewUrl(""); setVideoThumbUrl(""); setAdRatio("16/9"); }} className="text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>
                   </div>
                 )}
               </div>
@@ -1535,7 +1536,19 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
 
         {/* Live preview */}
         <div className="space-y-4">
-          <h3 className="text-sm font-semibold text-gray-700">Live Preview</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-700">Live Preview</h3>
+            {mediaMode === "video" && videoId && (
+              <div className="flex gap-1">
+                {(["16/9", "1/1", "9/16"] as const).map((r) => (
+                  <button key={r} onClick={() => setAdRatio(r)}
+                    className={`px-2 py-0.5 text-xs rounded font-medium border transition-colors ${adRatio === r ? "bg-blue-600 text-white border-blue-600" : "border-gray-300 text-gray-500 hover:border-gray-400"}`}>
+                    {r === "16/9" ? "Landscape" : r === "9/16" ? "Portrait" : "Square"}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           {mediaMode === "video" && videoId ? (
             <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
               <div className="flex items-center gap-2">
@@ -1545,7 +1558,20 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
               {bodyText && <p className="text-sm text-gray-800">{bodyText}</p>}
               {videoPreviewUrl ? (
                 <div className="space-y-2">
-                  <video ref={videoElRef} src={videoPreviewUrl} controls poster={videoThumbUrl || undefined} className="w-full rounded-lg aspect-video object-cover bg-black" />
+                  <video
+                    ref={videoElRef}
+                    src={videoPreviewUrl}
+                    controls
+                    poster={videoThumbUrl || undefined}
+                    onLoadedMetadata={(e) => {
+                      const v = e.currentTarget;
+                      if (v.videoHeight > v.videoWidth) setAdRatio("9/16");
+                      else if (v.videoWidth === v.videoHeight) setAdRatio("1/1");
+                      else setAdRatio("16/9");
+                    }}
+                    style={{ aspectRatio: adRatio }}
+                    className="w-full rounded-lg object-cover bg-black"
+                  />
                   <button
                     onClick={handleCaptureThumb}
                     disabled={thumbSetting}
@@ -1559,7 +1585,7 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
                   )}
                 </div>
               ) : (
-                <div className="bg-gray-100 rounded-lg aspect-video flex items-center justify-center">
+                <div className="bg-gray-100 rounded-lg flex items-center justify-center" style={{ aspectRatio: adRatio }}>
                   <div className="text-center">
                     <Video className="w-10 h-10 mx-auto mb-2 text-gray-400" />
                     <p className="text-xs font-medium text-gray-600">{videoTitle || "Your video"}</p>

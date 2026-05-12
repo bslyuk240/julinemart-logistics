@@ -931,6 +931,15 @@ export function MetaAdsPage() {
 
                 {expandedDraft === d.id && (
                   <div className="border-t border-gray-100 px-5 py-4 space-y-4">
+                    {d.ad_format === 'video' && d.meta_video_id && (
+                      <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                        <Video className="w-4 h-4 text-blue-600 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-blue-800">Video ad — ready to publish</p>
+                          <p className="text-xs text-blue-600 truncate">Meta Video ID: {d.meta_video_id}</p>
+                        </div>
+                      </div>
+                    )}
                     <div className="grid lg:grid-cols-2 gap-5">
                       <div className="space-y-3">
                         {d.headline && <p className="font-semibold text-gray-900">{d.headline}</p>}

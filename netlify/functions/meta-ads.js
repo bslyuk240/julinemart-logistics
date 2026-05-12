@@ -523,6 +523,14 @@ async function uploadVideoToMeta(body) {
   try { json = JSON.parse(rawText); } catch { /* rawText may not be JSON */ }
 
   if (!res.ok || json.error) {
+    // HEVC/H.265 codec — common on iPhone (records HEVC by default)
+    if (json.error?.code === 352 || json.error?.error_subcode === 1363024) {
+      throw new Error(
+        'Video format not supported by Meta. Your video is likely encoded in HEVC/H.265 (common on iPhone). ' +
+        'Fix: on iPhone go to Settings → Camera → Formats → Most Compatible, then re-record. ' +
+        'Or convert the video to MP4 (H.264) using a converter app before uploading.'
+      );
+    }
     const code    = json.error?.code    ? `(#${json.error.code}) ` : '';
     const subcode = json.error?.error_subcode ? ` [subcode ${json.error.error_subcode}]` : '';
     const detail  = json.error?.message || rawText || `HTTP ${res.status}`;

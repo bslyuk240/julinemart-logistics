@@ -49,6 +49,8 @@ interface Draft {
   suggested_budget: number | null;
   created_at: string;
   meta_ad_id?: string | null;
+  meta_video_id?: string | null;
+  ad_format?: string | null;
   published_at?: string | null;
   users?: { full_name: string; email: string };
 }

@@ -739,7 +739,9 @@ export function MetaAdsPage() {
 
   const handlePublish = async (id: string) => {
     const hasExisting = campaigns.filter((c) => c.status === 'ACTIVE' || c.status === 'PAUSED').length > 0;
+    const creatingNew = publishCampaign === '__new__';
     if (hasExisting && !publishCampaign) { setError('Select a campaign first'); return; }
+    if (creatingNew && !publishCampaignName.trim()) { setError('Enter a name for the new campaign'); return; }
     if (!hasExisting && !publishCampaignName.trim()) { setError('Enter a campaign name'); return; }
     if (!publishBudget || Number(publishBudget) < META_PUBLISH_MIN_DAILY_BUDGET_NGN) {
       setError(`Enter a daily budget of at least ₦${META_PUBLISH_MIN_DAILY_BUDGET_NGN.toLocaleString()} per Meta`);
@@ -749,7 +751,7 @@ export function MetaAdsPage() {
     setError('');
     try {
       const payload: Record<string, unknown> = { daily_budget: Number(publishBudget) };
-      if (publishCampaign) payload.campaign_id = publishCampaign;
+      if (publishCampaign && !creatingNew) payload.campaign_id = publishCampaign;
       else payload.new_campaign_name = publishCampaignName.trim();
       const res = await api(`/api/meta/drafts/${id}/publish`, {
         method: 'POST',
@@ -1016,16 +1018,29 @@ export function MetaAdsPage() {
                             <div>
                               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Campaign</label>
                               {campaigns.filter((c) => c.status === 'ACTIVE' || c.status === 'PAUSED').length > 0 ? (
-                                <select
-                                  value={publishCampaign}
-                                  onChange={(e) => setPublishCampaign(e.target.value)}
-                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                >
-                                  <option value="">Select a campaign…</option>
-                                  {campaigns.filter((c) => c.status === 'ACTIVE' || c.status === 'PAUSED').map((c) => (
-                                    <option key={c.meta_campaign_id} value={c.meta_campaign_id}>{c.name}</option>
-                                  ))}
-                                </select>
+                                <>
+                                  <select
+                                    value={publishCampaign}
+                                    onChange={(e) => { setPublishCampaign(e.target.value); setPublishCampaignName(''); }}
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  >
+                                    <option value="">Select a campaign…</option>
+                                    {campaigns.filter((c) => c.status === 'ACTIVE' || c.status === 'PAUSED').map((c) => (
+                                      <option key={c.meta_campaign_id} value={c.meta_campaign_id}>{c.name}</option>
+                                    ))}
+                                    <option value="__new__">+ Create new campaign</option>
+                                  </select>
+                                  {publishCampaign === '__new__' && (
+                                    <input
+                                      type="text"
+                                      value={publishCampaignName}
+                                      onChange={(e) => setPublishCampaignName(e.target.value)}
+                                      placeholder="e.g. JulineMart June Sales"
+                                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mt-2"
+                                      autoFocus
+                                    />
+                                  )}
+                                </>
                               ) : (
                                 <input
                                   type="text"
@@ -1037,7 +1052,7 @@ export function MetaAdsPage() {
                               )}
                               <p className="text-xs text-gray-400 mt-1">
                                 {campaigns.filter((c) => c.status === 'ACTIVE' || c.status === 'PAUSED').length > 0
-                                  ? 'Select an existing campaign'
+                                  ? 'Select an existing campaign or create a new one'
                                   : 'No campaigns yet — a new one will be created automatically'}
                               </p>
                             </div>

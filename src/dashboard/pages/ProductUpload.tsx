@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { ArrowLeft, ChevronDown, ChevronUp, ListOrdered, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ChevronUp, ListOrdered, Plus, RefreshCw, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
@@ -312,6 +312,7 @@ export default function ProductUpload() {
   const [tagInput, setTagInput] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingVariationIdx, setUploadingVariationIdx] = useState<number | null>(null);
+  const [aiDrafting, setAiDrafting] = useState(false);
   /** Lightbox URL when user taps a variation thumbnail */
   const [variationImagePreviewUrl, setVariationImagePreviewUrl] = useState<string | null>(null);
   const slugEditedManually = useRef(false);
@@ -474,6 +475,73 @@ export default function ProductUpload() {
       notification.error('Generate SKU', e instanceof Error ? e.message : 'Could not compute next SKU');
     } finally {
       setSkuGenBusy(false);
+    }
+  };
+
+  const runAiDraft = async () => {
+    if (aiDrafting) return;
+    const categoryNames = form.category_ids
+      .map((id) => allCategories.find((c) => c.id === id)?.name)
+      .filter(Boolean) as string[];
+    const imageUrls = form.images.map((img) => img.src).filter(Boolean);
+    const existingDescImages = (form.description.match(/<img\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s"'<>]+))/gi) || []);
+
+    setAiDrafting(true);
+    try {
+      const res = await fetch(`${apiBase}/.netlify/functions/admin-ai-product-draft`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          name: form.name,
+          short_description: form.short_description,
+          description: form.description,
+          category_names: categoryNames,
+          image_urls: imageUrls,
+        }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.success || !json.data) {
+        notification.error('AI generation failed', json.error || 'Could not generate product draft');
+        return;
+      }
+
+      const draft = json.data as {
+        suggested_name?: string;
+        short_description_html?: string;
+        full_description_html?: string;
+        seo_title?: string;
+        seo_description?: string;
+        used_image_count?: number;
+      };
+
+      setForm((prev) => {
+        const nextName = draft.suggested_name?.trim() || prev.name;
+        const nextDescription = draft.full_description_html?.trim() || prev.description;
+        const restoredDescription =
+          existingDescImages.length > 0 && !/<img\b/i.test(nextDescription)
+            ? `${nextDescription}\n${existingDescImages.join('\n')}`
+            : nextDescription;
+
+        return {
+          ...prev,
+          name: nextName,
+          slug: slugEditedManually.current ? prev.slug : toSlug(nextName),
+          short_description: draft.short_description_html?.trim() || prev.short_description,
+          description: restoredDescription,
+          seo_title: draft.seo_title?.trim() || prev.seo_title,
+          seo_description: draft.seo_description?.trim() || prev.seo_description,
+        };
+      });
+
+      notification.success(
+        'AI draft generated',
+        `Descriptions updated${draft.used_image_count ? ` using ${draft.used_image_count} image(s)` : ''}. Review before publishing.`
+      );
+    } catch (err: unknown) {
+      notification.error('AI generation failed', err instanceof Error ? err.message : 'Unexpected error');
+    } finally {
+      setAiDrafting(false);
     }
   };
 
@@ -917,7 +985,21 @@ export default function ProductUpload() {
 
         {/* ── Basic Info ──────────────────────────────────────────────── */}
         <section className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
-          <h2 className="font-semibold text-gray-900">Basic Info</h2>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="font-semibold text-gray-900">Basic Info</h2>
+            <button
+              type="button"
+              onClick={() => void runAiDraft()}
+              disabled={aiDrafting}
+              className="inline-flex items-center gap-2 self-start rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 text-sm font-medium text-primary-700 hover:bg-primary-100 disabled:opacity-50"
+            >
+              <Sparkles className="w-4 h-4" />
+              {aiDrafting ? 'Generating…' : 'Generate with AI'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 -mt-2">
+            AI refines text using your title, notes, category, and images. Existing description images are preserved.
+          </p>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Product Name *</label>

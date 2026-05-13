@@ -47,6 +47,8 @@ export default function SupportChatView() {
   const channelRef      = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const inputRef        = useRef<HTMLTextAreaElement>(null);
   const typingTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const channelReadyRef = useRef(false);
 
   // ── Load session + messages ───────────────────────────────────────────────
 
@@ -108,16 +110,24 @@ export default function SupportChatView() {
         if (payload.payload?.role === 'customer') {
           setCustomerTyping(true);
           // Auto-clear after 3s in case stop event is missed
-          setTimeout(() => setCustomerTyping(false), 3000);
+          if (typingClearTimerRef.current) clearTimeout(typingClearTimerRef.current);
+          typingClearTimerRef.current = setTimeout(() => setCustomerTyping(false), 3000);
         }
       })
       .on('broadcast', { event: 'stop_typing' }, (payload) => {
         if (payload.payload?.role === 'customer') setCustomerTyping(false);
       })
-      .subscribe();
+      .subscribe((status) => {
+        channelReadyRef.current = status === 'SUBSCRIBED';
+      });
 
     channelRef.current = channel;
-    return () => { if (channelRef.current) supabase.removeChannel(channelRef.current); };
+    return () => {
+      channelReadyRef.current = false;
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      if (typingClearTimerRef.current) clearTimeout(typingClearTimerRef.current);
+      if (channelRef.current) supabase.removeChannel(channelRef.current);
+    };
   }, [sessionId]);
 
   // ── Scroll to bottom ──────────────────────────────────────────────────────
@@ -212,6 +222,9 @@ export default function SupportChatView() {
     if (error) {
       setInputText(text); // restore on error
       console.error('[SupportChatView] send error:', error.message);
+    }
+    if (channelReadyRef.current) {
+      channelRef.current?.send({ type: 'broadcast', event: 'stop_typing', payload: { role: 'staff' } });
     }
     setSending(false);
     inputRef.current?.focus();
@@ -350,12 +363,20 @@ export default function SupportChatView() {
               onChange={e => {
                 setInputText(e.target.value);
                 const ch = channelRef.current;
-                if (!ch) return;
+                if (!ch || !channelReadyRef.current) return;
                 ch.send({ type: 'broadcast', event: 'typing', payload: { role: 'staff' } });
                 if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
                 typingTimerRef.current = setTimeout(() => {
-                  channelRef.current?.send({ type: 'broadcast', event: 'stop_typing', payload: { role: 'staff' } });
+                  if (channelReadyRef.current) {
+                    channelRef.current?.send({ type: 'broadcast', event: 'stop_typing', payload: { role: 'staff' } });
+                  }
                 }, 2000);
+              }}
+              onBlur={() => {
+                if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+                if (channelReadyRef.current) {
+                  channelRef.current?.send({ type: 'broadcast', event: 'stop_typing', payload: { role: 'staff' } });
+                }
               }}
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }

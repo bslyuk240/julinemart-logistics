@@ -349,8 +349,9 @@ export default function SupportChatView() {
               value={inputText}
               onChange={e => {
                 setInputText(e.target.value);
-                if (!channelRef.current) return;
-                channelRef.current.send({ type: 'broadcast', event: 'typing', payload: { role: 'staff' } });
+                const ch = channelRef.current;
+                if (!ch) return;
+                ch.send({ type: 'broadcast', event: 'typing', payload: { role: 'staff' } });
                 if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
                 typingTimerRef.current = setTimeout(() => {
                   channelRef.current?.send({ type: 'broadcast', event: 'stop_typing', payload: { role: 'staff' } });

@@ -39,7 +39,7 @@ export default function SupportInbox() {
   const [loading, setLoading]             = useState(true);
   const [searchTerm, setSearchTerm]       = useState('');
   const [statusFilter, setStatusFilter]   = useState<StatusFilter>('all');
-  const [modeFilter, setModeFilter]       = useState<ModeFilter>('human');
+  const [modeFilter, setModeFilter]       = useState<ModeFilter>('all');
   const [newSessionAlert, setNewSessionAlert] = useState(false);
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);

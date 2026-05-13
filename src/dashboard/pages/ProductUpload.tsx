@@ -484,7 +484,8 @@ export default function ProductUpload() {
       .map((id) => allCategories.find((c) => c.id === id)?.name)
       .filter(Boolean) as string[];
     const imageUrls = form.images.map((img) => img.src).filter(Boolean);
-    const existingDescImages = (form.description.match(/<img\b[^>]*\bsrc\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s"'<>]+))/gi) || []);
+    // Preserve full existing <img ...> tags from description and re-attach after AI text rewrite.
+    const existingDescImages = form.description.match(/<img\b[^>]*>/gi) || [];
 
     setAiDrafting(true);
     try {

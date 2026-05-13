@@ -46,6 +46,8 @@ import { ShippingRatesPage } from './dashboard/pages/ShippingRates';
 import { UsersPage } from './dashboard/pages/Users';
 import WhatsAppChatView from './dashboard/pages/WhatsAppChatView';
 import WhatsAppSupportPage from './dashboard/pages/WhatsAppSupport';
+import SupportInbox from './dashboard/pages/SupportInbox';
+import SupportChatView from './dashboard/pages/SupportChatView';
 import { VouchersPage } from './dashboard/pages/Vouchers';
 import { VendorsPage } from './dashboard/pages/Vendors';
 import VendorDetail from './dashboard/pages/VendorDetail';
@@ -82,6 +84,8 @@ const sharedRoutes = [
   { path: 'rates', element: <ShippingRatesPage /> },
   { path: 'whatsapp', element: <WhatsAppSupportPage /> },
   { path: 'whatsapp/:chatId', element: <WhatsAppChatView /> },
+  { path: 'support', element: <SupportInbox /> },
+  { path: 'support/:sessionId', element: <SupportChatView /> },
   {
     path: 'products/upload',
     element: (

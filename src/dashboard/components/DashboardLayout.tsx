@@ -1,6 +1,6 @@
 import { ReactNode, useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { 
+import {
   LayoutDashboard,
   Package,
   MapPin,
@@ -29,7 +29,8 @@ import {
   Plus,
   Store,
   Wallet,
-  TrendingUp
+  TrendingUp,
+  Headphones,
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
 import { BrandLogo } from '../../shared/BrandLogo';
@@ -62,6 +63,7 @@ const navigation: NavItem[] = [
   { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent', 'manager', 'viewer'] },
   { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent', 'viewer'] },
   { name: 'WhatsApp Support', href: '/admin/whatsapp', icon: MessageSquare, roles: ['admin', 'agent', 'manager', 'viewer'] },
+  { name: 'Live Support', href: '/admin/support', icon: Headphones, roles: ['admin', 'agent', 'manager', 'viewer'] },
   { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent', 'manager', 'viewer'] },
   { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'agent', 'manager', 'viewer'] },
   // Catalog: manager always; shop_manager + admin; agents only with catalog_access

@@ -36,15 +36,17 @@ export default function SupportChatView() {
   const { user }       = useAuth();
   const navigate       = useNavigate();
 
-  const [session, setSession]     = useState<SupportSession | null>(null);
-  const [messages, setMessages]   = useState<SupportMessage[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [inputText, setInputText] = useState('');
-  const [sending, setSending]     = useState(false);
+  const [session, setSession]         = useState<SupportSession | null>(null);
+  const [messages, setMessages]       = useState<SupportMessage[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [inputText, setInputText]     = useState('');
+  const [sending, setSending]         = useState(false);
+  const [customerTyping, setCustomerTyping] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const channelRef     = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const inputRef       = useRef<HTMLTextAreaElement>(null);
+  const messagesEndRef  = useRef<HTMLDivElement>(null);
+  const channelRef      = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const inputRef        = useRef<HTMLTextAreaElement>(null);
+  const typingTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Load session + messages ───────────────────────────────────────────────
 
@@ -85,15 +87,15 @@ export default function SupportChatView() {
     if (channelRef.current) supabase.removeChannel(channelRef.current);
 
     const channel = supabase
-      .channel(`support_chat_staff_${sessionId}`)
+      .channel(`support_chat_${sessionId}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'support_messages', filter: `session_id=eq.${sessionId}` },
         (payload) => {
           const newMsg = payload.new as SupportMessage;
           setMessages(prev => prev.some(m => m.id === newMsg.id) ? prev : [...prev, newMsg]);
+          setCustomerTyping(false);
           setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
-          // Mark as read immediately when staff is viewing
           supabase.from('support_sessions').update({ unread_count: 0 }).eq('id', sessionId).then(() => {});
         }
       )
@@ -102,6 +104,16 @@ export default function SupportChatView() {
         { event: 'UPDATE', schema: 'public', table: 'support_sessions', filter: `id=eq.${sessionId}` },
         (payload) => setSession(payload.new as SupportSession)
       )
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        if (payload.payload?.role === 'customer') {
+          setCustomerTyping(true);
+          // Auto-clear after 3s in case stop event is missed
+          setTimeout(() => setCustomerTyping(false), 3000);
+        }
+      })
+      .on('broadcast', { event: 'stop_typing' }, (payload) => {
+        if (payload.payload?.role === 'customer') setCustomerTyping(false);
+      })
       .subscribe();
 
     channelRef.current = channel;
@@ -276,6 +288,19 @@ export default function SupportChatView() {
         {messages.map(msg => (
           <StaffMessageBubble key={msg.id} msg={msg} isOwnStaff={msg.sender_type === 'staff' && msg.sender_name === (user?.full_name || user?.email)} />
         ))}
+
+        {/* Customer typing indicator */}
+        {customerTyping && (
+          <div className="flex items-start gap-2">
+            <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center flex-shrink-0">
+              <User className="w-4 h-4 text-white" />
+            </div>
+            <div className="bg-white rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
+              <TypingDots />
+            </div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -294,7 +319,15 @@ export default function SupportChatView() {
             <textarea
               ref={inputRef}
               value={inputText}
-              onChange={e => setInputText(e.target.value)}
+              onChange={e => {
+                setInputText(e.target.value);
+                if (!channelRef.current) return;
+                channelRef.current.send({ type: 'broadcast', event: 'typing', payload: { role: 'staff' } });
+                if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+                typingTimerRef.current = setTimeout(() => {
+                  channelRef.current?.send({ type: 'broadcast', event: 'stop_typing', payload: { role: 'staff' } });
+                }, 2000);
+              }}
               onKeyDown={e => {
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
               }}
@@ -395,6 +428,20 @@ function StaffMessageBubble({ msg, isOwnStaff }: { msg: SupportMessage; isOwnSta
         </div>
         <p className="text-[11px] text-gray-400 mt-0.5">{formatDateTime(msg.created_at)}</p>
       </div>
+    </div>
+  );
+}
+
+function TypingDots() {
+  return (
+    <div className="flex gap-1 items-center h-4">
+      {[0, 1, 2].map(i => (
+        <span
+          key={i}
+          className="w-2 h-2 rounded-full bg-gray-300 animate-bounce"
+          style={{ animationDelay: `${i * 0.15}s` }}
+        />
+      ))}
     </div>
   );
 }

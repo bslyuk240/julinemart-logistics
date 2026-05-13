@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Send, User, Bot, Headphones, UserCheck, X, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Send, User, Bot, Headphones, UserCheck, X, CheckCircle, Sparkles } from 'lucide-react';
 import { supabase } from '../contexts/AuthContext';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -153,11 +153,31 @@ export default function SupportChatView() {
   };
 
   const leaveChat = async () => {
-    if (!sessionId) return;
+    if (!sessionId || !user) return;
     await supabase
       .from('support_sessions')
-      .update({ assigned_staff_id: null, assigned_staff_name: null, status: 'open' })
+      .update({ assigned_staff_id: null, assigned_staff_name: null, status: 'open', mode: 'ai' })
       .eq('id', sessionId);
+    await supabase.from('support_messages').insert({
+      session_id:  sessionId,
+      sender_type: 'ai',
+      sender_name: 'JulineMart Support',
+      content:     `${user.full_name || 'The agent'} has left the chat. Our AI assistant will continue to help you.`,
+    });
+  };
+
+  const handToAI = async () => {
+    if (!sessionId || !user) return;
+    await supabase
+      .from('support_sessions')
+      .update({ assigned_staff_id: null, assigned_staff_name: null, status: 'open', mode: 'ai' })
+      .eq('id', sessionId);
+    await supabase.from('support_messages').insert({
+      session_id:  sessionId,
+      sender_type: 'ai',
+      sender_name: 'JulineMart Support',
+      content:     `${user.full_name || 'The agent'} has handed this chat back to the AI assistant.`,
+    });
   };
 
   const closeChat = async () => {
@@ -248,6 +268,14 @@ export default function SupportChatView() {
               style={{ backgroundColor: '#77088a' }}
             >
               <UserCheck className="w-3.5 h-3.5" /> Join Chat
+            </button>
+          )}
+          {isMyChat && !isClosed && session?.mode === 'human' && (
+            <button
+              onClick={handToAI}
+              className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50 transition-colors"
+            >
+              <Sparkles className="w-3.5 h-3.5" /> Hand to AI
             </button>
           )}
           {isMyChat && !isClosed && (

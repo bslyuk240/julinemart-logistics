@@ -103,6 +103,25 @@ export const api = {
     });
   },
 
+  draftProductWithAi: (body: {
+    name: string;
+    short_description: string;
+    description: string;
+    category_names: string[];
+    image_urls: string[];
+  }) =>
+    request<{
+      suggested_name: string;
+      short_description_html: string;
+      full_description_html: string;
+      seo_title: string;
+      seo_description: string;
+      used_image_count: number;
+    }>('vendor-ai-product-draft', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
   deleteProduct: (id: string) =>
     request<unknown>(`vendor-product-upsert?id=${id}`, { method: 'DELETE' }),
 

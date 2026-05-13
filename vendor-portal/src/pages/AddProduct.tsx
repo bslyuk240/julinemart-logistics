@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Plus, Trash2, Upload, X, RefreshCw,
-  ChevronDown, ChevronUp, ImageIcon, Lock,
+  ChevronDown, ChevronUp, ImageIcon, Lock, Sparkles,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
@@ -222,6 +222,7 @@ export default function AddProduct() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(isEdit);
   const [skuGenBusy, setSkuGenBusy] = useState(false);
+  const [aiDrafting, setAiDrafting] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const varFileRefs = useRef<Record<number, HTMLInputElement | null>>({});
@@ -513,6 +514,53 @@ export default function AddProduct() {
     }
   };
 
+  const runAiDraft = async () => {
+    if (aiDrafting) return;
+    const categoryNames = form.category_ids
+      .map((id) => categories.find((c) => c.id === id)?.name)
+      .filter(Boolean) as string[];
+    const imageUrls = form.images.map((img) => img.src).filter(Boolean);
+    const existingDescImages = form.description.match(/<img\b[^>]*>/gi) || [];
+
+    setAiDrafting(true);
+    try {
+      const draft = await api.draftProductWithAi({
+        name: form.name,
+        short_description: form.short_description,
+        description: form.description,
+        category_names: categoryNames,
+        image_urls: imageUrls,
+      });
+
+      setForm((prev) => {
+        const nextName = draft.suggested_name?.trim() || prev.name;
+        const nextDescription = draft.full_description_html?.trim() || prev.description;
+        const restoredDescription =
+          existingDescImages.length > 0 && !/<img\b/i.test(nextDescription)
+            ? `${nextDescription}\n${existingDescImages.join('\n')}`
+            : nextDescription;
+
+        return {
+          ...prev,
+          name: nextName,
+          slug: prev.slug && prev.slug !== toSlug(prev.name) ? prev.slug : toSlug(nextName),
+          short_description: draft.short_description_html?.trim() || prev.short_description,
+          description: restoredDescription,
+          seo_title: draft.seo_title?.trim() || prev.seo_title,
+          seo_description: draft.seo_description?.trim() || prev.seo_description,
+        };
+      });
+
+      alert(
+        `AI draft generated${draft.used_image_count ? ` using ${draft.used_image_count} image(s)` : ''}. Please review before publishing.`
+      );
+    } catch (err: unknown) {
+      alert('AI generation failed: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setAiDrafting(false);
+    }
+  };
+
   // ── Submit ────────────────────────────────────────────────────────────────
 
   const handleSubmit = async (submitStatus: 'draft' | 'published') => {
@@ -662,7 +710,21 @@ export default function AddProduct() {
 
           {/* Basic Info */}
           <div className="card space-y-4">
-            <h2 className="font-semibold text-gray-900">Basic Information</h2>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="font-semibold text-gray-900">Basic Information</h2>
+              <button
+                type="button"
+                onClick={() => void runAiDraft()}
+                disabled={aiDrafting}
+                className="inline-flex items-center gap-2 self-start rounded-xl border border-primary-200 bg-primary-50 px-3 py-2 text-sm font-medium text-primary-700 hover:bg-primary-100 disabled:opacity-50"
+              >
+                <Sparkles className="w-4 h-4" />
+                {aiDrafting ? 'Generating…' : 'Generate with AI'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 -mt-2">
+              AI refines text using title, category, and images. Existing description images are preserved.
+            </p>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">

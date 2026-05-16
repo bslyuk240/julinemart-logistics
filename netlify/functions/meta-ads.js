@@ -848,29 +848,33 @@ async function setVideoThumbnail(body) {
 
 async function getAccountInfo() {
   if (!AD_ACCOUNT_ID) return err('META_AD_ACCOUNT_ID not configured', 500);
+
+  // Core fields — must succeed
   const data = await metaGet(AD_ACCOUNT_ID, {
-    fields: 'balance,amount_spent,currency,spend_cap,name,funding_source_details,all_payment_methods',
+    fields: 'balance,amount_spent,currency,spend_cap,name,funding_source_details',
   });
 
-  console.log('[getAccountInfo] raw balance:', data.balance);
-  console.log('[getAccountInfo] funding_source_details:', JSON.stringify(data.funding_source_details));
-  console.log('[getAccountInfo] all_payment_methods:', JSON.stringify(data.all_payment_methods));
+  console.log('[getAccountInfo] balance:', data.balance, '| fsd:', JSON.stringify(data.funding_source_details));
 
-  // Meta returns monetary values in the currency's minor units (kobo for NGN)
   const toMajor = (v) => (v !== undefined && v !== null ? Number(v) / 100 : null);
-
-  // Amount owed = `balance` on threshold-billing accounts
   const amountOwed = toMajor(data.balance);
 
-  // ── Funds wallet balance ──────────────────────────────────────────────────
-  // Try 1: all_payment_methods.pm_adaccount_balance (prepaid Funds wallet)
+  // ── Funds wallet ─────────────────────────────────────────────────────────
   let fundsTotal = null;
-  const pmBalance = data.all_payment_methods?.pm_adaccount_balance;
-  if (Array.isArray(pmBalance) && pmBalance.length > 0 && pmBalance[0].balance != null) {
-    fundsTotal = toMajor(pmBalance[0].balance);
+
+  // Try 1: all_payment_methods (separate call so a failure doesn't kill the card)
+  try {
+    const pm = await metaGet(AD_ACCOUNT_ID, { fields: 'all_payment_methods' });
+    console.log('[getAccountInfo] all_payment_methods:', JSON.stringify(pm.all_payment_methods));
+    const pmBal = pm.all_payment_methods?.pm_adaccount_balance;
+    if (Array.isArray(pmBal) && pmBal.length > 0 && pmBal[0].balance != null) {
+      fundsTotal = toMajor(pmBal[0].balance);
+    }
+  } catch (e) {
+    console.warn('[getAccountInfo] all_payment_methods failed:', e.message);
   }
 
-  // Try 2: funding_source_details — value in minor units or display_string
+  // Try 2: funding_source_details.value or display_string
   if (fundsTotal === null) {
     const fsd = data.funding_source_details;
     if (fsd?.value != null && Number(fsd.value) > 0) {
@@ -881,7 +885,6 @@ async function getAccountInfo() {
     }
   }
 
-  // Available = total funds minus what is currently owed
   const fundsAvailable = (fundsTotal !== null && amountOwed !== null)
     ? Math.max(0, fundsTotal - amountOwed)
     : fundsTotal;

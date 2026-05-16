@@ -660,6 +660,26 @@ async function publishDraft(draftId, body, userId) {
 
   if (draft.ad_format === 'video' && draft.meta_video_id) {
     // ── Video creative ──────────────────────────────────────────────────────
+    // Meta requires image_url or image_hash in video_data for the thumbnail.
+    // If the draft has no image, auto-fetch one from Meta's video thumbnails.
+    let thumbImageUrl = draft.image_url || null;
+    if (!thumbImageUrl) {
+      try {
+        const thumbData = await metaGet(`${draft.meta_video_id}/thumbnails`);
+        const thumbs    = thumbData.data || [];
+        const preferred = thumbs.find((t) => t.is_preferred) || thumbs[0];
+        if (preferred?.uri) thumbImageUrl = preferred.uri;
+      } catch (e) {
+        console.warn('[publishDraft] Could not fetch video thumbnails from Meta:', e.message);
+      }
+    }
+    if (!thumbImageUrl) {
+      return err(
+        'Video ad requires a thumbnail image. Please add a thumbnail image to the draft before publishing.',
+        400
+      );
+    }
+
     creativePayload = {
       name: draft.title,
       object_story_spec: {
@@ -669,7 +689,7 @@ async function publishDraft(draftId, body, userId) {
           message:        draft.body_text,
           title:          draft.headline || draft.title,
           call_to_action: { type: draft.call_to_action || 'SHOP_NOW', value: { link: destinationUrl } },
-          ...(draft.image_url ? { image_url: draft.image_url } : {}),
+          image_url:      thumbImageUrl,
         },
       },
     };

@@ -849,64 +849,20 @@ async function setVideoThumbnail(body) {
 async function getAccountInfo() {
   if (!AD_ACCOUNT_ID) return err('META_AD_ACCOUNT_ID not configured', 500);
 
-  // Core fields — must succeed
+  // Note: Meta Marketing API does not expose the Funds wallet balance with
+  // ads_management scope. Only amount_owed (balance field) is accessible.
   const data = await metaGet(AD_ACCOUNT_ID, {
-    fields: 'balance,amount_spent,currency,spend_cap,name,funding_source_details,funding_source',
+    fields: 'balance,amount_spent,currency,spend_cap,name',
   });
 
-  console.log('[getAccountInfo] balance:', data.balance,
-    '| funding_source id:', data.funding_source,
-    '| fsd:', JSON.stringify(data.funding_source_details));
-
   const toMajor = (v) => (v !== undefined && v !== null ? Number(v) / 100 : null);
-  const amountOwed = toMajor(data.balance);
-
-  // ── Funds wallet ─────────────────────────────────────────────────────────
-  // funding_source_details returns the card (type=1), not the Funds wallet.
-  // Try looking up the funding_source ID object directly — if it's a prepaid
-  // balance source it will have a balance field.
-  let fundsTotal = null;
-  const cardId = data.funding_source_details?.id;
-
-  try {
-    const fsId = data.funding_source;
-    console.log('[getAccountInfo] querying funding_source:', fsId, '(card id was:', cardId, ')');
-    if (fsId) {
-      const fsObj = await metaGet(fsId, { fields: 'balance,type,display_string' });
-      console.log('[getAccountInfo] funding_source object:', JSON.stringify(fsObj));
-      if (fsObj.balance != null && fsObj.type !== 1) {
-        fundsTotal = toMajor(fsObj.balance);
-      }
-    }
-  } catch (e) {
-    console.warn('[getAccountInfo] funding_source lookup failed:', e.message);
-  }
-
-  // Try account_balance as a secondary field (may differ from balance on some account types)
-  if (fundsTotal === null) {
-    try {
-      const abData = await metaGet(AD_ACCOUNT_ID, { fields: 'account_balance' });
-      console.log('[getAccountInfo] account_balance:', JSON.stringify(abData.account_balance));
-      if (abData.account_balance?.amount != null) {
-        fundsTotal = toMajor(abData.account_balance.amount);
-      }
-    } catch (e) {
-      console.warn('[getAccountInfo] account_balance failed:', e.message);
-    }
-  }
-
-  const fundsAvailable = (fundsTotal !== null && amountOwed !== null)
-    ? Math.max(0, fundsTotal - amountOwed)
-    : fundsTotal;
 
   return ok({
-    funds_total:     fundsTotal,
-    funds_available: fundsAvailable,
-    amount_owed:     amountOwed,
-    amount_spent:    toMajor(data.amount_spent),
-    spend_cap:       toMajor(data.spend_cap),
-    currency:        data.currency || 'NGN',
-    name:            data.name || '',
+    amount_owed:  toMajor(data.balance),
+    amount_spent: toMajor(data.amount_spent),
+    spend_cap:    toMajor(data.spend_cap),
+    currency:     data.currency || 'NGN',
+    name:         data.name || '',
   });
 }
 

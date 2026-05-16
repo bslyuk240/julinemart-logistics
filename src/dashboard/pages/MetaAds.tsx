@@ -77,8 +77,6 @@ interface AdsContext {
 }
 
 interface AccountInfo {
-  funds_total: number | null;
-  funds_available: number | null;
   amount_owed: number | null;
   amount_spent: number | null;
   spend_cap: number | null;
@@ -858,28 +856,28 @@ export function MetaAdsPage() {
         <StatCard icon={Eye}           label="Impressions"  value={fmtNum(totals.impressions)}  color="bg-purple-50 text-purple-600" />
         <StatCard icon={MousePointer}  label="Clicks"       value={fmtNum(totals.clicks)}       sub={`${avgCtr}% CTR`} color="bg-green-50 text-green-600" />
         <StatCard icon={Users}         label="Reach"        value={fmtNum(totals.reach)}        color="bg-orange-50 text-orange-600" />
-        {accountInfo !== null && (() => {
-          const low  = accountInfo.funds_available !== null && accountInfo.funds_available < 10000;
-          const warn = accountInfo.funds_available !== null && accountInfo.funds_available >= 10000 && accountInfo.funds_available < 30000;
-          return (
-            <div className={`bg-white rounded-xl border p-5 flex items-start gap-4 ${low ? 'border-red-300 bg-red-50' : warn ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}>
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${low ? 'bg-red-100 text-red-600' : warn ? 'bg-amber-100 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                <Wallet className="w-5 h-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Account Funds</p>
-                <p className={`text-xl font-bold mt-0.5 ${low ? 'text-red-700' : warn ? 'text-amber-700' : 'text-gray-900'}`}>
-                  {accountInfo.funds_available !== null ? fmt(accountInfo.funds_available) : '—'}
-                </p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Owed: {accountInfo.amount_owed !== null && accountInfo.amount_owed > 0 ? fmt(accountInfo.amount_owed) : '₦0'}
-                </p>
-                {low  && <p className="text-xs text-red-600 font-medium mt-0.5">Low — add funds now</p>}
-                {warn && <p className="text-xs text-amber-600 font-medium mt-0.5">Running low</p>}
-              </div>
+        {accountInfo !== null && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-start gap-4">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-emerald-50 text-emerald-600">
+              <Wallet className="w-5 h-5" />
             </div>
-          );
-        })()}
+            <div className="min-w-0">
+              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Account Billing</p>
+              <p className="text-xl font-bold text-gray-900 mt-0.5">
+                {accountInfo.amount_owed !== null && accountInfo.amount_owed > 0 ? fmt(accountInfo.amount_owed) : '₦0'}
+              </p>
+              <p className="text-xs text-gray-500 mt-0.5">current balance owed</p>
+              <a
+                href="https://business.facebook.com/billing_hub/accounts"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-blue-600 hover:underline mt-1 inline-block"
+              >
+                View Funds balance →
+              </a>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}

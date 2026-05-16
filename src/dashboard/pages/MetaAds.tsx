@@ -4,7 +4,7 @@ import {
   TrendingUp, RefreshCw, Sparkles, CheckCircle, XCircle,
   Clock, Eye, MousePointer, DollarSign, Users, Plus,
   ChevronDown, ChevronUp, AlertCircle, Megaphone, AlertTriangle,
-  Play, Pause, Upload, ImageIcon, X, Search, Send, Trash2, Video, Wand2, FileText, Wallet,
+  Play, Pause, Upload, ImageIcon, X, Search, Send, Trash2, Video, Wand2, FileText,
 } from 'lucide-react';
 
 const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
@@ -76,13 +76,6 @@ interface AdsContext {
   active_promos: Array<{ code: string; value: number; type: string }>;
 }
 
-interface AccountInfo {
-  amount_owed: number | null;
-  amount_spent: number | null;
-  spend_cap: number | null;
-  currency: string;
-  name: string;
-}
 
 interface ProductImage {
   src: string;
@@ -580,7 +573,6 @@ export function MetaAdsPage() {
   const [campaigns, setCampaigns]       = useState<Campaign[]>([]);
   const [drafts, setDrafts]             = useState<Draft[]>([]);
   const [context, setContext]           = useState<AdsContext | null>(null);
-  const [accountInfo, setAccountInfo]   = useState<AccountInfo | null>(null);
   const [variations, setVariations]     = useState<AiVariation[]>([]);
   const [variationImages, setVariationImages] = useState<string[]>([]);
   const [previewIdx, setPreviewIdx]     = useState<number | null>(null);
@@ -626,17 +618,11 @@ export function MetaAdsPage() {
     if (res.success) setContext(res.data);
   }, []);
 
-  const loadAccountInfo = useCallback(async () => {
-    const res = await api('/api/meta/account');
-    if (res.success) setAccountInfo(res.data);
-  }, []);
-
   useEffect(() => {
     loadCampaigns();
     loadDrafts();
     loadContext();
-    loadAccountInfo();
-  }, [loadCampaigns, loadDrafts, loadContext, loadAccountInfo]);
+  }, [loadCampaigns, loadDrafts, loadContext]);
 
   const handleSync = async () => {
     setSyncing(true);

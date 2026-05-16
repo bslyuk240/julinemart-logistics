@@ -846,6 +846,22 @@ async function setVideoThumbnail(body) {
   return ok({ set: true });
 }
 
+async function getAccountInfo() {
+  if (!AD_ACCOUNT_ID) return err('META_AD_ACCOUNT_ID not configured', 500);
+  const data = await metaGet(AD_ACCOUNT_ID, {
+    fields: 'balance,amount_spent,currency,spend_cap,name',
+  });
+  // Meta returns monetary values in the currency's minor units (e.g. kobo for NGN)
+  const toMajor = (v) => (v !== undefined && v !== null ? Number(v) / 100 : null);
+  return ok({
+    balance:      toMajor(data.balance),
+    amount_spent: toMajor(data.amount_spent),
+    spend_cap:    toMajor(data.spend_cap),
+    currency:     data.currency || 'NGN',
+    name:         data.name || '',
+  });
+}
+
 async function logAction(userId, action, resource, resourceId, details, status = 'success', errorMsg) {
   await supabase.from('meta_action_logs').insert({
     user_id: userId || null, action,
@@ -936,6 +952,9 @@ export async function handler(event) {
 
     // GET /api/meta/context
     if (path === 'context' && method === 'GET') return await getAdsContext();
+
+    // GET /api/meta/account
+    if (path === 'account' && method === 'GET') return await getAccountInfo();
 
     // GET /api/meta/products-images
     if (path === 'products-images' && method === 'GET') return await getProductsWithImages();

@@ -4,7 +4,7 @@ import {
   TrendingUp, RefreshCw, Sparkles, CheckCircle, XCircle,
   Clock, Eye, MousePointer, DollarSign, Users, Plus,
   ChevronDown, ChevronUp, AlertCircle, Megaphone, AlertTriangle,
-  Play, Pause, Upload, ImageIcon, X, Search, Send, Trash2, Video, Wand2, FileText,
+  Play, Pause, Upload, ImageIcon, X, Search, Send, Trash2, Video, Wand2, FileText, Wallet,
 } from 'lucide-react';
 
 const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
@@ -74,6 +74,14 @@ interface CatalogProduct {
 interface AdsContext {
   top_region: string | null;
   active_promos: Array<{ code: string; value: number; type: string }>;
+}
+
+interface AccountInfo {
+  balance: number | null;
+  amount_spent: number | null;
+  spend_cap: number | null;
+  currency: string;
+  name: string;
 }
 
 interface ProductImage {
@@ -572,6 +580,7 @@ export function MetaAdsPage() {
   const [campaigns, setCampaigns]       = useState<Campaign[]>([]);
   const [drafts, setDrafts]             = useState<Draft[]>([]);
   const [context, setContext]           = useState<AdsContext | null>(null);
+  const [accountInfo, setAccountInfo]   = useState<AccountInfo | null>(null);
   const [variations, setVariations]     = useState<AiVariation[]>([]);
   const [variationImages, setVariationImages] = useState<string[]>([]);
   const [previewIdx, setPreviewIdx]     = useState<number | null>(null);
@@ -617,11 +626,17 @@ export function MetaAdsPage() {
     if (res.success) setContext(res.data);
   }, []);
 
+  const loadAccountInfo = useCallback(async () => {
+    const res = await api('/api/meta/account');
+    if (res.success) setAccountInfo(res.data);
+  }, []);
+
   useEffect(() => {
     loadCampaigns();
     loadDrafts();
     loadContext();
-  }, [loadCampaigns, loadDrafts, loadContext]);
+    loadAccountInfo();
+  }, [loadCampaigns, loadDrafts, loadContext, loadAccountInfo]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -836,11 +851,40 @@ export function MetaAdsPage() {
       )}
 
       {/* Stats row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <StatCard icon={DollarSign}    label="Total Spend"  value={fmt(totals.spend)}          color="bg-blue-50 text-blue-600" />
         <StatCard icon={Eye}           label="Impressions"  value={fmtNum(totals.impressions)}  color="bg-purple-50 text-purple-600" />
         <StatCard icon={MousePointer}  label="Clicks"       value={fmtNum(totals.clicks)}       sub={`${avgCtr}% CTR`} color="bg-green-50 text-green-600" />
         <StatCard icon={Users}         label="Reach"        value={fmtNum(totals.reach)}        color="bg-orange-50 text-orange-600" />
+        {accountInfo !== null && (
+          <div className={`bg-white rounded-xl border p-5 flex items-start gap-4 ${
+            accountInfo.balance !== null && accountInfo.balance < 10000
+              ? 'border-red-300 bg-red-50'
+              : 'border-gray-200'
+          }`}>
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
+              accountInfo.balance !== null && accountInfo.balance < 10000
+                ? 'bg-red-100 text-red-600'
+                : 'bg-emerald-50 text-emerald-600'
+            }`}>
+              <Wallet className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Account Balance</p>
+              <p className={`text-xl font-bold mt-0.5 ${
+                accountInfo.balance !== null && accountInfo.balance < 10000 ? 'text-red-700' : 'text-gray-900'
+              }`}>
+                {accountInfo.balance !== null ? fmt(accountInfo.balance) : '—'}
+              </p>
+              {accountInfo.balance !== null && accountInfo.balance < 10000 && (
+                <p className="text-xs text-red-600 mt-0.5 font-medium">Low — fund your account</p>
+              )}
+              {accountInfo.spend_cap !== null && accountInfo.spend_cap > 0 && (
+                <p className="text-xs text-gray-400 mt-0.5">Cap: {fmt(accountInfo.spend_cap)}</p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tabs */}

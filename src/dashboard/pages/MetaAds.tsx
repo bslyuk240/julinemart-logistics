@@ -77,7 +77,9 @@ interface AdsContext {
 }
 
 interface AccountInfo {
-  balance: number | null;
+  funds_total: number | null;
+  funds_available: number | null;
+  amount_owed: number | null;
   amount_spent: number | null;
   spend_cap: number | null;
   currency: string;
@@ -858,29 +860,40 @@ export function MetaAdsPage() {
         <StatCard icon={Users}         label="Reach"        value={fmtNum(totals.reach)}        color="bg-orange-50 text-orange-600" />
         {accountInfo !== null && (
           <div className={`bg-white rounded-xl border p-5 flex items-start gap-4 ${
-            accountInfo.balance !== null && accountInfo.balance < 10000
+            accountInfo.funds_available !== null && accountInfo.funds_available < 10000
               ? 'border-red-300 bg-red-50'
+              : accountInfo.funds_available !== null && accountInfo.funds_available < 30000
+              ? 'border-amber-300 bg-amber-50'
               : 'border-gray-200'
           }`}>
             <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-              accountInfo.balance !== null && accountInfo.balance < 10000
+              accountInfo.funds_available !== null && accountInfo.funds_available < 10000
                 ? 'bg-red-100 text-red-600'
+                : accountInfo.funds_available !== null && accountInfo.funds_available < 30000
+                ? 'bg-amber-100 text-amber-600'
                 : 'bg-emerald-50 text-emerald-600'
             }`}>
               <Wallet className="w-5 h-5" />
             </div>
             <div className="min-w-0">
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Account Balance</p>
+              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Ad Funds</p>
               <p className={`text-xl font-bold mt-0.5 ${
-                accountInfo.balance !== null && accountInfo.balance < 10000 ? 'text-red-700' : 'text-gray-900'
+                accountInfo.funds_available !== null && accountInfo.funds_available < 10000
+                  ? 'text-red-700'
+                  : accountInfo.funds_available !== null && accountInfo.funds_available < 30000
+                  ? 'text-amber-700'
+                  : 'text-gray-900'
               }`}>
-                {accountInfo.balance !== null ? fmt(accountInfo.balance) : '—'}
+                {accountInfo.funds_available !== null ? fmt(accountInfo.funds_available) : '—'}
               </p>
-              {accountInfo.balance !== null && accountInfo.balance < 10000 && (
-                <p className="text-xs text-red-600 mt-0.5 font-medium">Low — fund your account</p>
+              {accountInfo.funds_available !== null && accountInfo.funds_available < 10000 && (
+                <p className="text-xs text-red-600 mt-0.5 font-medium">Low — add funds now</p>
               )}
-              {accountInfo.spend_cap !== null && accountInfo.spend_cap > 0 && (
-                <p className="text-xs text-gray-400 mt-0.5">Cap: {fmt(accountInfo.spend_cap)}</p>
+              {accountInfo.funds_available !== null && accountInfo.funds_available >= 10000 && accountInfo.funds_available < 30000 && (
+                <p className="text-xs text-amber-600 mt-0.5 font-medium">Running low</p>
+              )}
+              {accountInfo.amount_owed !== null && accountInfo.amount_owed > 0 && (
+                <p className="text-xs text-gray-400 mt-0.5">Owed: {fmt(accountInfo.amount_owed)}</p>
               )}
             </div>
           </div>

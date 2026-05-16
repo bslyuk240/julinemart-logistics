@@ -849,16 +849,29 @@ async function setVideoThumbnail(body) {
 async function getAccountInfo() {
   if (!AD_ACCOUNT_ID) return err('META_AD_ACCOUNT_ID not configured', 500);
   const data = await metaGet(AD_ACCOUNT_ID, {
-    fields: 'balance,amount_spent,currency,spend_cap,name',
+    fields: 'balance,amount_spent,currency,spend_cap,name,funding_source_details',
   });
   // Meta returns monetary values in the currency's minor units (e.g. kobo for NGN)
   const toMajor = (v) => (v !== undefined && v !== null ? Number(v) / 100 : null);
+
+  // funding_source_details.type === 6 means prepaid funds/wallet
+  const fsd = data.funding_source_details;
+  const fundsTotal     = (fsd?.type === 6 && fsd?.value != null) ? Number(fsd.value) / 100 : null;
+  // amount owed = balance on postpaid accounts (in minor units, divide by 100)
+  const amountOwed     = toMajor(data.balance);
+  // Available funds = total funds minus what is currently owed
+  const fundsAvailable = (fundsTotal !== null && amountOwed !== null)
+    ? Math.max(0, fundsTotal - amountOwed)
+    : fundsTotal;
+
   return ok({
-    balance:      toMajor(data.balance),
-    amount_spent: toMajor(data.amount_spent),
-    spend_cap:    toMajor(data.spend_cap),
-    currency:     data.currency || 'NGN',
-    name:         data.name || '',
+    funds_total:     fundsTotal,
+    funds_available: fundsAvailable,
+    amount_owed:     amountOwed,
+    amount_spent:    toMajor(data.amount_spent),
+    spend_cap:       toMajor(data.spend_cap),
+    currency:        data.currency || 'NGN',
+    name:            data.name || '',
   });
 }
 

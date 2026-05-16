@@ -851,31 +851,48 @@ async function getAccountInfo() {
 
   // Core fields — must succeed
   const data = await metaGet(AD_ACCOUNT_ID, {
-    fields: 'balance,amount_spent,currency,spend_cap,name,funding_source_details',
+    fields: 'balance,amount_spent,currency,spend_cap,name,funding_source_details,funding_source',
   });
 
-  console.log('[getAccountInfo] balance:', data.balance, '| fsd:', JSON.stringify(data.funding_source_details));
+  console.log('[getAccountInfo] balance:', data.balance,
+    '| funding_source id:', data.funding_source,
+    '| fsd:', JSON.stringify(data.funding_source_details));
 
   const toMajor = (v) => (v !== undefined && v !== null ? Number(v) / 100 : null);
   const amountOwed = toMajor(data.balance);
 
   // ── Funds wallet ─────────────────────────────────────────────────────────
   // funding_source_details returns the card (type=1), not the Funds wallet.
-  // The prepaid Funds balance lives in the adtopline connection.
+  // Try looking up the funding_source ID object directly — if it's a prepaid
+  // balance source it will have a balance field.
   let fundsTotal = null;
+  const cardId = data.funding_source_details?.id;
 
   try {
-    const toplines = await metaGet(`${AD_ACCOUNT_ID}/adtopline`, {
-      fields: 'balance,currency,status',
-      limit: '10',
-    });
-    console.log('[getAccountInfo] adtopline:', JSON.stringify(toplines));
-    const active = (toplines.data || []).filter((t) => t.status === 'ACTIVE' || t.balance > 0);
-    if (active.length > 0) {
-      fundsTotal = active.reduce((sum, t) => sum + toMajor(t.balance), 0);
+    const fsId = data.funding_source;
+    console.log('[getAccountInfo] querying funding_source:', fsId, '(card id was:', cardId, ')');
+    if (fsId) {
+      const fsObj = await metaGet(fsId, { fields: 'balance,type,display_string' });
+      console.log('[getAccountInfo] funding_source object:', JSON.stringify(fsObj));
+      if (fsObj.balance != null && fsObj.type !== 1) {
+        fundsTotal = toMajor(fsObj.balance);
+      }
     }
   } catch (e) {
-    console.warn('[getAccountInfo] adtopline failed:', e.message);
+    console.warn('[getAccountInfo] funding_source lookup failed:', e.message);
+  }
+
+  // Try account_balance as a secondary field (may differ from balance on some account types)
+  if (fundsTotal === null) {
+    try {
+      const abData = await metaGet(AD_ACCOUNT_ID, { fields: 'account_balance' });
+      console.log('[getAccountInfo] account_balance:', JSON.stringify(abData.account_balance));
+      if (abData.account_balance?.amount != null) {
+        fundsTotal = toMajor(abData.account_balance.amount);
+      }
+    } catch (e) {
+      console.warn('[getAccountInfo] account_balance failed:', e.message);
+    }
   }
 
   const fundsAvailable = (fundsTotal !== null && amountOwed !== null)

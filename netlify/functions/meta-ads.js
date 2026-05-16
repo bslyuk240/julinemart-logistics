@@ -849,30 +849,39 @@ async function setVideoThumbnail(body) {
 async function getAccountInfo() {
   if (!AD_ACCOUNT_ID) return err('META_AD_ACCOUNT_ID not configured', 500);
   const data = await metaGet(AD_ACCOUNT_ID, {
-    fields: 'balance,amount_spent,currency,spend_cap,name,funding_source_details',
+    fields: 'balance,amount_spent,currency,spend_cap,name,funding_source_details,all_payment_methods',
   });
-  // Meta returns monetary values in the currency's minor units (e.g. kobo for NGN)
+
+  console.log('[getAccountInfo] raw balance:', data.balance);
+  console.log('[getAccountInfo] funding_source_details:', JSON.stringify(data.funding_source_details));
+  console.log('[getAccountInfo] all_payment_methods:', JSON.stringify(data.all_payment_methods));
+
+  // Meta returns monetary values in the currency's minor units (kobo for NGN)
   const toMajor = (v) => (v !== undefined && v !== null ? Number(v) / 100 : null);
 
-  // funding_source_details can return value in minor units OR only a display_string like "₦8,676.22"
-  const fsd = data.funding_source_details;
-  console.log('[getAccountInfo] funding_source_details raw:', JSON.stringify(fsd));
+  // Amount owed = `balance` on threshold-billing accounts
+  const amountOwed = toMajor(data.balance);
 
+  // ── Funds wallet balance ──────────────────────────────────────────────────
+  // Try 1: all_payment_methods.pm_adaccount_balance (prepaid Funds wallet)
   let fundsTotal = null;
-  if (fsd) {
-    if (fsd.value != null && Number(fsd.value) > 0) {
-      // Minor units (kobo for NGN)
-      fundsTotal = Number(fsd.value) / 100;
-    } else if (fsd.display_string) {
-      // Parse display string e.g. "₦8,676.22" or "NGN 8,676.22"
+  const pmBalance = data.all_payment_methods?.pm_adaccount_balance;
+  if (Array.isArray(pmBalance) && pmBalance.length > 0 && pmBalance[0].balance != null) {
+    fundsTotal = toMajor(pmBalance[0].balance);
+  }
+
+  // Try 2: funding_source_details — value in minor units or display_string
+  if (fundsTotal === null) {
+    const fsd = data.funding_source_details;
+    if (fsd?.value != null && Number(fsd.value) > 0) {
+      fundsTotal = toMajor(fsd.value);
+    } else if (fsd?.display_string) {
       const num = parseFloat(fsd.display_string.replace(/[^\d.]/g, ''));
       if (!isNaN(num) && num > 0) fundsTotal = num;
     }
   }
 
-  // amount_owed = balance field on postpaid threshold-billing accounts (in minor units)
-  const amountOwed     = toMajor(data.balance);
-  // Available = total funds minus current unbilled amount
+  // Available = total funds minus what is currently owed
   const fundsAvailable = (fundsTotal !== null && amountOwed !== null)
     ? Math.max(0, fundsTotal - amountOwed)
     : fundsTotal;
@@ -885,7 +894,6 @@ async function getAccountInfo() {
     spend_cap:       toMajor(data.spend_cap),
     currency:        data.currency || 'NGN',
     name:            data.name || '',
-    _fsd_type:       fsd?.type ?? null,
   });
 }
 

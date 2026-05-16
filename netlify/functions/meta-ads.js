@@ -854,12 +854,25 @@ async function getAccountInfo() {
   // Meta returns monetary values in the currency's minor units (e.g. kobo for NGN)
   const toMajor = (v) => (v !== undefined && v !== null ? Number(v) / 100 : null);
 
-  // funding_source_details.type === 6 means prepaid funds/wallet
+  // funding_source_details can return value in minor units OR only a display_string like "₦8,676.22"
   const fsd = data.funding_source_details;
-  const fundsTotal     = (fsd?.type === 6 && fsd?.value != null) ? Number(fsd.value) / 100 : null;
-  // amount owed = balance on postpaid accounts (in minor units, divide by 100)
+  console.log('[getAccountInfo] funding_source_details raw:', JSON.stringify(fsd));
+
+  let fundsTotal = null;
+  if (fsd) {
+    if (fsd.value != null && Number(fsd.value) > 0) {
+      // Minor units (kobo for NGN)
+      fundsTotal = Number(fsd.value) / 100;
+    } else if (fsd.display_string) {
+      // Parse display string e.g. "₦8,676.22" or "NGN 8,676.22"
+      const num = parseFloat(fsd.display_string.replace(/[^\d.]/g, ''));
+      if (!isNaN(num) && num > 0) fundsTotal = num;
+    }
+  }
+
+  // amount_owed = balance field on postpaid threshold-billing accounts (in minor units)
   const amountOwed     = toMajor(data.balance);
-  // Available funds = total funds minus what is currently owed
+  // Available = total funds minus current unbilled amount
   const fundsAvailable = (fundsTotal !== null && amountOwed !== null)
     ? Math.max(0, fundsTotal - amountOwed)
     : fundsTotal;
@@ -872,6 +885,7 @@ async function getAccountInfo() {
     spend_cap:       toMajor(data.spend_cap),
     currency:        data.currency || 'NGN',
     name:            data.name || '',
+    _fsd_type:       fsd?.type ?? null,
   });
 }
 

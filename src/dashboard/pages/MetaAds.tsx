@@ -858,54 +858,28 @@ export function MetaAdsPage() {
         <StatCard icon={Eye}           label="Impressions"  value={fmtNum(totals.impressions)}  color="bg-purple-50 text-purple-600" />
         <StatCard icon={MousePointer}  label="Clicks"       value={fmtNum(totals.clicks)}       sub={`${avgCtr}% CTR`} color="bg-green-50 text-green-600" />
         <StatCard icon={Users}         label="Reach"        value={fmtNum(totals.reach)}        color="bg-orange-50 text-orange-600" />
-        {accountInfo !== null && (
-          <div className={`bg-white rounded-xl border p-5 space-y-3 ${
-            accountInfo.funds_available !== null && accountInfo.funds_available < 10000
-              ? 'border-red-300 bg-red-50'
-              : accountInfo.funds_available !== null && accountInfo.funds_available < 30000
-              ? 'border-amber-300 bg-amber-50'
-              : 'border-gray-200'
-          }`}>
-            <div className="flex items-center gap-3">
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                accountInfo.funds_available !== null && accountInfo.funds_available < 10000
-                  ? 'bg-red-100 text-red-600'
-                  : accountInfo.funds_available !== null && accountInfo.funds_available < 30000
-                  ? 'bg-amber-100 text-amber-600'
-                  : 'bg-emerald-50 text-emerald-600'
-              }`}>
+        {accountInfo !== null && (() => {
+          const low  = accountInfo.funds_available !== null && accountInfo.funds_available < 10000;
+          const warn = accountInfo.funds_available !== null && accountInfo.funds_available >= 10000 && accountInfo.funds_available < 30000;
+          return (
+            <div className={`bg-white rounded-xl border p-5 flex items-start gap-4 ${low ? 'border-red-300 bg-red-50' : warn ? 'border-amber-300 bg-amber-50' : 'border-gray-200'}`}>
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${low ? 'bg-red-100 text-red-600' : warn ? 'bg-amber-100 text-amber-600' : 'bg-emerald-50 text-emerald-600'}`}>
                 <Wallet className="w-5 h-5" />
               </div>
-              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Account Funds</p>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-white/70 rounded-lg px-3 py-2">
-                <p className="text-xs text-gray-400 mb-0.5">Available</p>
-                <p className={`text-sm font-bold ${
-                  accountInfo.funds_available !== null && accountInfo.funds_available < 10000
-                    ? 'text-red-700'
-                    : accountInfo.funds_available !== null && accountInfo.funds_available < 30000
-                    ? 'text-amber-700'
-                    : 'text-gray-900'
-                }`}>
+              <div className="min-w-0">
+                <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Account Funds</p>
+                <p className={`text-xl font-bold mt-0.5 ${low ? 'text-red-700' : warn ? 'text-amber-700' : 'text-gray-900'}`}>
                   {accountInfo.funds_available !== null ? fmt(accountInfo.funds_available) : '—'}
                 </p>
-              </div>
-              <div className="bg-white/70 rounded-lg px-3 py-2">
-                <p className="text-xs text-gray-400 mb-0.5">Amount Owed</p>
-                <p className="text-sm font-bold text-gray-900">
-                  {accountInfo.amount_owed !== null && accountInfo.amount_owed > 0 ? fmt(accountInfo.amount_owed) : '₦0'}
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Owed: {accountInfo.amount_owed !== null && accountInfo.amount_owed > 0 ? fmt(accountInfo.amount_owed) : '₦0'}
                 </p>
+                {low  && <p className="text-xs text-red-600 font-medium mt-0.5">Low — add funds now</p>}
+                {warn && <p className="text-xs text-amber-600 font-medium mt-0.5">Running low</p>}
               </div>
             </div>
-            {accountInfo.funds_available !== null && accountInfo.funds_available < 10000 && (
-              <p className="text-xs text-red-600 font-medium">Low — add funds now</p>
-            )}
-            {accountInfo.funds_available !== null && accountInfo.funds_available >= 10000 && accountInfo.funds_available < 30000 && (
-              <p className="text-xs text-amber-600 font-medium">Running low — consider topping up</p>
-            )}
-          </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Tabs */}

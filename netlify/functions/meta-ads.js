@@ -860,29 +860,22 @@ async function getAccountInfo() {
   const amountOwed = toMajor(data.balance);
 
   // ── Funds wallet ─────────────────────────────────────────────────────────
+  // funding_source_details returns the card (type=1), not the Funds wallet.
+  // The prepaid Funds balance lives in the adtopline connection.
   let fundsTotal = null;
 
-  // Try 1: all_payment_methods (separate call so a failure doesn't kill the card)
   try {
-    const pm = await metaGet(AD_ACCOUNT_ID, { fields: 'all_payment_methods' });
-    console.log('[getAccountInfo] all_payment_methods:', JSON.stringify(pm.all_payment_methods));
-    const pmBal = pm.all_payment_methods?.pm_adaccount_balance;
-    if (Array.isArray(pmBal) && pmBal.length > 0 && pmBal[0].balance != null) {
-      fundsTotal = toMajor(pmBal[0].balance);
+    const toplines = await metaGet(`${AD_ACCOUNT_ID}/adtopline`, {
+      fields: 'balance,currency,status',
+      limit: '10',
+    });
+    console.log('[getAccountInfo] adtopline:', JSON.stringify(toplines));
+    const active = (toplines.data || []).filter((t) => t.status === 'ACTIVE' || t.balance > 0);
+    if (active.length > 0) {
+      fundsTotal = active.reduce((sum, t) => sum + toMajor(t.balance), 0);
     }
   } catch (e) {
-    console.warn('[getAccountInfo] all_payment_methods failed:', e.message);
-  }
-
-  // Try 2: funding_source_details.value or display_string
-  if (fundsTotal === null) {
-    const fsd = data.funding_source_details;
-    if (fsd?.value != null && Number(fsd.value) > 0) {
-      fundsTotal = toMajor(fsd.value);
-    } else if (fsd?.display_string) {
-      const num = parseFloat(fsd.display_string.replace(/[^\d.]/g, ''));
-      if (!isNaN(num) && num > 0) fundsTotal = num;
-    }
+    console.warn('[getAccountInfo] adtopline failed:', e.message);
   }
 
   const fundsAvailable = (fundsTotal !== null && amountOwed !== null)

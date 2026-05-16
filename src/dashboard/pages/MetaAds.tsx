@@ -851,26 +851,11 @@ export function MetaAdsPage() {
       )}
 
       {/* Stats row */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={DollarSign}    label="Total Spend"  value={fmt(totals.spend)}          color="bg-blue-50 text-blue-600" />
         <StatCard icon={Eye}           label="Impressions"  value={fmtNum(totals.impressions)}  color="bg-purple-50 text-purple-600" />
         <StatCard icon={MousePointer}  label="Clicks"       value={fmtNum(totals.clicks)}       sub={`${avgCtr}% CTR`} color="bg-green-50 text-green-600" />
         <StatCard icon={Users}         label="Reach"        value={fmtNum(totals.reach)}        color="bg-orange-50 text-orange-600" />
-        <a
-          href="https://business.facebook.com/billing_hub/accounts"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="bg-white rounded-xl border border-gray-200 p-5 flex items-start gap-4 hover:border-blue-300 hover:shadow-sm transition-all group"
-        >
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-emerald-50 text-emerald-600 group-hover:bg-emerald-100 transition-colors">
-            <Wallet className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Meta Billing</p>
-            <p className="text-xl font-bold text-gray-900 mt-0.5">Funds & Balance</p>
-            <p className="text-xs text-blue-600 mt-0.5 group-hover:underline">Open Meta billing →</p>
-          </div>
-        </a>
       </div>
 
       {/* Tabs */}

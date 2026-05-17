@@ -218,13 +218,22 @@ export function PWAMonitoringPage() {
           {loading ? (
             <div className="h-48 flex items-center justify-center text-sm text-gray-400">Loading…</div>
           ) : (
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={platformData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={({ name, value }) => `${name}: ${value}`}>
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+                <Pie
+                  data={platformData}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="45%"
+                  outerRadius={75}
+                  innerRadius={35}
+                  labelLine={false}
+                >
                   {platformData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
-                <Tooltip />
-                <Legend />
+                <Tooltip formatter={(value: number, name: string) => [value, name]} />
+                <Legend verticalAlign="bottom" height={36} />
               </PieChart>
             </ResponsiveContainer>
           )}

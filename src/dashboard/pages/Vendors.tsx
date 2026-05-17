@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Store, Mail, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, Eye, Send, AlertTriangle, Pencil, X, Check, RefreshCw } from 'lucide-react';
+import { Store, Mail, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, Eye, Send, AlertTriangle, Pencil, X, Check, RefreshCw, Trash2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -101,6 +101,8 @@ export function VendorsPage() {
   const [actioning, setActioning] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectInput, setShowRejectInput] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   const loadVendors = useCallback(async () => {
     setVendorsLoading(true);
@@ -224,6 +226,20 @@ export function VendorsPage() {
       alert('Error: ' + res.error);
     }
     setActioning(null);
+  }
+
+  // ── Delete application ─────────────────────────────────────────────────────
+  async function handleDelete(appId: string) {
+    setDeleting(appId);
+    const res = await callApi('vendor-application-delete', { application_id: appId });
+    if (res.success) {
+      setApps(prev => prev.filter(a => a.id !== appId));
+      setConfirmDelete(null);
+      setExpandedApp(null);
+    } else {
+      alert('Error: ' + res.error);
+    }
+    setDeleting(null);
   }
 
   // ─── Render ─────────────────────────────────────────────────────────────────
@@ -620,6 +636,36 @@ export function VendorsPage() {
                       {app.status === 'rejected' && app.reject_reason && (
                         <p className="text-sm text-red-600 mt-1"><strong>Reason:</strong> {app.reject_reason}</p>
                       )}
+
+                      {/* Delete — available on all statuses */}
+                      <div className="mt-4 pt-3 border-t border-gray-100 flex justify-end">
+                        {confirmDelete !== app.id ? (
+                          <button
+                            onClick={() => setConfirmDelete(app.id)}
+                            className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-red-500 transition"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> Delete application
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500">Permanently delete this application?</span>
+                            <button
+                              onClick={() => handleDelete(app.id)}
+                              disabled={deleting === app.id}
+                              className="flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white text-xs px-3 py-1.5 rounded-lg disabled:opacity-50 transition"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                              {deleting === app.id ? 'Deleting…' : 'Yes, delete'}
+                            </button>
+                            <button
+                              onClick={() => setConfirmDelete(null)}
+                              className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </div>

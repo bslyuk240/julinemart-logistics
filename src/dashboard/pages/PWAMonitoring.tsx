@@ -128,6 +128,7 @@ export function PWAMonitoringPage() {
     { name: 'iOS', value: events.filter((e) => e.platform === 'ios').length },
     { name: 'Android', value: events.filter((e) => e.platform === 'android_desktop').length },
     { name: 'PWA (Android)', value: events.filter((e) => e.platform === 'android_pwa').length },
+    { name: 'PWA (iOS)', value: events.filter((e) => e.platform === 'ios_pwa').length },
   ].filter((p) => p.value > 0);
 
   // Trend — last 30 days

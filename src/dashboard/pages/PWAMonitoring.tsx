@@ -17,6 +17,7 @@ interface RawEvent {
   platform: string | null;
   source_page: string | null;
   created_at: string | null;
+  anonymous_id: string | null;
 }
 
 interface WebhookError {
@@ -78,7 +79,7 @@ export function PWAMonitoringPage() {
     setLoading(true);
     try {
       const [eventsResult, errorsResult] = await Promise.all([
-        supabase.from('pwa_install_events').select('event_name, platform, source_page, created_at').order('created_at', { ascending: false }),
+        supabase.from('pwa_install_events').select('event_name, platform, source_page, created_at, anonymous_id').order('created_at', { ascending: false }),
         supabase.from('webhook_errors').select('id, error_message, created_at, woocommerce_order_id').order('created_at', { ascending: false }).limit(20),
       ]);
       setEvents(eventsResult.data ?? []);
@@ -107,6 +108,15 @@ export function PWAMonitoringPage() {
   const iosGuide       = count('pwa_ios_guide_dismissed');
 
   const conversionRate = promptShown > 0 ? ((appInstalled / promptShown) * 100).toFixed(1) : '0';
+
+  // Unique user counts (deduplicated by anonymous_id)
+  const uniqueUsers = (eventName: string) =>
+    new Set(events.filter((e) => e.event_name === eventName && e.anonymous_id).map((e) => e.anonymous_id)).size;
+
+  const uniquePromptShown     = uniqueUsers('pwa_install_prompt_shown');
+  const uniqueAppInstalled    = uniqueUsers('pwa_appinstalled');
+  const uniqueStandaloneUsers = uniqueUsers('pwa_opened_standalone');
+  const uniqueDismissed       = uniqueUsers('pwa_install_dismissed');
 
   // Platform breakdown
   const platformData: PlatformCount[] = [
@@ -185,24 +195,37 @@ export function PWAMonitoringPage() {
             <h2 className="text-base font-semibold flex items-center gap-2">
               <Download className="w-4 h-4 text-purple-600" /> Install Funnel
             </h2>
-            <p className="text-xs text-gray-500 mt-0.5">All-time totals · {events.length} total events recorded</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              All-time · {events.length} total events · counts show sessions; <span className="text-purple-600 font-medium">unique users</span> shown below each
+            </p>
           </div>
           <div className="text-right">
             <p className="text-2xl font-bold text-purple-700">{conversionRate}%</p>
-            <p className="text-xs text-gray-500">Conversion rate</p>
+            <p className="text-xs text-gray-500">
+              Conversion rate
+              {uniquePromptShown > 0 && (
+                <span className="block text-purple-500 font-medium">
+                  {uniqueAppInstalled}/{uniquePromptShown} unique users
+                </span>
+              )}
+            </p>
           </div>
         </div>
         {loading ? (
           <div className="h-24 flex items-center justify-center text-sm text-gray-400">Loading…</div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-            <StatCard label="Prompt Shown"     value={promptShown}     color="purple" />
+            <StatCard label="Prompt Shown"     value={promptShown}     color="purple"
+              sub={uniquePromptShown > 0 ? `${uniquePromptShown} unique users` : undefined} />
             <StatCard label="Install Clicked"  value={installClicked}  color="blue" />
             <StatCard label="Install Accepted" value={installAccepted}  color="blue" />
-            <StatCard label="App Installed"    value={appInstalled}    color="green" />
-            <StatCard label="Standalone Opens" value={standaloneOpens}  color="orange" />
+            <StatCard label="App Installed"    value={appInstalled}    color="green"
+              sub={uniqueAppInstalled > 0 ? `${uniqueAppInstalled} unique users` : undefined} />
+            <StatCard label="Standalone Opens" value={standaloneOpens}  color="orange"
+              sub={uniqueStandaloneUsers > 0 ? `${uniqueStandaloneUsers} unique users` : undefined} />
             <StatCard label="iOS Guide Skip"   value={iosGuide}        color="gray" />
-            <StatCard label="Dismissed"        value={dismissed}       color="red" />
+            <StatCard label="Dismissed"        value={dismissed}       color="red"
+              sub={uniqueDismissed > 0 ? `${uniqueDismissed} unique users` : undefined} />
           </div>
         )}
       </div>

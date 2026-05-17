@@ -392,27 +392,28 @@ export function DashboardHome() {
         </div>
       </div>
 
-      {/* Row 3: PWA App Installs — full width */}
+      {/* Row 3: PWA Monitoring summary card */}
       <div className="card">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h2 className="text-lg font-semibold">PWA App Installs</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Tracks install events from JulineMart customer app</p>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Smartphone className="w-5 h-5 text-purple-600" />
+            <div>
+              <h2 className="text-lg font-semibold">PWA App Installs</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Tracks install events from JulineMart customer app</p>
+            </div>
           </div>
-          <Smartphone className="w-5 h-5 text-purple-600" />
+          <a
+            href="/admin/pwa-monitoring"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-purple-600 border border-purple-200 rounded-lg hover:bg-purple-50 transition font-medium"
+          >
+            View full report →
+          </a>
         </div>
-        {!pwaStats ? (
-          <p className="text-sm text-gray-500">No install data yet. Data will appear once customers interact with the install prompt.</p>
-        ) : (
-          <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+        {pwaStats && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-3 mt-5">
             <div className="bg-purple-50 rounded-lg p-3 text-center">
               <p className="text-2xl font-bold text-purple-700">{pwaStats.promptShown}</p>
               <p className="text-xs text-gray-500 mt-1">Prompt Shown</p>
-            </div>
-            <div className="bg-blue-50 rounded-lg p-3 text-center">
-              <p className="text-2xl font-bold text-blue-700">{pwaStats.installClicked}</p>
-              <p className="text-xs text-gray-500 mt-1">Install Clicked</p>
             </div>
             <div className="bg-green-50 rounded-lg p-3 text-center">
               <p className="text-2xl font-bold text-green-700">{pwaStats.appInstalled}</p>
@@ -422,47 +423,11 @@ export function DashboardHome() {
               <p className="text-2xl font-bold text-orange-700">{pwaStats.standaloneOpens}</p>
               <p className="text-xs text-gray-500 mt-1">Standalone Opens</p>
             </div>
-            <div className="bg-gray-50 rounded-lg p-3 text-center">
-              <p className="text-2xl font-bold text-gray-700">{pwaStats.androidInstalls}</p>
-              <p className="text-xs text-gray-500 mt-1">Android Installs</p>
-            </div>
-            <div className="bg-gray-50 rounded-lg p-3 text-center">
-              <p className="text-2xl font-bold text-gray-700">{pwaStats.iosStandaloneOpens}</p>
-              <p className="text-xs text-gray-500 mt-1">iOS App Opens</p>
-            </div>
             <div className="bg-red-50 rounded-lg p-3 text-center">
               <p className="text-2xl font-bold text-red-600">{pwaStats.installDismissed}</p>
               <p className="text-xs text-gray-500 mt-1">Dismissed</p>
             </div>
-            <div className="bg-gray-50 rounded-lg p-3 text-center">
-              <p className="text-2xl font-bold text-gray-700">{pwaStats.androidStandaloneOpens}</p>
-              <p className="text-xs text-gray-500 mt-1">Android App Opens</p>
-            </div>
           </div>
-
-          {/* Push notification prompt stats */}
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <p className="text-xs font-medium text-gray-500 mb-3">Push Notification Prompts</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="bg-purple-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-purple-700">{pwaStats.notifPromptShown}</p>
-                <p className="text-xs text-gray-500 mt-1">Prompt Shown</p>
-              </div>
-              <div className="bg-green-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-green-700">{pwaStats.notifAllowed}</p>
-                <p className="text-xs text-gray-500 mt-1">Enabled</p>
-              </div>
-              <div className="bg-red-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-red-600">{pwaStats.notifDeclined}</p>
-                <p className="text-xs text-gray-500 mt-1">Declined</p>
-              </div>
-              <div className="bg-orange-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-orange-600">{pwaStats.notifSnoozed}</p>
-                <p className="text-xs text-gray-500 mt-1">Snoozed</p>
-              </div>
-            </div>
-          </div>
-          </>
         )}
       </div>
     </div>

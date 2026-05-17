@@ -15,6 +15,7 @@
  *   2. TODO: send rejection email
  */
 import { createClient } from '@supabase/supabase-js';
+import { sendTransactionalEmail } from './services/emailNotifications.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
@@ -78,7 +79,16 @@ export const handler = async (event) => {
       reviewed_by: user.id,
     }).eq('id', application_id);
 
-    // TODO: send rejection email to app.email
+    // Send rejection email to applicant
+    await sendTransactionalEmail({
+      templateName: 'Vendor Application Rejected',
+      to: app.email,
+      data: {
+        applicant_name: app.full_name,
+        store_name:     app.store_name,
+        reject_reason:  reject_reason || 'No specific reason provided.',
+      },
+    });
 
     return {
       statusCode: 200,

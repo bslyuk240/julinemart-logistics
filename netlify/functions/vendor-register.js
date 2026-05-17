@@ -15,6 +15,7 @@
  *   documents: { id_url, cac_url }   (pre-uploaded to Supabase Storage)
  */
 import { createClient } from '@supabase/supabase-js';
+import { sendTransactionalEmail } from './services/emailNotifications.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
@@ -129,8 +130,15 @@ export const handler = async (event) => {
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: 'Failed to submit application' }) };
   }
 
-  // TODO: send email to admin notifying of new application
-  // TODO: send acknowledgement email to applicant
+  // Send acknowledgement email to applicant
+  await sendTransactionalEmail({
+    templateName: 'Vendor Application Received',
+    to: personal.email,
+    data: {
+      applicant_name: personal.full_name,
+      store_name:     business.store_name,
+    },
+  });
 
   return {
     statusCode: 201,

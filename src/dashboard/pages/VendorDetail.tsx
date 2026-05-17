@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft, Store, Mail, Phone, MapPin, CreditCard,
   ShoppingBag, TrendingUp, Send, CheckCircle, XCircle,
-  Edit2, Check, X, RefreshCw, ExternalLink, Power, PowerOff, Package,
+  Edit2, Check, X, RefreshCw, ExternalLink, Power, PowerOff, Package, Trash2,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
@@ -236,6 +236,10 @@ export default function VendorDetail() {
   const [inviteMsg, setInviteMsg] = useState('');
   const [inviteOk, setInviteOk]   = useState(false);
 
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting]           = useState(false);
+  const [deleteError, setDeleteError]     = useState('');
+
   const load = useCallback(async () => {
     if (!id) return;
     setLoading(true);
@@ -317,6 +321,21 @@ export default function VendorDetail() {
     setInviteOk(!!res.success);
     setInviting(false);
     if (res.success) load();
+  };
+
+  // ── Delete vendor ─────────────────────────────────────────────────────────
+  const handleDelete = async () => {
+    if (!id) return;
+    setDeleting(true);
+    setDeleteError('');
+    const res = await callApi('vendor-delete', { vendor_id: id });
+    if (res.success) {
+      navigate('/admin/vendors');
+    } else {
+      setDeleteError(res.error || 'Delete failed');
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
   };
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -443,8 +462,69 @@ export default function VendorDetail() {
               {vendor.user_id ? 'Resend' : 'Invite'}
             </span>
           </button>
+
+          {/* Delete — admin only, shown as icon-only button */}
+          <button
+            type="button"
+            onClick={() => { setConfirmDelete(true); setDeleteError(''); }}
+            title="Delete vendor"
+            aria-label="Delete vendor"
+            className="inline-flex h-9 w-9 sm:h-8 sm:w-auto sm:min-h-0 sm:px-2.5 sm:py-1.5 items-center justify-center rounded-lg border border-red-200 text-red-500 hover:bg-red-50 active:bg-red-100 transition touch-manipulation"
+          >
+            <Trash2 className="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" />
+            <span className="hidden sm:inline text-xs font-medium ml-1.5">Delete</span>
+          </button>
         </div>
       </div>
+
+      {/* Delete confirmation modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">Delete "{vendor.store_name}"?</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  This will permanently delete the vendor, all their products, earnings, withdrawals,
+                  locations, and portal account. Order history is preserved with vendor reference removed.
+                  <strong className="block mt-2 text-red-600">This cannot be undone.</strong>
+                </p>
+              </div>
+            </div>
+            {deleteError && (
+              <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{deleteError}</p>
+            )}
+            <div className="flex gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                disabled={deleting}
+                className="flex-1 px-4 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {deleting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    Deleting…
+                  </>
+                ) : (
+                  'Yes, delete vendor'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {inviteMsg && (
         <div className={`mb-4 px-4 py-2.5 rounded-xl text-sm ${inviteOk ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>

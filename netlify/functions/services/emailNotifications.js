@@ -38,11 +38,16 @@ function buildEnvTransport() {
     };
   }
   if (provider === 'smtp') {
+    const host = process.env.SMTP_HOST;
+    const port = parseInt(process.env.SMTP_PORT || '587', 10);
+    // Port 465 = implicit SSL; 587 = STARTTLS
+    const secure = process.env.SMTP_SECURE === 'true' || port === 465;
     return {
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || '587', 10),
-      secure: process.env.SMTP_SECURE === 'true',
+      host,
+      port,
+      secure,
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD },
+      ...(host ? { tls: { minVersion: 'TLSv1.2', servername: host } } : {}),
     };
   }
   // gmail default
@@ -59,8 +64,20 @@ async function getTransport() {
   try {
     const { data: rawCfg } = await supabase.from('email_config').select('*').single();
 
+    // DB row controls email_enabled; env vars control the actual transport credentials.
+    // When EMAIL_PROVIDER is set in Netlify env, skip DB credential decryption entirely
+    // and build the transport from env vars — avoids encryption key mismatches.
     if (rawCfg) {
       if (rawCfg.email_enabled === false) return null; // admin disabled emails
+
+      if (process.env.EMAIL_PROVIDER) {
+        const from =
+          rawCfg.email_from ||
+          process.env.EMAIL_FROM ||
+          process.env.EMAIL_USER ||
+          '';
+        return { transport: nodemailer.createTransport(buildEnvTransport()), from };
+      }
 
       const cfg = decryptEmailConfigSecrets(rawCfg);
 
@@ -100,7 +117,7 @@ async function getTransport() {
     // DB unavailable — fall through to env
   }
 
-  // Env-var fallback
+  // Env-var fallback (no DB row)
   if (process.env.EMAIL_ENABLED === 'false') return null;
 
   const from = process.env.EMAIL_FROM || process.env.EMAIL_USER || '';

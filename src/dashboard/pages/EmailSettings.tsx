@@ -4,8 +4,6 @@ import {
   Save,
   TestTube,
   Settings,
-  Eye,
-  Code,
   CheckCircle,
   XCircle,
   AlertCircle,
@@ -15,6 +13,7 @@ import {
   Plus,
   Trash2,
   Bell,
+  Info,
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
@@ -92,7 +91,6 @@ export function EmailSettingsPage() {
   const [testEmail, setTestEmail] = useState('');
   const [testTemplateId, setTestTemplateId] = useState('');
   const [testTemplateData, setTestTemplateData] = useState('');
-  const [connectionStatus, setConnectionStatus] = useState<'unknown' | 'connected' | 'error'>('unknown');
   const [emailLogs, setEmailLogs] = useState<EmailLogRow[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsError, setLogsError] = useState<string | null>(null);
@@ -187,31 +185,6 @@ export function EmailSettingsPage() {
     }
   };
 
-  const handleTestConnection = async () => {
-    setTesting(true);
-    try {
-      const response = await fetch('/api/email/test-connection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        setConnectionStatus('connected');
-        notification.success('Connection Successful', 'Email provider is properly configured');
-      } else {
-        setConnectionStatus('error');
-        const detail = [data.error, data.hint].filter(Boolean).join('\n\n');
-        notification.error('Connection Failed', detail || data.error);
-      }
-    } catch (error) {
-      setConnectionStatus('error');
-      notification.error('Connection Failed', 'Unable to connect to email provider');
-    } finally {
-      setTesting(false);
-    }
-  };
 
   const handleSendTestEmail = async () => {
     if (!testEmail) {
@@ -273,34 +246,6 @@ export function EmailSettingsPage() {
         </p>
       </div>
 
-      {/* Connection Status Banner */}
-      {connectionStatus !== 'unknown' && (
-        <div className={`card mb-6 ${
-          connectionStatus === 'connected' 
-            ? 'bg-green-50 border-green-200' 
-            : 'bg-red-50 border-red-200'
-        }`}>
-          <div className="flex items-center gap-3">
-            {connectionStatus === 'connected' ? (
-              <>
-                <CheckCircle className="w-5 h-5 text-green-600" />
-                <div>
-                  <h3 className="font-semibold text-green-900">Email System Connected</h3>
-                  <p className="text-sm text-green-800">Your email provider is properly configured and ready to send emails</p>
-                </div>
-              </>
-            ) : (
-              <>
-                <XCircle className="w-5 h-5 text-red-600" />
-                <div>
-                  <h3 className="font-semibold text-red-900">Connection Error</h3>
-                  <p className="text-sm text-red-800">Unable to connect to email provider. Check your configuration.</p>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Tabs */}
       <div className="border-b border-gray-200 mb-6 -mx-4 sm:mx-0">
@@ -331,210 +276,26 @@ export function EmailSettingsPage() {
       {/* Configuration Tab */}
       {activeTab === 'config' && (
         <div className="space-y-6">
-          {/* Provider Selection */}
-          <div className="card">
-            <h2 className="text-lg sm:text-xl font-bold mb-4">Email Provider</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {['gmail', 'sendgrid', 'smtp'].map((provider) => (
-                <button
-                  key={provider}
-                  onClick={() => setConfig({ ...config, provider: provider as any })}
-                  className={`p-4 border-2 rounded-lg text-left transition-colors ${
-                    config.provider === provider
-                      ? 'border-primary-600 bg-primary-50'
-                      : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <div className="font-semibold text-lg capitalize mb-1">{provider}</div>
-                  <div className="text-sm text-gray-600">
-                    {provider === 'gmail' && 'Best for testing & small businesses'}
-                    {provider === 'sendgrid' && 'Recommended for production'}
-                    {provider === 'smtp' && 'Use your own SMTP server'}
-                  </div>
-                </button>
-              ))}
+          {/* SMTP info banner */}
+          <div className="card border-blue-200 bg-blue-50">
+            <div className="flex items-start gap-3">
+              <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <h3 className="font-semibold text-blue-900">SMTP managed via server environment</h3>
+                <p className="text-sm text-blue-800 mt-1">
+                  Email delivery credentials (<code className="text-xs bg-white/70 px-1 rounded">SMTP_HOST</code>,{' '}
+                  <code className="text-xs bg-white/70 px-1 rounded">SMTP_USER</code>,{' '}
+                  <code className="text-xs bg-white/70 px-1 rounded">SMTP_PASSWORD</code>) are configured as
+                  Netlify environment variables. No credentials are stored in the database.
+                </p>
+              </div>
             </div>
           </div>
-
-          {/* Gmail Configuration */}
-          {config.provider === 'gmail' && (
-            <div className="card">
-              <h2 className="text-lg sm:text-xl font-bold mb-4">Gmail Configuration</h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Gmail Address *
-                  </label>
-                  <input
-                    type="email"
-                    value={config.gmail_user}
-                    onChange={(e) => setConfig({ ...config, gmail_user: e.target.value })}
-                    placeholder="your-email@gmail.com"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    App Password *
-                  </label>
-                  <input
-                    type="password"
-                    value={config.gmail_password}
-                    onChange={(e) => setConfig({ ...config, gmail_password: e.target.value })}
-                    placeholder="16-character app password"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Generate at: <a href="https://myaccount.google.com/apppasswords" target="_blank" className="text-primary-600 hover:underline">myaccount.google.com/apppasswords</a>
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* SendGrid Configuration */}
-          {config.provider === 'sendgrid' && (
-            <div className="card">
-              <h2 className="text-lg sm:text-xl font-bold mb-4">SendGrid Configuration</h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    SendGrid API Key *
-                  </label>
-                  <input
-                    type="password"
-                    value={config.sendgrid_api_key}
-                    onChange={(e) => setConfig({ ...config, sendgrid_api_key: e.target.value })}
-                    placeholder="SG.xxxxxxxxxxxxxxxxxxxxx"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Get your API key from: <a href="https://app.sendgrid.com/settings/api_keys" target="_blank" className="text-primary-600 hover:underline">SendGrid Dashboard</a>
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* SMTP Configuration */}
-          {config.provider === 'smtp' && (
-            <div className="card">
-              <h2 className="text-lg sm:text-xl font-bold mb-4">Custom SMTP Configuration</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    SMTP Host *
-                  </label>
-                  <input
-                    type="text"
-                    value={config.smtp_host}
-                    onChange={(e) => setConfig({ ...config, smtp_host: e.target.value })}
-                    placeholder="smtp.example.com"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    SMTP Port *
-                  </label>
-                  <input
-                    type="number"
-                    value={config.smtp_port}
-                    onChange={(e) => setConfig({ ...config, smtp_port: parseInt(e.target.value) })}
-                    placeholder="587"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    SMTP Username *
-                  </label>
-                  <input
-                    type="text"
-                    value={config.smtp_user}
-                    onChange={(e) => setConfig({ ...config, smtp_user: e.target.value })}
-                    placeholder="username"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    SMTP Password *
-                  </label>
-                  <input
-                    type="password"
-                    value={config.smtp_password}
-                    onChange={(e) => setConfig({ ...config, smtp_password: e.target.value })}
-                    placeholder="password"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* General Settings */}
           <div className="card">
             <h2 className="text-lg sm:text-xl font-bold mb-4">General Settings</h2>
             <div className="space-y-4">
-              {config.email_secrets_encryption_active !== true &&
-                config.email_secrets_key_env_present === true && (
-                  <div
-                    className="rounded-lg border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-950 break-words"
-                    role="status"
-                  >
-                    <strong>Encryption key env is set but not valid.</strong> Netlify sees{' '}
-                    <code className="text-xs bg-white/80 px-1 rounded break-all">EMAIL_SECRETS_ENCRYPTION_KEY</code>, but it must
-                    decode to <strong>exactly 32 bytes</strong>. Generate one with{' '}
-                    <code className="text-xs bg-white/80 px-1 rounded break-all">openssl rand -hex 32</code> (paste the 64 hex
-                    characters) or{' '}
-                    <code className="text-xs bg-white/80 px-1 rounded break-all">
-                      node -e &quot;console.log(require(&apos;crypto&apos;).randomBytes(32).toString(&apos;base64&apos;))&quot;
-                    </code>
-                    . Update the value in Netlify, then <strong>redeploy</strong> the site.
-                  </div>
-                )}
-              {config.email_secrets_encryption_active !== true &&
-                config.email_secrets_key_env_present !== true && (
-                  <div
-                    className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 break-words"
-                    role="status"
-                  >
-                    <strong>Encryption key not loaded on this API.</strong> Secrets are saved as plain text until the
-                    key works. For local dev, put{' '}
-                    <code className="text-xs bg-white/80 px-1 rounded break-all">EMAIL_SECRETS_ENCRYPTION_KEY</code> in{' '}
-                    <code className="text-xs bg-white/80 px-1 rounded break-all">.env</code> or{' '}
-                    <code className="text-xs bg-white/80 px-1 rounded break-all">.env.local</code> and restart{' '}
-                    <code className="text-xs bg-white/80 px-1 rounded break-all">npm run api:dev</code>. On Netlify, add the same
-                    variable under Site settings → Environment variables and redeploy.
-                  </div>
-                )}
-              {config.email_secrets_encryption_active === true && (
-                <p className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-                  At-rest encryption is active on this server (new saves will store <code className="text-xs">enc:v1:</code>{' '}
-                  ciphertext in the database).
-                </p>
-              )}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  From Email Address *
-                </label>
-                <input
-                  type="text"
-                  value={config.email_from}
-                  onChange={(e) => setConfig({ ...config, email_from: e.target.value })}
-                  placeholder='JulineMart <noreply@julinemart.com>'
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Format: Display Name &lt;email@domain.com&gt;
-                </p>
-              </div>
-
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Customer Portal URL *
@@ -543,12 +304,10 @@ export function EmailSettingsPage() {
                   type="url"
                   value={config.portal_url}
                   onChange={(e) => setConfig({ ...config, portal_url: e.target.value })}
-                  placeholder="https://track.julinemart.com"
+                  placeholder="https://julinemart.com"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Used for tracking links in emails
-                </p>
+                <p className="text-xs text-gray-500 mt-1">Used for tracking links in emails</p>
               </div>
 
               <div className="flex items-center gap-3">
@@ -563,12 +322,6 @@ export function EmailSettingsPage() {
                   Enable Email Notifications
                 </label>
               </div>
-              <p className="text-xs text-gray-500">
-                Provider passwords and API keys are encrypted at rest when{' '}
-                <code className="text-xs bg-gray-100 px-1 rounded">EMAIL_SECRETS_ENCRYPTION_KEY</code> is set on the
-                server. Password fields load empty for security — leave them blank to keep the current value, or enter a
-                new secret to replace it.
-              </p>
             </div>
           </div>
 
@@ -582,7 +335,6 @@ export function EmailSettingsPage() {
               These email addresses will receive a notification every time a new customer order is placed.
             </p>
 
-            {/* Current list */}
             <div className="space-y-2 mb-4">
               {(config.order_alert_emails ?? []).length === 0 && (
                 <p className="text-sm text-gray-400 italic">No alert recipients yet — add one below.</p>
@@ -606,7 +358,6 @@ export function EmailSettingsPage() {
               ))}
             </div>
 
-            {/* Add new */}
             <div className="flex gap-2">
               <input
                 type="email"
@@ -640,47 +391,27 @@ export function EmailSettingsPage() {
                 Add
               </button>
             </div>
-            <p className="text-xs text-gray-400 mt-2">Changes take effect after you click Save Configuration below.</p>
+            <p className="text-xs text-gray-400 mt-2">Changes take effect after you click Save below.</p>
           </div>
 
-          {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-3">
-            <button
-              onClick={handleTestConnection}
-              disabled={testing}
-              className="btn-secondary flex items-center justify-center gap-2"
-            >
-              {testing ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-gray-600 border-t-transparent rounded-full animate-spin" />
-                  Testing...
-                </>
-              ) : (
-                <>
-                  <TestTube className="w-5 h-5" />
-                  Test Connection
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={handleSaveConfig}
-              disabled={saving}
-              className="btn-primary flex items-center justify-center gap-2"
-            >
-              {saving ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="w-5 h-5" />
-                  Save Configuration
-                </>
-              )}
-            </button>
-          </div>
+          {/* Save button */}
+          <button
+            onClick={handleSaveConfig}
+            disabled={saving}
+            className="btn-primary flex items-center justify-center gap-2"
+          >
+            {saving ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-5 h-5" />
+                Save Configuration
+              </>
+            )}
+          </button>
         </div>
       )}
 

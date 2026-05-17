@@ -140,6 +140,39 @@ export const handler = async (event) => {
     },
   });
 
+  // Notify admin alert recipients
+  try {
+    const { data: emailCfg } = await adminClient
+      .from('email_config')
+      .select('order_alert_emails')
+      .single();
+
+    const alertEmails = Array.isArray(emailCfg?.order_alert_emails)
+      ? emailCfg.order_alert_emails.filter(Boolean)
+      : [];
+
+    const adminUrl = `${process.env.JLO_URL || 'https://jlo.julinemart.com'}/admin/vendors?tab=applications`;
+
+    await Promise.all(
+      alertEmails.map((to) =>
+        sendTransactionalEmail({
+          templateName: 'Vendor Application Alert',
+          to,
+          data: {
+            applicant_name:  personal.full_name,
+            store_name:      business.store_name,
+            applicant_email: personal.email,
+            applicant_phone: personal.phone || 'N/A',
+            admin_url:       adminUrl,
+          },
+        })
+      )
+    );
+  } catch (notifyErr) {
+    // Non-critical — don't fail the registration if alert emails error
+    console.warn('[vendor-register] Failed to send admin alert emails:', notifyErr?.message);
+  }
+
   return {
     statusCode: 201,
     headers: { ...cors, 'Content-Type': 'application/json' },

@@ -36,6 +36,7 @@ interface FormData {
   business_type: 'individual' | 'registered_business' | '';
   rc_number: string;
   business_address: string;
+  business_description: string;
   state: string;
   city: string;
   lga: string;
@@ -65,7 +66,7 @@ export default function Register() {
   const [step, setStep] = useState<Step>(1);
   const [form, setForm] = useState<FormData>({
     full_name: '', email: '', phone: '', nin_bvn: '',
-    store_name: '', business_type: '', rc_number: '', business_address: '',
+    store_name: '', business_type: '', rc_number: '', business_address: '', business_description: '',
     state: '', city: '', lga: '', approved_location_id: '', fez_collection_method: '',
     bank_name: '', account_number: '', account_name: '',
     id_document: null, cac_document: null,
@@ -206,6 +207,8 @@ export default function Register() {
       if (!form.business_type) e.business_type = 'Select a type';
       if (form.business_type === 'registered_business' && !form.rc_number.trim())
         e.rc_number = 'RC number required for registered businesses';
+      if (!form.business_description.trim()) e.business_description = 'Please tell us about your business';
+      if (form.business_description.length > 500) e.business_description = 'Maximum 500 characters';
       if (!form.approved_location_id) e.lga = 'Select your city and area from the approved locations list';
       if (!form.fez_collection_method) e.fez_collection_method = 'Select how Fez will collect your orders';
     }
@@ -256,6 +259,7 @@ export default function Register() {
             business_type:        form.business_type || undefined,
             rc_number:            form.rc_number || undefined,
             business_address:     form.business_address || undefined,
+            business_description: form.business_description || undefined,
             state:                form.state || undefined,
             city:                 form.city || undefined,
             lga:                  form.lga || undefined,
@@ -372,6 +376,17 @@ export default function Register() {
               <Field label="Business Address">
                 <input type="text" placeholder="No. 1, Commerce Street" value={form.business_address}
                   onChange={e => set('business_address', e.target.value)} className={input()} />
+              </Field>
+
+              <Field label="About Your Business *" error={errors.business_description}>
+                <textarea
+                  rows={4}
+                  placeholder="Tell us what you sell, who your customers are, and anything else that helps us understand your business. (e.g. I sell women's fashion — dresses, bags, and shoes — targeting young professionals in Lagos.)"
+                  value={form.business_description}
+                  onChange={e => set('business_description', e.target.value)}
+                  className={`${input(errors.business_description)} resize-none`}
+                />
+                <p className="text-xs text-gray-400 mt-1">{form.business_description.length}/500 characters</p>
               </Field>
 
               {/* ── Location cascade ── */}

@@ -6,7 +6,7 @@
  * Body:
  *   personal: { full_name, email, phone, nin_bvn }
  *   business: {
- *     store_name, business_type, rc_number, business_address,
+ *     store_name, business_type, rc_number, business_address, business_description,
  *     state, city, lga,
  *     approved_location_id,   // UUID from approved_vendor_locations
  *     fez_collection_method   // 'fez_pickup' | 'hub_dropoff'
@@ -107,8 +107,9 @@ export const handler = async (event) => {
       store_name:       business.store_name,
       business_type:    business.business_type || null,
       rc_number:        business.rc_number || null,
-      business_address: business.business_address || null,
-      state:                   business.state || null,
+      business_address:     business.business_address || null,
+      business_description: business.business_description || null,
+      state:                business.state || null,
       city:                    business.city || null,
       lga:                     business.lga || null,
       approved_location_id:    business.approved_location_id,

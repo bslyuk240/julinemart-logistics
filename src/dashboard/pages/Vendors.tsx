@@ -33,6 +33,7 @@ interface Application {
   id_document_url: string | null;
   cac_document_url: string | null;
   nin_bvn: string | null;
+  business_description: string | null;
   status: 'pending' | 'approved' | 'rejected';
   reject_reason: string | null;
   created_at: string;
@@ -548,6 +549,16 @@ export function VendorsPage() {
                         <Detail label="Account Number" value={app.bank_account_number} />
                         <Detail label="Account Name" value={app.bank_account_name} />
                       </div>
+
+                      {/* Business Description */}
+                      {app.business_description && (
+                        <div className="mb-4">
+                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">About the Business</p>
+                          <p className="text-sm text-gray-800 bg-white border border-gray-200 rounded-lg px-4 py-3 leading-relaxed">
+                            {app.business_description}
+                          </p>
+                        </div>
+                      )}
 
                       {/* Documents */}
                       <div className="flex gap-3 mb-4">

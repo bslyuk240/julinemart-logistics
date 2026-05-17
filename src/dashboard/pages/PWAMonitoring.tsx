@@ -117,6 +117,7 @@ export function PWAMonitoringPage() {
   const uniqueAppInstalled    = uniqueUsers('pwa_appinstalled');
   const uniqueStandaloneUsers = uniqueUsers('pwa_opened_standalone');
   const uniqueDismissed       = uniqueUsers('pwa_install_dismissed');
+  const uniqueIosGuide        = uniqueUsers('pwa_ios_guide_dismissed');
 
   // Platform breakdown
   const platformData: PlatformCount[] = [
@@ -223,7 +224,8 @@ export function PWAMonitoringPage() {
               sub={uniqueAppInstalled > 0 ? `${uniqueAppInstalled} unique users` : undefined} />
             <StatCard label="Standalone Opens" value={standaloneOpens}  color="orange"
               sub={uniqueStandaloneUsers > 0 ? `${uniqueStandaloneUsers} unique users` : undefined} />
-            <StatCard label="iOS Guide Skip"   value={iosGuide}        color="gray" />
+            <StatCard label="iOS Guide Skip"   value={iosGuide}        color="gray"
+              sub={uniqueIosGuide > 0 ? `${uniqueIosGuide} unique users` : undefined} />
             <StatCard label="Dismissed"        value={dismissed}       color="red"
               sub={uniqueDismissed > 0 ? `${uniqueDismissed} unique users` : undefined} />
           </div>

@@ -27,7 +27,7 @@ interface WebhookError {
 }
 
 interface DayCount { date: string; events: number; installs: number; }
-interface PlatformCount { name: string; value: number; }
+interface PlatformCount { name: string; value: number; [key: string]: unknown; }
 interface SourceRow { page: string; count: number; }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

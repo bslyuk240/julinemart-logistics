@@ -220,7 +220,6 @@ export function VendorLocationsPage() {
     }
   }
 
-  // Group locations by state for display
   const byState: Record<string, ApprovedLocation[]> = {};
   for (const loc of locations) {
     if (!byState[loc.state]) byState[loc.state] = [];
@@ -235,18 +234,22 @@ export function VendorLocationsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-5 p-4 sm:p-0">
+
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <MapPin className="w-6 h-6 text-primary-600" />
+          <MapPin className="w-6 h-6 text-primary-600 shrink-0" />
           <div>
             <h1 className="text-xl font-bold text-gray-900">Vendor Locations</h1>
             <p className="text-sm text-gray-500">Cities and LGAs approved for vendor onboarding</p>
           </div>
         </div>
         <button onClick={openCreate}
-          className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-primary-700 transition">
-          <Plus className="w-4 h-4" /> Add Location
+          className="flex items-center gap-2 bg-primary-600 text-white px-3 py-2 sm:px-4 rounded-lg text-sm font-medium hover:bg-primary-700 transition shrink-0">
+          <Plus className="w-4 h-4" />
+          <span className="hidden sm:inline">Add Location</span>
+          <span className="sm:hidden">Add</span>
         </button>
       </div>
 
@@ -254,10 +257,13 @@ export function VendorLocationsPage() {
       <div className="flex border-b border-gray-200">
         {(['locations', 'waitlist'] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 transition ${
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition ${
               tab === t ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}>
-            {t === 'locations' ? `Approved Locations (${locations.length})` : `Waitlist (${waitlist.length})`}
+            {t === 'locations'
+              ? <span>Locations <span className="text-xs opacity-70">({locations.length})</span></span>
+              : <span>Waitlist <span className="text-xs opacity-70">({waitlist.length})</span></span>
+            }
           </button>
         ))}
       </div>
@@ -276,7 +282,9 @@ export function VendorLocationsPage() {
             {Object.entries(byState).sort(([a], [b]) => a.localeCompare(b)).map(([state, locs]) => (
               <div key={state}>
                 <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">{state}</h3>
-                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+
+                {/* ── Desktop table ── */}
+                <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
@@ -296,23 +304,15 @@ export function VendorLocationsPage() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap gap-1">
-                              {loc.supports_vendor_direct_fez && (
-                                <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Vendor Pickup</span>
-                              )}
-                              {loc.supports_vendor_to_hub && (
-                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Hub Drop-off</span>
-                              )}
-                              {loc.supports_local_delivery && (
-                                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Local Delivery</span>
-                              )}
+                              {loc.supports_vendor_direct_fez && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Vendor Pickup</span>}
+                              {loc.supports_vendor_to_hub && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Hub Drop-off</span>}
+                              {loc.supports_local_delivery && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Local Delivery</span>}
                             </div>
                             {loc.vendor_pickup_surcharge > 0 && (
                               <p className="text-xs text-gray-400 mt-0.5">Pickup fee: ₦{loc.vendor_pickup_surcharge.toLocaleString()}</p>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-xs text-gray-500">
-                            {loc.fez_hub_name || '—'}
-                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-500">{loc.fez_hub_name || '—'}</td>
                           <td className="px-4 py-3">
                             <span className={`text-xs px-2 py-1 rounded-full font-medium ${STATUS_BADGE[loc.status] || 'bg-gray-100 text-gray-500'}`}>
                               {loc.status.replace(/_/g, ' ')}
@@ -320,30 +320,67 @@ export function VendorLocationsPage() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-end gap-1">
-                              <button onClick={() => openEdit(loc)} title="Edit"
-                                className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition">
-                                <Edit className="w-4 h-4" />
-                              </button>
-                              <button onClick={() => toggleStatus(loc)} title={loc.status === 'active' ? 'Pause' : 'Activate'}
-                                className="p-1.5 text-gray-500 hover:text-yellow-600 hover:bg-yellow-50 rounded-lg transition">
+                              <button onClick={() => openEdit(loc)} title="Edit" className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition"><Edit className="w-4 h-4" /></button>
+                              <button onClick={() => toggleStatus(loc)} title={loc.status === 'active' ? 'Pause' : 'Activate'} className="p-1.5 text-gray-500 hover:text-yellow-600 hover:bg-yellow-50 rounded-lg transition">
                                 {loc.status === 'active' ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                               </button>
-                              <button onClick={() => handleActivateWaitlist(loc)}
-                                disabled={activatingId === loc.id}
-                                title="Notify waitlisted vendors"
-                                className="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition disabled:opacity-40">
-                                <Users className="w-4 h-4" />
-                              </button>
-                              <button onClick={() => handleDelete(loc)} title="Delete"
-                                className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              <button onClick={() => handleActivateWaitlist(loc)} disabled={activatingId === loc.id} title="Notify waitlisted vendors" className="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded-lg transition disabled:opacity-40"><Users className="w-4 h-4" /></button>
+                              <button onClick={() => handleDelete(loc)} title="Delete" className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition"><Trash2 className="w-4 h-4" /></button>
                             </div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                </div>
+
+                {/* ── Mobile cards ── */}
+                <div className="md:hidden space-y-2">
+                  {locs.map(loc => (
+                    <div key={loc.id} className="bg-white rounded-xl border border-gray-200 p-4">
+                      <div className="flex items-start justify-between gap-3 mb-2">
+                        <div>
+                          <p className="font-semibold text-gray-900">{loc.city}</p>
+                          <p className="text-xs text-gray-500">{loc.lga}</p>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[loc.status] || 'bg-gray-100 text-gray-500'}`}>
+                            {loc.status.replace(/_/g, ' ')}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Modes */}
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {loc.supports_vendor_direct_fez && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Vendor Pickup</span>}
+                        {loc.supports_vendor_to_hub && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Hub Drop-off</span>}
+                        {loc.supports_local_delivery && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Local Delivery</span>}
+                      </div>
+
+                      {loc.fez_hub_name && (
+                        <p className="text-xs text-gray-400 mb-3">Hub: {loc.fez_hub_name}</p>
+                      )}
+                      {loc.vendor_pickup_surcharge > 0 && (
+                        <p className="text-xs text-gray-400 mb-3">Pickup fee: ₦{loc.vendor_pickup_surcharge.toLocaleString()}</p>
+                      )}
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-2 border-t border-gray-100 pt-3">
+                        <button onClick={() => openEdit(loc)} className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-primary-600 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-primary-300 transition">
+                          <Edit className="w-3.5 h-3.5" /> Edit
+                        </button>
+                        <button onClick={() => toggleStatus(loc)} className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-yellow-600 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-yellow-300 transition">
+                          {loc.status === 'active' ? <><Pause className="w-3.5 h-3.5" /> Pause</> : <><Play className="w-3.5 h-3.5" /> Activate</>}
+                        </button>
+                        <button onClick={() => handleActivateWaitlist(loc)} disabled={activatingId === loc.id} className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-green-600 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-green-300 transition disabled:opacity-40">
+                          <Users className="w-3.5 h-3.5" /> Notify
+                        </button>
+                        <button onClick={() => handleDelete(loc)} className="ml-auto p-1.5 text-gray-400 hover:text-red-500 rounded-lg transition">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
@@ -368,7 +405,9 @@ export function VendorLocationsPage() {
                   <h3 className="text-sm font-semibold text-gray-700">{cityKey}</h3>
                   <span className="text-xs text-gray-400">{entries.length} vendor{entries.length !== 1 ? 's' : ''}</span>
                 </div>
-                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+
+                {/* ── Desktop table ── */}
+                <div className="hidden sm:block bg-white rounded-xl border border-gray-200 overflow-hidden">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
@@ -396,6 +435,34 @@ export function VendorLocationsPage() {
                     </tbody>
                   </table>
                 </div>
+
+                {/* ── Mobile cards ── */}
+                <div className="sm:hidden space-y-2">
+                  {entries.map(e => (
+                    <div key={e.id} className="bg-white rounded-xl border border-gray-200 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-gray-900 leading-snug">{e.full_name}</p>
+                          <p className="text-xs text-gray-500 truncate">{e.email}</p>
+                          {e.phone && <p className="text-xs text-gray-400">{e.phone}</p>}
+                        </div>
+                        <div className="shrink-0">
+                          {e.notified_at
+                            ? <span className="flex items-center gap-1 text-green-600 text-xs"><Check className="w-3 h-3" /> Notified</span>
+                            : <span className="text-gray-400 text-xs">Pending</span>}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-3 mt-2">
+                        {e.vendor_category && (
+                          <span className="text-xs text-gray-500">Category: {e.vendor_category}</span>
+                        )}
+                        {e.est_monthly_orders != null && (
+                          <span className="text-xs text-gray-500">~{e.est_monthly_orders} orders/mo</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
@@ -404,18 +471,19 @@ export function VendorLocationsPage() {
 
       {/* ── Add / Edit modal ── */}
       {showForm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg max-h-[92vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-gray-200 sticky top-0 bg-white">
               <h2 className="text-lg font-bold text-gray-900">
                 {editing ? 'Edit Location' : 'Add Approved Location'}
               </h2>
-              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 p-1">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-3 gap-3">
+            <div className="p-5 space-y-4">
+              {/* State / City / LGA — stack on mobile */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">State *</label>
                   <input type="text" value={form.state} onChange={e => setForm(f => ({ ...f, state: e.target.value }))}
@@ -484,7 +552,7 @@ export function VendorLocationsPage() {
                   placeholder="Any notes about this location (not shown to vendors)" />
               </div>
             </div>
-            <div className="flex justify-end gap-3 px-6 pb-6">
+            <div className="flex justify-end gap-3 px-5 pb-6">
               <button onClick={() => setShowForm(false)}
                 className="px-5 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">
                 Cancel

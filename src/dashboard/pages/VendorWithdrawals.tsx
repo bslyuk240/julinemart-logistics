@@ -54,7 +54,6 @@ export default function VendorWithdrawals() {
   const [search, setSearch]           = useState('');
   const [expanded, setExpanded]       = useState<string | null>(null);
 
-  // action modal state
   const [acting, setActing]           = useState<{ id: string; action: 'approve' | 'reject' | 'paid' } | null>(null);
   const [payRef, setPayRef]           = useState('');
   const [rejectReason, setRejectReason] = useState('');
@@ -90,7 +89,6 @@ export default function VendorWithdrawals() {
     }
   };
 
-  // Filtered list
   const filtered = withdrawals.filter(w => {
     if (statusFilter && w.status !== statusFilter) return false;
     if (search) {
@@ -105,7 +103,6 @@ export default function VendorWithdrawals() {
     return true;
   });
 
-  // Summary totals
   const totals = {
     pending:  withdrawals.filter(w => w.status === 'pending').reduce((s, w) => s + w.amount, 0),
     approved: withdrawals.filter(w => w.status === 'approved').reduce((s, w) => s + w.amount, 0),
@@ -113,19 +110,19 @@ export default function VendorWithdrawals() {
   };
 
   return (
-    <div className="w-full max-w-none p-6 space-y-6">
+    <div className="w-full max-w-none p-4 sm:p-6 space-y-5">
 
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Wallet className="w-6 h-6 text-purple-600" />
+        <Wallet className="w-6 h-6 text-purple-600 shrink-0" />
         <h1 className="text-2xl font-bold text-gray-900">Vendor Withdrawals</h1>
         <button onClick={load} className="ml-auto p-2 text-gray-400 hover:text-purple-600 hover:bg-gray-100 rounded-lg transition">
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4">
+      {/* Summary cards — 1 col mobile, 3 col desktop */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
           { label: 'Pending Requests', value: fmt(totals.pending),  count: withdrawals.filter(w => w.status === 'pending').length,  cls: 'border-yellow-200 bg-yellow-50' },
           { label: 'Approved (Queued)', value: fmt(totals.approved), count: withdrawals.filter(w => w.status === 'approved').length, cls: 'border-blue-200 bg-blue-50' },
@@ -139,8 +136,8 @@ export default function VendorWithdrawals() {
         ))}
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-3">
+      {/* Filters — stack on mobile */}
+      <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
           <input
@@ -163,7 +160,7 @@ export default function VendorWithdrawals() {
         </select>
       </div>
 
-      {/* Table */}
+      {/* List */}
       {loading ? (
         <div className="flex justify-center py-24">
           <div className="w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full animate-spin" />
@@ -174,103 +171,165 @@ export default function VendorWithdrawals() {
           <p className="font-medium">No withdrawal requests found</p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-              <tr>
-                <th className="px-4 py-3 text-left">Vendor</th>
-                <th className="px-4 py-3 text-right">Amount</th>
-                <th className="px-4 py-3 text-left">Bank Details</th>
-                <th className="px-4 py-3 text-left">Status</th>
-                <th className="px-4 py-3 text-left">Date</th>
-                <th className="px-4 py-3 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {filtered.map(w => (
-                <>
-                  <tr key={w.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900">{w.vendor?.store_name || '—'}</p>
-                      <p className="text-xs text-gray-400">{w.vendor?.email || ''}</p>
-                    </td>
-                    <td className="px-4 py-3 text-right font-bold text-gray-900">{fmt(w.amount)}</td>
-                    <td className="px-4 py-3">
-                      <p className="font-mono text-xs text-gray-700">{w.bank_account_number || '—'}</p>
-                      <p className="text-xs text-gray-400">{w.bank_name} · {w.bank_account_name}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_CONFIG[w.status]?.cls || 'bg-gray-100 text-gray-600'}`}>
-                        {STATUS_CONFIG[w.status]?.label || w.status}
-                      </span>
-                      {w.payment_reference && (
-                        <p className="text-xs text-gray-400 mt-0.5">Ref: {w.payment_reference}</p>
-                      )}
-                      {w.rejection_reason && (
-                        <p className="text-xs text-red-400 mt-0.5 max-w-[160px] truncate">{w.rejection_reason}</p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-500">
-                      {new Date(w.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {/* Expand notes */}
-                        {w.notes && (
-                          <button
-                            onClick={() => setExpanded(expanded === w.id ? null : w.id)}
-                            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
-                            title="View notes"
-                          >
-                            {expanded === w.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                          </button>
+        <>
+          {/* ── Desktop table ── */}
+          <div className="hidden sm:block bg-white rounded-xl border border-gray-100 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+                <tr>
+                  <th className="px-4 py-3 text-left">Vendor</th>
+                  <th className="px-4 py-3 text-right">Amount</th>
+                  <th className="px-4 py-3 text-left">Bank Details</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-left">Date</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {filtered.map(w => (
+                  <>
+                    <tr key={w.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-gray-900">{w.vendor?.store_name || '—'}</p>
+                        <p className="text-xs text-gray-400">{w.vendor?.email || ''}</p>
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-gray-900">{fmt(w.amount)}</td>
+                      <td className="px-4 py-3">
+                        <p className="font-mono text-xs text-gray-700">{w.bank_account_number || '—'}</p>
+                        <p className="text-xs text-gray-400">{w.bank_name} · {w.bank_account_name}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_CONFIG[w.status]?.cls || 'bg-gray-100 text-gray-600'}`}>
+                          {STATUS_CONFIG[w.status]?.label || w.status}
+                        </span>
+                        {w.payment_reference && (
+                          <p className="text-xs text-gray-400 mt-0.5">Ref: {w.payment_reference}</p>
                         )}
-                        {/* Action buttons by status */}
-                        {w.status === 'pending' && (
-                          <>
+                        {w.rejection_reason && (
+                          <p className="text-xs text-red-400 mt-0.5 max-w-[160px] truncate">{w.rejection_reason}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500">
+                        {new Date(w.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {w.notes && (
                             <button
-                              onClick={() => setActing({ id: w.id, action: 'approve' })}
-                              className="flex items-center gap-1 text-xs px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg font-medium transition"
+                              onClick={() => setExpanded(expanded === w.id ? null : w.id)}
+                              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
+                              title="View notes"
                             >
-                              <CheckCircle className="w-3 h-3" /> Approve
+                              {expanded === w.id ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                             </button>
-                            <button
-                              onClick={() => setActing({ id: w.id, action: 'reject' })}
-                              className="flex items-center gap-1 text-xs px-2.5 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-medium transition"
-                            >
-                              <XCircle className="w-3 h-3" /> Reject
+                          )}
+                          {w.status === 'pending' && (
+                            <>
+                              <button onClick={() => setActing({ id: w.id, action: 'approve' })}
+                                className="flex items-center gap-1 text-xs px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg font-medium transition">
+                                <CheckCircle className="w-3 h-3" /> Approve
+                              </button>
+                              <button onClick={() => setActing({ id: w.id, action: 'reject' })}
+                                className="flex items-center gap-1 text-xs px-2.5 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-medium transition">
+                                <XCircle className="w-3 h-3" /> Reject
+                              </button>
+                            </>
+                          )}
+                          {w.status === 'approved' && (
+                            <button onClick={() => setActing({ id: w.id, action: 'paid' })}
+                              className="flex items-center gap-1 text-xs px-2.5 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 rounded-lg font-medium transition">
+                              <Banknote className="w-3 h-3" /> Mark Paid
                             </button>
-                          </>
-                        )}
-                        {w.status === 'approved' && (
-                          <button
-                            onClick={() => setActing({ id: w.id, action: 'paid' })}
-                            className="flex items-center gap-1 text-xs px-2.5 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 rounded-lg font-medium transition"
-                          >
-                            <Banknote className="w-3 h-3" /> Mark Paid
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                  {/* Expanded notes row */}
-                  {expanded === w.id && (
-                    <tr key={`${w.id}-notes`} className="bg-yellow-50">
-                      <td colSpan={6} className="px-4 py-2 text-xs text-gray-600 italic">
-                        Vendor note: {w.notes}
+                          )}
+                        </div>
                       </td>
                     </tr>
+                    {expanded === w.id && (
+                      <tr key={`${w.id}-notes`} className="bg-yellow-50">
+                        <td colSpan={6} className="px-4 py-2 text-xs text-gray-600 italic">
+                          Vendor note: {w.notes}
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ── Mobile cards ── */}
+          <div className="sm:hidden space-y-3">
+            {filtered.map(w => (
+              <div key={w.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                {/* Top row: vendor + amount */}
+                <div className="flex items-start justify-between px-4 pt-4 pb-2 gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900 leading-snug">{w.vendor?.store_name || '—'}</p>
+                    <p className="text-xs text-gray-400 truncate">{w.vendor?.email || ''}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-lg font-bold text-gray-900">{fmt(w.amount)}</p>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_CONFIG[w.status]?.cls || 'bg-gray-100 text-gray-600'}`}>
+                      {STATUS_CONFIG[w.status]?.label || w.status}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Bank details */}
+                <div className="px-4 pb-3 border-b border-gray-100">
+                  <p className="font-mono text-xs text-gray-700">{w.bank_account_number || '—'}</p>
+                  <p className="text-xs text-gray-400">{[w.bank_name, w.bank_account_name].filter(Boolean).join(' · ') || '—'}</p>
+                  {w.payment_reference && <p className="text-xs text-gray-400 mt-0.5">Ref: {w.payment_reference}</p>}
+                  {w.rejection_reason && <p className="text-xs text-red-400 mt-0.5">{w.rejection_reason}</p>}
+                  {w.notes && (
+                    <button
+                      onClick={() => setExpanded(expanded === w.id ? null : w.id)}
+                      className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 mt-1"
+                    >
+                      {expanded === w.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      {expanded === w.id ? 'Hide note' : 'View note'}
+                    </button>
                   )}
-                </>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  {expanded === w.id && (
+                    <p className="text-xs text-gray-600 italic mt-1 bg-yellow-50 rounded px-2 py-1">{w.notes}</p>
+                  )}
+                </div>
+
+                {/* Footer: date + actions */}
+                <div className="flex items-center justify-between px-4 py-3 gap-3">
+                  <p className="text-xs text-gray-400">
+                    {new Date(w.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    {w.status === 'pending' && (
+                      <>
+                        <button onClick={() => setActing({ id: w.id, action: 'approve' })}
+                          className="flex items-center gap-1 text-xs px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg font-medium transition">
+                          <CheckCircle className="w-3 h-3" /> Approve
+                        </button>
+                        <button onClick={() => setActing({ id: w.id, action: 'reject' })}
+                          className="flex items-center gap-1 text-xs px-3 py-1.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-medium transition">
+                          <XCircle className="w-3 h-3" /> Reject
+                        </button>
+                      </>
+                    )}
+                    {w.status === 'approved' && (
+                      <button onClick={() => setActing({ id: w.id, action: 'paid' })}
+                        className="flex items-center gap-1 text-xs px-3 py-1.5 bg-green-50 text-green-700 hover:bg-green-100 rounded-lg font-medium transition">
+                        <Banknote className="w-3 h-3" /> Mark Paid
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {/* Action modal */}
       {acting && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
             <h2 className="text-lg font-bold text-gray-900">
               {acting.action === 'approve' && 'Approve Withdrawal'}

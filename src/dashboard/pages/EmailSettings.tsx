@@ -174,7 +174,6 @@ export function EmailSettingsPage() {
       const data = await response.json();
       if (data.success) {
         notification.success('Configuration Saved', 'Email settings updated successfully');
-        setConnectionStatus('unknown');
       } else {
         notification.error('Save Failed', data.error);
       }
@@ -515,17 +514,7 @@ export function EmailSettingsPage() {
                 </div>
               </div>
 
-              <div className="flex items-start gap-3">
-                <CheckCircle className={`w-5 h-5 flex-shrink-0 ${
-                  connectionStatus === 'connected' ? 'text-green-600' : 'text-gray-300'
-                }`} />
-                <div>
-                  <p className="font-medium">Connection tested</p>
-                  <p className="text-sm text-gray-600">Verify email provider connection works</p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3">
+<div className="flex items-start gap-3">
                 <CheckCircle className={`w-5 h-5 flex-shrink-0 ${
                   config.email_enabled ? 'text-green-600' : 'text-gray-300'
                 }`} />

@@ -31,6 +31,7 @@ import {
   Wallet,
   TrendingUp,
   Headphones,
+  Activity,
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
 import { BrandLogo } from '../../shared/BrandLogo';
@@ -79,6 +80,7 @@ const navigation: NavItem[] = [
   { name: 'Finance', href: '/admin/finance', icon: TrendingUp, roles: ['admin'] },
   { name: 'Settlements', href: '/admin/settlements', icon: DollarSign, roles: ['admin'] },
   { name: 'Analytics', href: '/admin/analytics', icon: BarChart3, roles: ['admin'] },
+  { name: 'PWA Monitoring', href: '/admin/pwa-monitoring', icon: Activity, roles: ['admin'] },
   { name: 'Users', href: '/admin/users', icon: Users, roles: ['admin'] },
   { name: 'Shipping Discounts', href: '/admin/discounts', icon: Percent, roles: ['admin'] },
   { name: 'Vendors', href: '/admin/vendors', icon: Store, roles: ['admin', 'manager'] },

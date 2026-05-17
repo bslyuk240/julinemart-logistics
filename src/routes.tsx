@@ -55,6 +55,7 @@ import VendorWithdrawals from './dashboard/pages/VendorWithdrawals';
 import { VendorLocationsPage } from './dashboard/pages/VendorLocations';
 import { UnauthorizedPage } from './shared/UnauthorizedPage';
 import { MetaAdsPage } from './dashboard/pages/MetaAds';
+import { PWAMonitoringPage } from './dashboard/pages/PWAMonitoring';
 
 // Role-aware landing: social_media_manager goes straight to Meta Ads
 function AdminLanding() {
@@ -155,6 +156,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'notifications', element: <NotificationsPage /> },
   { path: 'notifications/new', element: <NotificationsNewPage /> },
   { path: 'notifications/:id', element: <NotificationDetailsPage /> },
+  { path: 'pwa-monitoring', element: <PWAMonitoringPage /> },
 ];
 
 const customerRoutes = [

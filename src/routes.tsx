@@ -37,7 +37,7 @@ import { NotificationsNewPage } from './dashboard/pages/NotificationsNew';
 import { NotificationsPage } from './dashboard/pages/Notifications';
 import { OrderDetailsPage } from './dashboard/pages/OrderDetails';
 import { OrdersPage } from './dashboard/pages/Orders';
-import RefundsPage from './dashboard/pages/Refunds';
+import ReturnsPage from './dashboard/pages/Returns';
 import { SettingsPage } from './dashboard/pages/Settings';
 import { FinancePage } from './dashboard/pages/Finance';
 import { SettlementsPage } from './dashboard/pages/Settlements';
@@ -80,7 +80,7 @@ const sharedRoutes = [
       </ProtectedRoute>
     ),
   },
-  { path: 'refunds', element: <RefundsPage /> },
+  { path: 'refunds', element: <ReturnsPage /> },
   { path: 'orders/:id', element: <OrderDetailsPage /> },
   { path: 'rates', element: <ShippingRatesPage /> },
   { path: 'whatsapp', element: <WhatsAppSupportPage /> },

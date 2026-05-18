@@ -78,7 +78,7 @@ export async function handler(event) {
     // ------------------------------
     // HANDLE REFUND WHEN APPROVED
     // ------------------------------
-    if (status === "approved" && request.preferred_resolution === "refund") {
+    if (status === "approved") {
       if (!approved_refund_amount) {
         return {
           statusCode: 400,
@@ -134,6 +134,19 @@ export async function handler(event) {
             refund_raw: { error: err.message },
           })
           .eq("id", returnId);
+
+        // Email customer: refund failed
+        if (request.customer_email) {
+          sendTransactionalEmail({
+            templateName: 'Refund Failed',
+            to: request.customer_email,
+            orderId: request.supabase_order_id || null,
+            data: {
+              customerName: request.customer_name || 'Customer',
+              orderNumber: request.order_number || returnId,
+            },
+          });
+        }
 
         return {
           statusCode: 502,
@@ -203,11 +216,13 @@ export async function handler(event) {
       }
     }
 
-    // Send email for refund completed or rejected
+    // Send email for refund completed, rejected, in_transit, delivered_to_hub
     if (request.customer_email) {
       const emailTemplate =
-        nextStatus === 'refund_completed' ? 'Refund Completed' :
-        nextStatus === 'rejected'         ? 'Return Rejected'  : null;
+        nextStatus === 'refund_completed'  ? 'Refund Completed'        :
+        nextStatus === 'rejected'          ? 'Return Rejected'         :
+        nextStatus === 'in_transit'        ? 'Return In Transit'       :
+        nextStatus === 'delivered_to_hub'  ? 'Return Delivered to Hub' : null;
 
       if (emailTemplate) {
         sendTransactionalEmail({
@@ -222,6 +237,7 @@ export async function handler(event) {
               ? Number(refundPayload.amount || approved_refund_amount || 0).toLocaleString()
               : '',
             inspectionNotes: inspection_notes || '',
+            trackingNumber: request.fez_tracking || '',
           },
         });
       }

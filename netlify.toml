@@ -48,7 +48,17 @@
 
 [[redirects]]
   from = "/api/refund-queue"
-  to = "/.netlify/functions/refund-queue"
+  to = "/.netlify/functions/returns-queue"
+  status = 200
+
+[[redirects]]
+  from = "/api/returns-queue"
+  to = "/.netlify/functions/returns-queue"
+  status = 200
+
+[[redirects]]
+  from = "/api/admin-approve-return"
+  to = "/.netlify/functions/admin-approve-return"
   status = 200
 
 [[redirects]]
@@ -171,6 +181,15 @@
 
 [functions."verify-payment"]
   timeout = 15
+
+[functions."admin-approve-return"]
+  timeout = 60
+
+[functions."returns-queue"]
+  timeout = 20
+
+[functions."admin-return-inspection"]
+  timeout = 60
 
 # -------------------------------------------------
 # EDGE FUNCTIONS

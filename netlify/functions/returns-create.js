@@ -1,4 +1,4 @@
-﻿// Create Return Request (DROP-OFF ONLY)
+// Create Return Request — admin reviews and creates shipment separately
 import {
   supabase,
   fetchSupabaseOrder,
@@ -9,6 +9,12 @@ import {
 
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { sendTransactionalEmail } from './services/emailNotifications.js';
+import { createClient } from '@supabase/supabase-js';
+
+const adminClient = createClient(
+  process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY
+);
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return preflightResponse();
@@ -26,39 +32,29 @@ export async function handler(event) {
 
     const {
       order_id,
-      preferred_resolution,
       reason_code,
       reason_note,
       images = [],
       hub_id,
-      method, // client MUST send "dropoff", others blocked
-      refund_amount, // optional: amount customer selected for refund
+      method,
     } = body;
 
-    // 🛑 Hard enforce DROP-OFF only
-    if (!method || method !== "dropoff") {
+    if (!method || method !== 'dropoff') {
       return {
         statusCode: 400,
         headers: corsHeaders(),
-        body: JSON.stringify({
-          success: false,
-          error: "Only 'dropoff' return method is supported at this time."
-        })
+        body: JSON.stringify({ success: false, error: "Only 'dropoff' return method is supported at this time." })
       };
     }
 
-    if (!order_id || !preferred_resolution || !reason_code || !hub_id) {
+    if (!order_id || !reason_code || !hub_id) {
       return {
         statusCode: 400,
         headers: corsHeaders(),
-        body: JSON.stringify({
-          success: false,
-          error: 'order_id, preferred_resolution, reason_code, hub_id are required'
-        })
+        body: JSON.stringify({ success: false, error: 'order_id, reason_code, hub_id are required' })
       };
     }
 
-    // 🟦 Supabase order validation (replaces WooCommerce fetch)
     const order = await fetchSupabaseOrder(order_id);
     const windowDays = Number(process.env.RETURN_WINDOW_DAYS || 14);
 
@@ -66,47 +62,31 @@ export async function handler(event) {
       return {
         statusCode: 400,
         headers: corsHeaders(),
-        body: JSON.stringify({
-          success: false,
-          error: `Return window exceeded (${windowDays} days)`
-        })
+        body: JSON.stringify({ success: false, error: `Return window exceeded (${windowDays} days)` })
       };
     }
 
-    const customerName = order.customer_name || 'Return Customer';
+    const customerName = order.customer_name || 'Customer';
 
     const { data: hubRecord, error: hubErr } = await supabase
-      .from("hubs")
-      .select("id, name, phone, address, city, state")
-      .eq("id", hub_id)
+      .from('hubs')
+      .select('id, name, phone, address, city, state')
+      .eq('id', hub_id)
       .single();
 
     if (hubErr || !hubRecord) {
       return {
         statusCode: 404,
         headers: corsHeaders(),
-        body: JSON.stringify({ success: false, error: "Hub not found" })
+        body: JSON.stringify({ success: false, error: 'Hub not found' })
       };
     }
 
-    // 🚀 Drop-off: always start in awaiting_tracking
-    const initialStatus = "awaiting_tracking";
-    const fezTracking = null;
-    const fezShipmentId = null;
-
     const returnCode = generateReturnCode();
-    const parsedRefundAmount =
-      typeof refund_amount === "number"
-        ? refund_amount
-        : typeof refund_amount === "string"
-        ? Number(refund_amount)
-        : null;
-    const finalRefundAmount =
-      parsedRefundAmount && Number.isFinite(parsedRefundAmount) ? parsedRefundAmount : null;
 
-    // Insert into return_requests
+    // Insert return_request only — shipment created by admin on approval
     const { data: request, error: reqErr } = await supabase
-      .from("return_requests")
+      .from('return_requests')
       .insert({
         order_id: order.woocommerce_order_id ? Number(order.woocommerce_order_id) : null,
         supabase_order_id: order.id,
@@ -114,129 +94,139 @@ export async function handler(event) {
         customer_email: order.customer_email,
         customer_name: customerName,
         hub_id,
-        preferred_resolution,
+        preferred_resolution: 'refund',
         reason_code,
         reason_note,
-        refund_amount: finalRefundAmount,
         images: [],
-        status: initialStatus,
-        fez_method: "dropoff", // force-dropoff
-        fez_tracking: fezTracking,
-        fez_shipment_id: fezShipmentId
+        status: 'pending_review',
+        fez_method: 'dropoff',
       })
-      .select("*")
+      .select('*')
       .single();
 
     if (reqErr) throw reqErr;
-
-    // Acknowledge the return request by email
-    if (order.customer_email) {
-      sendTransactionalEmail({
-        templateName: 'Return Request Received',
-        to: order.customer_email,
-        orderId: order.id,
-        data: {
-          customerName: customerName,
-          orderNumber: order.order_number ?? order.id,
-          returnId: request.id,
-          returnCode: request.return_code || returnCode,
-          reasonCode: reason_code || '',
-          resolution: preferred_resolution || 'refund',
-        },
-      });
-    }
 
     // Upload images
     let finalImages = [];
     try {
       finalImages = await uploadReturnImages(images || [], request.id);
       if (finalImages.length) {
-        await supabase
-          .from("return_requests")
-          .update({ images: finalImages })
-          .eq("id", request.id);
+        await supabase.from('return_requests').update({ images: finalImages }).eq('id', request.id);
       }
     } catch (err) {
-      console.error("Image upload failed:", err);
-      return {
-        statusCode: 500,
-        headers: corsHeaders(),
-        body: JSON.stringify({
-          success: false,
-          error: "Failed to upload images"
-        })
-      };
+      console.error('Image upload failed:', err);
     }
 
-    // Insert return_shipment (drop-off only)
-    const { data: shipment, error: shipErr } = await supabase
-      .from("return_shipments")
-      .insert({
-        return_request_id: request.id,
-        return_code: returnCode,
-        method: "dropoff",
-        status: initialStatus,
-        fez_tracking: fezTracking,
-        fez_shipment_id: fezShipmentId,
-        raw_payload: null,
-        customer_submitted_tracking: false,
-        tracking_submitted_at: null
-      })
-      .select("*")
-      .single();
+    const adminUrl = `${process.env.JLO_URL || 'https://jlo.julinemart.com'}/admin/returns`;
 
-    if (shipErr) {
-      // rollback request
-      await supabase.from("return_requests").delete().eq("id", request.id);
-      throw new Error("Failed to create return shipment");
+    // Email customer: request received
+    if (order.customer_email) {
+      sendTransactionalEmail({
+        templateName: 'Return Request Received',
+        to: order.customer_email,
+        orderId: order.id,
+        data: {
+          customerName,
+          orderNumber: order.order_number ?? order.id,
+          returnId: request.id,
+          returnCode,
+          reasonCode: reason_code || '',
+          resolution: 'refund',
+        },
+      });
+    }
+
+    // Email admin alert recipients
+    try {
+      const { data: emailCfg } = await adminClient
+        .from('email_config')
+        .select('order_alert_emails')
+        .single();
+
+      const alertEmails = Array.isArray(emailCfg?.order_alert_emails)
+        ? emailCfg.order_alert_emails.filter(Boolean)
+        : [];
+
+      for (const adminEmail of alertEmails) {
+        sendTransactionalEmail({
+          templateName: 'Return Admin Alert',
+          to: adminEmail,
+          orderId: order.id,
+          data: {
+            customerName,
+            orderNumber: order.order_number ?? order.id,
+            reasonCode: reason_code || '',
+            reasonNote: reason_note || '',
+            adminUrl,
+          },
+        });
+      }
+    } catch (err) {
+      console.warn('Admin alert email failed:', err.message);
+    }
+
+    // Email vendor(s) whose items are in this order
+    try {
+      const { data: items } = await adminClient
+        .from('order_items')
+        .select('product_name, vendor_id, vendors!inner(email, store_name)')
+        .eq('order_id', order.id)
+        .not('vendor_id', 'is', null);
+
+      if (items && items.length > 0) {
+        // Group by vendor_id to send one email per vendor
+        const byVendor = {};
+        for (const item of items) {
+          const vid = item.vendor_id;
+          if (!byVendor[vid]) {
+            byVendor[vid] = {
+              email: item.vendors.email,
+              store_name: item.vendors.store_name,
+              itemNames: [],
+            };
+          }
+          byVendor[vid].itemNames.push(item.product_name);
+        }
+
+        for (const vendor of Object.values(byVendor)) {
+          if (vendor.email) {
+            sendTransactionalEmail({
+              templateName: 'Return Vendor Alert',
+              to: vendor.email,
+              orderId: order.id,
+              data: {
+                orderNumber: order.order_number ?? order.id,
+                itemNames: vendor.itemNames.join(', '),
+                reasonCode: reason_code || '',
+              },
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Vendor alert email failed:', err.message);
     }
 
     return {
-  statusCode: 201,
-  headers: corsHeaders(),
-  body: JSON.stringify({
-    success: true,
-    data: {
-      // Always include request id + correct schema
-      return_request: {
-        ...request,
-        id: request.id,
-        hub_id,
-        images: finalImages,
-        status: initialStatus,
-        preferred_resolution,
-        reason_code,
-        reason_note,
-        refund_amount: finalRefundAmount,
-        // wrap shipment into array because PWA expects return_shipments[]
-        return_shipments: [
-          {
-            id: shipment.id,
-            return_request_id: request.id,
-            return_code: shipment.return_code,
-            method: shipment.method,
-            status: shipment.status,
-            tracking_number: shipment.fez_tracking,  // unify naming
-            fez_tracking: shipment.fez_tracking,
-            created_at: shipment.created_at,
-            customer_submitted_tracking: shipment.customer_submitted_tracking,
-            tracking_submitted_at: shipment.tracking_submitted_at
-          }
-        ]
-      },
-
-      // Keep direct shipment export for backward compatibility
-      return_shipment: {
-        ...shipment,
-        tracking_number: shipment.fez_tracking, // IMPORTANT FIX
-      }
-    }
-  })
-};
-
+      statusCode: 201,
+      headers: corsHeaders(),
+      body: JSON.stringify({
+        success: true,
+        data: {
+          return_request: {
+            ...request,
+            images: finalImages,
+            status: 'pending_review',
+            reason_code,
+            reason_note,
+            return_shipments: [],
+          },
+        }
+      })
+    };
 
   } catch (error) {
-    console.error("returns-create error:", error);
+    console.error('returns-create error:', error);
     return {
       statusCode: 500,
       headers: corsHeaders(),

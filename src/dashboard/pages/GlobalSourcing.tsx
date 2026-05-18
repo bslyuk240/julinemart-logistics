@@ -1234,6 +1234,19 @@ export function GlobalSourcingPage() {
     }
   }, [applyFxSettingsToForm, applyPricingDefaultsToForm, notification, session?.access_token]);
 
+  const loadFxSyncStatus = useCallback(async () => {
+    if (!session?.access_token) return;
+    setLoadingFxSyncStatus(true);
+    try {
+      const response = await callAdmin<{ data: FxSyncStatusData }>('fx-price-sync', session.access_token);
+      setFxSyncStatus(response.data);
+    } catch {
+      // non-critical — leave existing state
+    } finally {
+      setLoadingFxSyncStatus(false);
+    }
+  }, [session?.access_token]);
+
   useEffect(() => {
     if (!session?.access_token) return;
     void loadReferenceData();
@@ -1334,19 +1347,6 @@ export function GlobalSourcingPage() {
       setSavingPricingSettings(false);
     }
   };
-
-  const loadFxSyncStatus = useCallback(async () => {
-    if (!session?.access_token) return;
-    setLoadingFxSyncStatus(true);
-    try {
-      const response = await callAdmin<{ data: FxSyncStatusData }>('fx-price-sync', session.access_token);
-      setFxSyncStatus(response.data);
-    } catch {
-      // non-critical — leave existing state
-    } finally {
-      setLoadingFxSyncStatus(false);
-    }
-  }, [session?.access_token]);
 
   const refreshFxRate = async () => {
     if (!session?.access_token) return;

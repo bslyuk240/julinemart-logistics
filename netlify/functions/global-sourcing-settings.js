@@ -14,6 +14,7 @@ import {
   refreshGlobalSourcingUsdToNgnRate,
   saveGlobalSourcingFxSettings,
 } from './services/global-sourcing-fx.js';
+import { checkThresholdAndSync } from './services/fx-price-sync-service.js';
 
 function normalizeSettingValue(value) {
   if (value === '' || value === null || value === undefined) return null;
@@ -117,11 +118,21 @@ export async function handler(event) {
   if (String(payload.action || '').trim() === 'refresh_fx_rate') {
     try {
       const refreshResult = await refreshGlobalSourcingUsdToNgnRate(auth.adminClient, 'cj');
+
+      // Trigger a price re-sync if the new rate crossed the 3% threshold
+      let priceSyncResult = null;
+      try {
+        priceSyncResult = await checkThresholdAndSync(auth.adminClient, refreshResult.rate);
+      } catch (syncError) {
+        priceSyncResult = { synced: false, error: syncError?.message };
+      }
+
       const settings = await loadCombinedSettings(auth.adminClient);
       return jsonResponse(200, {
         success: true,
         data: settings,
         note: refreshResult.note || null,
+        price_sync: priceSyncResult,
       });
     } catch (error) {
       return jsonResponse(502, {

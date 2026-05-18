@@ -172,6 +172,13 @@
 [functions."verify-payment"]
   timeout = 15
 
+[functions."fx-price-sync"]
+  timeout = 26
+
+[functions."fx-price-sync-scheduled"]
+  timeout = 120
+  schedule = "@weekly"
+
 # -------------------------------------------------
 # EDGE FUNCTIONS
 # -------------------------------------------------

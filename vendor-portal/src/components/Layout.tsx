@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Package, ShoppingBag, TrendingUp, Star,
-  Wallet, Settings, LogOut, Store,
+  Wallet, Settings, LogOut, Store, RotateCcw,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { JulineMartLogo } from './JulineMartLogo';
@@ -11,16 +11,17 @@ const nav = [
   { to: '/',            label: 'Home',      icon: LayoutDashboard },
   { to: '/products',    label: 'Products',  icon: Package },
   { to: '/orders',      label: 'Orders',    icon: ShoppingBag },
-  { to: '/reviews',     label: 'Reviews',   icon: Star },
+  { to: '/returns',     label: 'Returns',   icon: RotateCcw },
   { to: '/withdrawals', label: 'Withdraw',  icon: Wallet },
   { to: '/settings',    label: 'Settings',  icon: Settings },
 ];
 
-// Full nav for desktop sidebar (includes Earnings)
+// Full nav for desktop sidebar (includes Earnings and Reviews)
 const sidebarNav = [
   { to: '/',            label: 'Dashboard',   icon: LayoutDashboard },
   { to: '/products',    label: 'Products',    icon: Package },
   { to: '/orders',      label: 'Orders',      icon: ShoppingBag },
+  { to: '/returns',     label: 'Returns',     icon: RotateCcw },
   { to: '/reviews',     label: 'Reviews',     icon: Star },
   { to: '/earnings',    label: 'Earnings',    icon: TrendingUp },
   { to: '/withdrawals', label: 'Withdrawals', icon: Wallet },

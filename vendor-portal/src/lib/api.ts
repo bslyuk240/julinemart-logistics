@@ -154,6 +154,34 @@ export const api = {
     };
   },
 
+  getReturns: (params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : '';
+    return request<any[]>(`vendor-returns${qs}`);
+  },
+
+  confirmReturnReceipt: (shipmentId: string) =>
+    request<{ status: string }>('vendor-returns', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'confirm-receipt', shipment_id: shipmentId }),
+    }),
+
+  inspectReturn: (
+    returnRequestId: string,
+    decision: 'approve' | 'reject',
+    inspectionNotes?: string,
+    rejectionReason?: string,
+  ) =>
+    request<{ status: string }>('vendor-returns', {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'inspect',
+        return_request_id: returnRequestId,
+        decision,
+        inspection_notes: inspectionNotes || undefined,
+        rejection_reason: rejectionReason || undefined,
+      }),
+    }),
+
   getWithdrawals:     ()             => request<any[]>('vendor-withdrawals'),
   requestWithdrawal:  (body: object) => request<any>('vendor-withdrawals', { method: 'POST', body: JSON.stringify(body) }),
   updateWithdrawal:   (id: string, body: object) =>

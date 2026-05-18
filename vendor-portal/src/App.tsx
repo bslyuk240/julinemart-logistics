@@ -13,6 +13,7 @@ import Settings from './pages/Settings';
 import SetPassword from './pages/SetPassword';
 import AddProduct from './pages/AddProduct';
 import ProductReviews from './pages/ProductReviews';
+import Returns from './pages/Returns';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, vendor, loading } = useAuth();
@@ -53,6 +54,7 @@ function AppRoutes() {
               <Route path="/reviews"     element={<ProductReviews />} />
               <Route path="/earnings"    element={<Earnings />} />
               <Route path="/withdrawals" element={<Withdrawals />} />
+              <Route path="/returns"     element={<Returns />} />
               <Route path="/settings"    element={<Settings />} />
               <Route path="*"            element={<Navigate to="/" replace />} />
             </Routes>

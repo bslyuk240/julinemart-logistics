@@ -189,6 +189,9 @@
   timeout = 120
   schedule = "@weekly"
 
+[functions."vendor-returns"]
+  timeout = 20
+
 [functions."admin-approve-return"]
   timeout = 60
 

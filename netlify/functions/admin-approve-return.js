@@ -182,10 +182,10 @@ export async function handler(event) {
 
     if (!hub) throw new Error('Hub not found for this return request');
 
-    // Load order items with vendor info
+    // Load order items with vendor info + subtotal for debit calculation
     const { data: items } = await adminClient
       .from('order_items')
-      .select('id, product_name, vendor_id, vendors(id, store_name, email, address, city, state, phone)')
+      .select('id, product_name, subtotal, vendor_id, vendors(id, store_name, email, address, city, state, phone, commission_rate)')
       .eq('order_id', orderId);
 
     // Group items by destination: null vendor_id → hub, else → vendor
@@ -294,6 +294,27 @@ export async function handler(event) {
         return_code: returnCode,
         destination_type: group.destinationType,
       });
+    }
+
+    // Create vendor_return_debit records for vendor-destination shipments.
+    // This holds the vendor's net earnings against their balance so future
+    // withdrawals account for the potential refund they owe back.
+    for (const [key, group] of Object.entries(groups)) {
+      if (group.destinationType !== 'vendor' || !group.vendor?.id) continue;
+
+      const vendorItems = (items || []).filter(i => i.vendor_id === group.vendor.id);
+      const gross = vendorItems.reduce((s, i) => s + Number(i.subtotal || 0), 0);
+      const commissionRate = Number(group.vendor.commission_rate || 0);
+      const netAmount = gross * (1 - commissionRate / 100);
+
+      if (netAmount > 0) {
+        await adminClient.from('vendor_return_debits').insert({
+          vendor_id:         group.vendor.id,
+          return_request_id,
+          amount:            netAmount,
+          status:            'pending',
+        });
+      }
     }
 
     // Update return_request status to approved

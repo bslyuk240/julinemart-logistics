@@ -98,13 +98,22 @@ export async function runFxPriceSync(adminClient, { newRate, reason = 'manual', 
     }
 
     if (updates.length > 0) {
-      const { error: upsertError } = await adminClient
-        .from('products')
-        .upsert(updates, { onConflict: 'id' });
-      if (upsertError) {
-        errors.push(`products upsert (offset ${offset}): ${upsertError.message}`);
-      } else {
-        updatedSimple += updates.length;
+      const results = await Promise.allSettled(
+        updates.map(({ id, regular_price, sale_price, sourcing_meta }) =>
+          adminClient
+            .from('products')
+            .update({ regular_price, sale_price, sourcing_meta })
+            .eq('id', id)
+        )
+      );
+      for (const r of results) {
+        if (r.status === 'rejected') {
+          errors.push(`products update: ${r.reason?.message || 'unknown'}`);
+        } else if (r.value?.error) {
+          errors.push(`products update: ${r.value.error.message}`);
+        } else {
+          updatedSimple++;
+        }
       }
     }
 
@@ -140,13 +149,22 @@ export async function runFxPriceSync(adminClient, { newRate, reason = 'manual', 
     }
 
     if (updates.length > 0) {
-      const { error: upsertError } = await adminClient
-        .from('product_variations')
-        .upsert(updates, { onConflict: 'id' });
-      if (upsertError) {
-        errors.push(`product_variations upsert (offset ${offset}): ${upsertError.message}`);
-      } else {
-        updatedVariations += updates.length;
+      const results = await Promise.allSettled(
+        updates.map(({ id, regular_price, sale_price, sourcing_meta }) =>
+          adminClient
+            .from('product_variations')
+            .update({ regular_price, sale_price, sourcing_meta })
+            .eq('id', id)
+        )
+      );
+      for (const r of results) {
+        if (r.status === 'rejected') {
+          errors.push(`product_variations update: ${r.reason?.message || 'unknown'}`);
+        } else if (r.value?.error) {
+          errors.push(`product_variations update: ${r.value.error.message}`);
+        } else {
+          updatedVariations++;
+        }
       }
     }
 

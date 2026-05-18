@@ -101,43 +101,6 @@ type SubOrder = {
   delivery_person_vehicle?: string | null;
 };
 
-type ReturnShipment = {
-  id: string;
-  return_request_id?: string;
-  // NEW: support both new tracking_number and old fez_tracking
-  tracking_number?: string | null;
-  fez_tracking?: string | null;
-  method: 'pickup' | 'dropoff';
-  return_code?: string;
-  status?:
-    | 'awaiting_tracking'
-    | 'in_transit'
-    | 'delivered_to_hub'
-    | 'inspection_in_progress'
-    | 'approved'
-    | 'refund_processing'
-    | 'refund_completed'
-    | 'rejected'
-    | 'pickup_scheduled'
-    | 'awaiting_dropoff'
-    | 'pending'
-    | 'delivered'
-    | 'completed';
-  created_at?: string;
-  customer_submitted_tracking?: boolean;
-  tracking_submitted_at?: string;
-  return_request?: {
-    id?: string;
-    customer_name?: string;
-    customer_email?: string;
-    preferred_resolution?: string;
-    reason_code?: string;
-    reason_note?: string;
-    images?: string[];
-    status?: string;
-  };
-};
-
 type ShipmentLane = 'fez' | 'local_rider';
 const DEFAULT_ELIGIBLE_LANES: ShipmentLane[] = ['fez', 'local_rider'];
 
@@ -390,8 +353,6 @@ export function OrderDetailsPage() {
   const [subOrders, setSubOrders] = useState<SubOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchingTracking, setFetchingTracking] = useState<Identifier | null>(null);
-  const [returnShipments, setReturnShipments] = useState<ReturnShipment[]>([]);
-  const [trackingFilter, setTrackingFilter] = useState<'all' | 'with' | 'without'>('all');
   const [showDispatchMenu, setShowDispatchMenu] = useState<Identifier | null>(null);
   const [showRiderModal, setShowRiderModal] = useState<Identifier | null>(null);
   const [riderInfo, setRiderInfo] = useState({ name: '', phone: '', vehicle: '' });
@@ -459,69 +420,10 @@ export function OrderDetailsPage() {
     }
   };
 
-  const fetchReturnShipments = async () => {
-    // Use the Supabase order UUID directly — no WooCommerce lookup needed
-    const orderId = order?.id;
-    if (!orderId) return;
-    try {
-      const headers = await getAuthHeaders();
-      if (!supabaseAnonKey) {
-        throw new Error('Missing Supabase anon key for return shipments');
-      }
-
-      const url = buildSupabaseFunctionUrl(
-        `get-order-returns?order_id=${encodeURIComponent(String(orderId))}`
-      );
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${supabaseAnonKey}`,
-          apikey: supabaseAnonKey,
-          ...headers,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch return shipments');
-      }
-
-      const data = await response.json();
-      setReturnShipments(data?.data ?? []);
-    } catch (error) {
-      console.error('Error fetching return shipments:', error);
-    }
-  };
-
   useEffect(() => {
     fetchOrderDetails();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
-
-  // Fetch returns once the order is loaded (keyed on Supabase UUID)
-  useEffect(() => {
-    if (order?.id) {
-      fetchReturnShipments();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [order?.id]);
-
-  // Poll tracking for in-transit returns
-  useEffect(() => {
-    const interval = setInterval(() => {
-      returnShipments
-        .map((r) => ({
-          shipmentId: r.id,
-          requestId: r.return_request_id ?? r.return_request?.id,
-          status: r.status,
-        }))
-        .filter((r) => r.status === 'in_transit' && r.requestId)
-        .forEach((r) => fetchReturnTracking(r.requestId as string, r.shipmentId));
-    }, 2 * 60 * 1000);
-    return () => clearInterval(interval);
-    // fetchReturnTracking is intentionally stable for polling; eslint dependency suppressed
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [returnShipments]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -713,29 +615,6 @@ export function OrderDetailsPage() {
     }
   };
 
-  // FIXED: Changed from ${apiBase}/api/ to ${functionsBase}/
-  const fetchReturnTracking = async (returnRequestId: string, shipmentId: string) => {
-    try {
-      const headers = await getAuthHeaders();
-      const response = await fetch(`${functionsBase}/returns/${returnRequestId}/tracking`, { headers });
-      const data = await response.json();
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.error || 'Failed to fetch tracking');
-      }
-      if (data.data?.latest_status === 'delivered') {
-        setReturnShipments((prev) =>
-          prev.map((r) => (r.id === shipmentId ? { ...r, status: 'delivered_to_hub' } : r))
-        );
-      }
-    } catch (error) {
-      console.error('Return tracking error', error);
-      notification.error(
-        'Tracking failed',
-        error instanceof Error ? error.message : 'Unable to fetch tracking'
-      );
-    }
-  };
-
   // FIXED: Changed from ${apiBase}/.netlify/functions/ to ${functionsBase}/
   const fetchLiveTracking = async (subOrderId: Identifier) => {
     setFetchingTracking(subOrderId);
@@ -787,11 +666,6 @@ export function OrderDetailsPage() {
     window.open(labelUrl, '_blank');
   };
 
-  const formatStatusText = (status?: string) => {
-    if (!status) return 'pending';
-    return status.replace(/_/g, ' ');
-  };
-
   // FIXED: Changed from ${apiBase}/.netlify/functions/ to ${functionsBase}/
   const printLabel = (subOrderId: Identifier) => {
     // Open the generate-label function in a new window with print=true
@@ -839,25 +713,6 @@ export function OrderDetailsPage() {
       cancelled: 'bg-red-100 text-red-800',
     };
     return colors[status as KnownStatus] || 'bg-gray-100 text-gray-800';
-  };
-
-  const getReturnStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      pickup_scheduled: 'bg-blue-100 text-blue-800',
-      awaiting_dropoff: 'bg-yellow-100 text-yellow-800',
-      pending: 'bg-yellow-100 text-yellow-800',
-      awaiting_tracking: 'bg-gray-100 text-gray-800',
-      in_transit: 'bg-blue-100 text-blue-800',
-      delivered: 'bg-green-100 text-green-800',
-      delivered_to_hub: 'bg-green-100 text-green-800',
-      inspection_in_progress: 'bg-yellow-100 text-yellow-800',
-      approved: 'bg-emerald-100 text-emerald-800',
-      refund_processing: 'bg-orange-100 text-orange-800',
-      refund_completed: 'bg-green-100 text-green-800',
-      rejected: 'bg-red-100 text-red-800',
-      completed: 'bg-emerald-100 text-emerald-800',
-    };
-    return colors[status] || 'bg-gray-100 text-gray-800';
   };
 
   return (
@@ -1541,94 +1396,6 @@ export function OrderDetailsPage() {
         </div>
       </div>
 
-      {/* Returns & Refunds - Rest of the component continues... */}
-      <div className="mt-10">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <Package className="w-5 h-5 text-primary-600" />
-            Returns & Refunds
-          </h2>
-          <div className="flex items-center gap-2">
-            <label className="text-sm text-gray-600">Filter:</label>
-            <select
-              className="border rounded px-2 py-1 text-sm"
-              value={trackingFilter}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) =>
-                setTrackingFilter(e.target.value as 'all' | 'with' | 'without')
-              }
-            >
-              <option value="all">All</option>
-              <option value="with">Has Tracking</option>
-              <option value="without">No Tracking</option>
-            </select>
-          </div>
-        </div>
-
-        {returnShipments.length === 0 ? (
-          <p className="text-gray-600 text-sm">No returns for this order.</p>
-        ) : (
-          <div className="space-y-4">
-            {returnShipments
-              .filter((r) => {
-                const hasTracking =
-                  (r.tracking_number && r.tracking_number !== '') ||
-                  (r.fez_tracking && r.fez_tracking !== '');
-                if (trackingFilter === 'with') return !!hasTracking;
-                if (trackingFilter === 'without') return !hasTracking;
-                return true;
-              })
-              .map((ret) => {
-                const tracking =
-                  ret.tracking_number ??
-                  ret.fez_tracking ??
-                  null;
-
-                return (
-                  <div key={ret.id} className="card">
-                    {/* Return details UI - keeping the rest of the returns section unchanged */}
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                      <div>
-                        <p className="text-sm text-gray-600">Return Code</p>
-                        <p className="font-mono font-semibold text-lg">
-                          {ret.return_code || '—'}
-                        </p>
-                        <p className="text-sm text-gray-600 mt-1">
-                          Method:{' '}
-                          {ret.method === 'pickup'
-                            ? 'Pickup (Fez)'
-                            : 'Drop-off'}
-                        </p>
-                        <p className="text-sm text-gray-600">
-                          Resolution:{' '}
-                          {ret.return_request?.preferred_resolution || '—'}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold ${getReturnStatusColor(
-                            ret.status || ''
-                          )}`}
-                        >
-                          {formatStatusText(ret.status)}
-                        </span>
-                        {tracking ? (
-                          <span className="text-xs px-3 py-1 rounded-full bg-green-100 text-green-800 font-medium">
-                            Tracking: {tracking}
-                          </span>
-                        ) : (
-                          <span className="text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-700">
-                            Awaiting tracking
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {/* Rest of the returns section continues unchanged... */}
-                  </div>
-                );
-              })}
-          </div>
-        )}
-      </div>
       {/* Rider Assignment Modal */}
       {showRiderModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">

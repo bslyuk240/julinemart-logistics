@@ -166,6 +166,22 @@ export async function runFxPriceSync(adminClient, { newRate, reason = 'manual', 
     errors.push(`tracking upsert: ${trackingError.message}`);
   }
 
+  // Write audit log row (fire-and-forget — never throw on logging failure)
+  try {
+    await adminClient.from('fx_price_sync_logs').insert({
+      reason,
+      rate_used: newRate,
+      previous_rate: lastSyncRate ?? null,
+      change_pct: changePct ?? null,
+      updated_simple: updatedSimple,
+      updated_variations: updatedVariations,
+      skipped,
+      errors: errors.length > 0 ? errors : null,
+    });
+  } catch {
+    // non-critical
+  }
+
   return {
     synced: true,
     reason,

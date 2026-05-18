@@ -21,22 +21,31 @@ export async function handler(event) {
   const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
   if (auth.errorResponse) return auth.errorResponse;
 
-  // GET — return last sync status
+  // GET — return last sync status + last 20 log entries
   if (event.httpMethod === 'GET') {
     try {
-      const { data, error } = await auth.adminClient
-        .from('global_sourcing_settings')
-        .select('fx_last_price_sync_rate, fx_last_price_sync_at')
-        .eq('provider', 'cj')
-        .maybeSingle();
+      const [settingsResult, logsResult] = await Promise.all([
+        auth.adminClient
+          .from('global_sourcing_settings')
+          .select('fx_last_price_sync_rate, fx_last_price_sync_at')
+          .eq('provider', 'cj')
+          .maybeSingle(),
+        auth.adminClient
+          .from('fx_price_sync_logs')
+          .select('id, created_at, reason, rate_used, previous_rate, change_pct, updated_simple, updated_variations, skipped, errors')
+          .order('created_at', { ascending: false })
+          .limit(20),
+      ]);
 
-      if (error) throw error;
+      if (settingsResult.error) throw settingsResult.error;
+      if (logsResult.error) throw logsResult.error;
 
       return jsonResponse(200, {
         success: true,
         data: {
-          last_sync_rate: data?.fx_last_price_sync_rate ?? null,
-          last_sync_at: data?.fx_last_price_sync_at ?? null,
+          last_sync_rate: settingsResult.data?.fx_last_price_sync_rate ?? null,
+          last_sync_at: settingsResult.data?.fx_last_price_sync_at ?? null,
+          logs: logsResult.data ?? [],
         },
       });
     } catch (error) {

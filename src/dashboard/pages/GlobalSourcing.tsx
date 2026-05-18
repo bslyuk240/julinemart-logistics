@@ -4,8 +4,10 @@ import {
   CheckCircle,
   Download,
   ExternalLink,
+  History,
   Image as ImageIcon,
   Loader2,
+  Play,
   RefreshCw,
   Search,
   Trash2,
@@ -170,6 +172,25 @@ interface FxSettingsData {
   effective_source: string;
   effective_fetched_at: string | null;
   effective_note: string | null;
+}
+
+interface FxSyncLogEntry {
+  id: string;
+  created_at: string;
+  reason: string;
+  rate_used: number;
+  previous_rate: number | null;
+  change_pct: number | null;
+  updated_simple: number;
+  updated_variations: number;
+  skipped: number;
+  errors: string[] | null;
+}
+
+interface FxSyncStatusData {
+  last_sync_rate: number | null;
+  last_sync_at: string | null;
+  logs: FxSyncLogEntry[];
 }
 
 interface ImportResultData {
@@ -377,6 +398,16 @@ function formatFxSourceLabel(source?: string | null) {
 
 function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+function formatSyncReason(reason: string) {
+  switch (reason) {
+    case 'threshold_triggered': return 'Rate shift ≥3%';
+    case 'initial_sync':        return 'Initial sync';
+    case 'weekly_scheduled':    return 'Weekly cron';
+    case 'manual':              return 'Manual';
+    default:                    return reason;
+  }
 }
 
 function slugifyCjProductTitle(value?: string | null) {
@@ -826,6 +857,9 @@ export function GlobalSourcingPage() {
   const [fxManualRate, setFxManualRate] = useState('');
   const [fxManualRateNote, setFxManualRateNote] = useState('');
   const [fxLiveApiEnabled, setFxLiveApiEnabled] = useState(true);
+  const [fxSyncStatus, setFxSyncStatus] = useState<FxSyncStatusData | null>(null);
+  const [loadingFxSyncStatus, setLoadingFxSyncStatus] = useState(false);
+  const [runningManualSync, setRunningManualSync] = useState(false);
 
   const selectedVariant = useMemo(
     () => productDetails?.variants.find((variant) => variant.external_variant_id === selectedVariantId) || null,
@@ -1235,17 +1269,21 @@ export function GlobalSourcingPage() {
     if (activeTab === 'imported-products' && importedProducts.length === 0) void loadImportedProducts();
     if (activeTab === 'inbound-shipments' && shipments.length === 0) void loadShipments();
     if (activeTab === 'settings' && !pricingSettings && !loadingPricingSettings) void loadPricingSettings();
+    if (activeTab === 'settings' && !fxSyncStatus && !loadingFxSyncStatus) void loadFxSyncStatus();
   }, [
     activeTab,
     loadSourceRequests,
     importedProducts.length,
     loadImportedProducts,
     loadPricingSettings,
+    loadFxSyncStatus,
     loadShipments,
     loadingPricingSettings,
+    loadingFxSyncStatus,
     sourceRequests.length,
     session?.access_token,
     pricingSettings,
+    fxSyncStatus,
     shipments.length,
   ]);
 
@@ -1297,32 +1335,82 @@ export function GlobalSourcingPage() {
     }
   };
 
+  const loadFxSyncStatus = useCallback(async () => {
+    if (!session?.access_token) return;
+    setLoadingFxSyncStatus(true);
+    try {
+      const response = await callAdmin<{ data: FxSyncStatusData }>('fx-price-sync', session.access_token);
+      setFxSyncStatus(response.data);
+    } catch {
+      // non-critical — leave existing state
+    } finally {
+      setLoadingFxSyncStatus(false);
+    }
+  }, [session?.access_token]);
+
   const refreshFxRate = async () => {
     if (!session?.access_token) return;
     setRefreshingFxRate(true);
     try {
-      const response = await callAdmin<{ data: GlobalSourcingSettingsData; note?: string | null }>(
+      const response = await callAdmin<{
+        data: GlobalSourcingSettingsData;
+        note?: string | null;
+        price_sync?: { synced: boolean; reason?: string; updatedSimple?: number; updatedVariations?: number } | null;
+      }>(
         'global-sourcing-settings',
         session.access_token,
         {
           method: 'POST',
-          body: JSON.stringify({
-            action: 'refresh_fx_rate',
-          }),
+          body: JSON.stringify({ action: 'refresh_fx_rate' }),
         }
       );
       setPricingSettings(response.data);
       applyPricingDefaultsToForm(response.data, true);
       applyFxSettingsToForm(response.data, true);
+
+      const sync = response.price_sync;
       if (response.note) {
         notification.warning('FX refreshed with cache warning', response.note);
+      } else if (sync?.synced) {
+        const total = (sync.updatedSimple ?? 0) + (sync.updatedVariations ?? 0);
+        notification.success(
+          'FX refreshed & prices updated',
+          `Rate changed ≥3% — ${total} product price${total !== 1 ? 's' : ''} re-synced`
+        );
       } else {
-        notification.success('FX refreshed', 'Fetched and cached the latest live USD → NGN rate');
+        notification.success('FX refreshed', 'Rate is within 3% of last sync — no price update needed');
       }
+
+      void loadFxSyncStatus();
     } catch (error: unknown) {
       notification.error('FX refresh failed', getErrorMessage(error, 'Unable to fetch the latest live rate'));
     } finally {
       setRefreshingFxRate(false);
+    }
+  };
+
+  const runManualSync = async () => {
+    if (!session?.access_token) return;
+    setRunningManualSync(true);
+    try {
+      const response = await callAdmin<{
+        data: { synced: boolean; updatedSimple: number; updatedVariations: number; skipped: number; errors: string[] | null };
+      }>(
+        'fx-price-sync',
+        session.access_token,
+        { method: 'POST', body: JSON.stringify({ action: 'run_sync' }) }
+      );
+      const d = response.data;
+      const total = d.updatedSimple + d.updatedVariations;
+      notification.success(
+        'Price sync complete',
+        `${total} product price${total !== 1 ? 's' : ''} updated (${d.updatedSimple} simple, ${d.updatedVariations} variations)`
+      );
+      void loadFxSyncStatus();
+    } catch (error: unknown) {
+      notification.error('Sync failed', getErrorMessage(error, 'Unable to run price sync'));
+    } finally {
+      setRunningManualSync(false);
     }
   };
 
@@ -3041,6 +3129,160 @@ export function GlobalSourcingPage() {
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* ── Price Sync Log ─────────────────────────────────────── */}
+          <div className="card space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <History className="h-5 w-5 text-gray-500" />
+                <h2 className="text-lg font-semibold text-gray-900">Price Sync Log</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void loadFxSyncStatus()}
+                  disabled={loadingFxSyncStatus}
+                  className="btn-secondary inline-flex items-center gap-2"
+                >
+                  {loadingFxSyncStatus
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <RefreshCw className="h-4 w-4" />}
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void runManualSync()}
+                  disabled={runningManualSync}
+                  className="btn-primary inline-flex items-center gap-2"
+                >
+                  {runningManualSync
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Play className="h-4 w-4" />}
+                  {runningManualSync ? 'Syncing…' : 'Run Sync Now'}
+                </button>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-600">
+              Prices auto-update when the USD/NGN rate moves ≥ 3% or weekly. Use "Run Sync Now" to force an immediate reprice.
+            </p>
+
+            {fxSyncStatus && (
+              <div className="flex flex-wrap gap-4 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3 text-sm">
+                <div>
+                  <span className="text-gray-500">Last sync rate:</span>{' '}
+                  <span className="font-semibold text-gray-900">
+                    {fxSyncStatus.last_sync_rate != null ? `₦${Number(fxSyncStatus.last_sync_rate).toLocaleString()}` : 'Never run'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Last run:</span>{' '}
+                  <span className="font-semibold text-gray-900">{formatDate(fxSyncStatus.last_sync_at)}</span>
+                </div>
+              </div>
+            )}
+
+            {loadingFxSyncStatus && !fxSyncStatus ? (
+              <div className="flex items-center justify-center py-8 text-gray-400">
+                <Loader2 className="h-5 w-5 animate-spin" />
+              </div>
+            ) : fxSyncStatus?.logs && fxSyncStatus.logs.length > 0 ? (
+              <>
+                {/* Desktop table */}
+                <div className="hidden overflow-x-auto sm:block">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
+                        <th className="pb-2 pr-4">Date / Time</th>
+                        <th className="pb-2 pr-4">Trigger</th>
+                        <th className="pb-2 pr-4">Rate Used</th>
+                        <th className="pb-2 pr-4">Change</th>
+                        <th className="pb-2 pr-4">Products</th>
+                        <th className="pb-2">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {fxSyncStatus.logs.map((entry) => {
+                        const total = entry.updated_simple + entry.updated_variations;
+                        const hasErrors = entry.errors && entry.errors.length > 0;
+                        return (
+                          <tr key={entry.id} className="text-gray-700">
+                            <td className="py-2.5 pr-4 text-xs text-gray-500 whitespace-nowrap">
+                              {formatDate(entry.created_at)}
+                            </td>
+                            <td className="py-2.5 pr-4 whitespace-nowrap">
+                              <span className="inline-flex items-center rounded-full bg-purple-50 px-2.5 py-0.5 text-xs font-medium text-purple-700">
+                                {formatSyncReason(entry.reason)}
+                              </span>
+                            </td>
+                            <td className="py-2.5 pr-4 font-medium whitespace-nowrap">
+                              ₦{Number(entry.rate_used).toLocaleString()}
+                            </td>
+                            <td className="py-2.5 pr-4 whitespace-nowrap">
+                              {entry.change_pct != null
+                                ? <span className={entry.change_pct >= 3 ? 'text-amber-600 font-medium' : 'text-gray-500'}>
+                                    {entry.change_pct > 0 ? '+' : ''}{entry.change_pct.toFixed(2)}%
+                                  </span>
+                                : <span className="text-gray-400">—</span>}
+                            </td>
+                            <td className="py-2.5 pr-4 whitespace-nowrap">
+                              <span className="font-semibold">{total}</span>
+                              <span className="ml-1 text-xs text-gray-400">
+                                ({entry.updated_simple}S / {entry.updated_variations}V)
+                              </span>
+                            </td>
+                            <td className="py-2.5 whitespace-nowrap">
+                              {hasErrors
+                                ? <span className="inline-flex items-center gap-1 text-xs text-red-600">
+                                    <AlertCircle className="h-3.5 w-3.5" /> Errors
+                                  </span>
+                                : <span className="inline-flex items-center gap-1 text-xs text-green-600">
+                                    <CheckCircle className="h-3.5 w-3.5" /> OK
+                                  </span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile cards */}
+                <div className="space-y-2 sm:hidden">
+                  {fxSyncStatus.logs.map((entry) => {
+                    const total = entry.updated_simple + entry.updated_variations;
+                    const hasErrors = entry.errors && entry.errors.length > 0;
+                    return (
+                      <div key={entry.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="inline-flex items-center rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700">
+                              {formatSyncReason(entry.reason)}
+                            </span>
+                            <p className="mt-1 text-xs text-gray-500">{formatDate(entry.created_at)}</p>
+                          </div>
+                          {hasErrors
+                            ? <span className="inline-flex items-center gap-1 text-xs text-red-600"><AlertCircle className="h-3.5 w-3.5" /> Errors</span>
+                            : <span className="inline-flex items-center gap-1 text-xs text-green-600"><CheckCircle className="h-3.5 w-3.5" /> OK</span>}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-700">
+                          <span><span className="text-gray-500">Rate:</span> ₦{Number(entry.rate_used).toLocaleString()}</span>
+                          {entry.change_pct != null && (
+                            <span><span className="text-gray-500">Δ:</span> {entry.change_pct > 0 ? '+' : ''}{entry.change_pct.toFixed(2)}%</span>
+                          )}
+                          <span><span className="text-gray-500">Updated:</span> <strong>{total}</strong> ({entry.updated_simple}S / {entry.updated_variations}V)</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : !loadingFxSyncStatus ? (
+              <div className="rounded-lg border border-dashed border-gray-200 py-8 text-center text-sm text-gray-400">
+                No sync runs yet. Prices will auto-update the next time the rate moves ≥ 3% or the weekly cron fires.
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

@@ -3030,7 +3030,7 @@ export type Database = {
           refund_method: string | null
           refund_raw: Json | null
           refund_status: string | null
-          refund_wc_id: string | null
+          paystack_refund_id: string | null
           status: string | null
           supabase_order_id: string | null
           updated_at: string | null
@@ -3061,7 +3061,7 @@ export type Database = {
           refund_method?: string | null
           refund_raw?: Json | null
           refund_status?: string | null
-          refund_wc_id?: string | null
+          paystack_refund_id?: string | null
           status?: string | null
           supabase_order_id?: string | null
           updated_at?: string | null
@@ -3092,7 +3092,7 @@ export type Database = {
           refund_method?: string | null
           refund_raw?: Json | null
           refund_status?: string | null
-          refund_wc_id?: string | null
+          paystack_refund_id?: string | null
           status?: string | null
           supabase_order_id?: string | null
           updated_at?: string | null

@@ -117,7 +117,7 @@ export async function handler(event) {
             refund_amount: approved_refund_amount,
             refund_currency: wooRefund?.currency || "NGN",
             refund_method: "original_payment",
-            refund_wc_id: wooRefund.id || wooRefund.refund_id || null,
+            paystack_refund_id: wooRefund.id || wooRefund.refund_id || null,
             refund_raw: wooRefund,
             refund_completed_at: new Date().toISOString(),
           })

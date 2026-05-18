@@ -182,6 +182,9 @@
 [functions."verify-payment"]
   timeout = 15
 
+[functions."vendor-returns"]
+  timeout = 20
+
 [functions."admin-approve-return"]
   timeout = 60
 

@@ -107,6 +107,7 @@ interface QueueStats {
   approved: number;
   in_transit: number;
   delivered_to_hub: number;
+  vendor_approved: number;
   refund_completed: number;
   rejected: number;
   refund_failed: number;
@@ -128,6 +129,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   in_transit:            { label: 'In Transit',             color: 'text-indigo-700', bg: 'bg-indigo-50 border-indigo-200' },
   delivered_to_hub:      { label: 'Delivered to Hub',       color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200' },
   inspection_in_progress:{ label: 'Inspection in Progress', color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200' },
+  vendor_approved:       { label: 'Vendor Approved',        color: 'text-teal-700',   bg: 'bg-teal-50 border-teal-200' },
   refund_processing:     { label: 'Refund Processing',      color: 'text-orange-700', bg: 'bg-orange-50 border-orange-200' },
   refund_completed:      { label: 'Refund Completed',       color: 'text-green-700',  bg: 'bg-green-50 border-green-200' },
   refund_failed:         { label: 'Refund Failed',          color: 'text-red-700',    bg: 'bg-red-50 border-red-200' },
@@ -159,6 +161,7 @@ const STATUS_FILTER_OPTIONS = [
   { value: 'approved,awaiting_dropoff', label: 'Approved / Awaiting Drop-off' },
   { value: 'in_transit',       label: 'In Transit' },
   { value: 'delivered_to_hub,inspection_in_progress', label: 'At Hub / Inspection' },
+  { value: 'vendor_approved', label: 'Vendor Approved' },
   { value: 'refund_processing,refund_completed', label: 'Refund' },
   { value: 'refund_failed',    label: 'Refund Failed' },
   { value: 'rejected',         label: 'Rejected' },
@@ -324,6 +327,7 @@ export default function ReturnsPage() {
             { key: 'approved', label: 'Approved', icon: CheckCircle, color: 'text-blue-600' },
             { key: 'in_transit', label: 'In Transit', icon: Truck, color: 'text-indigo-600' },
             { key: 'delivered_to_hub', label: 'At Hub', icon: Package, color: 'text-purple-600' },
+            { key: 'vendor_approved', label: 'Vendor Approved', icon: CheckCircle, color: 'text-teal-600' },
             { key: 'refund_completed', label: 'Refunded', icon: DollarSign, color: 'text-green-600' },
             { key: 'refund_failed', label: 'Failed', icon: AlertTriangle, color: 'text-red-600' },
             { key: 'rejected', label: 'Rejected', icon: XCircle, color: 'text-red-600' },
@@ -599,6 +603,16 @@ function ActionButtons({
       >
         Start Inspection
       </button>
+    );
+  }
+
+  if (status === 'vendor_approved') {
+    return (
+      <div className="flex gap-2">
+        <button onClick={e => { e.stopPropagation(); onInspect(); }} className="text-xs px-3 py-1.5 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-medium">
+          Process Refund
+        </button>
+      </div>
     );
   }
 

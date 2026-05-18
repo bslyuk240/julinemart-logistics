@@ -58,6 +58,7 @@ export async function handler(event) {
     const validInspectionStates = [
       "delivered_to_hub",
       "inspection_in_progress",
+      "vendor_approved", // vendor has inspected and approved; admin triggers refund
       "in_transit", // allow admin to override early
     ];
 
@@ -122,6 +123,18 @@ export async function handler(event) {
             refund_completed_at: new Date().toISOString(),
           })
           .eq("id", returnId);
+
+        // Mark vendor debit as deducted (updates to actual refund amount)
+        await supabase
+          .from("vendor_return_debits")
+          .update({
+            status: "deducted",
+            recovery_method: "deduction",
+            amount: approved_refund_amount,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("return_request_id", returnId)
+          .eq("status", "pending");
       } catch (err) {
         console.error("Refund failed:", err.message);
 

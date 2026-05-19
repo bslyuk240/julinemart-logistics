@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   TrendingUp, TrendingDown, DollarSign, BarChart2,
-  Plus, RefreshCw, ChevronDown, ChevronUp, Receipt,
+  Plus, RefreshCw, ChevronDown, ChevronUp, Receipt, RotateCcw, AlertCircle, CheckCircle,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useNotification } from '../contexts/NotificationContext';
@@ -16,10 +16,21 @@ interface MonthlyPnl {
   shipping_revenue: number;
   gross_sales: number;
   expenses: number;
+  refund_amount: number;
+  refund_count: number;
   gross_profit: number;
   profit_margin_pct: number;
   vat_collected: number;
   order_count: number;
+}
+
+interface ReturnStats {
+  total_refunded: number;
+  refund_count: number;
+  pending_debits: number;
+  pending_debit_count: number;
+  recovered_debits: number;
+  waived_debits: number;
 }
 
 interface ExpenseCategory {
@@ -70,6 +81,7 @@ export function FinancePage() {
   const [monthlyPnl, setMonthlyPnl]         = useState<MonthlyPnl[]>([]);
   const [expensesByCategory, setExpCat]      = useState<ExpenseCategory[]>([]);
   const [recentExpenses, setRecentExpenses]  = useState<RecentExpense[]>([]);
+  const [returnStats, setReturnStats]        = useState<ReturnStats | null>(null);
   const [loading, setLoading]               = useState(true);
   const [showAddExpense, setShowAddExpense]  = useState(false);
   const [saving, setSaving]                 = useState(false);
@@ -91,20 +103,42 @@ export function FinancePage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [pnlRes, catRes, expRes] = await Promise.all([
+      const ytdStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
+
+      const [pnlRes, catRes, expRes, refundRes, debitRes] = await Promise.all([
         (supabase as any).from('monthly_pnl_view').select('*').limit(12),
         (supabase as any)
           .from('ledger_expenses')
           .select('category, amount')
-          .gte('paid_at', new Date(new Date().getFullYear(), 0, 1).toISOString()),
+          .gte('paid_at', ytdStart),
         (supabase as any)
           .from('ledger_expenses')
           .select('id, category, subcategory, description, amount, paid_to, paid_at, payment_method')
           .order('paid_at', { ascending: false })
           .limit(20),
+        (supabase as any)
+          .from('return_requests')
+          .select('refund_amount, refund_status')
+          .eq('refund_status', 'completed')
+          .gte('refund_completed_at', ytdStart),
+        (supabase as any)
+          .from('vendor_return_debits')
+          .select('amount, status'),
       ]);
 
       setMonthlyPnl(pnlRes.data || []);
+
+      // Aggregate return stats
+      const refunds = refundRes.data || [];
+      const debits  = debitRes.data  || [];
+      setReturnStats({
+        total_refunded:      refunds.reduce((s: number, r: any) => s + Number(r.refund_amount || 0), 0),
+        refund_count:        refunds.length,
+        pending_debits:      debits.filter((d: any) => d.status === 'pending').reduce((s: number, d: any) => s + Number(d.amount), 0),
+        pending_debit_count: debits.filter((d: any) => d.status === 'pending').length,
+        recovered_debits:    debits.filter((d: any) => ['deducted', 'paid_back'].includes(d.status)).reduce((s: number, d: any) => s + Number(d.amount), 0),
+        waived_debits:       debits.filter((d: any) => d.status === 'waived').reduce((s: number, d: any) => s + Number(d.amount), 0),
+      });
 
       // Group by category
       const catMap: Record<string, { total: number; count: number }> = {};
@@ -142,8 +176,9 @@ export function FinancePage() {
         grossSales: acc.grossSales + Number(m.gross_sales      || 0),
         vat:        acc.vat        + Number(m.vat_collected    || 0),
         orders:     acc.orders     + Number(m.order_count      || 0),
+        refunds:    acc.refunds    + Number(m.refund_amount    || 0),
       }),
-      { revenue: 0, expenses: 0, profit: 0, commission: 0, margin: 0, shipping: 0, grossSales: 0, vat: 0, orders: 0 }
+      { revenue: 0, expenses: 0, profit: 0, commission: 0, margin: 0, shipping: 0, grossSales: 0, vat: 0, orders: 0, refunds: 0 }
     );
 
   const profitMarginPct = ytd.revenue > 0
@@ -351,6 +386,67 @@ export function FinancePage() {
         ))}
       </div>
 
+      {/* Returns & Refunds Section */}
+      {returnStats && (
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <RotateCcw className="w-4 h-4 text-orange-500" />
+            Returns &amp; Refunds <span className="text-xs font-normal text-gray-400">(YTD)</span>
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="bg-orange-50 rounded-lg p-3">
+              <p className="text-xs text-gray-500 mb-1">Refunded to Customers</p>
+              <p className="text-lg font-bold text-orange-700">{fmt(returnStats.total_refunded)}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{returnStats.refund_count} refund{returnStats.refund_count !== 1 ? 's' : ''}</p>
+            </div>
+            <div className="bg-yellow-50 rounded-lg p-3">
+              <p className="text-xs text-gray-500 mb-1">Pending Vendor Debits</p>
+              <p className="text-lg font-bold text-yellow-700">{fmt(returnStats.pending_debits)}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{returnStats.pending_debit_count} vendor{returnStats.pending_debit_count !== 1 ? 's' : ''} owe</p>
+            </div>
+            <div className="bg-green-50 rounded-lg p-3">
+              <p className="text-xs text-gray-500 mb-1">Recovered from Vendors</p>
+              <p className="text-lg font-bold text-green-700">{fmt(returnStats.recovered_debits)}</p>
+              <p className="text-xs text-gray-400 mt-0.5">Deducted or paid back</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-xs text-gray-500 mb-1">Waived Debits</p>
+              <p className="text-lg font-bold text-gray-600">{fmt(returnStats.waived_debits)}</p>
+              <p className="text-xs text-gray-400 mt-0.5">Written off by admin</p>
+            </div>
+            <div className="bg-blue-50 rounded-lg p-3 col-span-2">
+              <p className="text-xs text-gray-500 mb-1">Net Return Cost to JulineMart</p>
+              <p className="text-lg font-bold text-blue-700">
+                {fmt(Math.max(0, returnStats.total_refunded - returnStats.recovered_debits))}
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Refunded − recovered · {returnStats.pending_debits > 0
+                  ? `${fmt(returnStats.pending_debits)} still pending`
+                  : 'no outstanding debits'}
+              </p>
+            </div>
+          </div>
+          {returnStats.waived_debits > 0 && (
+            <p className="mt-3 text-xs text-amber-700 flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              {fmt(returnStats.waived_debits)} in waived debits are not recorded as expenses — consider logging them manually.
+            </p>
+          )}
+          {returnStats.pending_debits > 0 && (
+            <p className="mt-2 text-xs text-yellow-700 flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              {fmt(returnStats.pending_debits)} in vendor debits are pending recovery. Visit <a href="/admin/vendor-debits" className="underline font-medium">Vendor Debits</a> to action them.
+            </p>
+          )}
+          {returnStats.pending_debits === 0 && returnStats.total_refunded > 0 && (
+            <p className="mt-3 text-xs text-green-700 flex items-center gap-1.5">
+              <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+              All vendor debits are settled.
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         {/* Monthly P&L Table */}
@@ -401,12 +497,18 @@ export function FinancePage() {
                         {isExpanded && (
                           <tr key={`${m.period}-detail`} className="bg-blue-50/40">
                             <td colSpan={6} className="px-6 py-3">
-                              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs text-gray-600">
+                              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs text-gray-600">
                                 <div><span className="text-gray-400 block">Orders</span>{Number(m.order_count || 0)}</div>
                                 <div><span className="text-gray-400 block">Gross Sales</span>{fmt(Number(m.gross_sales))}</div>
                                 <div><span className="text-gray-400 block">Commission</span>{fmt(Number(m.commission_revenue))}</div>
                                 <div><span className="text-gray-400 block">Own-Store Margin</span>{fmt(Number(m.margin_revenue))}</div>
                                 <div><span className="text-gray-400 block">Shipping Collected</span>{fmt(Number(m.shipping_revenue))}</div>
+                                {Number(m.refund_amount || 0) > 0 && (
+                                  <div><span className="text-red-400 block">Refunds Paid Out</span>
+                                    <span className="text-red-600">−{fmt(Number(m.refund_amount))}</span>
+                                    {Number(m.refund_count || 0) > 0 && <span className="text-gray-400"> ({m.refund_count})</span>}
+                                  </div>
+                                )}
                               </div>
                             </td>
                           </tr>

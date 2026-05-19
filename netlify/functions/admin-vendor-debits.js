@@ -177,6 +177,27 @@ export async function handler(event) {
         .single();
 
       if (updateErr) return jsonResponse(500, { success: false, error: updateErr.message });
+
+      // Log waived amount as an expense so it appears in the Finance P&L
+      const orderNumber = debit.return_requests?.orders?.order_number || debit.return_requests?.order_id;
+      const now = new Date();
+      await adminClient.from('ledger_expenses').insert({
+        source: 'auto',
+        category: 'returns',
+        subcategory: 'vendor_debit_waived',
+        description: `Vendor debit waived — ${debit.vendors?.store_name || debit.vendor_id} (order ${orderNumber || 'N/A'})`,
+        amount: Number(debit.amount),
+        currency: 'NGN',
+        tax_deductible: false,
+        vat_amount: 0,
+        payment_method: 'waived',
+        paid_at: now.toISOString(),
+        fiscal_year: now.getFullYear(),
+        fiscal_month: now.getMonth() + 1,
+        created_at: now.toISOString(),
+        updated_at: now.toISOString(),
+      }).catch(e => console.warn('admin-vendor-debits: failed to log waive expense', e?.message));
+
       return jsonResponse(200, { success: true, data: updated });
     }
 

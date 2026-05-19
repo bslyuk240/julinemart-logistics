@@ -67,6 +67,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/admin/vendor-debits"
+  to = "/.netlify/functions/admin-vendor-debits"
+  status = 200
+
+[[redirects]]
   from = "/api/meta/*"
   to = "/.netlify/functions/meta-ads"
   status = 200
@@ -200,6 +205,9 @@
 
 [functions."admin-return-inspection"]
   timeout = 60
+
+[functions."admin-vendor-debits"]
+  timeout = 30
 
 # -------------------------------------------------
 # EDGE FUNCTIONS

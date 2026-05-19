@@ -32,6 +32,11 @@
 # -------------------------------------------------
 
 [[redirects]]
+  from = "/api/returns/:id/inspection"
+  to = "/.netlify/functions/admin-return-inspection"
+  status = 200
+
+[[redirects]]
   from = "/api/returns/:id/tracking"
   to = "/.netlify/functions/get-return-tracking"
   status = 200

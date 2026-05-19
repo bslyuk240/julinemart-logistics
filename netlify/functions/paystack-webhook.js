@@ -56,6 +56,25 @@ export async function handler(event) {
   try {
     switch (eventType) {
       case 'charge.success': {
+        // Check if this is a vendor return debit payment
+        const metadata = data.metadata || {};
+        if (metadata.type === 'vendor_return_debit' && metadata.debit_id) {
+          const { error: debitErr } = await adminClient
+            .from('vendor_return_debits')
+            .update({
+              status: 'paid_back',
+              recovery_method: 'paystack',
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', metadata.debit_id)
+            .eq('status', 'pending');
+
+          if (debitErr) {
+            console.error('paystack-webhook: failed to update vendor debit', metadata.debit_id, debitErr.message);
+          }
+          return jsonResponse(200, { received: true });
+        }
+
         const { data: updatedOrder, error } = await adminClient
           .from('orders')
           .update({

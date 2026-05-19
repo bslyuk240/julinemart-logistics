@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabase';
 interface VendorDebit {
   id: string;
   vendor_id: string;
+  return_request_id: string | null;
   amount: number;
   status: 'pending' | 'deducted' | 'paid_back' | 'waived';
   recovery_method: string | null;

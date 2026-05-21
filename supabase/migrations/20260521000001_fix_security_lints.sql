@@ -3,22 +3,23 @@
 -- 2. Enable RLS + add policies on vendor_return_debits
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 1a. pending_courier_payments  (from courier_settlements migration)
+-- 1a. pending_courier_payments  (live definition as of 20260425133038 + fixes)
 -- ─────────────────────────────────────────────────────────────────────────────
 DROP VIEW IF EXISTS pending_courier_payments;
 CREATE VIEW pending_courier_payments WITH (security_invoker = true) AS
 SELECT
-  c.id                          AS courier_id,
-  c.name                        AS courier_name,
-  c.code                        AS courier_code,
-  COUNT(so.id)                  AS pending_shipments,
-  SUM(so.real_shipping_cost)    AS total_amount_due,
-  MAX(so.created_at)            AS last_shipment_date
+  c.id                                                                                          AS courier_id,
+  c.name                                                                                        AS courier_name,
+  c.code                                                                                        AS courier_code,
+  count(so.id)                                                                                  AS pending_shipments,
+  sum(COALESCE(so.real_shipping_cost, so.allocated_shipping_fee, so.courier_charge, 0))        AS total_amount_due,
+  max(COALESCE(so.delivered_at, so.updated_at, so.created_at))                                 AS last_delivery_date
 FROM couriers c
 JOIN sub_orders so ON so.courier_id = c.id
 WHERE so.status = 'delivered'
-  AND (so.allocated_shipping_fee IS NULL OR so.allocated_shipping_fee = 0)
-GROUP BY c.id, c.name, c.code;
+  AND so.settlement_status <> ALL (ARRAY['approved', 'paid'])
+GROUP BY c.id, c.name, c.code
+HAVING count(so.id) > 0;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 1b. vendor_monthly_earnings  (from create_finance_tables_views migration)
@@ -71,71 +72,98 @@ LEFT JOIN (
 GROUP BY v.id, wd.total_withdrawn, rd.total_debits;
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- 1d. monthly_pnl_view  (from create_finance_tables_views migration)
+-- 1d. monthly_pnl_view  (live definition as of 20260519001036 — includes refunds)
 -- ─────────────────────────────────────────────────────────────────────────────
 DROP VIEW IF EXISTS monthly_pnl_view;
 CREATE VIEW monthly_pnl_view WITH (security_invoker = true) AS
 WITH
 order_level AS (
   SELECT
-    DATE_TRUNC('month', created_at)  AS month,
-    SUM(shipping_fee_paid)            AS shipping_revenue,
-    SUM(COALESCE(tax_amount, 0))      AS vat_collected,
-    COUNT(*)                          AS order_count
+    date_trunc('month', orders.created_at)   AS month,
+    sum(orders.shipping_fee_paid)             AS shipping_revenue,
+    sum(COALESCE(orders.tax_amount, 0))       AS vat_collected,
+    count(*)                                  AS order_count
   FROM orders
-  WHERE payment_status = 'paid'
-  GROUP BY DATE_TRUNC('month', created_at)
+  WHERE orders.payment_status = 'paid'
+  GROUP BY date_trunc('month', orders.created_at)
 ),
 item_level AS (
   SELECT
-    DATE_TRUNC('month', o.created_at)                                     AS month,
-    COALESCE(SUM(oi.subtotal), 0)                                          AS gross_sales,
-    COALESCE(SUM(
+    date_trunc('month', o.created_at)   AS month,
+    COALESCE(sum(oi.subtotal), 0)        AS gross_sales,
+    COALESCE(sum(
       CASE WHEN oi.vendor_id IS NOT NULL
-           THEN oi.subtotal * COALESCE(v.commission_rate, 0) / 100
+           THEN (oi.subtotal * COALESCE(v.commission_rate, 0)) / 100
            ELSE 0 END
-    ), 0)                                                                   AS commission_revenue,
-    COALESCE(SUM(
+    ), 0)                                AS commission_revenue,
+    COALESCE(sum(
       CASE WHEN oi.vendor_id IS NULL THEN oi.subtotal ELSE 0 END
-    ), 0)                                                                   AS margin_revenue
+    ), 0)                                AS margin_revenue
   FROM orders o
   JOIN order_items oi ON oi.order_id = o.id
   LEFT JOIN vendors v ON v.id = oi.vendor_id
   WHERE o.payment_status = 'paid'
-  GROUP BY DATE_TRUNC('month', o.created_at)
+  GROUP BY date_trunc('month', o.created_at)
+),
+refund_level AS (
+  SELECT
+    date_trunc('month', rr.refund_completed_at)  AS month,
+    COALESCE(sum(rr.refund_amount), 0)            AS refund_amount,
+    count(*)                                       AS refund_count
+  FROM return_requests rr
+  WHERE rr.refund_status = 'completed'
+    AND rr.refund_completed_at IS NOT NULL
+  GROUP BY date_trunc('month', rr.refund_completed_at)
 ),
 monthly_expenses AS (
   SELECT
-    DATE_TRUNC('month', paid_at)  AS month,
-    SUM(amount)                    AS expenses
+    date_trunc('month', ledger_expenses.paid_at)  AS month,
+    sum(ledger_expenses.amount)                    AS expenses
   FROM ledger_expenses
-  GROUP BY DATE_TRUNC('month', paid_at)
+  GROUP BY date_trunc('month', ledger_expenses.paid_at)
+),
+all_months AS (
+  SELECT month FROM item_level
+  UNION SELECT month FROM monthly_expenses
+  UNION SELECT month FROM refund_level
 )
 SELECT
-  TO_CHAR(il.month, 'YYYY-MM')                                                AS period,
-  il.commission_revenue + il.margin_revenue + ol.shipping_revenue              AS revenue,
-  il.commission_revenue,
-  il.margin_revenue,
-  ol.shipping_revenue,
-  il.gross_sales,
-  COALESCE(me.expenses, 0)                                                      AS expenses,
-  (il.commission_revenue + il.margin_revenue + ol.shipping_revenue)
-    - COALESCE(me.expenses, 0)                                                  AS gross_profit,
+  to_char(am.month, 'YYYY-MM')                                                               AS period,
+  (COALESCE(il.commission_revenue, 0) + COALESCE(il.margin_revenue, 0)
+    + COALESCE(ol.shipping_revenue, 0))                                                       AS revenue,
+  COALESCE(il.commission_revenue, 0)                                                          AS commission_revenue,
+  COALESCE(il.margin_revenue, 0)                                                              AS margin_revenue,
+  COALESCE(ol.shipping_revenue, 0)                                                            AS shipping_revenue,
+  COALESCE(il.gross_sales, 0)                                                                 AS gross_sales,
+  COALESCE(me.expenses, 0)                                                                    AS expenses,
+  COALESCE(rl.refund_amount, 0)                                                               AS refund_amount,
+  COALESCE(rl.refund_count, 0)                                                                AS refund_count,
+  ((COALESCE(il.commission_revenue, 0) + COALESCE(il.margin_revenue, 0)
+    + COALESCE(ol.shipping_revenue, 0))
+    - COALESCE(rl.refund_amount, 0)
+    - COALESCE(me.expenses, 0))                                                               AS gross_profit,
   CASE
-    WHEN (il.commission_revenue + il.margin_revenue + ol.shipping_revenue) > 0
-    THEN ROUND(
-      ((il.commission_revenue + il.margin_revenue + ol.shipping_revenue) - COALESCE(me.expenses, 0))
-      / (il.commission_revenue + il.margin_revenue + ol.shipping_revenue) * 100,
+    WHEN (COALESCE(il.commission_revenue, 0) + COALESCE(il.margin_revenue, 0)
+          + COALESCE(ol.shipping_revenue, 0)) > 0
+    THEN round(
+      (((COALESCE(il.commission_revenue, 0) + COALESCE(il.margin_revenue, 0)
+          + COALESCE(ol.shipping_revenue, 0))
+        - COALESCE(rl.refund_amount, 0)
+        - COALESCE(me.expenses, 0))
+      / (COALESCE(il.commission_revenue, 0) + COALESCE(il.margin_revenue, 0)
+          + COALESCE(ol.shipping_revenue, 0))) * 100,
       2
     )
     ELSE 0
-  END                                                                           AS profit_margin_pct,
-  ol.vat_collected,
-  ol.order_count
-FROM item_level il
-JOIN order_level ol    ON ol.month = il.month
-LEFT JOIN monthly_expenses me ON me.month = il.month
-ORDER BY il.month DESC;
+  END                                                                                         AS profit_margin_pct,
+  COALESCE(ol.vat_collected, 0)                                                               AS vat_collected,
+  COALESCE(ol.order_count, 0)                                                                 AS order_count
+FROM all_months am
+LEFT JOIN item_level       il ON il.month = am.month
+LEFT JOIN order_level      ol ON ol.month = am.month
+LEFT JOIN refund_level     rl ON rl.month = am.month
+LEFT JOIN monthly_expenses me ON me.month = am.month
+ORDER BY am.month DESC;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 2. Enable RLS on vendor_return_debits + add policies

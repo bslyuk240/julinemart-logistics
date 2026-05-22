@@ -97,6 +97,18 @@ export const handler = async (event) => {
     return { statusCode: 409, headers: cors, body: JSON.stringify({ error: 'A vendor account with this email already exists.' }) };
   }
 
+  // Check if email is already registered as a customer (auth.users)
+  const { data: existingAuthUser } = await adminClient.auth.admin.getUserByEmail(personal.email);
+  if (existingAuthUser?.user) {
+    return {
+      statusCode: 409,
+      headers: cors,
+      body: JSON.stringify({
+        error: 'This email is already linked to a customer account. Please use a different email (business or personal) for your vendor application.',
+      }),
+    };
+  }
+
   // Insert application
   const { data: application, error } = await adminClient
     .from('vendor_applications')

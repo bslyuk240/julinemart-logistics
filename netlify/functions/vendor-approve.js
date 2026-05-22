@@ -131,6 +131,11 @@ export const handler = async (event) => {
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: 'Failed to create auth account: ' + invErr.message }) };
   }
 
+  // Flag the auth user as a vendor so the customers trigger skips them
+  await adminClient.auth.admin.updateUserById(invited.user.id, {
+    app_metadata: { signup_source: 'vendor_portal' },
+  });
+
   // 2. Resolve hub_id from the vendor's approved location
   let resolvedHubId = null;
   if (app.approved_location_id) {

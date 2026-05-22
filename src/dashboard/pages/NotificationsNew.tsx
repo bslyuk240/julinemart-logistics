@@ -1,6 +1,6 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CalendarClock, ChevronDown, ChevronUp, Loader2, Send, Sparkles } from 'lucide-react';
+import { Bell, CalendarClock, ChevronDown, ChevronUp, Loader2, Mail, Send, Sparkles, Users } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 import {
@@ -10,6 +10,7 @@ import {
   NotificationType,
 } from '../utils/notificationsHistory';
 
+type Channel = 'push' | 'email';
 type SendMode = 'now' | 'later';
 type ProductFormFields = {
   productName: string;
@@ -184,6 +185,93 @@ export function NotificationsNewPage() {
   const { session, user } = useAuth();
   const notification = useNotification();
 
+  const [channel, setChannel] = useState<Channel>('push');
+
+  // ── Email newsletter state ───────────────────────────────────────────────────
+  const [emailAudience, setEmailAudience] = useState<'customers' | 'vendors' | 'both'>('customers');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
+
+  // AI email draft state
+  const [emailAiOpen, setEmailAiOpen] = useState(false);
+  const [emailAiPurpose, setEmailAiPurpose] = useState('flash_sale');
+  const [emailAiContext, setEmailAiContext] = useState('');
+  const [emailAiResult, setEmailAiResult] = useState<{ subject: string; body: string } | null>(null);
+  const [emailAiGenerating, setEmailAiGenerating] = useState(false);
+
+  const generateEmailAiDraft = async () => {
+    if (!session?.access_token) return;
+    setEmailAiGenerating(true);
+    setEmailAiResult(null);
+    try {
+      const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
+      const res = await fetch(`${functionsBase}/admin-ai-email-draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ purpose: emailAiPurpose, context: emailAiContext, audience: emailAudience }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'AI draft failed');
+      setEmailAiResult(json.data);
+    } catch (err) {
+      notification.error('AI Draft', err instanceof Error ? err.message : 'Failed to generate draft');
+    } finally {
+      setEmailAiGenerating(false);
+    }
+  };
+
+  const onEmailSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!session?.access_token) { notification.error('Unauthorized', 'Please sign in again.'); return; }
+    setEmailSending(true);
+    try {
+      const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
+      const res = await fetch(`${functionsBase}/broadcast-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ audience: emailAudience, subject: emailSubject.trim(), body: emailBody.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to send');
+
+      const entry = addNotificationHistoryEntry({
+        createdBy: user?.email || user?.id || 'unknown',
+        request: {
+          audience: emailAudience === 'vendors' ? 'all_vendors' : 'all_customers',
+          title: emailSubject.trim(),
+          message: emailBody.trim(),
+          type: 'general',
+          data: { channel: 'email', emailAudience, sent: data.sent, failed: data.failed, total: data.total },
+        },
+        response: data,
+        success: true,
+        statusCode: res.status,
+      });
+
+      notification.success('Email sent', `Sent: ${data.sent}, Failed: ${data.failed}, Total: ${data.total}`);
+      navigate(`/admin/notifications/${entry.id}`);
+    } catch (err) {
+      addNotificationHistoryEntry({
+        createdBy: user?.email || user?.id || 'unknown',
+        request: {
+          audience: emailAudience === 'vendors' ? 'all_vendors' : 'all_customers',
+          title: emailSubject.trim(),
+          message: emailBody.trim(),
+          type: 'general',
+          data: { channel: 'email', emailAudience },
+        },
+        response: { error: err instanceof Error ? err.message : 'Unknown error' },
+        success: false,
+        statusCode: 500,
+      });
+      notification.error('Send failed', err instanceof Error ? err.message : 'Unexpected error');
+    } finally {
+      setEmailSending(false);
+    }
+  };
+
+  // ── Push notification state ──────────────────────────────────────────────────
   const [audience, setAudience] = useState<NotificationAudience>('single');
   const [customerId, setCustomerId] = useState('');
   const [segmentPlatform, setSegmentPlatform] = useState<'android' | 'web'>('android');
@@ -328,17 +416,199 @@ export function NotificationsNewPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">New Push Notification</h1>
-          <p className="mt-2 text-gray-600">
-            Compose and send a manual push using the existing PWA notification pipeline.
-          </p>
+          <h1 className="text-3xl font-bold text-gray-900">New Notification</h1>
+          <p className="mt-2 text-gray-600">Send a push notification or email newsletter to customers and vendors.</p>
         </div>
         <button onClick={() => navigate('/admin/notifications')} className="btn-secondary">
           View History
         </button>
       </div>
 
-      <form onSubmit={onSubmit} className="card space-y-5">
+      {/* Channel tabs */}
+      <div className="flex gap-1 border-b border-gray-200">
+        <button
+          type="button"
+          onClick={() => setChannel('push')}
+          className={`flex items-center gap-2 px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${channel === 'push' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          <Bell className="w-4 h-4" /> Push Notification
+        </button>
+        <button
+          type="button"
+          onClick={() => setChannel('email')}
+          className={`flex items-center gap-2 px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${channel === 'email' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          <Mail className="w-4 h-4" /> Email Newsletter
+        </button>
+      </div>
+
+      {/* ── EMAIL FORM ── */}
+      {channel === 'email' && (
+        <form onSubmit={onEmailSubmit} className="card space-y-5">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Audience *</label>
+            <div className="grid grid-cols-3 gap-3">
+              {(['customers', 'vendors', 'both'] as const).map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  onClick={() => setEmailAudience(a)}
+                  className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-medium transition-colors ${emailAudience === a ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400'}`}
+                >
+                  <Users className="w-4 h-4" />
+                  {a === 'both' ? 'Both' : a.charAt(0).toUpperCase() + a.slice(1)}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-gray-500">
+              {emailAudience === 'customers' && 'Sends to all registered storefront customers.'}
+              {emailAudience === 'vendors' && 'Sends to all active vendors.'}
+              {emailAudience === 'both' && 'Sends to all customers and all active vendors.'}
+            </p>
+          </div>
+
+          {/* AI Draft Panel */}
+          <div className="rounded-xl border border-purple-200 bg-purple-50/40 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setEmailAiOpen(o => !o)}
+              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-purple-50 transition-colors"
+            >
+              <span className="flex items-center gap-2 text-sm font-semibold text-purple-800">
+                <Sparkles className="w-4 h-4 text-purple-500" />
+                Draft with AI
+                <span className="text-xs font-normal text-purple-500">— generate subject &amp; body instantly</span>
+              </span>
+              {emailAiOpen ? <ChevronUp className="w-4 h-4 text-purple-400" /> : <ChevronDown className="w-4 h-4 text-purple-400" />}
+            </button>
+
+            {emailAiOpen && (
+              <div className="px-4 pb-4 space-y-3 border-t border-purple-200">
+                <div className="grid grid-cols-1 gap-3 pt-3 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">Purpose</label>
+                    <select
+                      value={emailAiPurpose}
+                      onChange={(e) => { setEmailAiPurpose(e.target.value); setEmailAiResult(null); }}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-purple-400"
+                    >
+                      <option value="flash_sale">🔥 Flash Sale / Promo</option>
+                      <option value="new_product">🆕 New Product Launch</option>
+                      <option value="restock">📦 Restock Alert</option>
+                      <option value="festive">🎉 Festive / Seasonal</option>
+                      <option value="vendor_update">📋 Vendor Update</option>
+                      <option value="general">📢 General Newsletter</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                      Context <span className="text-gray-400">(optional — e.g. "30% off shoes this weekend")</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={emailAiContext}
+                      onChange={(e) => { setEmailAiContext(e.target.value); setEmailAiResult(null); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void generateEmailAiDraft(); } }}
+                      placeholder="Describe the campaign…"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-purple-400"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => void generateEmailAiDraft()}
+                  disabled={emailAiGenerating}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white text-sm font-semibold rounded-lg transition-colors"
+                >
+                  {emailAiGenerating
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating…</>
+                    : <><Sparkles className="w-4 h-4" /> Generate</>}
+                </button>
+
+                {emailAiResult && (
+                  <div className="rounded-lg border border-purple-200 bg-white p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Subject</p>
+                        <p className="text-sm font-medium text-gray-900">{emailAiResult.subject}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEmailSubject(emailAiResult.subject)}
+                        className="flex-shrink-0 px-3 py-1.5 text-xs font-semibold bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition-colors"
+                      >
+                        Use
+                      </button>
+                    </div>
+                    <div className="border-t border-gray-100" />
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Body</p>
+                        <p className="text-sm text-gray-900 whitespace-pre-line line-clamp-4">{emailAiResult.body}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEmailBody(emailAiResult.body)}
+                        className="flex-shrink-0 px-3 py-1.5 text-xs font-semibold bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition-colors"
+                      >
+                        Use
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setEmailSubject(emailAiResult.subject); setEmailBody(emailAiResult.body); }}
+                      className="w-full py-2 text-xs font-semibold bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+                    >
+                      Use both
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Subject *</label>
+            <input
+              value={emailSubject}
+              onChange={(e) => setEmailSubject(e.target.value)}
+              placeholder="e.g. Exciting news from JulineMart 🎉"
+              className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:ring-2 focus:ring-primary-500"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Message *</label>
+            <textarea
+              value={emailBody}
+              onChange={(e) => setEmailBody(e.target.value)}
+              placeholder="Write your message here. Keep it clear and friendly."
+              rows={8}
+              className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:ring-2 focus:ring-primary-500"
+              required
+            />
+            <p className="mt-1 text-xs text-gray-500">Plain text — line breaks are preserved in the email.</p>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-gray-200 pt-4">
+            <span className="inline-flex items-center gap-1 text-sm text-gray-500">
+              <Mail className="h-4 w-4" /> Sent via your configured SMTP settings.
+            </span>
+            <button
+              type="submit"
+              className="btn-primary inline-flex items-center gap-2"
+              disabled={!emailSubject.trim() || !emailBody.trim() || emailSending}
+            >
+              {emailSending ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending…</> : <><Send className="h-4 w-4" /> Send Email</>}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* ── PUSH FORM ── */}
+      {channel === 'push' && <form onSubmit={onSubmit} className="card space-y-5">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">Audience *</label>
@@ -657,7 +927,7 @@ export function NotificationsNewPage() {
             )}
           </button>
         </div>
-      </form>
+      </form>}
     </div>
   );
 }

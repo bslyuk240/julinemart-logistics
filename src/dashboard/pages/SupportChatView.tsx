@@ -14,6 +14,7 @@ interface SupportSession {
   assigned_staff_name: string | null;
   unread_count: number;
   created_at: string;
+  source_app: string | null;
 }
 
 interface SupportMessage {
@@ -58,7 +59,7 @@ export default function SupportChatView() {
     const [{ data: sessionData }, { data: msgData }] = await Promise.all([
       supabase
         .from('support_sessions')
-        .select('id, customer_name, customer_email, status, mode, assigned_staff_id, assigned_staff_name, unread_count, created_at')
+        .select('id, customer_name, customer_email, status, mode, assigned_staff_id, assigned_staff_name, unread_count, created_at, source_app')
         .eq('id', sessionId)
         .single(),
       supabase
@@ -262,10 +263,20 @@ export default function SupportChatView() {
         </div>
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-gray-900 text-sm">{session.customer_name || 'Anonymous'}</span>
             <ModeBadge mode={session.mode} />
             <StatusBadge status={session.status} />
+            {session.source_app === 'julineservices' && (
+              <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-700">
+                JulineServices
+              </span>
+            )}
+            {session.source_app === 'storefront' && (
+              <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-orange-50 text-orange-700">
+                PWA
+              </span>
+            )}
           </div>
           {session.customer_email && (
             <p className="text-xs text-gray-400">{session.customer_email}</p>

@@ -16,6 +16,7 @@ interface SupportSession {
   last_message_preview: string | null;
   unread_count: number;
   created_at: string;
+  source_app: string | null;
 }
 
 type StatusFilter = 'all' | 'open' | 'assigned' | 'closed';
@@ -49,7 +50,7 @@ export default function SupportInbox() {
   const fetchSessions = useCallback(async () => {
     let query = supabase
       .from('support_sessions')
-      .select('id, customer_name, customer_email, status, mode, assigned_staff_id, assigned_staff_name, last_message_at, last_message_preview, unread_count, created_at')
+      .select('id, customer_name, customer_email, status, mode, assigned_staff_id, assigned_staff_name, last_message_at, last_message_preview, unread_count, created_at, source_app')
       .order('last_message_at', { ascending: false })
       .limit(100);
 
@@ -278,6 +279,16 @@ function SessionCard({
           ) : (
             <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
               <Bot className="w-2.5 h-2.5" /> AI
+            </span>
+          )}
+          {session.source_app === 'julineservices' && (
+            <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-700">
+              JulineServices
+            </span>
+          )}
+          {session.source_app === 'storefront' && (
+            <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-orange-50 text-orange-700">
+              PWA
             </span>
           )}
           {isMySession && (

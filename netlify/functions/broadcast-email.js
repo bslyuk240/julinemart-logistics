@@ -162,6 +162,7 @@ export const handler = async (event) => {
   let sent = 0, failed = 0;
 
   for (const email of emails) {
+    let status = 'sent', errorMessage = null;
     try {
       await tx.transport.sendMail({
         from: tx.from,
@@ -173,8 +174,18 @@ export const handler = async (event) => {
       sent++;
     } catch (err) {
       console.error(`[broadcast-email] Failed to send to ${email}:`, err?.message);
+      status = 'failed';
+      errorMessage = err?.message || 'Unknown error';
       failed++;
     }
+    // Log every attempt to email_logs
+    await adminClient.from('email_logs').insert({
+      recipient: email,
+      subject: subject.trim(),
+      status,
+      error_message: errorMessage,
+      sent_at: new Date().toISOString(),
+    }).catch((e) => console.warn('[broadcast-email] email_logs insert failed:', e?.message));
   }
 
   return {

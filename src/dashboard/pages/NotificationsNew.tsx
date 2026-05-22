@@ -234,10 +234,37 @@ export function NotificationsNewPage() {
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'Failed to send');
+
+      const entry = addNotificationHistoryEntry({
+        createdBy: user?.email || user?.id || 'unknown',
+        request: {
+          audience: emailAudience === 'vendors' ? 'all_vendors' : 'all_customers',
+          title: emailSubject.trim(),
+          message: emailBody.trim(),
+          type: 'general',
+          data: { channel: 'email', emailAudience, sent: data.sent, failed: data.failed, total: data.total },
+        },
+        response: data,
+        success: true,
+        statusCode: res.status,
+      });
+
       notification.success('Email sent', `Sent: ${data.sent}, Failed: ${data.failed}, Total: ${data.total}`);
-      setEmailSubject('');
-      setEmailBody('');
+      navigate(`/admin/notifications/${entry.id}`);
     } catch (err) {
+      addNotificationHistoryEntry({
+        createdBy: user?.email || user?.id || 'unknown',
+        request: {
+          audience: emailAudience === 'vendors' ? 'all_vendors' : 'all_customers',
+          title: emailSubject.trim(),
+          message: emailBody.trim(),
+          type: 'general',
+          data: { channel: 'email', emailAudience },
+        },
+        response: { error: err instanceof Error ? err.message : 'Unknown error' },
+        success: false,
+        statusCode: 500,
+      });
       notification.error('Send failed', err instanceof Error ? err.message : 'Unexpected error');
     } finally {
       setEmailSending(false);

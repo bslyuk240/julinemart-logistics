@@ -193,6 +193,34 @@ export function NotificationsNewPage() {
   const [emailBody, setEmailBody] = useState('');
   const [emailSending, setEmailSending] = useState(false);
 
+  // AI email draft state
+  const [emailAiOpen, setEmailAiOpen] = useState(false);
+  const [emailAiPurpose, setEmailAiPurpose] = useState('flash_sale');
+  const [emailAiContext, setEmailAiContext] = useState('');
+  const [emailAiResult, setEmailAiResult] = useState<{ subject: string; body: string } | null>(null);
+  const [emailAiGenerating, setEmailAiGenerating] = useState(false);
+
+  const generateEmailAiDraft = async () => {
+    if (!session?.access_token) return;
+    setEmailAiGenerating(true);
+    setEmailAiResult(null);
+    try {
+      const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
+      const res = await fetch(`${functionsBase}/admin-ai-email-draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ purpose: emailAiPurpose, context: emailAiContext, audience: emailAudience }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'AI draft failed');
+      setEmailAiResult(json.data);
+    } catch (err) {
+      notification.error('AI Draft', err instanceof Error ? err.message : 'Failed to generate draft');
+    } finally {
+      setEmailAiGenerating(false);
+    }
+  };
+
   const onEmailSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!session?.access_token) { notification.error('Unauthorized', 'Please sign in again.'); return; }
@@ -410,6 +438,107 @@ export function NotificationsNewPage() {
               {emailAudience === 'vendors' && 'Sends to all active vendors.'}
               {emailAudience === 'both' && 'Sends to all customers and all active vendors.'}
             </p>
+          </div>
+
+          {/* AI Draft Panel */}
+          <div className="rounded-xl border border-purple-200 bg-purple-50/40 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setEmailAiOpen(o => !o)}
+              className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-purple-50 transition-colors"
+            >
+              <span className="flex items-center gap-2 text-sm font-semibold text-purple-800">
+                <Sparkles className="w-4 h-4 text-purple-500" />
+                Draft with AI
+                <span className="text-xs font-normal text-purple-500">— generate subject &amp; body instantly</span>
+              </span>
+              {emailAiOpen ? <ChevronUp className="w-4 h-4 text-purple-400" /> : <ChevronDown className="w-4 h-4 text-purple-400" />}
+            </button>
+
+            {emailAiOpen && (
+              <div className="px-4 pb-4 space-y-3 border-t border-purple-200">
+                <div className="grid grid-cols-1 gap-3 pt-3 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">Purpose</label>
+                    <select
+                      value={emailAiPurpose}
+                      onChange={(e) => { setEmailAiPurpose(e.target.value); setEmailAiResult(null); }}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-purple-400"
+                    >
+                      <option value="flash_sale">🔥 Flash Sale / Promo</option>
+                      <option value="new_product">🆕 New Product Launch</option>
+                      <option value="restock">📦 Restock Alert</option>
+                      <option value="festive">🎉 Festive / Seasonal</option>
+                      <option value="vendor_update">📋 Vendor Update</option>
+                      <option value="general">📢 General Newsletter</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                      Context <span className="text-gray-400">(optional — e.g. "30% off shoes this weekend")</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={emailAiContext}
+                      onChange={(e) => { setEmailAiContext(e.target.value); setEmailAiResult(null); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void generateEmailAiDraft(); } }}
+                      placeholder="Describe the campaign…"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-purple-400"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => void generateEmailAiDraft()}
+                  disabled={emailAiGenerating}
+                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white text-sm font-semibold rounded-lg transition-colors"
+                >
+                  {emailAiGenerating
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating…</>
+                    : <><Sparkles className="w-4 h-4" /> Generate</>}
+                </button>
+
+                {emailAiResult && (
+                  <div className="rounded-lg border border-purple-200 bg-white p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Subject</p>
+                        <p className="text-sm font-medium text-gray-900">{emailAiResult.subject}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEmailSubject(emailAiResult.subject)}
+                        className="flex-shrink-0 px-3 py-1.5 text-xs font-semibold bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition-colors"
+                      >
+                        Use
+                      </button>
+                    </div>
+                    <div className="border-t border-gray-100" />
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Body</p>
+                        <p className="text-sm text-gray-900 whitespace-pre-line line-clamp-4">{emailAiResult.body}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEmailBody(emailAiResult.body)}
+                        className="flex-shrink-0 px-3 py-1.5 text-xs font-semibold bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition-colors"
+                      >
+                        Use
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setEmailSubject(emailAiResult.subject); setEmailBody(emailAiResult.body); }}
+                      className="w-full py-2 text-xs font-semibold bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+                    >
+                      Use both
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div>

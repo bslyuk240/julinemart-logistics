@@ -44,8 +44,6 @@ import { SettlementsPage } from './dashboard/pages/Settlements';
 import { ShippingDiscountsPage } from './dashboard/pages/ShippingDiscounts';
 import { ShippingRatesPage } from './dashboard/pages/ShippingRates';
 import { UsersPage } from './dashboard/pages/Users';
-import WhatsAppChatView from './dashboard/pages/WhatsAppChatView';
-import WhatsAppSupportPage from './dashboard/pages/WhatsAppSupport';
 import SupportInbox from './dashboard/pages/SupportInbox';
 import SupportChatView from './dashboard/pages/SupportChatView';
 import { VouchersPage } from './dashboard/pages/Vouchers';
@@ -85,8 +83,6 @@ const sharedRoutes = [
   { path: 'refunds', element: <ReturnsPage /> },
   { path: 'orders/:id', element: <OrderDetailsPage /> },
   { path: 'rates', element: <ShippingRatesPage /> },
-  { path: 'whatsapp', element: <WhatsAppSupportPage /> },
-  { path: 'whatsapp/:chatId', element: <WhatsAppChatView /> },
   { path: 'support', element: <SupportInbox /> },
   { path: 'support/:sessionId', element: <SupportChatView /> },
   {

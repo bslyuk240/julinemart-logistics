@@ -1,6 +1,6 @@
 import { FormEvent, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CalendarClock, ChevronDown, ChevronUp, Loader2, Send, Sparkles } from 'lucide-react';
+import { Bell, CalendarClock, ChevronDown, ChevronUp, Loader2, Mail, Send, Sparkles, Users } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 import {
@@ -10,6 +10,7 @@ import {
   NotificationType,
 } from '../utils/notificationsHistory';
 
+type Channel = 'push' | 'email';
 type SendMode = 'now' | 'later';
 type ProductFormFields = {
   productName: string;
@@ -184,6 +185,38 @@ export function NotificationsNewPage() {
   const { session, user } = useAuth();
   const notification = useNotification();
 
+  const [channel, setChannel] = useState<Channel>('push');
+
+  // ── Email newsletter state ───────────────────────────────────────────────────
+  const [emailAudience, setEmailAudience] = useState<'customers' | 'vendors' | 'both'>('customers');
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailBody, setEmailBody] = useState('');
+  const [emailSending, setEmailSending] = useState(false);
+
+  const onEmailSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!session?.access_token) { notification.error('Unauthorized', 'Please sign in again.'); return; }
+    setEmailSending(true);
+    try {
+      const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
+      const res = await fetch(`${functionsBase}/broadcast-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ audience: emailAudience, subject: emailSubject.trim(), body: emailBody.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to send');
+      notification.success('Email sent', `Sent: ${data.sent}, Failed: ${data.failed}, Total: ${data.total}`);
+      setEmailSubject('');
+      setEmailBody('');
+    } catch (err) {
+      notification.error('Send failed', err instanceof Error ? err.message : 'Unexpected error');
+    } finally {
+      setEmailSending(false);
+    }
+  };
+
+  // ── Push notification state ──────────────────────────────────────────────────
   const [audience, setAudience] = useState<NotificationAudience>('single');
   const [customerId, setCustomerId] = useState('');
   const [segmentPlatform, setSegmentPlatform] = useState<'android' | 'web'>('android');
@@ -328,17 +361,98 @@ export function NotificationsNewPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">New Push Notification</h1>
-          <p className="mt-2 text-gray-600">
-            Compose and send a manual push using the existing PWA notification pipeline.
-          </p>
+          <h1 className="text-3xl font-bold text-gray-900">New Notification</h1>
+          <p className="mt-2 text-gray-600">Send a push notification or email newsletter to customers and vendors.</p>
         </div>
         <button onClick={() => navigate('/admin/notifications')} className="btn-secondary">
           View History
         </button>
       </div>
 
-      <form onSubmit={onSubmit} className="card space-y-5">
+      {/* Channel tabs */}
+      <div className="flex gap-1 border-b border-gray-200">
+        <button
+          type="button"
+          onClick={() => setChannel('push')}
+          className={`flex items-center gap-2 px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${channel === 'push' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          <Bell className="w-4 h-4" /> Push Notification
+        </button>
+        <button
+          type="button"
+          onClick={() => setChannel('email')}
+          className={`flex items-center gap-2 px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${channel === 'email' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          <Mail className="w-4 h-4" /> Email Newsletter
+        </button>
+      </div>
+
+      {/* ── EMAIL FORM ── */}
+      {channel === 'email' && (
+        <form onSubmit={onEmailSubmit} className="card space-y-5">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Audience *</label>
+            <div className="grid grid-cols-3 gap-3">
+              {(['customers', 'vendors', 'both'] as const).map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  onClick={() => setEmailAudience(a)}
+                  className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-medium transition-colors ${emailAudience === a ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400'}`}
+                >
+                  <Users className="w-4 h-4" />
+                  {a === 'both' ? 'Both' : a.charAt(0).toUpperCase() + a.slice(1)}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-gray-500">
+              {emailAudience === 'customers' && 'Sends to all registered storefront customers.'}
+              {emailAudience === 'vendors' && 'Sends to all active vendors.'}
+              {emailAudience === 'both' && 'Sends to all customers and all active vendors.'}
+            </p>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Subject *</label>
+            <input
+              value={emailSubject}
+              onChange={(e) => setEmailSubject(e.target.value)}
+              placeholder="e.g. Exciting news from JulineMart 🎉"
+              className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:ring-2 focus:ring-primary-500"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Message *</label>
+            <textarea
+              value={emailBody}
+              onChange={(e) => setEmailBody(e.target.value)}
+              placeholder="Write your message here. Keep it clear and friendly."
+              rows={8}
+              className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:ring-2 focus:ring-primary-500"
+              required
+            />
+            <p className="mt-1 text-xs text-gray-500">Plain text — line breaks are preserved in the email.</p>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-gray-200 pt-4">
+            <span className="inline-flex items-center gap-1 text-sm text-gray-500">
+              <Mail className="h-4 w-4" /> Sent via your configured SMTP settings.
+            </span>
+            <button
+              type="submit"
+              className="btn-primary inline-flex items-center gap-2"
+              disabled={!emailSubject.trim() || !emailBody.trim() || emailSending}
+            >
+              {emailSending ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending…</> : <><Send className="h-4 w-4" /> Send Email</>}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* ── PUSH FORM ── */}
+      {channel === 'push' && <form onSubmit={onSubmit} className="card space-y-5">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">Audience *</label>
@@ -657,7 +771,7 @@ export function NotificationsNewPage() {
             )}
           </button>
         </div>
-      </form>
+      </form>}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
+import { logActivity } from '../lib/logActivity';
 
 interface Vendor {
   id: string;
@@ -67,10 +68,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       else setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session) {
+        if (event === 'SIGNED_IN') logActivity({ action: 'LOGIN', details: { method: 'email' } });
         setLoading(true);
         loadVendor().finally(() => setLoading(false));
       } else {

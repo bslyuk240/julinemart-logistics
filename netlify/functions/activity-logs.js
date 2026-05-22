@@ -31,17 +31,20 @@ export async function handler(event) {
     const parsedLimit = Number(params.limit ?? 100);
     const limit = Number.isNaN(parsedLimit) ? 100 : parsedLimit;
     const action = params.action;
+    const source = params.source;
 
     let query = supabase
       .from('activity_logs')
       .select(`
         id,
         user_id,
+        actor_email,
         action,
         resource_type,
         resource_id,
         details,
         ip_address,
+        source,
         created_at,
         users:users(id, email, full_name)
       `)
@@ -50,6 +53,9 @@ export async function handler(event) {
 
     if (action && action !== 'all') {
       query = query.eq('action', action);
+    }
+    if (source && source !== 'all') {
+      query = query.eq('source', source);
     }
 
     const { data, error } = await query;

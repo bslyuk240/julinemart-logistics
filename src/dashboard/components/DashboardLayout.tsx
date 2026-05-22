@@ -97,6 +97,7 @@ const navigation: NavItem[] = [
   { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },
   { name: 'Email Settings', href: '/admin/email-settings', icon: Mail, roles: ['admin'] },
   { name: 'Notifications', href: '/admin/notifications', icon: BellRing, roles: ['admin'] },
+  { name: 'Activity Logs', href: '/admin/activity-logs', icon: Activity, roles: ['admin'] },
 ];
 
 const ADMIN_MANIFEST_LINK_ID = 'admin-manifest-link';

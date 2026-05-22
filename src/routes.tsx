@@ -49,6 +49,7 @@ import WhatsAppSupportPage from './dashboard/pages/WhatsAppSupport';
 import SupportInbox from './dashboard/pages/SupportInbox';
 import SupportChatView from './dashboard/pages/SupportChatView';
 import { VouchersPage } from './dashboard/pages/Vouchers';
+import { CustomersPage } from './dashboard/pages/Customers';
 import { VendorsPage } from './dashboard/pages/Vendors';
 import VendorDetail from './dashboard/pages/VendorDetail';
 import VendorWithdrawals from './dashboard/pages/VendorWithdrawals';
@@ -139,6 +140,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'couriers', element: <CouriersPage /> },
   { path: 'analytics', element: <AnalyticsPage /> },
   { path: 'users', element: <UsersPage /> },
+  { path: 'customers', element: <CustomersPage /> },
   { path: 'discounts', element: <ShippingDiscountsPage /> },
   { path: 'meta-ads', element: <MetaAdsPage />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
   { path: 'influencers', element: <InfluencersPage /> },

@@ -33,20 +33,33 @@ export function CustomersPage() {
   const load = useCallback(async () => {
     setLoading(true);
 
-    // Load customers
+    // Get staff IDs (public.users) and vendor user_ids to exclude
+    const [{ data: staffRows }, { data: vendorRows }] = await Promise.all([
+      (supabase as any).from('users').select('id'),
+      (supabase as any).from('vendors').select('user_id').not('user_id', 'is', null),
+    ]);
+
+    const excludeIds = new Set<string>([
+      ...(staffRows || []).map((r: any) => r.id),
+      ...(vendorRows || []).map((r: any) => r.user_id),
+    ]);
+
+    // Load customers — real storefront signups only
     const { data: customerRows } = await (supabase as any)
       .from('customers')
       .select('id, email, first_name, last_name, phone, created_at')
       .order('created_at', { ascending: false });
 
-    if (!customerRows?.length) {
+    const filteredRows = (customerRows || []).filter((c: Customer) => !excludeIds.has(c.id));
+
+    if (!filteredRows.length) {
       setCustomers([]);
       setLoading(false);
       return;
     }
 
     // Load order stats grouped by customer_email
-    const emails = customerRows.map((c: Customer) => c.email).filter(Boolean);
+    const emails = filteredRows.map((c: Customer) => c.email).filter(Boolean);
     const { data: orderRows } = await (supabase as any)
       .from('orders')
       .select('customer_email, total_amount')
@@ -63,7 +76,7 @@ export function CustomersPage() {
     }
 
     setCustomers(
-      customerRows.map((c: Customer) => ({
+      filteredRows.map((c: Customer) => ({
         ...c,
         order_count: statsMap[c.email]?.order_count ?? 0,
         total_spent: statsMap[c.email]?.total_spent ?? 0,

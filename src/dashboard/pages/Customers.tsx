@@ -33,26 +33,10 @@ export function CustomersPage() {
   const load = useCallback(async () => {
     setLoading(true);
 
-    // Get staff IDs (public.users) and vendor user_ids to exclude
-    const [{ data: staffRows }, { data: vendorRows }] = await Promise.all([
-      (supabase as any).from('users').select('id'),
-      (supabase as any).from('vendors').select('user_id').not('user_id', 'is', null),
-    ]);
+    // RPC returns only real storefront customers — excludes staff and vendors server-side
+    const { data: filteredRows } = await (supabase as any).rpc('get_storefront_customers');
 
-    const excludeIds = new Set<string>([
-      ...(staffRows || []).map((r: any) => r.id),
-      ...(vendorRows || []).map((r: any) => r.user_id),
-    ]);
-
-    // Load customers — real storefront signups only
-    const { data: customerRows } = await (supabase as any)
-      .from('customers')
-      .select('id, email, first_name, last_name, phone, created_at')
-      .order('created_at', { ascending: false });
-
-    const filteredRows = (customerRows || []).filter((c: Customer) => !excludeIds.has(c.id));
-
-    if (!filteredRows.length) {
+    if (!filteredRows?.length) {
       setCustomers([]);
       setLoading(false);
       return;

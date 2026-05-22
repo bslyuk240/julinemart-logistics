@@ -17,7 +17,6 @@ import {
   ChevronDown,
   Mail,
   Percent,
-  MessageSquare,
   Megaphone,
   Ticket,
   BellRing,
@@ -65,7 +64,6 @@ const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'agent', 'manager', 'viewer'] },
   { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent', 'manager', 'viewer'] },
   { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent', 'viewer'] },
-  { name: 'WhatsApp Support', href: '/admin/whatsapp', icon: MessageSquare, roles: ['admin', 'agent', 'manager', 'viewer'] },
   { name: 'Live Support', href: '/admin/support', icon: Headphones, roles: ['admin', 'agent', 'manager', 'viewer'] },
   { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent', 'manager', 'viewer'] },
   { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'agent', 'manager', 'viewer'] },
@@ -134,7 +132,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { user, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [unreadWhatsAppCount, setUnreadWhatsAppCount] = useState(0);
   const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(false);
 
@@ -219,31 +216,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     };
   }, [user?.role]);
 
-  // Fetch unread WhatsApp chat count
-  useEffect(() => {
-    const fetchUnreadCount = async () => {
-      try {
-        const response = await fetch('/.netlify/functions/whatsapp-chats?status=open');
-        const result = await response.json();
-        
-        if (result.success) {
-          // Count chats with unread messages
-          const unreadCount = result.data.filter((chat: { unread_count?: number | null }) => (chat.unread_count ?? 0) > 0).length;
-          setUnreadWhatsAppCount(unreadCount);
-        }
-      } catch (error) {
-        console.error('Error fetching unread count:', error);
-      }
-    };
-
-    fetchUnreadCount();
-    
-    // Refresh count every 30 seconds
-    const interval = setInterval(fetchUnreadCount, 30000);
-    
-    return () => clearInterval(interval);
-  }, []);
-
   const handleSignOut = async () => {
     await signOut();
     navigate('/login');
@@ -316,9 +288,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               (item.href === '/admin/dashboard' && location.pathname.startsWith('/admin/dashboard'));
             const Icon = item.icon;
             
-            // Show unread badge for WhatsApp Support
-            const showBadge = item.href === '/admin/whatsapp' && unreadWhatsAppCount > 0;
-            
             return (
               <Link
                 key={item.name}
@@ -334,11 +303,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               >
                 <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-primary-600' : 'text-gray-500'}`} />
                 {item.name}
-                {showBadge && (
-                  <span className="ml-auto bg-red-500 text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
-                    {unreadWhatsAppCount > 9 ? '9+' : unreadWhatsAppCount}
-                  </span>
-                )}
               </Link>
             );
           })}

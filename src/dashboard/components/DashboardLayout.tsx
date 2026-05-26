@@ -90,6 +90,7 @@ const navigation: NavItem[] = [
   { name: 'Vendor Locations', href: '/admin/vendor-locations', icon: MapPin, roles: ['admin', 'manager'] },
   { name: 'Vouchers', href: '/admin/vouchers', icon: Ticket, roles: ['admin'] },
   { name: 'Meta Ads', href: '/admin/meta-ads', icon: TrendingUp, roles: ['admin', 'manager', 'social_media_manager'] },
+  { name: 'Google Ads', href: '/admin/google-ads', icon: Search, roles: ['admin', 'manager', 'social_media_manager'] },
   { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },
   { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
   { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },

@@ -55,6 +55,7 @@ import VendorDebits from './dashboard/pages/VendorDebits';
 import { VendorLocationsPage } from './dashboard/pages/VendorLocations';
 import { UnauthorizedPage } from './shared/UnauthorizedPage';
 import { MetaAdsPage } from './dashboard/pages/MetaAds';
+import { GoogleAdsPage } from './dashboard/pages/GoogleAds';
 import { PWAMonitoringPage } from './dashboard/pages/PWAMonitoring';
 
 // Role-aware landing: social_media_manager goes straight to Meta Ads
@@ -139,6 +140,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'customers', element: <CustomersPage /> },
   { path: 'discounts', element: <ShippingDiscountsPage /> },
   { path: 'meta-ads', element: <MetaAdsPage />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
+  { path: 'google-ads', element: <GoogleAdsPage />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
   { path: 'influencers', element: <InfluencersPage /> },
   { path: 'influencers/:id', element: <InfluencerDetailPage /> },
   { path: 'courier-settings', element: <CourierSettingsPage /> },

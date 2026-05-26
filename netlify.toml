@@ -82,6 +82,11 @@
   status = 200
 
 [[redirects]]
+  from = "/api/google/*"
+  to = "/.netlify/functions/google-ads"
+  status = 200
+
+[[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
@@ -148,6 +153,9 @@
   external_node_modules = ["pdfkit"]
 
 [functions."meta-ads"]
+  timeout = 60
+
+[functions."google-ads"]
   timeout = 60
 
 [functions."product-moderation-list"]

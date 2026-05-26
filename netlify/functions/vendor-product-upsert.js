@@ -5,6 +5,7 @@
  */
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateVendor, getAdminClient } from './services/vendorAuth.js';
+import { recordAudit, requestMeta } from './services/auditLog.js';
 
 function toSlug(name) {
   return name.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-').replace(/-+/g, '-');
@@ -23,7 +24,7 @@ export async function handler(event) {
   const ok = ['POST', 'PUT', 'DELETE'];
   if (!ok.includes(event.httpMethod)) return { statusCode: 405, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
 
-  const { vendor, error } = await authenticateVendor(event);
+  const { vendor, userId, error } = await authenticateVendor(event);
   if (error) return { statusCode: 401, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error }) };
 
   const adminClient = getAdminClient();
@@ -47,6 +48,16 @@ export async function handler(event) {
       adminClient.from('product_variations').delete().eq('product_id', productId),
     ]);
     await adminClient.from('products').delete().eq('id', productId);
+    await recordAudit({
+      action: 'PRODUCT_DELETED',
+      resource_type: 'products',
+      resource_id: productId,
+      user_id: userId,
+      actor_email: vendor.email,
+      source: 'vendor_portal',
+      details: { store_name: vendor.store_name },
+      ...requestMeta(event),
+    });
     return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify({ success: true }) };
   }
 
@@ -211,6 +222,17 @@ export async function handler(event) {
         }
       })(),
     ]);
+
+    await recordAudit({
+      action: isPost ? 'PRODUCT_CREATED' : 'PRODUCT_UPDATED',
+      resource_type: 'products',
+      resource_id: savedProduct?.id,
+      user_id: userId,
+      actor_email: vendor.email,
+      source: 'vendor_portal',
+      details: { name: savedProduct?.name, status: savedProduct?.status, store_name: vendor.store_name },
+      ...requestMeta(event),
+    });
 
     return { statusCode: isPost ? 201 : 200, headers: corsHeaders(origin), body: JSON.stringify({ success: true, data: savedProduct }) };
   } catch (err) {

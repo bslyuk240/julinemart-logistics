@@ -152,14 +152,17 @@ export async function logActivity(
   req: Request
 ) {
   try {
+    const authReq = req as AuthRequest;
     await supabase.from('activity_logs').insert({
       user_id: userId,
+      actor_email: authReq.user?.email || null,
       action,
       resource_type: resourceType,
       resource_id: resourceId,
       details,
+      source: 'jlo',
       ip_address: req.ip || req.socket.remoteAddress,
-      user_agent: req.headers['user-agent']
+      user_agent: req.headers['user-agent'],
     });
   } catch (error) {
     console.error('Failed to log activity:', error);

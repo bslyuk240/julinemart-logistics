@@ -1,5 +1,6 @@
 // Netlify Function: /api/users and /api/users/:id
 import { createClient } from '@supabase/supabase-js';
+import { recordStaffAudit } from './services/auditLog.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE_KEY =
@@ -254,6 +255,13 @@ export async function handler(event) {
         }
       }
 
+      await recordStaffAudit(event, auth.authUser, {
+        action: 'USER_CREATED',
+        resource_type: 'users',
+        resource_id: userId,
+        details: { email, role: finalRole, full_name: full_name || null },
+      });
+
       return {
         statusCode: 201,
         headers,
@@ -332,6 +340,11 @@ export async function handler(event) {
       // Hard delete: removes auth.users; public.users cascades when FK allows it.
       const { error: delErr } = await supabaseAdmin.auth.admin.deleteUser(id);
       if (!delErr) {
+        await recordStaffAudit(event, auth.authUser, {
+          action: 'USER_DELETED',
+          resource_type: 'users',
+          resource_id: id,
+        });
         return { statusCode: 204, headers, body: '' };
       }
 
@@ -365,6 +378,12 @@ export async function handler(event) {
       if (looksLikeAuthMissing && !authUserPresent) {
         const { error: pubDelErr } = await supabaseAdmin.from('users').delete().eq('id', id);
         if (pubDelErr) return respondProfileDeleteError(pubDelErr);
+        await recordStaffAudit(event, auth.authUser, {
+          action: 'USER_DELETED',
+          resource_type: 'users',
+          resource_id: id,
+          details: { profile_only: true },
+        });
         return { statusCode: 204, headers, body: '' };
       }
 
@@ -433,6 +452,12 @@ export async function handler(event) {
         };
       }
 
+      await recordStaffAudit(event, auth.authUser, {
+        action: 'PASSWORD_RESET_SENT',
+        resource_type: 'users',
+        details: { email },
+      });
+
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
@@ -476,6 +501,14 @@ export async function handler(event) {
         .select()
         .single();
       if (error) throw error;
+
+      await recordStaffAudit(event, auth.authUser, {
+        action: 'USER_UPDATED',
+        resource_type: 'users',
+        resource_id: id,
+        details: updateData,
+      });
+
       return { statusCode: 200, headers, body: JSON.stringify({ success: true, data }) };
     }
 

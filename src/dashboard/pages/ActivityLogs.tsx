@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, Search, User, Package, MapPin, Truck, DollarSign, Globe, Store, Shield } from 'lucide-react';
+import { Activity, Search, User, Package, MapPin, Truck, DollarSign, Globe, Store, Shield, RefreshCw } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -19,6 +19,7 @@ interface ActivityLog {
   users: {
     email: string;
     full_name: string;
+    role?: string;
   } | null;
 }
 
@@ -33,13 +34,60 @@ const SOURCE_BADGE: Record<string, string> = {
   jlo:           'bg-purple-100 text-purple-700',
   storefront:    'bg-blue-100 text-blue-700',
   vendor_portal: 'bg-amber-100 text-amber-700',
+  system:        'bg-gray-100 text-gray-600',
 };
 
 const SOURCE_LABEL: Record<string, string> = {
   jlo:           'JLO',
   storefront:    'Storefront',
   vendor_portal: 'Vendor Portal',
+  system:        'System',
 };
+
+const ACTION_LABELS: Record<string, string> = {
+  LOGIN: 'Staff login',
+  LOGOUT: 'Staff logout',
+  SIGNUP: 'Customer signup',
+  ORDER_PLACED: 'Order placed',
+  CARD_ADDED: 'Payment card added',
+  INSERT: 'Record created',
+  CREATE: 'Record created',
+  UPDATE: 'Record updated',
+  DELETE: 'Record deleted',
+  USER_CREATED: 'User created',
+  USER_UPDATED: 'User updated',
+  USER_DELETED: 'User deleted',
+  PASSWORD_RESET_SENT: 'Password reset sent',
+  VENDOR_APPLICATION_APPROVED: 'Vendor approved',
+  VENDOR_APPLICATION_REJECTED: 'Vendor rejected',
+  WITHDRAWAL_REQUESTED: 'Withdrawal requested',
+  WITHDRAWAL_APPROVED: 'Withdrawal approved',
+  WITHDRAWAL_REJECTED: 'Withdrawal rejected',
+  WITHDRAWAL_PAID: 'Withdrawal paid',
+  PRODUCT_CREATED: 'Product created',
+  PRODUCT_UPDATED: 'Product updated',
+  PRODUCT_DELETED: 'Product deleted',
+  PRODUCT_MODERATED: 'Product moderated',
+  PRODUCT_PUBLISHED: 'Product published',
+  courier_shipment_created: 'Courier shipment created',
+};
+
+const ACTION_FILTERS = [
+  { value: 'all', label: 'All Actions' },
+  { value: 'LOGIN', label: 'Login' },
+  { value: 'LOGOUT', label: 'Logout' },
+  { value: 'USER_CREATED', label: 'User created' },
+  { value: 'USER_UPDATED', label: 'User updated' },
+  { value: 'USER_DELETED', label: 'User deleted' },
+  { value: 'VENDOR_APPLICATION_APPROVED', label: 'Vendor approved' },
+  { value: 'WITHDRAWAL_REQUESTED', label: 'Withdrawal requested' },
+  { value: 'WITHDRAWAL_PAID', label: 'Withdrawal paid' },
+  { value: 'PRODUCT_PUBLISHED', label: 'Product published' },
+  { value: 'CREATE', label: 'DB create' },
+  { value: 'UPDATE', label: 'DB update' },
+  { value: 'DELETE', label: 'DB delete' },
+  { value: 'ORDER_PLACED', label: 'Order placed' },
+];
 
 export function ActivityLogsPage() {
   const notification = useNotification();
@@ -58,7 +106,7 @@ export function ActivityLogsPage() {
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      let url = `${apiBase}/api/activity-logs?limit=200`;
+      let url = `${apiBase}/api/activity-logs?limit=200&exclude_whatsapp=true`;
       if (actionFilter !== 'all') url += '&action=' + actionFilter;
       if (sourceTab !== 'all') url += '&source=' + sourceTab;
 
@@ -67,7 +115,7 @@ export function ActivityLogsPage() {
       const response = await fetch(url, { headers });
       if (!response.ok) {
         if (response.status === 401 || response.status === 403) {
-          notification.error('Unauthorized', 'Please sign in as admin or manager');
+          notification.error('Unauthorized', 'Admin access required to view activity logs');
         } else {
           notification.error('Failed to Load', 'Error ' + response.status);
         }
@@ -90,21 +138,18 @@ export function ActivityLogsPage() {
     (log.actor_email || log.users?.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (log.users?.full_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     log.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (log.resource_type || '').toLowerCase().includes(searchTerm.toLowerCase())
+    (log.resource_type || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (ACTION_LABELS[log.action] || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const getActionColor = (action: string) => {
-    const colors: Record<string, string> = {
-      INSERT:        'bg-green-100 text-green-800',
-      CREATE:        'bg-green-100 text-green-800',
-      SIGNUP:        'bg-green-100 text-green-800',
-      UPDATE:        'bg-blue-100 text-blue-800',
-      DELETE:        'bg-red-100 text-red-800',
-      LOGIN:         'bg-purple-100 text-purple-800',
-      ORDER_PLACED:  'bg-indigo-100 text-indigo-800',
-      CARD_ADDED:    'bg-cyan-100 text-cyan-800',
-    };
-    return colors[action] || 'bg-gray-100 text-gray-800';
+    const a = action.toUpperCase();
+    if (a.includes('DELETE') || a.includes('REJECT')) return 'bg-red-100 text-red-800';
+    if (a.includes('CREATE') || a.includes('INSERT') || a.includes('APPROVED') || a.includes('LOGIN') || a.includes('SIGNUP') || a.includes('PLACED')) return 'bg-green-100 text-green-800';
+    if (a.includes('UPDATE') || a.includes('MODERAT') || a.includes('RESET')) return 'bg-blue-100 text-blue-800';
+    if (a.includes('PAID') || a.includes('SHIPMENT')) return 'bg-indigo-100 text-indigo-800';
+    if (a.includes('LOGOUT')) return 'bg-gray-100 text-gray-800';
+    return 'bg-gray-100 text-gray-800';
   };
 
   const getResourceIcon = (resourceType: string) => {
@@ -115,6 +160,10 @@ export function ActivityLogsPage() {
       hubs:           MapPin,
       couriers:       Truck,
       shipping_rates: DollarSign,
+      vendors:        Store,
+      vendor_withdrawals: DollarSign,
+      products:       Package,
+      vendor_applications: Store,
     };
     const Icon = icons[resourceType] || Activity;
     return <Icon className="w-4 h-4" />;
@@ -141,15 +190,27 @@ export function ActivityLogsPage() {
   const displayName = (log: ActivityLog) =>
     log.users?.full_name || null;
 
+  const actionLabel = (action: string) =>
+    ACTION_LABELS[action] || ACTION_LABELS[action.toUpperCase()] || action.replace(/_/g, ' ');
+
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-gray-900">Activity Logs</h1>
-        <p className="text-gray-600 mt-1">Audit trail — JLO staff, storefront customers, and vendor portal</p>
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Activity Logs</h1>
+          <p className="text-gray-600 mt-1">Audit trail for JLO staff (all roles), storefront customers, and vendor portal</p>
+        </div>
+        <button
+          type="button"
+          onClick={fetchLogs}
+          className="inline-flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Refresh
+        </button>
       </div>
 
-      {/* Source tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit">
+      <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit flex-wrap">
         {SOURCE_TABS.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -166,7 +227,6 @@ export function ActivityLogsPage() {
         ))}
       </div>
 
-      {/* Filters */}
       <div className="card mb-6">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1 relative">
@@ -184,22 +244,18 @@ export function ActivityLogsPage() {
             onChange={(e) => setActionFilter(e.target.value)}
             className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 text-sm"
           >
-            <option value="all">All Actions</option>
-            <option value="LOGIN">Login</option>
-            <option value="SIGNUP">Signup</option>
-            <option value="ORDER_PLACED">Order Placed</option>
-            <option value="CARD_ADDED">Card Added</option>
-            <option value="INSERT">Create (JLO)</option>
-            <option value="UPDATE">Update (JLO)</option>
-            <option value="DELETE">Delete (JLO)</option>
+            {ACTION_FILTERS.map((f) => (
+              <option key={f.value} value={f.value}>{f.label}</option>
+            ))}
           </select>
         </div>
       </div>
 
-      {/* Count */}
-      <p className="text-sm text-gray-500 mb-3">{filteredLogs.length} events</p>
+      <p className="text-sm text-gray-500 mb-3">
+        {filteredLogs.length} events
+        <span className="text-gray-400"> · WhatsApp logs hidden and no longer recorded</span>
+      </p>
 
-      {/* Timeline */}
       <div className="card">
         {loading ? (
           <div className="text-center py-12">
@@ -210,6 +266,9 @@ export function ActivityLogsPage() {
           <div className="text-center py-12">
             <Activity className="w-16 h-16 text-gray-400 mx-auto mb-4" />
             <p className="text-gray-600">No activity logs found</p>
+            <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
+              New staff logins, user changes, vendor actions, and database updates will appear here after you deploy the latest changes.
+            </p>
             {(searchTerm || actionFilter !== 'all') && (
               <button
                 onClick={() => { setSearchTerm(''); setActionFilter('all'); }}
@@ -231,17 +290,22 @@ export function ActivityLogsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
                       <span className={`px-2 py-0.5 rounded text-xs font-medium ${getActionColor(log.action)}`}>
-                        {log.action}
+                        {actionLabel(log.action)}
                       </span>
                       {log.resource_type && (
                         <span className="text-sm font-medium text-gray-900">{log.resource_type}</span>
                       )}
                       {log.resource_id && (
-                        <span className="text-xs text-gray-500">#{log.resource_id.substring(0, 8)}</span>
+                        <span className="text-xs text-gray-500 font-mono">#{String(log.resource_id).substring(0, 8)}</span>
                       )}
                       {log.source && (
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${SOURCE_BADGE[log.source] || 'bg-gray-100 text-gray-600'}`}>
                           {SOURCE_LABEL[log.source] || log.source}
+                        </span>
+                      )}
+                      {log.users?.role && (
+                        <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">
+                          {log.users.role}
                         </span>
                       )}
                     </div>

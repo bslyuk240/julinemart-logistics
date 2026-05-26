@@ -90,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    await logActivity({ action: 'LOGOUT', details: { portal: 'vendor' } });
     await supabase.auth.signOut();
     setVendor(null);
   };

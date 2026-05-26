@@ -1,5 +1,6 @@
 ﻿import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { logActivity } from '../lib/logActivity';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -49,10 +50,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
       if (session?.user) {
         fetchUserProfile(session.user.id);
+        if (event === 'SIGNED_IN') {
+          logActivity({ action: 'LOGIN', details: { portal: 'jlo' } });
+        }
       } else {
         setUser(null);
         setLoading(false);
@@ -177,6 +181,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    await logActivity({ action: 'LOGOUT', details: { portal: 'jlo' } });
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);

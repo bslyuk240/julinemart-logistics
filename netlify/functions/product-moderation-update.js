@@ -6,6 +6,7 @@ import {
   requireAdmin,
   updateWordPressProductAuthor,
 } from './services/global-sourcing-utils.js';
+import { recordStaffAudit } from './services/auditLog.js';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
@@ -200,6 +201,18 @@ export async function handler(event) {
         console.warn('[moderation-update] updateWordPressProductAuthor failed:', e?.message);
       });
     }
+
+    await recordStaffAudit(event, auth.authUser, {
+      action: publish ? 'PRODUCT_PUBLISHED' : 'PRODUCT_MODERATED',
+      resource_type: 'products',
+      resource_id: String(woo_product_id),
+      details: {
+        name: updated.name,
+        status: updated.status,
+        vendor_id: vendor_id || null,
+        hub_id: hub_id || null,
+      },
+    });
 
     return jsonResponse(200, {
       success: true,

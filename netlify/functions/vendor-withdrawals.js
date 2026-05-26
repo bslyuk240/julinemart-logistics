@@ -9,6 +9,7 @@
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateVendor, getAdminClient } from './services/vendorAuth.js';
 import { requireAdmin } from './services/global-sourcing-utils.js';
+import { recordAudit, recordStaffAudit, requestMeta } from './services/auditLog.js';
 
 // Extract :id from path  /api/vendor-withdrawals/uuid
 function extractId(path) {
@@ -46,11 +47,20 @@ export async function handler(event) {
 
     const { data, error: updErr } = await getAdminClient().from('vendor_withdrawals').update(updates).eq('id', id).select().single();
     if (updErr) return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: updErr.message }) };
+
+    const actionMap = { approve: 'WITHDRAWAL_APPROVED', reject: 'WITHDRAWAL_REJECTED', paid: 'WITHDRAWAL_PAID' };
+    await recordStaffAudit(event, adminAuth.authUser, {
+      action: actionMap[action] || 'WITHDRAWAL_UPDATED',
+      resource_type: 'vendor_withdrawals',
+      resource_id: id,
+      details: { action, amount: data?.amount, vendor_id: data?.vendor_id },
+    });
+
     return { statusCode: 200, headers: corsHeaders(origin), body: JSON.stringify({ success: true, data }) };
   }
 
   // GET / POST — vendor auth required
-  const { vendor, adminClient, error } = await authenticateVendor(event);
+  const { vendor, userId, adminClient, error } = await authenticateVendor(event);
   if (error) return { statusCode: 401, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error }) };
 
   // ── GET list ─────────────────────────────────────────────────────────────
@@ -103,6 +113,18 @@ export async function handler(event) {
       .single();
 
     if (insErr) return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: insErr.message }) };
+
+    await recordAudit({
+      action: 'WITHDRAWAL_REQUESTED',
+      resource_type: 'vendor_withdrawals',
+      resource_id: data?.id,
+      user_id: userId,
+      actor_email: vendor.email,
+      source: 'vendor_portal',
+      details: { amount, vendor_id: vendor.id, store_name: vendor.store_name },
+      ...requestMeta(event),
+    });
+
     return { statusCode: 201, headers: corsHeaders(origin), body: JSON.stringify({ success: true, data }) };
   }
 

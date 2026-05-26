@@ -344,21 +344,31 @@ export async function getActivityLogsHandler(req: AuthRequest, res: Response) {
   try {
     const { limit = 50, offset = 0, userId, action } = req.query;
 
+    const excludeWhatsapp = req.query.exclude_whatsapp !== 'false';
+
     let query = supabase
       .from('activity_logs')
       .select(`
         id,
         user_id,
+        actor_email,
         action,
         resource_type,
         resource_id,
         details,
         ip_address,
+        source,
         created_at,
-        users (email, full_name)
+        users (email, full_name, role)
       `)
       .order('created_at', { ascending: false })
       .range(Number(offset), Number(offset) + Number(limit) - 1);
+
+    if (excludeWhatsapp) {
+      query = query
+        .not('action', 'ilike', 'whatsapp%')
+        .not('resource_type', 'ilike', 'whatsapp%');
+    }
 
     if (userId) {
       query = query.eq('user_id', userId);
@@ -366,6 +376,11 @@ export async function getActivityLogsHandler(req: AuthRequest, res: Response) {
 
     if (action) {
       query = query.eq('action', action);
+    }
+
+    const source = req.query.source;
+    if (source && source !== 'all') {
+      query = query.eq('source', source);
     }
 
     const { data: logs, error, count } = await query;

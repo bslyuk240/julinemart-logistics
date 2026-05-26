@@ -51,6 +51,10 @@ export const handler = async (event) => {
   if (!action?.trim()) {
     return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'action is required' }) };
   }
+  const actionNorm = action.trim().toUpperCase();
+  if (actionNorm.startsWith('WHATSAPP') || String(resource_type || '').toLowerCase().startsWith('whatsapp')) {
+    return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'WhatsApp activity logging is disabled' }) };
+  }
   if (source && !ALLOWED_SOURCES.includes(source)) {
     return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'source must be storefront | vendor_portal | jlo' }) };
   }
@@ -64,7 +68,7 @@ export const handler = async (event) => {
   const { error: insertErr } = await adminClient.from('activity_logs').insert({
     user_id:       user.id,
     actor_email:   user.email,
-    action:        action.trim().toUpperCase(),
+    action:        actionNorm,
     resource_type: resource_type || null,
     resource_id:   resource_id   || null,
     details:       details       || null,

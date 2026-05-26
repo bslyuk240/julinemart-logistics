@@ -16,6 +16,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { sendTransactionalEmail } from './services/emailNotifications.js';
+import { recordStaffAudit } from './services/auditLog.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
@@ -88,6 +89,13 @@ export const handler = async (event) => {
         store_name:     app.store_name,
         reject_reason:  reject_reason || 'No specific reason provided.',
       },
+    });
+
+    await recordStaffAudit(event, user, {
+      action: 'VENDOR_APPLICATION_REJECTED',
+      resource_type: 'vendor_applications',
+      resource_id: application_id,
+      details: { store_name: app.store_name, email: app.email, reject_reason: reject_reason || null },
     });
 
     return {
@@ -192,6 +200,13 @@ export const handler = async (event) => {
     reviewed_at: new Date().toISOString(),
     reviewed_by: user.id,
   }).eq('id', application_id);
+
+  await recordStaffAudit(event, user, {
+    action: 'VENDOR_APPLICATION_APPROVED',
+    resource_type: 'vendors',
+    resource_id: vendor.id,
+    details: { application_id, store_name: app.store_name, email: app.email },
+  });
 
   return {
     statusCode: 200,

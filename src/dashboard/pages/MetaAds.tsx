@@ -4,7 +4,7 @@ import {
   TrendingUp, RefreshCw, Sparkles, CheckCircle, XCircle,
   Clock, Eye, MousePointer, DollarSign, Users, Plus,
   ChevronDown, ChevronUp, AlertCircle, Megaphone, AlertTriangle,
-  Play, Pause, Upload, ImageIcon, X, Search, Send, Trash2, Video, Wand2, FileText, Pencil,
+  Play, Pause, Upload, ImageIcon, X, Search, Send, Trash2, Video, Wand2, FileText, Pencil, Info,
 } from 'lucide-react';
 
 const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
@@ -640,6 +640,12 @@ export function MetaAdsPage() {
   const [publishing, setPublishing]                   = useState(false);
   const [deletingId, setDeletingId]                   = useState<string | null>(null);
 
+  // True when the currently-selected publish campaign has a campaign-level (CBO) budget
+  const selectedCampaignIsCBO =
+    !!publishCampaign &&
+    publishCampaign !== '__new__' &&
+    Number(campaigns.find((c) => c.meta_campaign_id === publishCampaign)?.daily_budget) > 0;
+
   // AI generate form
   const [genObjective, setGenObjective] = useState('sales');
   const [genTone, setGenTone]           = useState('engaging');
@@ -810,14 +816,15 @@ export function MetaAdsPage() {
     if (hasExisting && !publishCampaign) { setError('Select a campaign first'); return; }
     if (creatingNew && !publishCampaignName.trim()) { setError('Enter a name for the new campaign'); return; }
     if (!hasExisting && !publishCampaignName.trim()) { setError('Enter a campaign name'); return; }
-    if (!publishBudget || Number(publishBudget) < META_PUBLISH_MIN_DAILY_BUDGET_NGN) {
+    if (!selectedCampaignIsCBO && (!publishBudget || Number(publishBudget) < META_PUBLISH_MIN_DAILY_BUDGET_NGN)) {
       setError(`Enter a daily budget of at least ₦${META_PUBLISH_MIN_DAILY_BUDGET_NGN.toLocaleString()} per Meta`);
       return;
     }
     setPublishing(true);
     setError('');
     try {
-      const payload: Record<string, unknown> = { daily_budget: Number(publishBudget) };
+      const payload: Record<string, unknown> = {};
+      if (!selectedCampaignIsCBO && publishBudget) payload.daily_budget = Number(publishBudget);
       if (publishCampaign && !creatingNew) payload.campaign_id = publishCampaign;
       else payload.new_campaign_name = publishCampaignName.trim();
       const res = await api(`/api/meta/drafts/${id}/publish`, {
@@ -1123,20 +1130,29 @@ export function MetaAdsPage() {
                                   : 'No campaigns yet — a new one will be created automatically'}
                               </p>
                             </div>
-                            <div>
-                              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Daily Budget (₦)</label>
-                              <input
-                                type="number"
-                                min={META_PUBLISH_MIN_DAILY_BUDGET_NGN}
-                                value={publishBudget}
-                                onChange={(e) => setPublishBudget(e.target.value)}
-                                placeholder="e.g. 5000"
-                                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
-                              <p className="text-xs text-gray-400 mt-1">
-                                Minimum ₦{META_PUBLISH_MIN_DAILY_BUDGET_NGN.toLocaleString()} (Meta account minimum varies by optimisation)
-                              </p>
-                            </div>
+                            {selectedCampaignIsCBO ? (
+                              <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2.5">
+                                <Info className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                                <p className="text-xs text-emerald-700">
+                                  This campaign uses <strong>Advantage Campaign Budget (CBO)</strong> — the budget is managed at the campaign level. No ad set budget is required.
+                                </p>
+                              </div>
+                            ) : (
+                              <div>
+                                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Daily Budget (₦)</label>
+                                <input
+                                  type="number"
+                                  min={META_PUBLISH_MIN_DAILY_BUDGET_NGN}
+                                  value={publishBudget}
+                                  onChange={(e) => setPublishBudget(e.target.value)}
+                                  placeholder="e.g. 5000"
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                                <p className="text-xs text-gray-400 mt-1">
+                                  Minimum ₦{META_PUBLISH_MIN_DAILY_BUDGET_NGN.toLocaleString()} (Meta account minimum varies by optimisation)
+                                </p>
+                              </div>
+                            )}
                             <p className="text-xs text-gray-500">Ad will be created as <strong>PAUSED</strong> — activate it in Meta Ads Manager after review.</p>
                             <div className="flex gap-2">
                               <button

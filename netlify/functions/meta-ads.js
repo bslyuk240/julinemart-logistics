@@ -641,7 +641,9 @@ async function publishDraft(draftId, body, userId) {
 
   const { campaign_id, new_campaign_name, daily_budget } = body;
   if (!campaign_id && !new_campaign_name) return err('campaign_id or new_campaign_name is required', 400);
-  if (!daily_budget || Number(daily_budget) < META_MIN_DAILY_BUDGET_NGN) {
+  // daily_budget validation deferred — CBO campaigns manage budget at campaign level (no ad set budget needed)
+  // Validate upfront only when creating a new campaign (which is always ad-set-budget)
+  if (!campaign_id && (!daily_budget || Number(daily_budget) < META_MIN_DAILY_BUDGET_NGN)) {
     return err(`daily_budget (₦) must be at least ${META_MIN_DAILY_BUDGET_NGN} — Meta rejects lower ad set budgets`, 400);
   }
 
@@ -655,7 +657,7 @@ async function publishDraft(draftId, body, userId) {
   if (draft.status !== 'approved') return err('Only approved drafts can be published', 400);
 
   const destinationUrl = draft.destination_url || STORE_URL;
-  const budgetCents    = Math.round(Number(daily_budget) * 100); // Meta expects cents
+  const budgetCents    = daily_budget ? Math.round(Number(daily_budget) * 100) : 0; // Meta expects cents; 0 is safe — only used when !campaignHoldsBudget
 
   // 0. Create campaign if not provided
   let resolvedCampaignId = campaign_id;
@@ -680,6 +682,11 @@ async function publishDraft(draftId, body, userId) {
       Number(cMeta?.daily_budget) > 0 || Number(cMeta?.lifetime_budget) > 0;
   } catch {
     campaignHoldsBudget = false;
+  }
+
+  // For existing non-CBO campaigns, budget is required at ad set level
+  if (!campaignHoldsBudget && (!daily_budget || Number(daily_budget) < META_MIN_DAILY_BUDGET_NGN)) {
+    return err(`daily_budget (₦) must be at least ${META_MIN_DAILY_BUDGET_NGN} — Meta rejects lower ad set budgets`, 400);
   }
 
   // 1. Create Ad Creative

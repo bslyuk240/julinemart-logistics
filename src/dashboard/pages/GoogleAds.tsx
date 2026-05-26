@@ -5,6 +5,7 @@ import {
   ChevronDown, ChevronUp, AlertCircle, Megaphone, AlertTriangle,
   Play, Pause, Send, Trash2, Wand2, FileText, Globe, Search,
   BarChart2, Zap, Building2, ShoppingBag, GraduationCap, Pencil, X as XIcon,
+  Image as ImageIcon2, Video, Link,
 } from 'lucide-react';
 
 const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
@@ -89,6 +90,10 @@ interface GoogleDraft {
   descriptions: string[];
   final_url: string | null;
   image_url: string | null;
+  image_url_square: string | null;
+  video_url: string | null;
+  logo_url: string | null;
+  long_headline: string | null;
   campaign_type: string;
   call_to_action: string;
   status: string;           // draft | approved | rejected | published
@@ -133,6 +138,13 @@ const CAMPAIGN_TYPE_LABEL: Record<string, string> = {
   DISPLAY:         'Display',
   VIDEO:           'Video',
   PERFORMANCE_MAX: 'Pmax',
+};
+
+const CAMPAIGN_TYPE_COLOR: Record<string, string> = {
+  SEARCH:          'bg-blue-100 text-blue-800',
+  DISPLAY:         'bg-purple-100 text-purple-800',
+  VIDEO:           'bg-red-100 text-red-800',
+  PERFORMANCE_MAX: 'bg-orange-100 text-orange-800',
 };
 
 function isAlertCampaign(c: GoogleCampaign) {
@@ -368,17 +380,25 @@ function GoogleAdPreview({ headlines, descriptions, displayUrl, account }: {
 
 // ─── RSA Headlines / Descriptions editor ────────────────────────────────────────
 
-function RsaEditor({ headlines, descriptions, onChangeHeadlines, onChangeDescriptions }: {
+function RsaEditor({ headlines, descriptions, onChangeHeadlines, onChangeDescriptions,
+  maxHeadlines = 15, headlineLabel = 'Headlines', headlineHint, descriptionLabel = 'Descriptions', descriptionHint,
+}: {
   headlines: string[];
   descriptions: string[];
   onChangeHeadlines: (v: string[]) => void;
   onChangeDescriptions: (v: string[]) => void;
+  maxHeadlines?: number;
+  headlineLabel?: string;
+  headlineHint?: string;
+  descriptionLabel?: string;
+  descriptionHint?: string;
 }) {
+  const maxDesc = maxHeadlines === 5 ? 5 : 4; // Display allows 5 descriptions
   const addHeadline = () => {
-    if (headlines.length < 15) onChangeHeadlines([...headlines, '']);
+    if (headlines.length < maxHeadlines) onChangeHeadlines([...headlines, '']);
   };
   const addDescription = () => {
-    if (descriptions.length < 4) onChangeDescriptions([...descriptions, '']);
+    if (descriptions.length < maxDesc) onChangeDescriptions([...descriptions, '']);
   };
 
   return (
@@ -387,9 +407,9 @@ function RsaEditor({ headlines, descriptions, onChangeHeadlines, onChangeDescrip
       <div>
         <div className="flex items-center justify-between mb-2">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-            Headlines <span className="font-normal text-gray-400">({headlines.length}/15, max 30 chars each)</span>
+            {headlineLabel} <span className="font-normal text-gray-400">{headlineHint || `(${headlines.length}/${maxHeadlines}, max 30 chars each)`}</span>
           </p>
-          {headlines.length < 15 && (
+          {headlines.length < maxHeadlines && (
             <button onClick={addHeadline} className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-0.5">
               <Plus className="w-3 h-3" /> Add
             </button>
@@ -433,9 +453,9 @@ function RsaEditor({ headlines, descriptions, onChangeHeadlines, onChangeDescrip
       <div>
         <div className="flex items-center justify-between mb-2">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-            Descriptions <span className="font-normal text-gray-400">({descriptions.length}/4, max 90 chars each)</span>
+            {descriptionLabel} <span className="font-normal text-gray-400">{descriptionHint || `(${descriptions.length}/${maxDesc}, max 90 chars each)`}</span>
           </p>
-          {descriptions.length < 4 && (
+          {descriptions.length < maxDesc && (
             <button onClick={addDescription} className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-0.5">
               <Plus className="w-3 h-3" /> Add
             </button>
@@ -462,7 +482,7 @@ function RsaEditor({ headlines, descriptions, onChangeHeadlines, onChangeDescrip
                 />
                 <span className={`text-xs ${d.length > 85 ? 'text-amber-600' : 'text-gray-400'}`}>{d.length}/90</span>
               </div>
-              {descriptions.length > 2 && (
+              {descriptions.length > 1 && (
                 <button
                   onClick={() => onChangeDescriptions(descriptions.filter((_, idx) => idx !== i))}
                   className="text-gray-300 hover:text-red-500 transition-colors mt-2"
@@ -888,9 +908,15 @@ export function GoogleAdsPage() {
                     {d.ai_generated && <Sparkles className="w-4 h-4 text-purple-500 shrink-0" />}
                     <div className="min-w-0">
                       <p className="font-medium text-gray-900 text-sm truncate">{d.title}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {new Date(d.created_at).toLocaleDateString()} · {d.campaign_type}
-                        {d.users && ` · ${d.users.full_name}`}
+                      <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>{new Date(d.created_at).toLocaleDateString()}</span>
+                        <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${CAMPAIGN_TYPE_COLOR[d.campaign_type] || 'bg-gray-100 text-gray-700'}`}>
+                          {d.campaign_type === 'VIDEO'   && <Video   className="w-2.5 h-2.5" />}
+                          {d.campaign_type === 'DISPLAY' && <ImageIcon2 className="w-2.5 h-2.5" />}
+                          {d.campaign_type === 'SEARCH'  && <Search  className="w-2.5 h-2.5" />}
+                          {CAMPAIGN_TYPE_LABEL[d.campaign_type] || d.campaign_type}
+                        </span>
+                        {d.users && <span>· {d.users.full_name}</span>}
                       </p>
                     </div>
                   </div>
@@ -1360,23 +1386,36 @@ export function GoogleAdsPage() {
   );
 }
 
-// ─── Ad Creator (manual RSA builder) ────────────────────────────────────────────
+// ─── Ad Creator (Search · Display · Video) ──────────────────────────────────────
 
 function AdCreator({ account, onSaved }: { account: AccountInfo; onSaved: () => void }) {
   const DEFAULT_HEADLINES    = ['', '', ''];
   const DEFAULT_DESCRIPTIONS = ['', ''];
 
-  const [headlines, setHeadlines]       = useState<string[]>(DEFAULT_HEADLINES);
-  const [descriptions, setDescriptions] = useState<string[]>(DEFAULT_DESCRIPTIONS);
+  // shared fields
+  const [campaignType, setCampaignType] = useState<'SEARCH' | 'DISPLAY' | 'VIDEO'>('SEARCH');
+  const [title, setTitle]               = useState('');
   const [finalUrl, setFinalUrl]         = useState('');
   const [cta, setCta]                   = useState('LEARN_MORE');
-  const [campaignType, setCampaignType] = useState('SEARCH');
   const [budgetNgn, setBudgetNgn]       = useState('');
-  const [title, setTitle]               = useState('');
   const [saving, setSaving]             = useState(false);
   const [error, setError]               = useState('');
 
-  // AI assist
+  // Search / Display copy fields (shared)
+  const [headlines, setHeadlines]       = useState<string[]>(DEFAULT_HEADLINES);
+  const [descriptions, setDescriptions] = useState<string[]>(DEFAULT_DESCRIPTIONS);
+
+  // Display-specific
+  const [imageUrl, setImageUrl]         = useState('');
+  const [imageUrlSquare, setImageUrlSquare] = useState('');
+  const [logoUrl, setLogoUrl]           = useState('');
+  const [longHeadline, setLongHeadline] = useState('');
+
+  // Video-specific
+  const [videoUrl, setVideoUrl]         = useState('');
+  const [videoActionHeadline, setVideoActionHeadline] = useState('');
+
+  // AI assist (only for Search)
   const [brief, setBrief]               = useState('');
   const [tone, setTone]                 = useState('professional');
   const [assisting, setAssisting]       = useState(false);
@@ -1413,54 +1452,120 @@ function AdCreator({ account, onSaved }: { account: AccountInfo; onSaved: () => 
     setSuggestions([]);
   };
 
+  const reset = () => {
+    setHeadlines(DEFAULT_HEADLINES); setDescriptions(DEFAULT_DESCRIPTIONS);
+    setTitle(''); setFinalUrl(''); setBudgetNgn('');
+    setImageUrl(''); setImageUrlSquare(''); setLogoUrl(''); setLongHeadline('');
+    setVideoUrl(''); setVideoActionHeadline('');
+  };
+
   const handleSave = async () => {
     const validHeadlines    = headlines.filter((h) => h.trim());
     const validDescriptions = descriptions.filter((d) => d.trim());
-    if (validHeadlines.length < 3) { setError('Add at least 3 headlines'); return; }
-    if (validDescriptions.length < 2) { setError('Add at least 2 descriptions'); return; }
-    if (validHeadlines.some((h) => h.length > 30)) { setError('Headlines must be 30 characters or fewer'); return; }
-    if (validDescriptions.some((d) => d.length > 90)) { setError('Descriptions must be 90 characters or fewer'); return; }
+    setError('');
+
+    if (campaignType === 'SEARCH') {
+      if (validHeadlines.length < 3)    { setError('Add at least 3 headlines'); return; }
+      if (validDescriptions.length < 2) { setError('Add at least 2 descriptions'); return; }
+      if (validHeadlines.some((h) => h.length > 30))  { setError('All headlines must be ≤ 30 characters'); return; }
+      if (validDescriptions.some((d) => d.length > 90)) { setError('All descriptions must be ≤ 90 characters'); return; }
+    }
+    if (campaignType === 'DISPLAY') {
+      if (!imageUrl.trim())              { setError('Landscape image URL is required for Display ads'); return; }
+      if (!longHeadline.trim())          { setError('Long headline is required for Display ads'); return; }
+      if (longHeadline.length > 90)      { setError('Long headline must be ≤ 90 characters'); return; }
+      if (validHeadlines.length < 1)     { setError('Add at least 1 short headline for Display ads'); return; }
+      if (validHeadlines.some((h) => h.length > 30))  { setError('Short headlines must be ≤ 30 characters'); return; }
+      if (validDescriptions.length < 1)  { setError('Add at least 1 description for Display ads'); return; }
+    }
+    if (campaignType === 'VIDEO') {
+      if (!videoUrl.trim())              { setError('YouTube video URL is required'); return; }
+      if (!videoActionHeadline.trim())   { setError('In-stream action headline is required'); return; }
+      if (videoActionHeadline.length > 80) { setError('Action headline must be ≤ 80 characters'); return; }
+    }
     if (!finalUrl.trim()) { setError('Final URL is required'); return; }
 
-    setSaving(true); setError('');
+    const draftHeadlines    = campaignType === 'VIDEO'
+      ? [videoActionHeadline, ...validHeadlines].filter(Boolean)
+      : validHeadlines;
+    const draftDescriptions = validDescriptions.length > 0
+      ? validDescriptions
+      : ['See more details online'];
+
+    setSaving(true);
     try {
       const res = await api('/api/google/drafts', {
         method: 'POST',
         body: JSON.stringify({
           account_key:          account.key,
-          title:                title.trim() || validHeadlines[0],
-          headlines:            validHeadlines,
-          descriptions:         validDescriptions,
+          title:                title.trim() || draftHeadlines[0] || videoUrl,
+          headlines:            draftHeadlines,
+          descriptions:         draftDescriptions,
           final_url:            finalUrl.trim(),
           call_to_action:       cta,
           campaign_type:        campaignType,
           ai_generated:         false,
           suggested_budget_ngn: budgetNgn ? Number(budgetNgn) : null,
+          // media fields
+          image_url:            imageUrl.trim()       || null,
+          image_url_square:     imageUrlSquare.trim() || null,
+          logo_url:             logoUrl.trim()        || null,
+          long_headline:        (campaignType === 'DISPLAY' ? longHeadline.trim()
+                                : campaignType === 'VIDEO'  ? videoActionHeadline.trim()
+                                : null) || null,
+          video_url:            videoUrl.trim()       || null,
         }),
       });
-      if (res.success) {
-        setHeadlines(DEFAULT_HEADLINES);
-        setDescriptions(DEFAULT_DESCRIPTIONS);
-        setFinalUrl('');
-        setBudgetNgn('');
-        setTitle('');
-        onSaved();
-      } else setError(res.error || 'Save failed');
+      if (res.success) { reset(); onSaved(); }
+      else setError(res.error || 'Save failed');
     } catch { setError('Save failed'); }
     finally { setSaving(false); }
   };
 
+  // ── Type tabs ──────────────────────────────────────────────────────────────
+  const typeTabs: { key: 'SEARCH' | 'DISPLAY' | 'VIDEO'; label: string; icon: React.ElementType; desc: string }[] = [
+    { key: 'SEARCH',  label: 'Search',  icon: Search,     desc: 'Text-only — appears in Google search results' },
+    { key: 'DISPLAY', label: 'Display', icon: ImageIcon2, desc: 'Image banners — shown across websites' },
+    { key: 'VIDEO',   label: 'Video',   icon: Video,      desc: 'YouTube in-stream — skippable pre-roll ads' },
+  ];
+
+  const validH = headlines.filter((h) => h.trim());
+  const validD = descriptions.filter((d) => d.trim());
+
   return (
     <div className="grid lg:grid-cols-2 gap-6">
-      {/* Editor */}
+      {/* ── Left: Editor ───────────────────────────────────────────────────── */}
       <div className="space-y-5">
         <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-5">
-          <div className="flex items-center gap-2">
-            <Wand2 className="w-5 h-5 text-blue-600" />
-            <h2 className="font-semibold text-gray-900">RSA Ad Creator</h2>
-            <span className={`ml-auto text-xs px-2 py-0.5 rounded-full text-white ${account.bg}`}>
-              {account.name}
-            </span>
+
+          {/* Ad type selector */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <Wand2 className="w-5 h-5 text-blue-600" />
+              <h2 className="font-semibold text-gray-900">Ad Creator</h2>
+              <span className={`ml-auto text-xs px-2 py-0.5 rounded-full text-white ${account.bg}`}>
+                {account.name}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {typeTabs.map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => { setCampaignType(t.key); setError(''); }}
+                  className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-lg border-2 text-xs font-medium transition-colors text-center ${
+                    campaignType === t.key
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-gray-200 text-gray-500 hover:border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <t.icon className="w-4 h-4" />
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">
+              {typeTabs.find((t) => t.key === campaignType)?.desc}
+            </p>
           </div>
 
           {error && (
@@ -1476,45 +1581,161 @@ function AdCreator({ account, onSaved }: { account: AccountInfo; onSaved: () => 
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. JulineMart Flash Sale — Search Ad"
+              placeholder={campaignType === 'VIDEO' ? 'e.g. SkolaHQ YouTube June' : 'e.g. JulineMart Flash Sale'}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
-          {/* RSA Editor */}
-          <RsaEditor
-            headlines={headlines}
-            descriptions={descriptions}
-            onChangeHeadlines={setHeadlines}
-            onChangeDescriptions={setDescriptions}
-          />
-
-          {/* URL + settings */}
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-              Final URL <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="url"
-              value={finalUrl}
-              onChange={(e) => setFinalUrl(e.target.value)}
-              placeholder={`https://${account.website}/`}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          {/* ── Search fields ── */}
+          {campaignType === 'SEARCH' && (
+            <RsaEditor
+              headlines={headlines}
+              descriptions={descriptions}
+              onChangeHeadlines={setHeadlines}
+              onChangeDescriptions={setDescriptions}
             />
-          </div>
+          )}
 
+          {/* ── Display fields ── */}
+          {campaignType === 'DISPLAY' && (
+            <div className="space-y-4">
+              {/* Images */}
+              <div className="bg-purple-50 border border-purple-100 rounded-lg p-3 space-y-3">
+                <p className="text-xs font-semibold text-purple-700 flex items-center gap-1.5">
+                  <ImageIcon2 className="w-3.5 h-3.5" /> Images
+                </p>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                    Landscape Image URL <span className="text-red-500">*</span>
+                    <span className="ml-1 font-normal normal-case text-gray-400">(1.91:1 ratio — e.g. 1200×628px)</span>
+                  </label>
+                  <input
+                    type="url"
+                    value={imageUrl}
+                    onChange={(e) => setImageUrl(e.target.value)}
+                    placeholder="https://cdn.julinemart.com/banner.jpg"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                    Square Image URL
+                    <span className="ml-1 font-normal normal-case text-gray-400">(optional, 1:1 — e.g. 1200×1200px)</span>
+                  </label>
+                  <input
+                    type="url"
+                    value={imageUrlSquare}
+                    onChange={(e) => setImageUrlSquare(e.target.value)}
+                    placeholder="https://cdn.julinemart.com/square.jpg (or leave blank to reuse landscape)"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                    Logo URL <span className="font-normal normal-case text-gray-400">(optional)</span>
+                  </label>
+                  <input
+                    type="url"
+                    value={logoUrl}
+                    onChange={(e) => setLogoUrl(e.target.value)}
+                    placeholder="https://cdn.julinemart.com/logo.png"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                  />
+                </div>
+              </div>
+
+              {/* Headlines */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                  Long Headline <span className="text-red-500">*</span>
+                  <span className="ml-1 font-normal normal-case text-gray-400">(max 90 chars)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    maxLength={90}
+                    value={longHeadline}
+                    onChange={(e) => setLongHeadline(e.target.value)}
+                    placeholder="e.g. Shop Nigeria's widest selection of fashion & electronics"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 pr-12"
+                  />
+                  <span className={`absolute right-3 top-2.5 text-xs ${longHeadline.length > 85 ? 'text-red-500' : 'text-gray-400'}`}>
+                    {longHeadline.length}/90
+                  </span>
+                </div>
+              </div>
+
+              <RsaEditor
+                headlines={headlines}
+                descriptions={descriptions}
+                onChangeHeadlines={setHeadlines}
+                onChangeDescriptions={setDescriptions}
+                maxHeadlines={5}
+                headlineLabel="Short Headlines (shown in banner)"
+                headlineHint="(up to 5, max 30 chars each)"
+                descriptionLabel="Descriptions"
+                descriptionHint="(up to 5, max 90 chars each)"
+              />
+            </div>
+          )}
+
+          {/* ── Video fields ── */}
+          {campaignType === 'VIDEO' && (
+            <div className="space-y-4">
+              <div className="bg-red-50 border border-red-100 rounded-lg p-3 space-y-3">
+                <p className="text-xs font-semibold text-red-700 flex items-center gap-1.5">
+                  <Video className="w-3.5 h-3.5" /> YouTube Video
+                </p>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                    YouTube Video URL <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="url"
+                    value={videoUrl}
+                    onChange={(e) => setVideoUrl(e.target.value)}
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">The video must already be uploaded to your YouTube channel</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                  In-Stream Action Headline <span className="text-red-500">*</span>
+                  <span className="ml-1 font-normal normal-case text-gray-400">(shown next to CTA button, max 80 chars)</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    maxLength={80}
+                    value={videoActionHeadline}
+                    onChange={(e) => setVideoActionHeadline(e.target.value)}
+                    placeholder="e.g. Try SkolaHQ free — manage your school in minutes"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 pr-12"
+                  />
+                  <span className={`absolute right-3 top-2.5 text-xs ${videoActionHeadline.length > 75 ? 'text-red-500' : 'text-gray-400'}`}>
+                    {videoActionHeadline.length}/80
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Final URL + CTA */}
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Campaign Type</label>
-              <select
-                value={campaignType}
-                onChange={(e) => setCampaignType(e.target.value)}
+            <div className="col-span-2">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                Final URL <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="url"
+                value={finalUrl}
+                onChange={(e) => setFinalUrl(e.target.value)}
+                placeholder={`https://${account.website}/`}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="SEARCH">Search</option>
-                <option value="DISPLAY">Display</option>
-                <option value="PERFORMANCE_MAX">Performance Max</option>
-              </select>
+              />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Call to Action</label>
@@ -1528,20 +1749,19 @@ function AdCreator({ account, onSaved }: { account: AccountInfo; onSaved: () => 
                 ))}
               </select>
             </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Suggested Budget (₦)</label>
+              <input
+                type="number"
+                min={0}
+                value={budgetNgn}
+                onChange={(e) => setBudgetNgn(e.target.value)}
+                placeholder="e.g. 3000"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
           </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Suggested Daily Budget (₦)</label>
-            <input
-              type="number"
-              min={0}
-              value={budgetNgn}
-              onChange={(e) => setBudgetNgn(e.target.value)}
-              placeholder="e.g. 3000"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-gray-400 mt-1">Saved as a hint for the approval reviewer — not enforced</p>
-          </div>
+          <p className="text-xs text-gray-400 -mt-3">Suggested budget is a hint for the reviewer — not enforced</p>
 
           <button
             onClick={handleSave}
@@ -1553,81 +1773,255 @@ function AdCreator({ account, onSaved }: { account: AccountInfo; onSaved: () => 
           </button>
         </div>
 
-        {/* AI Assist panel */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <Wand2 className="w-4 h-4 text-purple-600" />
-            <h3 className="font-semibold text-gray-900 text-sm">AI Assist</h3>
-          </div>
-          <textarea
-            value={brief}
-            onChange={(e) => setBrief(e.target.value)}
-            rows={2}
-            placeholder="Describe what you want to promote…"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 resize-none"
-          />
-          <div className="flex gap-3 items-end">
-            <div className="flex-1">
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Tone</label>
-              <select
-                value={tone}
-                onChange={(e) => setTone(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+        {/* AI Assist — only shown for Search ads */}
+        {campaignType === 'SEARCH' && (
+          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <Wand2 className="w-4 h-4 text-purple-600" />
+              <h3 className="font-semibold text-gray-900 text-sm">AI Assist</h3>
+            </div>
+            <textarea
+              value={brief}
+              onChange={(e) => setBrief(e.target.value)}
+              rows={2}
+              placeholder="Describe what you want to promote…"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 resize-none"
+            />
+            <div className="flex gap-3 items-end">
+              <div className="flex-1">
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Tone</label>
+                <select
+                  value={tone}
+                  onChange={(e) => setTone(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                >
+                  <option value="professional">Professional</option>
+                  <option value="engaging">Engaging</option>
+                  <option value="urgent">Urgent</option>
+                  <option value="friendly">Friendly</option>
+                </select>
+              </div>
+              <button
+                onClick={handleAiAssist}
+                disabled={assisting}
+                className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-60 transition-colors"
               >
-                <option value="professional">Professional</option>
-                <option value="engaging">Engaging</option>
-                <option value="urgent">Urgent</option>
-                <option value="friendly">Friendly</option>
-              </select>
+                <Sparkles className={`w-4 h-4 ${assisting ? 'animate-pulse' : ''}`} />
+                {assisting ? 'Thinking…' : 'Suggest copy'}
+              </button>
             </div>
-            <button
-              onClick={handleAiAssist}
-              disabled={assisting}
-              className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-60 transition-colors"
-            >
-              <Sparkles className={`w-4 h-4 ${assisting ? 'animate-pulse' : ''}`} />
-              {assisting ? 'Thinking…' : 'Suggest copy'}
-            </button>
+            {suggestions.length > 0 && (
+              <div className="space-y-2 border-t border-gray-100 pt-3">
+                {suggestions.map((s, i) => (
+                  <div key={i} className="bg-purple-50 rounded-lg p-3 space-y-1">
+                    <p className="text-xs text-purple-700 font-medium">Suggestion {i + 1}</p>
+                    <p className="text-xs text-gray-700">{s.headlines[0]} | {s.headlines[1]}</p>
+                    <p className="text-xs text-gray-500">{s.descriptions[0]}</p>
+                    <button
+                      onClick={() => applySuggestion(s)}
+                      className="text-xs text-purple-600 font-medium hover:text-purple-700 mt-1"
+                    >Apply →</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          {suggestions.length > 0 && (
-            <div className="space-y-2 border-t border-gray-100 pt-3">
-              {suggestions.map((s, i) => (
-                <div key={i} className="bg-purple-50 rounded-lg p-3 space-y-1">
-                  <p className="text-xs text-purple-700 font-medium">Suggestion {i + 1}</p>
-                  <p className="text-xs text-gray-700">{s.headlines[0]} | {s.headlines[1]}</p>
-                  <p className="text-xs text-gray-500">{s.descriptions[0]}</p>
-                  <button
-                    onClick={() => applySuggestion(s)}
-                    className="text-xs text-purple-600 font-medium hover:text-purple-700 mt-1"
-                  >
-                    Apply →
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
-      {/* Preview */}
+      {/* ── Right: Preview + Checklist ─────────────────────────────────────── */}
       <div className="space-y-4">
         <h3 className="text-sm font-semibold text-gray-700">Live Preview</h3>
-        <GoogleAdPreview
-          headlines={headlines.filter((h) => h.trim())}
-          descriptions={descriptions.filter((d) => d.trim())}
-          displayUrl={account.website}
-          account={account}
-        />
+
+        {campaignType === 'SEARCH' && (
+          <GoogleAdPreview
+            headlines={validH}
+            descriptions={validD}
+            displayUrl={account.website}
+            account={account}
+          />
+        )}
+
+        {campaignType === 'DISPLAY' && (
+          <DisplayAdPreview
+            imageUrl={imageUrl}
+            shortHeadlines={validH}
+            longHeadline={longHeadline}
+            descriptions={validD}
+            businessName={account.name}
+            finalUrl={finalUrl || account.website}
+            cta={cta}
+          />
+        )}
+
+        {campaignType === 'VIDEO' && (
+          <VideoAdPreview
+            videoUrl={videoUrl}
+            actionHeadline={videoActionHeadline}
+            cta={cta}
+            finalUrl={finalUrl || account.website}
+          />
+        )}
+
+        {/* Quality checklist */}
         <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-2">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">RSA Quality checklist</p>
-          <QualityCheck label="At least 3 headlines" ok={headlines.filter((h) => h.trim()).length >= 3} />
-          <QualityCheck label="At least 2 descriptions" ok={descriptions.filter((d) => d.trim()).length >= 2} />
-          <QualityCheck label="All headlines ≤ 30 chars" ok={headlines.filter((h) => h.trim()).every((h) => h.length <= 30)} />
-          <QualityCheck label="All descriptions ≤ 90 chars" ok={descriptions.filter((d) => d.trim()).every((d) => d.length <= 90)} />
-          <QualityCheck label="Final URL set" ok={finalUrl.trim().startsWith('http')} />
-          <QualityCheck label="Recommended: 8+ headlines" ok={headlines.filter((h) => h.trim()).length >= 8} warn />
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            {campaignType === 'SEARCH' ? 'RSA' : campaignType === 'DISPLAY' ? 'Display RDA' : 'Video In-Stream'} Checklist
+          </p>
+          {campaignType === 'SEARCH' && (<>
+            <QualityCheck label="At least 3 headlines" ok={validH.length >= 3} />
+            <QualityCheck label="At least 2 descriptions" ok={validD.length >= 2} />
+            <QualityCheck label="All headlines ≤ 30 chars" ok={validH.length > 0 && validH.every((h) => h.length <= 30)} />
+            <QualityCheck label="All descriptions ≤ 90 chars" ok={validD.length > 0 && validD.every((d) => d.length <= 90)} />
+            <QualityCheck label="Final URL set" ok={finalUrl.trim().startsWith('http')} />
+            <QualityCheck label="Recommended: 8+ headlines" ok={validH.length >= 8} warn />
+          </>)}
+          {campaignType === 'DISPLAY' && (<>
+            <QualityCheck label="Landscape image URL set" ok={imageUrl.trim().startsWith('http')} />
+            <QualityCheck label="Long headline set" ok={longHeadline.trim().length > 0} />
+            <QualityCheck label="Long headline ≤ 90 chars" ok={longHeadline.length > 0 && longHeadline.length <= 90} />
+            <QualityCheck label="At least 1 short headline" ok={validH.length >= 1} />
+            <QualityCheck label="Short headlines ≤ 30 chars" ok={validH.length > 0 && validH.every((h) => h.length <= 30)} />
+            <QualityCheck label="At least 1 description" ok={validD.length >= 1} />
+            <QualityCheck label="Final URL set" ok={finalUrl.trim().startsWith('http')} />
+            <QualityCheck label="Square image for more placements" ok={imageUrlSquare.trim().startsWith('http')} warn />
+          </>)}
+          {campaignType === 'VIDEO' && (<>
+            <QualityCheck label="YouTube URL set" ok={videoUrl.trim().startsWith('http')} />
+            <QualityCheck label="Action headline set" ok={videoActionHeadline.trim().length > 0} />
+            <QualityCheck label="Action headline ≤ 80 chars" ok={videoActionHeadline.length > 0 && videoActionHeadline.length <= 80} />
+            <QualityCheck label="CTA selected" ok={!!cta} />
+            <QualityCheck label="Final URL set" ok={finalUrl.trim().startsWith('http')} />
+          </>)}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Display Ad Preview ──────────────────────────────────────────────────────
+
+function DisplayAdPreview({ imageUrl, shortHeadlines, longHeadline, descriptions, businessName, finalUrl, cta }: {
+  imageUrl: string; shortHeadlines: string[]; longHeadline: string;
+  descriptions: string[]; businessName: string; finalUrl: string; cta: string;
+}) {
+  const ctaLabel: Record<string, string> = {
+    LEARN_MORE: 'Learn More', SIGN_UP: 'Sign Up', GET_STARTED: 'Get Started',
+    CONTACT_US: 'Contact Us', BOOK_NOW: 'Book Now', SHOP_NOW: 'Shop Now',
+    GET_OFFER: 'Get Offer', SUBSCRIBE: 'Subscribe',
+  };
+  const domain = (() => { try { return new URL(finalUrl).hostname; } catch { return finalUrl; } })();
+  return (
+    <div className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden shadow-sm">
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+        <Globe className="w-3 h-3 text-gray-400" />
+        <span className="text-xs text-gray-400 truncate">{domain}</span>
+        <span className="ml-auto text-[10px] text-gray-300 font-medium">Ad</span>
+      </div>
+      {imageUrl ? (
+        <div className="w-full h-36 bg-gray-100 overflow-hidden">
+          <img
+            src={imageUrl}
+            alt="Ad banner"
+            className="w-full h-full object-cover"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+        </div>
+      ) : (
+        <div className="w-full h-36 bg-gradient-to-br from-purple-100 to-blue-100 flex items-center justify-center">
+          <ImageIcon2 className="w-8 h-8 text-purple-300" />
+          <span className="ml-2 text-sm text-purple-400">Landscape image preview</span>
+        </div>
+      )}
+      <div className="p-4 space-y-2">
+        <p className="text-xs text-gray-500 font-medium">
+          {shortHeadlines[0] || 'Short Headline'}{shortHeadlines[1] ? ` · ${shortHeadlines[1]}` : ''}
+        </p>
+        <p className="text-sm font-bold text-gray-900 leading-tight">
+          {longHeadline || 'Your long headline will appear here up to 90 characters'}
+        </p>
+        <p className="text-xs text-gray-600 leading-relaxed">
+          {descriptions[0] || 'Your description will appear here.'}
+        </p>
+        <div className="flex items-center justify-between pt-1">
+          <span className="text-xs font-semibold text-gray-700">{businessName}</span>
+          <span className="text-xs px-3 py-1 bg-blue-600 text-white rounded font-medium">
+            {ctaLabel[cta] || cta.replace(/_/g, ' ')}
+          </span>
+        </div>
+      </div>
+      <p className="text-[10px] text-gray-400 px-4 pb-2">
+        Google rotates short headlines, descriptions, and images across all placements
+      </p>
+    </div>
+  );
+}
+
+// ─── Video Ad Preview ────────────────────────────────────────────────────────
+
+function VideoAdPreview({ videoUrl, actionHeadline, cta, finalUrl }: {
+  videoUrl: string; actionHeadline: string; cta: string; finalUrl: string;
+}) {
+  const ctaLabel: Record<string, string> = {
+    LEARN_MORE: 'Learn More', SIGN_UP: 'Sign Up', GET_STARTED: 'Get Started',
+    CONTACT_US: 'Contact Us', BOOK_NOW: 'Book Now', SHOP_NOW: 'Shop Now',
+    GET_OFFER: 'Get Offer', SUBSCRIBE: 'Subscribe',
+  };
+  const videoId = (() => {
+    try {
+      const u = new URL(videoUrl);
+      if (u.hostname.includes('youtu.be')) return u.pathname.slice(1);
+      return u.searchParams.get('v') || '';
+    } catch { return ''; }
+  })();
+  const thumbUrl = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : '';
+  const domain = (() => { try { return new URL(finalUrl).hostname; } catch { return finalUrl; } })();
+
+  return (
+    <div className="bg-white rounded-xl border-2 border-gray-200 overflow-hidden shadow-sm">
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+        <Video className="w-3 h-3 text-red-500" />
+        <span className="text-xs text-gray-500 font-medium">YouTube In-Stream Ad</span>
+        <span className="ml-auto text-[10px] text-gray-300 font-medium">Ad</span>
+      </div>
+      <div className="relative w-full h-40 bg-gray-900 flex items-center justify-center overflow-hidden">
+        {thumbUrl ? (
+          <img
+            src={thumbUrl}
+            alt="YouTube thumbnail"
+            className="w-full h-full object-cover opacity-80"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+        ) : (
+          <Video className="w-10 h-10 text-gray-600" />
+        )}
+        {/* Skip button simulation */}
+        <div className="absolute bottom-2 right-2 bg-black/70 text-white text-[10px] px-2 py-1 rounded">
+          Skip ad in 5 ▶
+        </div>
+        {/* Play button */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="w-10 h-10 bg-red-600/90 rounded-full flex items-center justify-center">
+            <Play className="w-4 h-4 text-white ml-0.5" />
+          </div>
+        </div>
+      </div>
+      <div className="p-4 space-y-2">
+        <p className="text-sm font-semibold text-gray-900 leading-tight">
+          {actionHeadline || 'Your action headline appears next to the CTA button'}
+        </p>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-blue-600 truncate">{domain}</span>
+          <span className="text-xs px-3 py-1 bg-blue-600 text-white rounded font-medium shrink-0 ml-2">
+            {ctaLabel[cta] || cta.replace(/_/g, ' ')}
+          </span>
+        </div>
+      </div>
+      {videoId && (
+        <p className="text-[10px] text-gray-400 px-4 pb-2 truncate">
+          youtube.com/watch?v={videoId}
+        </p>
+      )}
     </div>
   );
 }

@@ -298,29 +298,84 @@ async function getDrafts(accountKey, status) {
 // POST /api/google/drafts
 async function createDraft(body, userId) {
   const { account_key, title, headlines, descriptions, final_url, image_url,
-          campaign_type, call_to_action, suggested_budget_ngn, ai_generated } = body;
+          campaign_type, call_to_action, suggested_budget_ngn, ai_generated,
+          video_url, logo_url, long_headline, image_url_square } = body;
   if (!account_key || !title || !headlines?.length || !descriptions?.length)
     return err('account_key, title, headlines, descriptions are required', 400);
   if (!ACCOUNTS[account_key]) return err('Invalid account_key', 400);
 
   const { data, error } = await supabase.from('google_ad_drafts').insert({
     account_key,
-    customer_id:         ACCOUNTS[account_key].customerId,
+    customer_id:          ACCOUNTS[account_key].customerId,
     title,
-    headlines:           headlines.slice(0, 15),
-    descriptions:        descriptions.slice(0, 4),
-    final_url:           final_url || ACCOUNTS[account_key].website,
-    image_url:           image_url || null,
-    campaign_type:       campaign_type || 'SEARCH',
-    call_to_action:      call_to_action || 'LEARN_MORE',
+    headlines:            headlines.slice(0, 15),
+    descriptions:         descriptions.slice(0, 5),
+    final_url:            final_url || ACCOUNTS[account_key].website,
+    image_url:            image_url || null,
+    campaign_type:        campaign_type || 'SEARCH',
+    call_to_action:       call_to_action || 'LEARN_MORE',
     suggested_budget_ngn: suggested_budget_ngn || null,
-    ai_generated:        ai_generated || false,
-    created_by:          userId || null,
-    status:              'draft',
+    ai_generated:         ai_generated || false,
+    created_by:           userId || null,
+    status:               'draft',
+    video_url:            video_url   || null,
+    logo_url:             logo_url    || null,
+    long_headline:        long_headline || null,
+    image_url_square:     image_url_square || null,
   }).select().single();
   if (error) throw error;
-  await logAction(userId, account_key, 'create_draft', 'draft', data.id, { title });
+  await logAction(userId, account_key, 'create_draft', 'draft', data.id, { title, campaign_type });
   return created(data);
+}
+
+// ── Media asset helpers ────────────────────────────────────────────────────────
+
+/** Fetch an image from a URL and upload it to Google Ads as an ImageAsset.
+ *  Returns the asset resource name: "customers/{cid}/assets/{assetId}" */
+async function uploadImageAsset(customerId, imageUrl, assetName) {
+  console.log('[uploadImageAsset] fetching:', imageUrl);
+  const imgRes = await fetch(imageUrl);
+  if (!imgRes.ok) throw new Error(`Failed to fetch image (${imgRes.status}): ${imageUrl}`);
+  const buffer   = await imgRes.arrayBuffer();
+  const b64      = Buffer.from(buffer).toString('base64');
+  const rawMime  = (imgRes.headers.get('content-type') || 'image/jpeg').split(';')[0].trim();
+  const mimeMap  = { 'image/jpeg': 'IMAGE_JPEG', 'image/jpg': 'IMAGE_JPEG',
+                     'image/png': 'IMAGE_PNG', 'image/gif': 'IMAGE_GIF', 'image/webp': 'IMAGE_WEBP' };
+  const mimeType = mimeMap[rawMime] || 'IMAGE_JPEG';
+
+  const res = await googleMutate(customerId, 'assets', [{
+    create: {
+      name: (assetName || `Image_${Date.now()}`).slice(0, 255),
+      type: 'IMAGE',
+      imageAsset: { data: b64, mimeType },
+    },
+  }]);
+  return res.results[0].resourceName;
+}
+
+/** Create a YouTube video asset in the Google Ads account.
+ *  Accepts a full YouTube URL or bare video ID.
+ *  Returns { resourceName, videoId }. */
+async function createYouTubeVideoAsset(customerId, youtubeUrl, assetName) {
+  let videoId = youtubeUrl.trim();
+  try {
+    const u = new URL(youtubeUrl);
+    if (u.hostname.includes('youtu.be')) {
+      videoId = u.pathname.slice(1).split('?')[0];
+    } else {
+      videoId = u.searchParams.get('v') || u.pathname.split('/').pop();
+    }
+  } catch { /* assume bare video ID already */ }
+  if (!videoId) throw new Error('Could not extract YouTube video ID from URL');
+
+  const res = await googleMutate(customerId, 'assets', [{
+    create: {
+      name: (assetName || `Video_${Date.now()}`).slice(0, 255),
+      type: 'YOUTUBE_VIDEO',
+      youtubeVideoAsset: { youtubeVideoId: videoId },
+    },
+  }]);
+  return { resourceName: res.results[0].resourceName, videoId };
 }
 
 // PUT /api/google/drafts/:id/approve
@@ -407,8 +462,8 @@ async function updateDraft(id, body, userId) {
 
 // POST /api/google/drafts/:id/publish
 async function publishDraft(draftId, body, userId) {
-  if (!DEV_TOKEN)   return err('GOOGLE_ADS_DEVELOPER_TOKEN not configured', 500);
-  if (!MANAGER_ID)  return err('GOOGLE_ADS_MANAGER_CUSTOMER_ID not configured', 500);
+  if (!DEV_TOKEN)  return err('GOOGLE_ADS_DEVELOPER_TOKEN not configured', 500);
+  if (!MANAGER_ID) return err('GOOGLE_ADS_MANAGER_CUSTOMER_ID not configured', 500);
 
   const { new_campaign_name, daily_budget_ngn, campaign_id } = body;
   if (!daily_budget_ngn || Number(daily_budget_ngn) < 500)
@@ -421,6 +476,7 @@ async function publishDraft(draftId, body, userId) {
   if (!draft.headlines?.length || !draft.descriptions?.length)
     return err('Draft must have headlines and descriptions', 400);
 
+  const adType       = (draft.campaign_type || 'SEARCH').toUpperCase();
   const customerId   = draft.customer_id;
   const account      = ACCOUNTS[draft.account_key];
   const budgetMicros = Math.round(Number(daily_budget_ngn) * 1_000_000);
@@ -431,8 +487,7 @@ async function publishDraft(draftId, body, userId) {
   if (!resolvedCampaignId) {
     if (!new_campaign_name?.trim()) return err('new_campaign_name is required when not using existing campaign', 400);
 
-    // 1. Create campaign budget
-    console.log('[publishDraft] Creating budget:', budgetMicros);
+    console.log('[publishDraft] Creating budget:', budgetMicros, 'type:', adType);
     const budgetRes = await googleMutate(customerId, 'campaignBudgets', [{
       create: {
         name:           `${new_campaign_name.trim()} Budget`,
@@ -442,21 +497,21 @@ async function publishDraft(draftId, body, userId) {
     }]);
     const budgetName = budgetRes.results[0].resourceName;
 
-    // 2. Create campaign (PAUSED so user reviews before activating)
+    // Network settings differ per campaign type
+    const networkSettings = adType === 'DISPLAY'
+      ? { targetGoogleSearch: false, targetSearchNetwork: false, targetContentNetwork: true }
+      : adType === 'VIDEO'
+      ? { targetYoutube: true, targetGoogleTvNetwork: false, targetContentNetwork: false }
+      : { targetGoogleSearch: true, targetSearchNetwork: true, targetContentNetwork: false, targetPartnerSearchNetwork: false };
+
     console.log('[publishDraft] Creating campaign');
     const campaignRes = await googleMutate(customerId, 'campaigns', [{
       create: {
         name:                   new_campaign_name.trim(),
-        advertisingChannelType: draft.campaign_type || 'SEARCH',
+        advertisingChannelType: adType,
         status:                 'PAUSED',
         campaignBudget:         budgetName,
-        networkSettings: {
-          targetGoogleSearch:    true,
-          targetSearchNetwork:   true,
-          targetContentNetwork:  false,
-          targetPartnerSearchNetwork: false,
-        },
-        // Nigeria geo targeting
+        networkSettings,
         geoTargetTypeSetting: {
           positiveGeoTargetType: 'PRESENCE_OR_INTEREST',
           negativeGeoTargetType: 'PRESENCE',
@@ -467,7 +522,6 @@ async function publishDraft(draftId, body, userId) {
     resolvedCampaignId = campaignResourceName.split('/').pop();
     console.log('[publishDraft] Campaign created:', resolvedCampaignId);
 
-    // 2b. Add Nigeria geo target
     try {
       await googleMutate(customerId, 'campaignCriteria', [{
         create: {
@@ -481,40 +535,143 @@ async function publishDraft(draftId, body, userId) {
     }
   }
 
-  // 3. Create ad group
+  // Ad group type per ad type
+  const adGroupTypeMap = { SEARCH: 'SEARCH_STANDARD', DISPLAY: 'DISPLAY_STANDARD', VIDEO: 'VIDEO' };
   console.log('[publishDraft] Creating ad group');
   const adGroupRes = await googleMutate(customerId, 'adGroups', [{
     create: {
       name:     `${draft.title} — Ad Group`,
       campaign: `customers/${customerId}/campaigns/${resolvedCampaignId}`,
       status:   'ENABLED',
-      type:     'SEARCH_STANDARD',
+      type:     adGroupTypeMap[adType] || 'SEARCH_STANDARD',
     },
   }]);
   const adGroupResourceName = adGroupRes.results[0].resourceName;
   const adGroupId = adGroupResourceName.split('/').pop();
 
-  // 4. Create Responsive Search Ad
-  console.log('[publishDraft] Creating RSA');
-  const headlines    = draft.headlines.slice(0, 15).map((text) => ({ text }));
-  const descriptions = draft.descriptions.slice(0, 4).map((text) => ({ text }));
+  // ── Create the ad based on type ───────────────────────────────────────────
 
-  const adRes = await googleMutate(customerId, 'adGroupAds', [{
-    create: {
-      adGroup: adGroupResourceName,
-      status:  'ENABLED',
-      ad: {
-        finalUrls:          [finalUrl],
-        responsiveSearchAd: { headlines, descriptions },
+  let adId;
+
+  if (adType === 'DISPLAY') {
+    // ── Responsive Display Ad ──────────────────────────────────────────────
+    if (!draft.image_url) return err('Display ads require a landscape image URL (image_url)', 400);
+
+    console.log('[publishDraft] Uploading landscape image');
+    const landAsset = await uploadImageAsset(
+      customerId, draft.image_url, `${draft.title} — Landscape`
+    );
+
+    // Square: use dedicated square URL if provided, else reuse landscape
+    let squareAsset = landAsset;
+    if (draft.image_url_square) {
+      console.log('[publishDraft] Uploading square image');
+      squareAsset = await uploadImageAsset(
+        customerId, draft.image_url_square, `${draft.title} — Square`
+      );
+    }
+
+    // Optional logo
+    let logoAssets = [];
+    if (draft.logo_url) {
+      try {
+        const logoAsset = await uploadImageAsset(
+          customerId, draft.logo_url, `${draft.title} — Logo`
+        );
+        logoAssets = [{ asset: logoAsset }];
+      } catch (logoErr) {
+        console.warn('[publishDraft] Logo upload failed (non-fatal):', logoErr.message);
+      }
+    }
+
+    const shortHeadlines = draft.headlines.slice(0, 5).map((text) => ({ text }));
+    const longHeadline   = draft.long_headline || draft.headlines[0] || draft.title;
+    const descriptions   = draft.descriptions.slice(0, 5).map((text) => ({ text }));
+    const businessName   = (account?.name || 'JulineMart').slice(0, 25);
+
+    console.log('[publishDraft] Creating Responsive Display Ad');
+    const adRes = await googleMutate(customerId, 'adGroupAds', [{
+      create: {
+        adGroup: adGroupResourceName,
+        status:  'ENABLED',
+        ad: {
+          finalUrls: [finalUrl],
+          responsiveDisplayAd: {
+            marketingImages:       [{ asset: landAsset }],
+            squareMarketingImages: [{ asset: squareAsset }],
+            shortHeadlines:        shortHeadlines,
+            longHeadline:          { text: longHeadline.slice(0, 90) },
+            descriptions:          descriptions,
+            businessName,
+            ...(logoAssets.length ? { logos: logoAssets } : {}),
+          },
+        },
       },
-    },
-  }]);
-  const adId = adRes.results[0].resourceName.split('/').pop();
+    }]);
+    adId = adRes.results[0].resourceName.split('/').pop();
+
+  } else if (adType === 'VIDEO') {
+    // ── YouTube In-Stream Video Ad ─────────────────────────────────────────
+    if (!draft.video_url) return err('Video ads require a video_url (YouTube URL or video ID)', 400);
+
+    console.log('[publishDraft] Creating YouTube video asset');
+    const { resourceName: videoAssetName, videoId } = await createYouTubeVideoAsset(
+      customerId, draft.video_url, `${draft.title} — Video`
+    );
+    console.log('[publishDraft] YouTube video asset created, videoId:', videoId);
+
+    const actionHeadline = (draft.long_headline || draft.headlines[0] || draft.title).slice(0, 80);
+    const rawCta         = draft.call_to_action || 'LEARN_MORE';
+    // In-stream actionButtonLabel is a plain short label (e.g. "Sign Up", not enum)
+    const ctaLabelMap = {
+      LEARN_MORE: 'Learn More', SIGN_UP: 'Sign Up', GET_STARTED: 'Get Started',
+      CONTACT_US: 'Contact Us', BOOK_NOW: 'Book Now', SHOP_NOW: 'Shop Now',
+      GET_OFFER:  'Get Offer',  SUBSCRIBE: 'Subscribe',
+    };
+    const actionButtonLabel = (ctaLabelMap[rawCta] || rawCta.replace(/_/g, ' ')).slice(0, 20);
+
+    console.log('[publishDraft] Creating Video In-Stream Ad');
+    const adRes = await googleMutate(customerId, 'adGroupAds', [{
+      create: {
+        adGroup: adGroupResourceName,
+        status:  'ENABLED',
+        ad: {
+          finalUrls: [finalUrl],
+          videoAd: {
+            video: { asset: videoAssetName },
+            inStream: {
+              actionButtonLabel,
+              actionHeadline,
+            },
+          },
+        },
+      },
+    }]);
+    adId = adRes.results[0].resourceName.split('/').pop();
+
+  } else {
+    // ── Responsive Search Ad (SEARCH, default) ─────────────────────────────
+    console.log('[publishDraft] Creating RSA');
+    const headlines    = draft.headlines.slice(0, 15).map((text) => ({ text }));
+    const descriptions = draft.descriptions.slice(0, 4).map((text) => ({ text }));
+
+    const adRes = await googleMutate(customerId, 'adGroupAds', [{
+      create: {
+        adGroup: adGroupResourceName,
+        status:  'ENABLED',
+        ad: {
+          finalUrls:          [finalUrl],
+          responsiveSearchAd: { headlines, descriptions },
+        },
+      },
+    }]);
+    adId = adRes.results[0].resourceName.split('/').pop();
+  }
+
   console.log('[publishDraft] Ad created:', adId);
 
-  // 5. Mark draft published
   await supabase.from('google_ad_drafts').update({
-    status:            'published',
+    status:             'published',
     google_campaign_id: resolvedCampaignId,
     google_ad_group_id: adGroupId,
     google_ad_id:       adId,
@@ -522,7 +679,7 @@ async function publishDraft(draftId, body, userId) {
   }).eq('id', draftId);
 
   await logAction(userId, draft.account_key, 'publish_draft', 'draft', draftId, {
-    campaign_id: resolvedCampaignId, ad_group_id: adGroupId, ad_id: adId,
+    ad_type: adType, campaign_id: resolvedCampaignId, ad_group_id: adGroupId, ad_id: adId,
   });
 
   return ok({ campaign_id: resolvedCampaignId, ad_group_id: adGroupId, ad_id: adId });

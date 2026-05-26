@@ -579,6 +579,33 @@ async function uploadAdImage(body) {
   return ok({ url: ensurePublicUrl(pub.publicUrl) });
 }
 
+// ── Campaign budget update ────────────────────────────────────────────────────
+
+async function updateCampaignBudget(campaignId, dailyBudgetNgn, userId) {
+  const ngn = Number(dailyBudgetNgn);
+  if (!ngn || ngn < META_MIN_DAILY_BUDGET_NGN)
+    return err(`Budget must be at least ₦${META_MIN_DAILY_BUDGET_NGN.toLocaleString()}`, 400);
+
+  const budgetCents = Math.round(ngn * 100); // Meta stores in currency subunits (kobo for NGN)
+
+  const url = new URL(`${META_API_BASE}/${campaignId}`);
+  url.searchParams.set('access_token', ACCESS_TOKEN);
+  const res  = await fetch(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ daily_budget: budgetCents }),
+  });
+  const json = await res.json();
+  if (!res.ok || json.error) throw new Error(metaErrMsg(json.error, 'Failed to update budget'));
+
+  await supabase.from('meta_campaigns_cache')
+    .update({ daily_budget: ngn, updated_at: new Date().toISOString() })
+    .eq('meta_campaign_id', campaignId);
+
+  await logAction(userId, 'update_budget', 'campaign', campaignId, { budget_ngn: ngn });
+  return ok({ campaign_id: campaignId, daily_budget: ngn });
+}
+
 // ── Campaign status toggle (pause / resume via Meta API) ─────────────────────
 
 async function updateCampaignStatus(campaignId, status, userId) {
@@ -972,6 +999,10 @@ export async function handler(event) {
     // PUT /api/meta/campaigns/:id/status
     const campaignStatusMatch = path.match(/^campaigns\/([^/]+)\/status$/);
     if (campaignStatusMatch && method === 'PUT') return await updateCampaignStatus(campaignStatusMatch[1], body.status, userId);
+
+    // PUT /api/meta/campaigns/:id/budget
+    const campaignBudgetMatch = path.match(/^campaigns\/([^/]+)\/budget$/);
+    if (campaignBudgetMatch && method === 'PUT') return await updateCampaignBudget(campaignBudgetMatch[1], body.daily_budget, userId);
 
     return err(`Unknown route: ${method} /api/meta/${path}`, 404);
   } catch (e) {

@@ -4,7 +4,7 @@ import {
   Clock, Eye, MousePointer, DollarSign, Target, Plus,
   ChevronDown, ChevronUp, AlertCircle, Megaphone, AlertTriangle,
   Play, Pause, Send, Trash2, Wand2, FileText, Globe, Search,
-  BarChart2, Zap, Building2, ShoppingBag, GraduationCap,
+  BarChart2, Zap, Building2, ShoppingBag, GraduationCap, Pencil, X as XIcon,
 } from 'lucide-react';
 
 const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
@@ -160,21 +160,37 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
 
 // ─── Campaign card ─────────────────────────────────────────────────────────────
 
-function CampaignCard({ campaign, onStatusChange }: {
+function CampaignCard({ campaign, onStatusChange, onBudgetChange }: {
   campaign: GoogleCampaign;
   onStatusChange: (googleId: string, status: 'ENABLED' | 'PAUSED') => void;
+  onBudgetChange: (googleId: string, budgetNgn: number) => Promise<void>;
 }) {
   const alert = isAlertCampaign(campaign);
   const budgetNgn = microToNgn(campaign.budget_amount_micros || 0);
   const spentNgn  = microToNgn(campaign.cost_micros || 0);
   const spendPct  = budgetNgn > 0 ? Math.min(100, (spentNgn / budgetNgn) * 100) : 0;
-  const [toggling, setToggling] = useState(false);
+  const [toggling, setToggling]           = useState(false);
+  const [editingBudget, setEditingBudget] = useState(false);
+  const [budgetInput, setBudgetInput]     = useState('');
+  const [savingBudget, setSavingBudget]   = useState(false);
 
   const handleToggle = async () => {
     setToggling(true);
     const next = campaign.status === 'ENABLED' ? 'PAUSED' : 'ENABLED';
     await onStatusChange(campaign.google_campaign_id, next);
     setToggling(false);
+  };
+
+  const handleBudgetEdit = () => {
+    setBudgetInput(String(Math.round(budgetNgn || 0)));
+    setEditingBudget(true);
+  };
+
+  const handleBudgetSave = async () => {
+    setSavingBudget(true);
+    await onBudgetChange(campaign.google_campaign_id, Number(budgetInput));
+    setSavingBudget(false);
+    setEditingBudget(false);
   };
 
   return (
@@ -251,12 +267,45 @@ function CampaignCard({ campaign, onStatusChange }: {
         )}
       </div>
 
-      {/* Budget bar */}
+      {/* Budget bar + inline editor */}
       {budgetNgn > 0 && (
-        <div>
-          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-xs text-gray-500">
             <span>Daily budget</span>
-            <span>{fmtMicros(campaign.cost_micros)} / {fmt(budgetNgn)}</span>
+            {!editingBudget ? (
+              <div className="flex items-center gap-1.5">
+                <span>{fmtMicros(campaign.cost_micros)} / {fmt(budgetNgn)}</span>
+                <button
+                  onClick={handleBudgetEdit}
+                  title="Adjust budget"
+                  className="text-gray-400 hover:text-blue-600 transition-colors"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-400">₦</span>
+                <input
+                  type="number"
+                  value={budgetInput}
+                  onChange={(e) => setBudgetInput(e.target.value)}
+                  className="w-24 border border-blue-300 rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-900"
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleBudgetSave(); if (e.key === 'Escape') setEditingBudget(false); }}
+                />
+                <button
+                  onClick={handleBudgetSave}
+                  disabled={savingBudget}
+                  className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {savingBudget ? '…' : 'Save'}
+                </button>
+                <button onClick={() => setEditingBudget(false)} className="text-gray-400 hover:text-gray-600">
+                  <XIcon className="w-3 h-3" />
+                </button>
+              </div>
+            )}
           </div>
           <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
             <div
@@ -528,6 +577,24 @@ export function GoogleAdsPage() {
     } catch { setError('Failed to update campaign status'); }
   };
 
+  const handleBudgetChange = async (googleId: string, budgetNgn: number) => {
+    try {
+      const res = await api(`/api/google/campaigns/${googleId}/budget`, {
+        method: 'PUT',
+        body: JSON.stringify({ daily_budget_ngn: budgetNgn, account_key: activeAccount }),
+      });
+      if (res.success) {
+        setCampaigns((prev) => prev.map((c) =>
+          c.google_campaign_id === googleId
+            ? { ...c, budget_amount_micros: Math.round(budgetNgn * 1_000_000) }
+            : c
+        ));
+      } else {
+        setError(res.error || 'Failed to update budget');
+      }
+    } catch { setError('Failed to update budget'); }
+  };
+
   // ── Draft actions ──────────────────────────────────────────────────────────
 
   const handleApprove = async (id: string) => {
@@ -794,7 +861,7 @@ export function GoogleAdsPage() {
           ) : (
             <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
               {accountCampaigns.map((c) => (
-                <CampaignCard key={c.id} campaign={c} onStatusChange={handleStatusChange} />
+                <CampaignCard key={c.id} campaign={c} onStatusChange={handleStatusChange} onBudgetChange={handleBudgetChange} />
               ))}
             </div>
           )}

@@ -333,6 +333,40 @@ async function approveDraft(id, userId) {
   return ok(data);
 }
 
+// PUT /api/google/campaigns/:id/budget
+async function updateCampaignBudget(accountKey, campaignId, budgetNgn, userId) {
+  if (!ACCOUNTS[accountKey]) return err('Invalid account key', 400);
+  const ngn = Number(budgetNgn);
+  if (!ngn || ngn < 500) return err('Budget must be at least ₦500', 400);
+
+  const customerId   = ACCOUNTS[accountKey].customerId;
+  const budgetMicros = Math.round(ngn * 1_000_000);
+
+  // 1. Fetch the campaign's budget resource name
+  const results = await gaqlSearch(customerId,
+    `SELECT campaign.campaign_budget FROM campaign WHERE campaign.id = ${campaignId}`
+  );
+  if (!results.length) return err('Campaign not found in Google Ads', 404);
+
+  const budgetResourceName = results[0]?.campaign?.campaignBudget;
+  if (!budgetResourceName) return err('Campaign has no linked budget resource', 400);
+
+  // 2. Mutate the budget amount
+  await googleMutate(customerId, 'campaignBudgets', [{
+    update:     { resourceName: budgetResourceName, amountMicros: budgetMicros },
+    updateMask: 'amountMicros',
+  }]);
+
+  // 3. Update local cache
+  await supabase.from('google_campaigns_cache')
+    .update({ budget_amount_micros: budgetMicros, synced_at: new Date().toISOString() })
+    .eq('account_key', accountKey)
+    .eq('google_campaign_id', String(campaignId));
+
+  await logAction(userId, accountKey, 'update_budget', 'campaign', String(campaignId), { budget_ngn: ngn });
+  return ok({ campaign_id: campaignId, budget_amount_micros: budgetMicros });
+}
+
 // PUT /api/google/drafts/:id/reject
 async function rejectDraft(id, userId, note) {
   const { data, error } = await supabase.from('google_ad_drafts')
@@ -643,6 +677,11 @@ export async function handler(event) {
     const campaignStatusMatch = path.match(/^campaigns\/([^/]+)\/status$/);
     if (campaignStatusMatch && method === 'PUT')
       return await updateCampaignStatus(qs.account || body.account_key, campaignStatusMatch[1], body.status, userId);
+
+    // PUT /api/google/campaigns/:id/budget
+    const campaignBudgetMatch = path.match(/^campaigns\/([^/]+)\/budget$/);
+    if (campaignBudgetMatch && method === 'PUT')
+      return await updateCampaignBudget(qs.account || body.account_key, campaignBudgetMatch[1], body.daily_budget_ngn, userId);
 
     // GET /api/google/drafts?account=xxx
     if (path === 'drafts' && method === 'GET') return await getDrafts(qs.account, qs.status);

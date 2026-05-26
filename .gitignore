@@ -66,3 +66,4 @@ Thumbs.db
 
 # === Miscellaneous ===
 *.pem
+.claude/

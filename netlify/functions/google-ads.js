@@ -760,24 +760,71 @@ Return ONLY a JSON array, no explanation:
   return ok(variations);
 }
 
-// POST /api/google/ai/assist  (brief → suggestions for Smart Creator)
+// POST /api/google/ai/assist  (brief → suggestions for Ad Creator)
+// Supports campaign_type: SEARCH | DISPLAY | VIDEO
 async function aiAssist(body) {
   if (!ANTHROPIC_KEY) return err('ANTHROPIC_API_KEY not configured', 500);
-  const { brief, tone = 'engaging', account_key } = body;
+  const { brief, tone = 'engaging', account_key, campaign_type = 'SEARCH', cta = 'LEARN_MORE' } = body;
   if (!brief?.trim()) return err('brief is required', 400);
   if (!ACCOUNTS[account_key]) return err('Invalid account_key', 400);
 
-  const prompt = `You are a Google Ads copywriter for ${ACCOUNTS[account_key].name}.
+  const account = ACCOUNTS[account_key];
+  const adType  = (campaign_type || 'SEARCH').toUpperCase();
+
+  let prompt;
+
+  if (adType === 'DISPLAY') {
+    prompt = `You are a Google Display Ads copywriter for ${account.name} (${account.businessType}, ${account.geo}).
+
 Brief: "${brief.trim()}"
 Tone: ${tone}
 
-Write 3 RSA headline/description suggestions.
-Headlines max 30 chars, descriptions max 90 chars.
+Write copy for a Responsive Display Ad. Requirements (STRICT):
+- long_headline: 1 headline, MAX 90 characters including spaces. Used as the main banner headline.
+- short_headlines: 3-5 short headlines, MAX 30 characters each. Used in smaller placements.
+- descriptions: 3-5 descriptions, MAX 90 characters each. Include a value proposition and/or CTA.
 
-Return ONLY JSON array:
+Return ONLY a single JSON object, no explanation:
+{
+  "long_headline": "...",
+  "short_headlines": ["...", "...", "..."],
+  "descriptions": ["...", "...", "..."]
+}`;
+  } else if (adType === 'VIDEO') {
+    prompt = `You are a YouTube Ads copywriter for ${account.name} (${account.businessType}, ${account.geo}).
+
+Brief: "${brief.trim()}"
+Tone: ${tone}
+CTA button: ${cta.replace(/_/g, ' ')}
+
+Write 3 YouTube in-stream ad variations. Requirements (STRICT):
+- action_headline: shown next to the CTA button during the ad. MAX 80 characters. Should be compelling and action-driven.
+- script_idea: 1-2 sentence hook for the first 5 seconds (before viewers can skip). Should grab attention immediately.
+
+Return ONLY a JSON array, no explanation:
 [
+  { "action_headline": "...", "script_idea": "..." },
+  { "action_headline": "...", "script_idea": "..." },
+  { "action_headline": "...", "script_idea": "..." }
+]`;
+  } else {
+    // SEARCH (existing behaviour, expanded)
+    prompt = `You are a Google Search Ads copywriter for ${account.name} (${account.businessType}, ${account.geo}).
+
+Brief: "${brief.trim()}"
+Tone: ${tone}
+
+Write 3 RSA variations. Requirements (STRICT):
+- headline: MAX 30 characters including spaces.
+- description: MAX 90 characters including spaces. Include a CTA.
+
+Return ONLY a JSON array, no explanation:
+[
+  { "headline": "...", "description": "..." },
+  { "headline": "...", "description": "..." },
   { "headline": "...", "description": "..." }
 ]`;
+  }
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -788,16 +835,23 @@ Return ONLY JSON array:
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5',
-      max_tokens: 600,
+      max_tokens: 800,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
   const result = await response.json();
   const text   = result.content?.[0]?.text || '';
+
   try {
-    const match = text.match(/\[[\s\S]*\]/);
+    // Display returns an object {}, Search/Video return an array []
+    const match = adType === 'DISPLAY'
+      ? text.match(/\{[\s\S]*\}/)
+      : text.match(/\[[\s\S]*\]/);
+    if (!match) throw new Error('No JSON found');
     return ok(JSON.parse(match[0]));
-  } catch { return err('AI returned unexpected format', 500); }
+  } catch {
+    return err('AI returned unexpected format — please try again', 500);
+  }
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────

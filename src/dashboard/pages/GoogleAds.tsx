@@ -1415,11 +1415,18 @@ function AdCreator({ account, onSaved }: { account: AccountInfo; onSaved: () => 
   const [videoUrl, setVideoUrl]         = useState('');
   const [videoActionHeadline, setVideoActionHeadline] = useState('');
 
-  // AI assist (only for Search)
+  // AI assist — shared brief/tone state for all types
   const [brief, setBrief]               = useState('');
   const [tone, setTone]                 = useState('professional');
   const [assisting, setAssisting]       = useState(false);
-  const [suggestions, setSuggestions]   = useState<RsaVariation[]>([]);
+  // Search suggestions: { headline, description }[]
+  const [suggestions, setSuggestions]   = useState<{ headline: string; description: string }[]>([]);
+  // Display suggestion: single object with full copy set
+  const [displaySuggestion, setDisplaySuggestion] = useState<{
+    long_headline: string; short_headlines: string[]; descriptions: string[];
+  } | null>(null);
+  // Video suggestions: { action_headline, script_idea }[]
+  const [videoSuggestions, setVideoSuggestions]   = useState<{ action_headline: string; script_idea: string }[]>([]);
 
   const CTA_OPTIONS = [
     { value: 'LEARN_MORE',  label: 'Learn More' },
@@ -1434,22 +1441,42 @@ function AdCreator({ account, onSaved }: { account: AccountInfo; onSaved: () => 
 
   const handleAiAssist = async () => {
     if (!brief.trim()) { setError('Enter a brief first'); return; }
-    setAssisting(true); setError(''); setSuggestions([]);
+    setAssisting(true); setError('');
+    setSuggestions([]); setDisplaySuggestion(null); setVideoSuggestions([]);
     try {
       const res = await api('/api/google/ai/assist', {
         method: 'POST',
-        body: JSON.stringify({ brief, tone, account: account.key, cta }),
+        body: JSON.stringify({ brief, tone, account_key: account.key, cta, campaign_type: campaignType }),
       });
-      if (res.success) setSuggestions(res.data);
-      else setError(res.error || 'AI assist failed');
+      if (res.success) {
+        if (campaignType === 'DISPLAY') setDisplaySuggestion(res.data);
+        else if (campaignType === 'VIDEO') setVideoSuggestions(res.data);
+        else setSuggestions(res.data);
+      } else setError(res.error || 'AI assist failed');
     } catch { setError('AI assist failed'); }
     finally { setAssisting(false); }
   };
 
-  const applySuggestion = (s: RsaVariation) => {
-    setHeadlines(s.headlines);
-    setDescriptions(s.descriptions);
+  // Search: add single headline+description to the current lists
+  const applySearchSuggestion = (s: { headline: string; description: string }) => {
+    setHeadlines((prev) => [...prev.filter((h) => h.trim()), s.headline].slice(0, 15));
+    setDescriptions((prev) => [...prev.filter((d) => d.trim()), s.description].slice(0, 4));
     setSuggestions([]);
+  };
+
+  // Display: overwrite all copy fields with the AI result
+  const applyDisplaySuggestion = () => {
+    if (!displaySuggestion) return;
+    setLongHeadline(displaySuggestion.long_headline || '');
+    setHeadlines(displaySuggestion.short_headlines?.length ? displaySuggestion.short_headlines : ['']);
+    setDescriptions(displaySuggestion.descriptions?.length ? displaySuggestion.descriptions : ['']);
+    setDisplaySuggestion(null);
+  };
+
+  // Video: apply just the action headline
+  const applyVideoSuggestion = (s: { action_headline: string; script_idea: string }) => {
+    setVideoActionHeadline(s.action_headline);
+    setVideoSuggestions([]);
   };
 
   const reset = () => {
@@ -1457,6 +1484,8 @@ function AdCreator({ account, onSaved }: { account: AccountInfo; onSaved: () => 
     setTitle(''); setFinalUrl(''); setBudgetNgn('');
     setImageUrl(''); setImageUrlSquare(''); setLogoUrl(''); setLongHeadline('');
     setVideoUrl(''); setVideoActionHeadline('');
+    setSuggestions([]); setDisplaySuggestion(null); setVideoSuggestions([]);
+    setBrief('');
   };
 
   const handleSave = async () => {
@@ -1773,60 +1802,149 @@ function AdCreator({ account, onSaved }: { account: AccountInfo; onSaved: () => 
           </button>
         </div>
 
-        {/* AI Assist — only shown for Search ads */}
-        {campaignType === 'SEARCH' && (
-          <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
-            <div className="flex items-center gap-2">
-              <Wand2 className="w-4 h-4 text-purple-600" />
-              <h3 className="font-semibold text-gray-900 text-sm">AI Assist</h3>
-            </div>
-            <textarea
-              value={brief}
-              onChange={(e) => setBrief(e.target.value)}
-              rows={2}
-              placeholder="Describe what you want to promote…"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 resize-none"
-            />
-            <div className="flex gap-3 items-end">
-              <div className="flex-1">
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Tone</label>
-                <select
-                  value={tone}
-                  onChange={(e) => setTone(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
-                >
-                  <option value="professional">Professional</option>
-                  <option value="engaging">Engaging</option>
-                  <option value="urgent">Urgent</option>
-                  <option value="friendly">Friendly</option>
-                </select>
-              </div>
-              <button
-                onClick={handleAiAssist}
-                disabled={assisting}
-                className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-60 transition-colors"
-              >
-                <Sparkles className={`w-4 h-4 ${assisting ? 'animate-pulse' : ''}`} />
-                {assisting ? 'Thinking…' : 'Suggest copy'}
-              </button>
-            </div>
-            {suggestions.length > 0 && (
-              <div className="space-y-2 border-t border-gray-100 pt-3">
-                {suggestions.map((s, i) => (
-                  <div key={i} className="bg-purple-50 rounded-lg p-3 space-y-1">
-                    <p className="text-xs text-purple-700 font-medium">Suggestion {i + 1}</p>
-                    <p className="text-xs text-gray-700">{s.headlines[0]} | {s.headlines[1]}</p>
-                    <p className="text-xs text-gray-500">{s.descriptions[0]}</p>
-                    <button
-                      onClick={() => applySuggestion(s)}
-                      className="text-xs text-purple-600 font-medium hover:text-purple-700 mt-1"
-                    >Apply →</button>
-                  </div>
-                ))}
-              </div>
-            )}
+        {/* AI Assist — all ad types */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <Wand2 className="w-4 h-4 text-purple-600" />
+            <h3 className="font-semibold text-gray-900 text-sm">AI Assist</h3>
+            <span className={`ml-auto text-[10px] px-2 py-0.5 rounded-full font-semibold ${CAMPAIGN_TYPE_COLOR[campaignType] || 'bg-gray-100 text-gray-600'}`}>
+              {campaignType === 'SEARCH' ? 'RSA copy' : campaignType === 'DISPLAY' ? 'Display copy' : 'Video scripts'}
+            </span>
           </div>
-        )}
+
+          <textarea
+            value={brief}
+            onChange={(e) => setBrief(e.target.value)}
+            rows={2}
+            placeholder={
+              campaignType === 'VIDEO'
+                ? 'Describe what the video should achieve and who it targets…'
+                : 'Describe what you want to promote and your target audience…'
+            }
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 resize-none"
+          />
+
+          <div className="flex gap-3 items-end">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Tone</label>
+              <select
+                value={tone}
+                onChange={(e) => setTone(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+              >
+                <option value="professional">Professional</option>
+                <option value="engaging">Engaging</option>
+                <option value="urgent">Urgent</option>
+                <option value="friendly">Friendly</option>
+              </select>
+            </div>
+            <button
+              onClick={handleAiAssist}
+              disabled={assisting}
+              className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-60 transition-colors"
+            >
+              <Sparkles className={`w-4 h-4 ${assisting ? 'animate-pulse' : ''}`} />
+              {assisting ? 'Thinking…' : 'Suggest copy'}
+            </button>
+          </div>
+
+          {/* ── Search suggestions ── */}
+          {campaignType === 'SEARCH' && suggestions.length > 0 && (
+            <div className="space-y-2 border-t border-gray-100 pt-3">
+              <p className="text-xs text-gray-500">Click <strong>Add</strong> to append each suggestion to your headlines & descriptions</p>
+              {suggestions.map((s, i) => (
+                <div key={i} className="bg-purple-50 rounded-lg p-3 space-y-1.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-gray-800 truncate">{s.headline}</p>
+                      <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{s.description}</p>
+                      <div className="flex gap-2 mt-1 text-[10px]">
+                        <span className={s.headline.length > 30 ? 'text-red-500' : 'text-gray-400'}>
+                          H: {s.headline.length}/30
+                        </span>
+                        <span className={s.description.length > 90 ? 'text-red-500' : 'text-gray-400'}>
+                          D: {s.description.length}/90
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => applySearchSuggestion(s)}
+                      className="shrink-0 text-xs bg-purple-600 text-white px-2.5 py-1 rounded font-medium hover:bg-purple-700 transition-colors"
+                    >
+                      Add +
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Display suggestion ── */}
+          {campaignType === 'DISPLAY' && displaySuggestion && (
+            <div className="border-t border-gray-100 pt-3 space-y-3">
+              <div className="bg-purple-50 rounded-lg p-3 space-y-2">
+                <p className="text-xs text-purple-700 font-semibold">AI generated copy</p>
+                <div>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide font-semibold mb-0.5">Long headline</p>
+                  <p className="text-xs text-gray-800 font-medium leading-snug">{displaySuggestion.long_headline}</p>
+                  <span className={`text-[10px] ${(displaySuggestion.long_headline?.length || 0) > 90 ? 'text-red-500' : 'text-gray-400'}`}>
+                    {displaySuggestion.long_headline?.length || 0}/90 chars
+                  </span>
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide font-semibold mb-0.5">Short headlines</p>
+                  {displaySuggestion.short_headlines?.map((h, i) => (
+                    <p key={i} className="text-xs text-gray-700">· {h} <span className={`text-[10px] ${h.length > 30 ? 'text-red-500' : 'text-gray-400'}`}>({h.length})</span></p>
+                  ))}
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide font-semibold mb-0.5">Descriptions</p>
+                  {displaySuggestion.descriptions?.map((d, i) => (
+                    <p key={i} className="text-xs text-gray-600 leading-relaxed">· {d}</p>
+                  ))}
+                </div>
+                <button
+                  onClick={applyDisplaySuggestion}
+                  className="w-full text-xs bg-purple-600 text-white px-3 py-1.5 rounded font-medium hover:bg-purple-700 transition-colors"
+                >
+                  Apply all to form →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Video suggestions ── */}
+          {campaignType === 'VIDEO' && videoSuggestions.length > 0 && (
+            <div className="space-y-2 border-t border-gray-100 pt-3">
+              <p className="text-xs text-gray-500">Click <strong>Use</strong> to apply the action headline</p>
+              {videoSuggestions.map((s, i) => (
+                <div key={i} className="bg-purple-50 rounded-lg p-3 space-y-1.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 space-y-1">
+                      <div>
+                        <p className="text-[10px] text-gray-400 uppercase tracking-wide font-semibold">Action headline</p>
+                        <p className="text-xs font-semibold text-gray-800 leading-snug">{s.action_headline}</p>
+                        <span className={`text-[10px] ${s.action_headline.length > 80 ? 'text-red-500' : 'text-gray-400'}`}>
+                          {s.action_headline.length}/80
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-gray-400 uppercase tracking-wide font-semibold">Script hook idea</p>
+                        <p className="text-xs text-gray-600 leading-relaxed italic">"{s.script_idea}"</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => applyVideoSuggestion(s)}
+                      className="shrink-0 text-xs bg-purple-600 text-white px-2.5 py-1 rounded font-medium hover:bg-purple-700 transition-colors"
+                    >
+                      Use
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Right: Preview + Checklist ─────────────────────────────────────── */}

@@ -218,18 +218,23 @@ function CampaignCard({ campaign, onStatusChange, onBudgetChange }: {
         </div>
       </div>
 
-      {/* Budget bar + inline editor */}
+      {/* Budget row — shows current daily/lifetime cap with inline editor.
+           NOTE: campaign.spend is a 30-day total, NOT today's spend, so we
+           intentionally don't show a spend-vs-budget progress bar here to
+           avoid a misleading "overspent" red bar. */}
       {budget > 0 && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs text-gray-500">
             <span>{campaign.daily_budget ? 'Daily budget' : 'Lifetime budget'}</span>
             {!editingBudget ? (
               <div className="flex items-center gap-1.5">
-                <span>{fmt(campaign.spend)} / {fmt(budget)}</span>
+                <span className="font-medium text-gray-700">{fmt(budget)}</span>
+                <span className="text-gray-300">·</span>
+                <span>30d spend {fmt(campaign.spend)}</span>
                 {campaign.daily_budget && (
                   <button
                     onClick={handleBudgetEdit}
-                    title="Adjust budget"
+                    title="Adjust daily budget"
                     className="text-gray-400 hover:text-blue-600 transition-colors"
                   >
                     <Pencil className="w-3 h-3" />
@@ -259,12 +264,6 @@ function CampaignCard({ campaign, onStatusChange, onBudgetChange }: {
                 </button>
               </div>
             )}
-          </div>
-          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${spendPct > 85 ? 'bg-red-500' : 'bg-blue-500'}`}
-              style={{ width: `${spendPct}%` }}
-            />
           </div>
         </div>
       )}

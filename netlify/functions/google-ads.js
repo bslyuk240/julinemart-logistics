@@ -2,22 +2,44 @@
 // Google Ads integration for JulineMart, JulineServices, SkolaHQ
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL    = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-const SERVICE_KEY     = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const API_VERSION     = 'v18';
-const API_BASE        = `https://googleads.googleapis.com/${API_VERSION}`;
-const DEV_TOKEN       = process.env.GOOGLE_ADS_DEVELOPER_TOKEN || '';
-const MANAGER_ID      = (process.env.GOOGLE_ADS_MANAGER_CUSTOMER_ID || '').replace(/-/g, '');
-const CLIENT_ID       = process.env.GOOGLE_ADS_CLIENT_ID || '';
-const CLIENT_SECRET   = process.env.GOOGLE_ADS_CLIENT_SECRET || '';
-const REFRESH_TOKEN   = process.env.GOOGLE_ADS_REFRESH_TOKEN || '';
-const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY || '';
+const SUPABASE_URL  = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const SERVICE_KEY   = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const API_VERSION   = 'v18';
+const API_BASE      = `https://googleads.googleapis.com/${API_VERSION}`;
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
+
+// ── Google Ads credentials — all packed in one JSON env var to stay under
+//    AWS Lambda's 4 KB env limit.
+//
+//    Set GOOGLE_ADS_CONFIG in Netlify as a single JSON string:
+//    {
+//      "developerToken": "...",
+//      "clientId":       "...",
+//      "clientSecret":   "...",
+//      "refreshToken":   "...",
+//      "managerId":      "2875419899",
+//      "customerIds": {
+//        "julinemart": "2248852650",
+//        "services":   "5953436723",
+//        "skolahq":    "1214993945"
+//      }
+//    }
+// ─────────────────────────────────────────────────────────────────────────────
+let _cfg = {};
+try { _cfg = JSON.parse(process.env.GOOGLE_ADS_CONFIG || '{}'); } catch {}
+
+const DEV_TOKEN     = _cfg.developerToken || '';
+const MANAGER_ID    = (_cfg.managerId || '').replace(/-/g, '');
+const CLIENT_ID     = _cfg.clientId     || '';
+const CLIENT_SECRET = _cfg.clientSecret || '';
+const REFRESH_TOKEN = _cfg.refreshToken || '';
+const CUSTOMER_IDS  = _cfg.customerIds  || {};
 
 // ── Account registry ─────────────────────────────────────────────────────────
 
 const ACCOUNTS = {
   julinemart: {
-    customerId: (process.env.GOOGLE_ADS_CUSTOMER_ID_JULINEMART || '').replace(/-/g, ''),
+    customerId: (CUSTOMER_IDS.julinemart || '').replace(/-/g, ''),
     name: 'JulineMart Nigeria',
     website: 'https://julinemart.com',
     businessType: 'ecommerce',
@@ -27,7 +49,7 @@ const ACCOUNTS = {
     ctaOptions: ['SHOP_NOW', 'LEARN_MORE', 'BUY_NOW', 'GET_OFFER'],
   },
   services: {
-    customerId: (process.env.GOOGLE_ADS_CUSTOMER_ID_SERVICES || '').replace(/-/g, ''),
+    customerId: (CUSTOMER_IDS.services || '').replace(/-/g, ''),
     name: 'JulineServices',
     website: 'https://services.julinemart.com',
     businessType: 'marketplace',
@@ -37,7 +59,7 @@ const ACCOUNTS = {
     ctaOptions: ['LEARN_MORE', 'CONTACT_US', 'SIGN_UP', 'GET_QUOTE'],
   },
   skolahq: {
-    customerId: (process.env.GOOGLE_ADS_CUSTOMER_ID_SKOLAHQ || '').replace(/-/g, ''),
+    customerId: (CUSTOMER_IDS.skolahq || '').replace(/-/g, ''),
     name: 'SkolaHQ',
     website: 'https://skolahq.com',
     businessType: 'saas',

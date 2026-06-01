@@ -74,15 +74,17 @@ async function loadImageBlocks(imageUrls) {
     try {
       const response = await fetch(imageUrl, { signal: AbortSignal.timeout(7000) });
       if (!response.ok) continue;
-      const contentType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-      if (!contentType.startsWith('image/')) continue;
+      const rawContentType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+      const SUPPORTED_TYPES = { 'image/jpeg': true, 'image/jpg': true, 'image/png': true, 'image/gif': true, 'image/webp': true };
+      if (!SUPPORTED_TYPES[rawContentType]) continue;
+      const mediaType = rawContentType === 'image/jpg' ? 'image/jpeg' : rawContentType;
       const bytes = Buffer.from(await response.arrayBuffer());
       if (!bytes.length || bytes.length > 5 * 1024 * 1024) continue;
       blocks.push({
         type: 'image',
         source: {
           type: 'base64',
-          media_type: contentType,
+          media_type: mediaType,
           data: bytes.toString('base64'),
         },
       });

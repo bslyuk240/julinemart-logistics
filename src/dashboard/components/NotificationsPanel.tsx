@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Bell, X } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Notification {
   id: string;
@@ -24,6 +25,7 @@ interface ActivityLog {
 }
 
 export function NotificationsPanel() {
+  const { session } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
@@ -240,7 +242,9 @@ export function NotificationsPanel() {
     let mounted = true;
     const fetchNotifications = async () => {
       try {
-        const response = await fetch(`${functionsBase}/activity-logs?limit=5`);
+        const response = await fetch(`${functionsBase}/activity-logs?limit=5`, {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        });
         if (!response.ok) throw new Error(`Activity logs ${response.status}`);
         const data = await response.json();
         if (mounted && data.success && Array.isArray(data.data)) {

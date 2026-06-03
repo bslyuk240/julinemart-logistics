@@ -1,7 +1,5 @@
 import { supabase } from './supabase';
 
-const JLO_BASE = (import.meta.env.VITE_JLO_API_URL as string || '').replace(/\/$/, '');
-
 export async function logActivity(params: {
   action: string;
   resource_type?: string;
@@ -10,15 +8,17 @@ export async function logActivity(params: {
 }) {
   try {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) return;
+    if (!session?.user) return;
 
-    await fetch(`${JLO_BASE}/.netlify/functions/log-activity`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({ ...params, source: 'vendor_portal' }),
+    const { user } = session;
+    await supabase.from('activity_logs').insert({
+      user_id: user.id,
+      actor_email: user.email ?? null,
+      action: params.action.trim().toUpperCase(),
+      resource_type: params.resource_type ?? null,
+      resource_id: params.resource_id ?? null,
+      details: params.details ?? null,
+      source: 'vendor_portal',
     });
   } catch {
     // Non-critical — never block the user flow

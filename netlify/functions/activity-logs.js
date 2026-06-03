@@ -44,7 +44,7 @@ export async function handler(event) {
       .select('role')
       .eq('id', authData.user.id)
       .single();
-    if (!profile || profile.role !== 'admin') {
+    if (!profile || !['admin', 'manager'].includes(profile.role)) {
       return { statusCode: 403, headers, body: JSON.stringify({ success: false, error: 'Forbidden' }) };
     }
 

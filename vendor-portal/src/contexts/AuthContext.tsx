@@ -50,9 +50,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [vendor, setVendor]   = useState<Vendor | null>(null);
   const [loading, setLoading] = useState(true);
-  const hadSessionAtMount = { current: false };
-  const loginLogged = { current: false };
-
   const loadVendor = async () => {
     try {
       const data = await api.getProfile();
@@ -64,27 +61,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) hadSessionAtMount.current = true;
       setSession(session);
       setUser(session?.user ?? null);
       if (session) loadVendor().finally(() => setLoading(false));
       else setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session) {
-        // Only log LOGIN for real fresh sign-ins, not page-reload session restores.
-        if (event === 'SIGNED_IN' && !hadSessionAtMount.current && !loginLogged.current) {
-          loginLogged.current = true;
-          logActivity({ action: 'LOGIN', details: { method: 'email' } }, session);
-        }
-        hadSessionAtMount.current = false;
         setLoading(true);
         loadVendor().finally(() => setLoading(false));
       } else {
-        loginLogged.current = false;
         setVendor(null);
         setLoading(false);
       }
@@ -94,8 +83,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
+    logActivity({ action: 'LOGIN', details: { method: 'email' } }, data.session ?? undefined);
   };
 
   const signOut = async () => {

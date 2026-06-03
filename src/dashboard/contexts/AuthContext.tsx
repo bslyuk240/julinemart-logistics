@@ -37,14 +37,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  // Track whether a session already existed at mount so we only log LOGIN on fresh sign-ins.
-  const hadSessionAtMount = { current: false };
-  const loginLogged = { current: false };
 
   useEffect(() => {
-    // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) hadSessionAtMount.current = true;
       setSession(session);
       if (session?.user) {
         fetchUserProfile(session.user.id);
@@ -53,19 +48,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session?.user) {
         fetchUserProfile(session.user.id);
-        // Only log LOGIN for real fresh sign-ins, not page-reload session restores.
-        if (event === 'SIGNED_IN' && !hadSessionAtMount.current && !loginLogged.current) {
-          loginLogged.current = true;
-          logActivity({ action: 'LOGIN', details: { portal: 'jlo' } });
-        }
-        hadSessionAtMount.current = false;
       } else {
-        loginLogged.current = false;
         setUser(null);
         setLoading(false);
       }
@@ -136,7 +123,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) return { error };
 
-      // Fetch user profile after successful sign in
       if (data.user) {
         const result = await fetchUserProfile(data.user.id);
         if (result === 'vendor') {
@@ -146,6 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             },
           };
         }
+        logActivity({ action: 'LOGIN', details: { portal: 'jlo' } });
       }
 
       return { error: null };

@@ -72,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session) {
-        if (event === 'SIGNED_IN') logActivity({ action: 'LOGIN', details: { method: 'email' } });
+        if (event === 'SIGNED_IN') logActivity({ action: 'LOGIN', details: { method: 'email' } }, session.user);
         setLoading(true);
         loadVendor().finally(() => setLoading(false));
       } else {

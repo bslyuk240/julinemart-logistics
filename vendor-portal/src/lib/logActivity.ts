@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
 
+const JLO_BASE = ((import.meta.env.VITE_JLO_API_URL as string) || '').replace(/\/$/, '');
+
 export async function logActivity(
   params: {
     action: string;
@@ -10,29 +12,34 @@ export async function logActivity(
   user?: { id: string; email?: string | null },
 ) {
   try {
-    let uid = user?.id;
-    let email = user?.email ?? null;
+    let sessionToken: string | undefined;
 
-    if (!uid) {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) {
+    const { data: { session } } = await supabase.auth.getSession();
+    sessionToken = session?.access_token;
+
+    if (!sessionToken) {
+      if (!user?.id) {
         console.warn('[logActivity] vendor_portal: no session, skipping');
         return;
       }
-      uid = session.user.id;
-      email = session.user.email ?? null;
     }
 
-    const { error } = await supabase.from('activity_logs').insert({
-      user_id: uid,
-      actor_email: email,
-      action: params.action.trim().toUpperCase(),
-      resource_type: params.resource_type ?? null,
-      resource_id: params.resource_id ?? null,
-      details: params.details ?? null,
-      source: 'vendor_portal',
+    const token = sessionToken;
+    if (!token) return;
+
+    const response = await fetch(`${JLO_BASE}/.netlify/functions/log-activity`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ ...params, source: 'vendor_portal' }),
     });
-    if (error) console.error('[logActivity] vendor_portal insert error:', error.message, error.code, error.details);
+
+    if (!response.ok) {
+      const message = await response.text().catch(() => '');
+      console.error('[logActivity] vendor_portal request failed:', response.status, message);
+    }
   } catch (err) {
     console.error('[logActivity] vendor_portal unexpected error:', err);
   }

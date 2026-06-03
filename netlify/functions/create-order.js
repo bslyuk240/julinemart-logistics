@@ -573,6 +573,26 @@ export async function handler(event) {
         .eq('id', voucherRow.id);
     }
 
+    try {
+      await adminClient.from('activity_logs').insert({
+        user_id: null,
+        actor_email: customer_email.trim().toLowerCase(),
+        action: 'ORDER_PLACED',
+        resource_type: 'orders',
+        resource_id: orderId,
+        details: {
+          order_number: orderNumber,
+          customer_name: customer_name.trim(),
+          total_amount: totalAmount,
+          item_count: resolvedItems.length,
+          sub_order_count: subOrders.length,
+        },
+        source: 'storefront',
+      });
+    } catch (activityError) {
+      console.warn('Unable to write PWA order activity log:', activityError?.message || activityError);
+    }
+
     // ── Send order confirmation emails (await — Netlify terminates the function when the handler
     // returns; fire-and-forget promises are often cut off before SMTP + email_logs complete.)
     try {

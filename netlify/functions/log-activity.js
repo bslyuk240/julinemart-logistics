@@ -27,6 +27,10 @@ export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: cors, body: '' };
   if (event.httpMethod !== 'POST') return { statusCode: 405, headers: cors, body: 'Method Not Allowed' };
 
+  if (!supabaseUrl || !serviceKey || !anonKey) {
+    return { statusCode: 500, headers: cors, body: JSON.stringify({ error: 'Server not configured' }) };
+  }
+
   const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
   if (!authHeader.startsWith('Bearer ')) {
     return { statusCode: 401, headers: cors, body: JSON.stringify({ error: 'Unauthorized' }) };
@@ -65,7 +69,7 @@ export const handler = async (event) => {
   const userAgent = event.headers?.['user-agent'] || null;
 
   const adminClient = createClient(supabaseUrl, serviceKey);
-  const { error: insertErr } = await adminClient.from('activity_logs').insert({
+  const row = {
     user_id:       user.id,
     actor_email:   user.email,
     action:        actionNorm,
@@ -75,7 +79,39 @@ export const handler = async (event) => {
     source:        source        || 'storefront',
     ip_address:    ip,
     user_agent:    userAgent,
-  });
+  };
+
+  const insertWithFallback = async () => {
+    let candidate = { ...row };
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const { error } = await adminClient.from('activity_logs').insert(candidate);
+      if (!error) return null;
+      if (error.code !== 'PGRST204') return error;
+
+      const message = error.message || '';
+      if (message.includes('user_agent')) {
+        const { user_agent, ...next } = candidate;
+        candidate = next;
+        continue;
+      }
+      if (message.includes('actor_email')) {
+        const { actor_email, ...next } = candidate;
+        candidate = next;
+        continue;
+      }
+      if (message.includes('source')) {
+        const { source, ...next } = candidate;
+        candidate = next;
+        continue;
+      }
+      return error;
+    }
+
+    return null;
+  };
+
+  const insertErr = await insertWithFallback();
 
   if (insertErr) {
     console.error('[log-activity] insert error:', insertErr.message);

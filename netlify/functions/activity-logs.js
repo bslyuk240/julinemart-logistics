@@ -56,26 +56,39 @@ export async function handler(event) {
     const excludeWhatsapp = params.exclude_whatsapp !== 'false';
 
     // Step 1: fetch logs (no FK join — user_id now refs auth.users, not public.users)
-    let query = supabase
-      .from('activity_logs')
-      .select('id, user_id, actor_email, action, resource_type, resource_id, details, ip_address, source, created_at')
-      .order('created_at', { ascending: false })
-      .limit(limit);
+    const buildQuery = (selectColumns, includeSourceFilter = true) => {
+      let query = supabase
+        .from('activity_logs')
+        .select(selectColumns)
+        .order('created_at', { ascending: false })
+        .limit(limit);
 
-    if (excludeWhatsapp) {
-      query = query
-        .not('action', 'ilike', 'whatsapp%')
-        .not('resource_type', 'ilike', 'whatsapp%');
-    }
-    if (action && action !== 'all') query = query.eq('action', action);
-    if (source && source !== 'all')  query = query.eq('source', source);
+      if (excludeWhatsapp) {
+        query = query
+          .not('action', 'ilike', 'whatsapp%')
+          .not('resource_type', 'ilike', 'whatsapp%');
+      }
+      if (action && action !== 'all') query = query.eq('action', action);
+      if (includeSourceFilter && source && source !== 'all') query = query.eq('source', source);
+      return query;
+    };
 
-    const { data: logs, error } = await query;
+    const selectWithSource = 'id, user_id, actor_email, action, resource_type, resource_id, details, ip_address, source, created_at';
+    const selectLegacy = 'id, user_id, action, resource_type, resource_id, details, ip_address, created_at';
+    let { data: logs, error } = await buildQuery(selectWithSource);
     if (error) {
       if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
         console.warn('activity_logs table does not exist, returning empty array');
         return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: [] }) };
       }
+      if (error.code === 'PGRST204' || error.message?.includes('actor_email') || error.message?.includes('source')) {
+        const retry = await buildQuery(selectLegacy, false);
+        logs = retry.data;
+        error = retry.error;
+      }
+    }
+
+    if (error) {
       throw error;
     }
 

@@ -40,6 +40,7 @@ const ACTION_LABELS: Record<string, string> = {
   ORDER_PLACED: 'Order placed',
   CARD_ADDED: 'Card added',
   RETURN_REQUESTED: 'Return requested',
+  PASSWORD_CHANGED: 'Password changed',
   INSERT: 'Record created',
   CREATE: 'Record created',
   UPDATE: 'Record updated',
@@ -75,6 +76,7 @@ const ACTION_COLOR: Record<string, string> = {
   ORDER_PLACED: 'bg-green-50 text-green-700',
   CARD_ADDED: 'bg-emerald-50 text-emerald-700',
   RETURN_REQUESTED: 'bg-orange-50 text-orange-700',
+  PASSWORD_CHANGED: 'bg-blue-50 text-blue-700',
   WITHDRAWAL_PAID: 'bg-indigo-50 text-indigo-700',
   courier_shipment_created: 'bg-indigo-50 text-indigo-700',
   VENDOR_APPLICATION_APPROVED: 'bg-green-50 text-green-700',
@@ -107,7 +109,7 @@ const ACTION_FILTERS = [
   { value: 'courier_shipment_created', label: 'Shipment created' },
 ];
 
-const AUTH_ACTIONS = new Set(['LOGIN', 'LOGOUT', 'SIGNUP', 'PASSWORD_RESET_SENT']);
+const AUTH_ACTIONS = new Set(['LOGIN', 'LOGOUT', 'SIGNUP', 'PASSWORD_RESET_SENT', 'PASSWORD_CHANGED']);
 
 const ROW_GRID = 'grid grid-cols-[2rem_minmax(12rem,2fr)_5rem_minmax(9rem,1.5fr)_minmax(8rem,1fr)_9rem] items-center gap-x-3';
 

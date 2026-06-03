@@ -67,9 +67,12 @@ export async function handler(event) {
         .limit(overrideLimit);
 
       if (excludeWhatsapp) {
+        // NOTE: a plain .not('resource_type','ilike','whatsapp%') silently drops
+        // every row where resource_type IS NULL (Postgres: NULL NOT ILIKE x => NULL),
+        // which is ALL login/logout events. Use a null-safe OR so those survive.
         query = query
           .not('action', 'ilike', 'whatsapp%')
-          .not('resource_type', 'ilike', 'whatsapp%');
+          .or('resource_type.is.null,resource_type.not.ilike.whatsapp%');
       }
       if (action && action !== 'all') query = query.eq('action', action);
       if (includeSourceFilter && source && source !== 'all') query = query.eq('source', source);

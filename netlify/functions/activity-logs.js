@@ -91,21 +91,6 @@ export async function handler(event) {
 
     if (error) throw error;
 
-    // Deduplicate LOGIN/LOGOUT spam: keep only the most recent per (user_id, action) combination.
-    // This prevents hundreds of page-reload LOGINs from drowning out meaningful events.
-    if (!action || action === 'all') {
-      const seenLoginKey = new Set();
-      logs = (logs || []).filter(log => {
-        const a = (log.action || '').toUpperCase();
-        if (a === 'LOGIN' || a === 'LOGOUT') {
-          const key = `${log.user_id}|${a}|${(log.source || '')}`;
-          if (seenLoginKey.has(key)) return false;
-          seenLoginKey.add(key);
-        }
-        return true;
-      });
-    }
-
     // Step 2: enrich with public.users (JLO staff only — vendors/customers won't be there)
     const userIds = [...new Set((logs || []).map(l => l.user_id).filter(Boolean))];
     let usersMap = {};

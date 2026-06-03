@@ -50,6 +50,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [vendor, setVendor]   = useState<Vendor | null>(null);
   const [loading, setLoading] = useState(true);
+  const hadSessionAtMount = { current: false };
+  const loginLogged = { current: false };
 
   const loadVendor = async () => {
     try {
@@ -62,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) hadSessionAtMount.current = true;
       setSession(session);
       setUser(session?.user ?? null);
       if (session) loadVendor().finally(() => setLoading(false));
@@ -72,9 +75,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session) {
-        if (event === 'SIGNED_IN') {
+        // Only log LOGIN for real fresh sign-ins, not page-reload session restores.
+        if (event === 'SIGNED_IN' && !hadSessionAtMount.current && !loginLogged.current) {
+          loginLogged.current = true;
           logActivity({ action: 'LOGIN', details: { method: 'email' } }, session);
         }
+        hadSessionAtMount.current = false;
         setLoading(true);
         loadVendor().finally(() => setLoading(false));
       } else {

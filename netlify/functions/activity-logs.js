@@ -49,19 +49,22 @@ export async function handler(event) {
     }
 
     const params = event.queryStringParameters || {};
-    const parsedLimit = Number(params.limit ?? 100);
-    const limit = Math.min(Number.isNaN(parsedLimit) ? 100 : parsedLimit, 500);
+    const parsedLimit = Number(params.limit ?? 200);
+    const limit = Math.min(Number.isNaN(parsedLimit) ? 200 : parsedLimit, 500);
     const action = params.action;
     const source = params.source;
     const excludeWhatsapp = params.exclude_whatsapp !== 'false';
 
+    const selectWithSource = 'id, user_id, actor_email, action, resource_type, resource_id, details, ip_address, source, created_at';
+    const selectLegacy = 'id, user_id, action, resource_type, resource_id, details, ip_address, created_at';
+
     // Step 1: fetch logs (no FK join — user_id now refs auth.users, not public.users)
-    const buildQuery = (selectColumns, includeSourceFilter = true) => {
+    const buildQuery = (selectColumns, includeSourceFilter = true, overrideLimit = limit) => {
       let query = supabase
         .from('activity_logs')
         .select(selectColumns)
         .order('created_at', { ascending: false })
-        .limit(limit);
+        .limit(overrideLimit);
 
       if (excludeWhatsapp) {
         query = query
@@ -73,8 +76,6 @@ export async function handler(event) {
       return query;
     };
 
-    const selectWithSource = 'id, user_id, actor_email, action, resource_type, resource_id, details, ip_address, source, created_at';
-    const selectLegacy = 'id, user_id, action, resource_type, resource_id, details, ip_address, created_at';
     let { data: logs, error } = await buildQuery(selectWithSource);
     if (error) {
       if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
@@ -82,14 +83,27 @@ export async function handler(event) {
         return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: [] }) };
       }
       if (error.code === 'PGRST204' || error.message?.includes('actor_email') || error.message?.includes('source')) {
-        const retry = await buildQuery(selectLegacy, false);
+        const retry = await buildQuery(selectLegacy, true, limit);
         logs = retry.data;
         error = retry.error;
       }
     }
 
-    if (error) {
-      throw error;
+    if (error) throw error;
+
+    // Deduplicate LOGIN/LOGOUT spam: keep only the most recent per (user_id, action) combination.
+    // This prevents hundreds of page-reload LOGINs from drowning out meaningful events.
+    if (!action || action === 'all') {
+      const seenLoginKey = new Set();
+      logs = (logs || []).filter(log => {
+        const a = (log.action || '').toUpperCase();
+        if (a === 'LOGIN' || a === 'LOGOUT') {
+          const key = `${log.user_id}|${a}|${(log.source || '')}`;
+          if (seenLoginKey.has(key)) return false;
+          seenLoginKey.add(key);
+        }
+        return true;
+      });
     }
 
     // Step 2: enrich with public.users (JLO staff only — vendors/customers won't be there)

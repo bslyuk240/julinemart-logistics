@@ -37,10 +37,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  // Track whether a session already existed at mount so we only log LOGIN on fresh sign-ins.
+  const hadSessionAtMount = { current: false };
+  const loginLogged = { current: false };
 
   useEffect(() => {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) hadSessionAtMount.current = true;
       setSession(session);
       if (session?.user) {
         fetchUserProfile(session.user.id);
@@ -54,9 +58,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       if (session?.user) {
         fetchUserProfile(session.user.id);
-        if (event === 'SIGNED_IN') {
+        // Only log LOGIN for real fresh sign-ins, not page-reload session restores.
+        if (event === 'SIGNED_IN' && !hadSessionAtMount.current && !loginLogged.current) {
+          loginLogged.current = true;
           logActivity({ action: 'LOGIN', details: { portal: 'jlo' } });
         }
+        hadSessionAtMount.current = false;
       } else {
         setUser(null);
         setLoading(false);

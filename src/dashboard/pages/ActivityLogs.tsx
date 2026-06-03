@@ -106,7 +106,7 @@ export function ActivityLogsPage() {
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      let url = `${apiBase}/api/activity-logs?limit=200&exclude_whatsapp=true`;
+      let url = `${apiBase}/api/activity-logs?limit=500&exclude_whatsapp=true`;
       if (actionFilter !== 'all') url += '&action=' + actionFilter;
       if (sourceTab !== 'all') url += '&source=' + sourceTab;
 

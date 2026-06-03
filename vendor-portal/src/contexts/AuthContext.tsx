@@ -84,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(true);
         loadVendor().finally(() => setLoading(false));
       } else {
+        loginLogged.current = false;
         setVendor(null);
         setLoading(false);
       }

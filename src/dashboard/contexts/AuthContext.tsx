@@ -65,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         hadSessionAtMount.current = false;
       } else {
+        loginLogged.current = false;
         setUser(null);
         setLoading(false);
       }

@@ -329,6 +329,25 @@ export async function handler(event) {
     const orderId = order.id;
     const orderNumber = order.order_number;
 
+    // Audit: record storefront order placement server-side (service role).
+    // Authoritative — captures EVERY order including guest checkouts and
+    // Google/NextAuth customers that never hold a Supabase session client-side.
+    // Fire-and-forget so it never blocks or fails the order response.
+    adminClient
+      .from('activity_logs')
+      .insert({
+        user_id: null,
+        actor_email: customer_email.trim().toLowerCase(),
+        action: 'ORDER_PLACED',
+        resource_type: 'orders',
+        resource_id: orderId,
+        details: { order_number: orderNumber, total_amount: totalAmount, customer_name: customer_name.trim() },
+        source: 'storefront',
+      })
+      .then(({ error }) => {
+        if (error) console.error('[create-order] activity log failed:', error.message);
+      });
+
     // ── Insert order items ─────────────────────────────────────────────────
     const { error: itemsErr } = await adminClient.from('order_items').insert(
       resolvedItems.map((i) => ({

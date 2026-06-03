@@ -2,6 +2,7 @@ import { useEffect, useState, FormEvent } from 'react';
 import { Wallet, AlertCircle, Plus, X } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import { logActivity } from '../lib/logActivity';
 
 const fmt = (n: number) => `₦${Number(n || 0).toLocaleString()}`;
 
@@ -54,6 +55,7 @@ export default function Withdrawals() {
     setSubmitting(true);
     try {
       await api.requestWithdrawal({ amount: amt, bank_name: bankName, bank_account_number: accountNo, bank_account_name: accountName, notes });
+      logActivity({ action: 'WITHDRAWAL_REQUESTED', resource_type: 'vendor_withdrawals', details: { amount: amt } });
       setShowForm(false);
       setAmount(''); setNotes('');
       await loadData();

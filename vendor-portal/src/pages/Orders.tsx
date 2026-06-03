@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ShoppingBag, AlertCircle, X, ChevronRight, Truck, Printer, Download, Package } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import { logActivity } from '../lib/logActivity';
 
 const JLO_API = import.meta.env.VITE_JLO_API_URL || 'https://jlo.julinemart.com';
 
@@ -63,6 +64,7 @@ export default function Orders() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed');
+      logActivity({ action: 'ORDER_DISPATCHED', resource_type: 'orders', resource_id: selected.id, details: { status: 'vendor_dispatched' } });
       setSelected((prev: any) => ({ ...prev, status: 'vendor_dispatched' }));
       setData((prev: any) => prev ? {
         ...prev,

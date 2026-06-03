@@ -7,6 +7,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
+import { logActivity } from '../lib/logActivity';
 import RichTextEditor from '../components/RichTextEditor';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -630,6 +631,12 @@ export default function AddProduct() {
       }
 
       await api.upsertProduct(body, id);
+      logActivity({
+        action: id ? 'PRODUCT_UPDATED' : 'PRODUCT_CREATED',
+        resource_type: 'products',
+        resource_id: id || undefined,
+        details: { name: body.name, status: body.status },
+      });
       navigate('/products');
     } catch (err: unknown) {
       alert('Error saving product: ' + (err instanceof Error ? err.message : String(err)));

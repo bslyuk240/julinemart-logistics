@@ -55,21 +55,10 @@ export async function handler(event) {
     const source = params.source;
     const excludeWhatsapp = params.exclude_whatsapp !== 'false';
 
+    // Step 1: fetch logs (no FK join — user_id now refs auth.users, not public.users)
     let query = supabase
       .from('activity_logs')
-      .select(`
-        id,
-        user_id,
-        actor_email,
-        action,
-        resource_type,
-        resource_id,
-        details,
-        ip_address,
-        source,
-        created_at,
-        users:users(id, email, full_name, role)
-      `)
+      .select('id, user_id, actor_email, action, resource_type, resource_id, details, ip_address, source, created_at')
       .order('created_at', { ascending: false })
       .limit(limit);
 
@@ -78,15 +67,10 @@ export async function handler(event) {
         .not('action', 'ilike', 'whatsapp%')
         .not('resource_type', 'ilike', 'whatsapp%');
     }
+    if (action && action !== 'all') query = query.eq('action', action);
+    if (source && source !== 'all')  query = query.eq('source', source);
 
-    if (action && action !== 'all') {
-      query = query.eq('action', action);
-    }
-    if (source && source !== 'all') {
-      query = query.eq('source', source);
-    }
-
-    const { data, error } = await query;
+    const { data: logs, error } = await query;
     if (error) {
       if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
         console.warn('activity_logs table does not exist, returning empty array');
@@ -95,7 +79,23 @@ export async function handler(event) {
       throw error;
     }
 
-    return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: data || [] }) };
+    // Step 2: enrich with public.users (JLO staff only — vendors/customers won't be there)
+    const userIds = [...new Set((logs || []).map(l => l.user_id).filter(Boolean))];
+    let usersMap = {};
+    if (userIds.length) {
+      const { data: users } = await supabase
+        .from('users')
+        .select('id, email, full_name, role')
+        .in('id', userIds);
+      usersMap = Object.fromEntries((users || []).map(u => [u.id, u]));
+    }
+
+    const data = (logs || []).map(log => ({
+      ...log,
+      users: usersMap[log.user_id] || null,
+    }));
+
+    return { statusCode: 200, headers, body: JSON.stringify({ success: true, data }) };
   } catch (e) {
     console.error('Activity logs function error:', e);
     return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: [] }) };

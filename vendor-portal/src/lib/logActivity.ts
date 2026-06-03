@@ -9,29 +9,31 @@ export async function logActivity(
     resource_id?: string;
     details?: Record<string, unknown>;
   },
-  user?: { id: string; email?: string | null },
+  sessionContext?: { access_token?: string | null; user?: { id: string; email?: string | null } },
 ) {
   try {
-    let sessionToken: string | undefined;
-
-    const { data: { session } } = await supabase.auth.getSession();
-    sessionToken = session?.access_token;
+    let sessionToken = sessionContext?.access_token || undefined;
 
     if (!sessionToken) {
-      if (!user?.id) {
-        console.warn('[logActivity] vendor_portal: no session, skipping');
-        return;
-      }
+      const { data: { session } } = await supabase.auth.getSession();
+      sessionToken = session?.access_token;
     }
 
-    const token = sessionToken;
-    if (!token) return;
+    if (!sessionToken) {
+      console.warn('[logActivity] vendor_portal: no session token, skipping');
+      return;
+    }
 
-    const response = await fetch(`${JLO_BASE}/.netlify/functions/log-activity`, {
+    if (!JLO_BASE) {
+      console.warn('[logActivity] vendor_portal: VITE_JLO_API_URL is not configured');
+      return;
+    }
+
+    const response = await fetch(`${JLO_BASE}/api/log-activity`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${sessionToken}`,
       },
       body: JSON.stringify({ ...params, source: 'vendor_portal' }),
     });

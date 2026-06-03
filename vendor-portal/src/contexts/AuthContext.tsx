@@ -72,7 +72,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session) {
-        if (event === 'SIGNED_IN') logActivity({ action: 'LOGIN', details: { method: 'email' } }, session.user);
+        if (event === 'SIGNED_IN') {
+          logActivity({ action: 'LOGIN', details: { method: 'email' } }, session);
+        }
         setLoading(true);
         loadVendor().finally(() => setLoading(false));
       } else {
@@ -90,7 +92,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    await logActivity({ action: 'LOGOUT', details: { portal: 'vendor' } });
+    if (session) {
+      await logActivity({ action: 'LOGOUT', details: { portal: 'vendor' } }, session);
+    }
     await supabase.auth.signOut();
     setVendor(null);
   };

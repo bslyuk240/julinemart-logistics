@@ -333,6 +333,10 @@ export async function handler(event) {
     // Authoritative — captures EVERY order including guest checkouts and
     // Google/NextAuth customers that never hold a Supabase session client-side.
     // Fire-and-forget so it never blocks or fails the order response.
+    const orderIp = event.headers?.['x-forwarded-for']?.split(',')[0]?.trim()
+      || event.headers?.['client-ip']
+      || null;
+    const orderUa = event.headers?.['user-agent'] || null;
     adminClient
       .from('activity_logs')
       .insert({
@@ -341,7 +345,19 @@ export async function handler(event) {
         action: 'ORDER_PLACED',
         resource_type: 'orders',
         resource_id: orderId,
-        details: { order_number: orderNumber, total_amount: totalAmount, customer_name: customer_name.trim() },
+        ip_address: orderIp,
+        user_agent: orderUa,
+        details: {
+          order_number: orderNumber,
+          total_amount: totalAmount,
+          item_count: resolvedItems.length,
+          items: resolvedItems.map(i => ({ name: i.product_name, qty: i.quantity, price: i.unit_price })),
+          delivery_city: delivery_city?.trim() || null,
+          delivery_state: delivery_state?.trim() || null,
+          voucher_code: voucherRow?.code || null,
+          customer_name: customer_name.trim(),
+          customer_phone: customer_phone?.trim() || null,
+        },
         source: 'storefront',
       })
       .then(({ error }) => {

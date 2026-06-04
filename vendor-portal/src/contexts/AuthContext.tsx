@@ -85,7 +85,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw error;
-    logActivity({ action: 'LOGIN', details: { method: 'email' } }, data.session ?? undefined);
+    // Fetch vendor profile to include store_name in the login log
+    let storeName: string | undefined;
+    try {
+      const profile = await api.getProfile();
+      storeName = profile?.store_name ?? undefined;
+    } catch { /* non-critical */ }
+    logActivity({ action: 'LOGIN', details: { method: 'email', portal: 'vendor_portal', store_name: storeName } }, data.session ?? undefined);
   };
 
   const signOut = async () => {

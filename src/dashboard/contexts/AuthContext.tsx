@@ -102,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (data && data.is_active) {
         setUser(data);
+        return data.role as string;
       } else {
         setUser(null);
         await supabase.auth.signOut();
@@ -132,7 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             },
           };
         }
-        logActivity({ action: 'LOGIN', details: { portal: 'jlo' } });
+        logActivity({ action: 'LOGIN', details: { portal: 'jlo', role: typeof result === 'string' ? result : undefined } });
       }
 
       return { error: null };

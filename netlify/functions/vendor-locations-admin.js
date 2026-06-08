@@ -113,6 +113,7 @@ export const handler = async (event) => {
         zone_id:                     zone_id || null,
         hub_id:                      hub_id || null,
         default_courier_id:          default_courier_id || null,
+        lga:                         lgasArr[0] || null,
         fez_hub_name:                fez_hub_name || null,
         fez_hub_address:             fez_hub_address || null,
         supports_vendor_direct_fez:  supports_vendor_direct_fez ?? true,
@@ -143,6 +144,15 @@ export const handler = async (event) => {
 
     // Strip fields that should not be user-patchable
     delete updates.created_at;
+
+    // Coerce empty strings to null for UUID and nullable fields
+    const UUID_FIELDS = ['hub_id', 'zone_id', 'default_courier_id'];
+    for (const f of UUID_FIELDS) {
+      if (updates[f] === '') updates[f] = null;
+    }
+    if (updates.lgas && Array.isArray(updates.lgas)) {
+      updates.lgas = updates.lgas.map(l => l.trim()).filter(Boolean);
+    }
 
     const { data, error } = await adminClient
       .from('approved_vendor_locations')

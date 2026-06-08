@@ -884,6 +884,35 @@ export function GlobalSourcingPage() {
     [shipmentFilter, shipments]
   );
 
+  // Group by product variant (cjPid:cjVid) so batching intent is visible
+  const shipmentGroups = useMemo(() => {
+    const groups = new Map<string, {
+      key: string;
+      snapshot: ReturnType<typeof getShipmentSnapshot>;
+      productImage: string | null;
+      shipments: InboundShipment[];
+    }>();
+    for (const shipment of filteredShipments) {
+      const snapshot = getShipmentSnapshot(shipment);
+      const key = `${snapshot.cjPid || 'unknown'}:${snapshot.cjVid || 'unknown'}`;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          snapshot,
+          productImage: shipment.product_image ?? null,
+          shipments: [],
+        });
+      }
+      const group = groups.get(key)!;
+      group.shipments.push(shipment);
+      // Use image from whichever shipment has one
+      if (!group.productImage && shipment.product_image) {
+        group.productImage = shipment.product_image;
+      }
+    }
+    return Array.from(groups.values());
+  }, [filteredShipments]);
+
   const parsedImportBufferUsd = useMemo(() => {
     const trimmed = importBufferUsd.trim();
     if (!trimmed) return null;
@@ -2842,154 +2871,139 @@ export function GlobalSourcingPage() {
               No inbound shipments found for this filter.
             </div>
           ) : (
-            <div className="space-y-3">
-              {filteredShipments.map((shipment) => {
-                const orderMode = getShipmentSupplierOrderMode(shipment);
-                const orderStatus = getShipmentSupplierOrderStatus(shipment);
-                const snapshot = getShipmentSnapshot(shipment);
-                const openCjUrl = getShipmentOpenCjUrl(shipment);
-                const eligibility = getManualShipmentEligibility(shipment);
-                const manualOrder = shipment.manual_supplier_orders;
-                const isSelected = selectedManualShipmentIds.includes(shipment.id);
-                const canUseAutomaticCreate =
-                  !shipment.cj_order_id &&
-                  orderMode !== 'manual' &&
-                  orderStatus === 'awaiting_supplier_order';
+            <div className="space-y-6">
+              {shipmentGroups.map((group) => {
+                const groupAwaitingCount = group.shipments.filter(
+                  (s) => getShipmentSupplierOrderStatus(s) === 'awaiting_supplier_order'
+                ).length;
+                const groupTotalQty = group.shipments.reduce(
+                  (sum, s) => sum + getShipmentSnapshot(s).quantity,
+                  0
+                );
+                const openCjUrl = buildCjProductUrl(group.snapshot.title, group.snapshot.cjPid);
 
                 return (
-                  <div key={shipment.id} className="rounded-xl border border-gray-200 bg-white text-sm text-gray-700 shadow-sm">
-                    {/* ── Header: badges + actions ── */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold text-gray-900">
-                          {shipment.provider.toUpperCase()} / {shipment.cj_order_id || 'Awaiting CJ Order ID'}
-                        </span>
-                        <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${orderMode === 'manual' ? badgeToneClasses('blue') : badgeToneClasses('gray')}`}>
-                          {orderMode === 'manual' ? 'Manual' : 'Automatic'}
-                        </span>
-                        <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${orderStatus === 'received_at_hub' ? badgeToneClasses('green') : orderStatus === 'awaiting_supplier_order' ? badgeToneClasses('amber') : badgeToneClasses('blue')}`}>
-                          {formatReadableStatus(orderStatus)}
-                        </span>
+                  <div key={group.key} className="rounded-xl border border-gray-200 bg-white shadow-sm">
+                    {/* ── Product group header ── */}
+                    <div className="flex items-start gap-3 border-b border-gray-100 px-4 py-3">
+                      {group.productImage ? (
+                        <img src={group.productImage} alt={group.snapshot.title || 'Product'} className="h-12 w-12 shrink-0 rounded-lg object-cover" />
+                      ) : (
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 text-gray-300">
+                          <ImageIcon className="h-5 w-5" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-gray-900 leading-tight">
+                          {group.snapshot.title || 'CJ product'}
+                          {group.snapshot.variationLabel ? (
+                            <span className="ml-2 rounded bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700">{group.snapshot.variationLabel}</span>
+                          ) : null}
+                        </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-500">
+                          <span>CJ PID: <span className="font-mono text-gray-700">{group.snapshot.cjPid || 'n/a'}</span></span>
+                          <span>CJ VID: <span className="font-mono text-gray-700">{group.snapshot.cjVid || 'n/a'}</span></span>
+                          {group.snapshot.sku ? <span>SKU: <span className="font-mono text-gray-700">{group.snapshot.sku}</span></span> : null}
+                        </div>
                       </div>
-                      {/* Desktop actions */}
-                      <div className="hidden items-center gap-2 lg:flex">
+                      <div className="flex shrink-0 flex-col items-end gap-1 text-xs">
+                        <span className="font-medium text-gray-700">{group.shipments.length} order{group.shipments.length !== 1 ? 's' : ''} · {groupTotalQty} unit{groupTotalQty !== 1 ? 's' : ''}</span>
+                        {groupAwaitingCount > 0 ? (
+                          <span className={`rounded-full border px-2 py-0.5 font-medium ${badgeToneClasses('amber')}`}>
+                            {groupAwaitingCount} awaiting order
+                          </span>
+                        ) : null}
                         {openCjUrl ? (
-                          <a href={openCjUrl} target="_blank" rel="noreferrer" className="btn-secondary inline-flex items-center gap-1.5 py-1.5 text-xs">
-                            <ExternalLink className="h-3.5 w-3.5" />Open on CJ
+                          <a href={openCjUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary-600 hover:underline">
+                            <ExternalLink className="h-3 w-3" />Open on CJ
                           </a>
                         ) : null}
-                        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100">
-                          <input type="checkbox" checked={isSelected} onChange={() => toggleManualShipmentSelection(shipment)} disabled={!eligibility.eligible || savingManualSupplierOrder} className="h-3.5 w-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-                          Add to Manual CJ Order
-                        </label>
-                        {canUseAutomaticCreate ? (
-                          <button type="button" onClick={() => void createSupplierOrder(shipment.id)} disabled={shipmentActionId === shipment.id} className="btn-secondary inline-flex items-center gap-1.5 py-1.5 text-xs disabled:opacity-60">
-                            {shipmentActionId === shipment.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}Create Supplier Order
-                          </button>
-                        ) : null}
-                        {shipment.cj_order_id ? (
-                          <button type="button" onClick={() => void refreshCjTracking(shipment.id)} disabled={shipmentActionId === shipment.id} className="btn-secondary inline-flex items-center gap-1.5 py-1.5 text-xs disabled:opacity-60">
-                            {shipmentActionId === shipment.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}Refresh CJ Tracking
-                          </button>
-                        ) : null}
-                        {!shipment.cj_order_id && !shipment.manual_supplier_order_id ? (
-                          <button type="button" onClick={() => void deleteInboundTestOrder(shipment.id, shipment.sub_orders?.tracking_number || shipment.woo_order_id || null, Boolean(shipment.cj_order_id || shipment.manual_supplier_order_id))} disabled={shipmentActionId === shipment.id} className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-60">
-                            {shipmentActionId === shipment.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}Delete Test Order
-                          </button>
-                        ) : null}
-                        <button type="button" onClick={() => void markReceived(shipment.id)} disabled={shipment.inbound_status === 'received_at_hub' || shipmentActionId === shipment.id} className="btn-primary inline-flex items-center gap-1.5 py-1.5 text-xs disabled:opacity-60">
-                          {shipmentActionId === shipment.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Truck className="h-3.5 w-3.5" />}Mark Received at Hub
-                        </button>
                       </div>
                     </div>
 
-                    {/* ── Compact body: what matters at a glance ── */}
-                    <div className="px-4 py-3">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        {/* Left — order meta */}
-                        <div className="min-w-0 text-xs text-gray-500 space-y-0.5">
-                          <p>
-                            <span className="font-medium text-gray-700">Order {shipment.woo_order_id ? `#${shipment.woo_order_id}` : '—'}</span>
-                            <span className="mx-1.5">·</span>{shipment.hubs?.name || 'No hub'}
-                            <span className="mx-1.5">·</span>{formatDate(shipment.created_at)}
-                          </p>
-                          <p>
-                            <span className="text-gray-400">Sub-order:</span>{' '}
-                            {shipment.sub_orders?.tracking_number || 'Not linked'}
-                          </p>
-                          {!eligibility.eligible && orderStatus === 'awaiting_supplier_order' ? (
-                            <p className="text-amber-600">⚠ Manual grouping unavailable: {eligibility.reason}</p>
-                          ) : null}
-                        </div>
+                    {/* ── Individual shipment rows ── */}
+                    <div className="divide-y divide-gray-50">
+                      {group.shipments.map((shipment) => {
+                        const orderMode = getShipmentSupplierOrderMode(shipment);
+                        const orderStatus = getShipmentSupplierOrderStatus(shipment);
+                        const snapshot = getShipmentSnapshot(shipment);
+                        const eligibility = getManualShipmentEligibility(shipment);
+                        const manualOrder = shipment.manual_supplier_orders;
+                        const isSelected = selectedManualShipmentIds.includes(shipment.id);
+                        const canUseAutomaticCreate =
+                          !shipment.cj_order_id &&
+                          orderMode !== 'manual' &&
+                          orderStatus === 'awaiting_supplier_order';
 
-                        {/* Right — View Details button */}
-                        <button
-                          type="button"
-                          onClick={() => setDetailShipmentId(shipment.id)}
-                          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 sm:self-start"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                          View Details
-                        </button>
-                      </div>
+                        return (
+                          <div key={shipment.id} className="px-4 py-3 text-sm text-gray-700">
+                            {/* Row: order info + status + actions */}
+                            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                              {/* Left: checkbox + order meta */}
+                              <div className="flex items-start gap-2.5">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleManualShipmentSelection(shipment)}
+                                  disabled={!eligibility.eligible || savingManualSupplierOrder}
+                                  title={eligibility.eligible ? 'Add to manual CJ order batch' : eligibility.reason}
+                                  className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-primary-600 focus:ring-primary-500 disabled:opacity-40"
+                                />
+                                <div className="space-y-0.5 text-xs">
+                                  <p>
+                                    <span className="font-semibold text-gray-900">Order {shipment.woo_order_id ? `#${shipment.woo_order_id}` : '—'}</span>
+                                    <span className="mx-1.5 text-gray-300">·</span>
+                                    <span className="text-gray-500">Qty: <span className="font-medium text-gray-700">{snapshot.quantity}</span></span>
+                                    <span className="mx-1.5 text-gray-300">·</span>
+                                    <span className="text-gray-500">{shipment.hubs?.name || 'No hub'}</span>
+                                    <span className="mx-1.5 text-gray-300">·</span>
+                                    <span className="text-gray-400">{formatDate(shipment.created_at)}</span>
+                                  </p>
+                                  <p className="text-gray-500">
+                                    {shipment.cj_order_id ? (
+                                      <><span className="text-gray-400">CJ Order:</span> <span className="font-mono text-gray-700">{shipment.cj_order_id}</span></>
+                                    ) : (
+                                      <span className="text-gray-400">Sub-order: {shipment.sub_orders?.tracking_number || 'Not linked'}</span>
+                                    )}
+                                    {manualOrder ? <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-blue-700">Manual</span> : null}
+                                  </p>
+                                  {!eligibility.eligible && orderStatus === 'awaiting_supplier_order' ? (
+                                    <p className="text-amber-600">⚠ {eligibility.reason}</p>
+                                  ) : null}
+                                </div>
+                              </div>
 
-                      {/* Product + variant — the main content */}
-                      <div className="mt-3 flex items-start gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
-                        {shipment.product_image ? (
-                          <img
-                            src={shipment.product_image}
-                            alt={snapshot.title || 'Product'}
-                            className="h-14 w-14 shrink-0 rounded-lg object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-300">
-                            <ImageIcon className="h-6 w-6" />
+                              {/* Right: status badge + actions */}
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${orderStatus === 'received_at_hub' ? badgeToneClasses('green') : orderStatus === 'awaiting_supplier_order' ? badgeToneClasses('amber') : badgeToneClasses('blue')}`}>
+                                  {formatReadableStatus(orderStatus)}
+                                </span>
+                                {canUseAutomaticCreate ? (
+                                  <button type="button" onClick={() => void createSupplierOrder(shipment.id)} disabled={shipmentActionId === shipment.id} className="btn-secondary inline-flex items-center gap-1 py-1 text-xs disabled:opacity-60">
+                                    {shipmentActionId === shipment.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}Create Order
+                                  </button>
+                                ) : null}
+                                {shipment.cj_order_id ? (
+                                  <button type="button" onClick={() => void refreshCjTracking(shipment.id)} disabled={shipmentActionId === shipment.id} className="btn-secondary inline-flex items-center gap-1 py-1 text-xs disabled:opacity-60">
+                                    {shipmentActionId === shipment.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}Refresh
+                                  </button>
+                                ) : null}
+                                {!shipment.cj_order_id && !shipment.manual_supplier_order_id ? (
+                                  <button type="button" onClick={() => void deleteInboundTestOrder(shipment.id, shipment.sub_orders?.tracking_number || shipment.woo_order_id || null, Boolean(shipment.cj_order_id || shipment.manual_supplier_order_id))} disabled={shipmentActionId === shipment.id} className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-60">
+                                    {shipmentActionId === shipment.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}Delete
+                                  </button>
+                                ) : null}
+                                <button type="button" onClick={() => void markReceived(shipment.id)} disabled={shipment.inbound_status === 'received_at_hub' || shipmentActionId === shipment.id} className="btn-primary inline-flex items-center gap-1 py-1 text-xs disabled:opacity-60">
+                                  {shipmentActionId === shipment.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Truck className="h-3 w-3" />}Received
+                                </button>
+                                <button type="button" onClick={() => setDetailShipmentId(shipment.id)} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100">
+                                  <ExternalLink className="h-3 w-3" />Details
+                                </button>
+                              </div>
+                            </div>
                           </div>
-                        )}
-                        <div className="min-w-0">
-                          <p className="font-semibold text-gray-900 leading-tight">
-                            {snapshot.title || 'CJ product'}
-                          </p>
-                          {snapshot.variationLabel ? (
-                            <span className="mt-1 inline-block rounded bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700">{snapshot.variationLabel}</span>
-                          ) : null}
-                          <p className="mt-1 text-xs text-gray-500">
-                            Qty: <span className="font-medium text-gray-700">{snapshot.quantity}</span>
-                            {snapshot.sku ? <><span className="mx-1.5">·</span>SKU: <span className="font-medium text-gray-700">{snapshot.sku}</span></> : null}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* ── Mobile actions footer ── */}
-                    <div className="flex flex-wrap items-center gap-2 border-t border-gray-100 px-4 py-3 lg:hidden">
-                      {openCjUrl ? (
-                        <a href={openCjUrl} target="_blank" rel="noreferrer" className="btn-secondary inline-flex items-center gap-1.5 text-xs">
-                          <ExternalLink className="h-3.5 w-3.5" />Open on CJ
-                        </a>
-                      ) : null}
-                      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700">
-                        <input type="checkbox" checked={isSelected} onChange={() => toggleManualShipmentSelection(shipment)} disabled={!eligibility.eligible || savingManualSupplierOrder} className="h-3.5 w-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-                        Add to Manual CJ Order
-                      </label>
-                      {canUseAutomaticCreate ? (
-                        <button type="button" onClick={() => void createSupplierOrder(shipment.id)} disabled={shipmentActionId === shipment.id} className="btn-secondary inline-flex items-center gap-1.5 text-xs disabled:opacity-60">
-                          {shipmentActionId === shipment.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}Create Supplier Order
-                        </button>
-                      ) : null}
-                      {shipment.cj_order_id ? (
-                        <button type="button" onClick={() => void refreshCjTracking(shipment.id)} disabled={shipmentActionId === shipment.id} className="btn-secondary inline-flex items-center gap-1.5 text-xs disabled:opacity-60">
-                          {shipmentActionId === shipment.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}Refresh CJ Tracking
-                        </button>
-                      ) : null}
-                      {!shipment.cj_order_id && !shipment.manual_supplier_order_id ? (
-                        <button type="button" onClick={() => void deleteInboundTestOrder(shipment.id, shipment.sub_orders?.tracking_number || shipment.woo_order_id || null, Boolean(shipment.cj_order_id || shipment.manual_supplier_order_id))} disabled={shipmentActionId === shipment.id} className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-60">
-                          {shipmentActionId === shipment.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}Delete Test Order
-                        </button>
-                      ) : null}
-                      <button type="button" onClick={() => void markReceived(shipment.id)} disabled={shipment.inbound_status === 'received_at_hub' || shipmentActionId === shipment.id} className="btn-primary inline-flex items-center gap-1.5 text-xs disabled:opacity-60">
-                        {shipmentActionId === shipment.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Truck className="h-3.5 w-3.5" />}Mark Received at Hub
-                      </button>
+                        );
+                      })}
                     </div>
                   </div>
                 );

@@ -31,6 +31,15 @@ interface Vendor {
   created_at: string;
 }
 
+interface OrderItem {
+  id: string;
+  product_name: string;
+  product_sku: string | null;
+  variation_details: Record<string, string> | null;
+  quantity: number;
+  unit_price: number;
+}
+
 interface SubOrder {
   id: string;
   status: string;
@@ -42,6 +51,7 @@ interface SubOrder {
     order_number: number;
     customer_name: string;
     overall_status: string;
+    order_items: OrderItem[];
   } | null;
 }
 
@@ -248,7 +258,7 @@ export default function VendorDetail() {
       (supabase as any).from('vendors').select('*').eq('id', id).single(),
       (supabase as any)
         .from('sub_orders')
-        .select('id, status, subtotal, allocated_shipping_fee, created_at, main_order:orders(id, order_number, customer_name, overall_status)')
+        .select('id, status, subtotal, allocated_shipping_fee, created_at, main_order:orders(id, order_number, customer_name, overall_status, order_items(id, product_name, product_sku, variation_details, quantity, unit_price))')
         .eq('vendor_id', id)
         .order('created_at', { ascending: false })
         .limit(50),
@@ -670,52 +680,64 @@ export default function VendorDetail() {
         {subOrders.length === 0 ? (
           <div className="text-center py-12 text-gray-400 text-sm">No orders yet</div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
-              <tr>
-                <th className="px-4 py-3 text-left">Order #</th>
-                <th className="px-4 py-3 text-left">Customer</th>
-                <th className="px-4 py-3 text-left">Status</th>
-                <th className="px-4 py-3 text-right">Subtotal</th>
-                <th className="px-4 py-3 text-right">Net</th>
-                <th className="px-4 py-3 text-left">Date</th>
-                <th className="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {subOrders.map(o => {
-                const net = o.subtotal * (1 - (vendor.commission_rate || 0) / 100);
-                return (
-                  <tr key={o.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs text-gray-600">
+          <div className="divide-y divide-gray-50">
+            {subOrders.map(o => {
+              const net = o.subtotal * (1 - (vendor.commission_rate || 0) / 100);
+              const items: OrderItem[] = o.main_order?.order_items ?? [];
+              return (
+                <div key={o.id} className="px-4 py-3 hover:bg-gray-50">
+                  {/* Main row */}
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                    <span className="font-mono text-xs text-gray-500 shrink-0">
                       #{o.main_order?.order_number || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-gray-700">
-                      {o.main_order?.customer_name || '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[o.status] || 'bg-gray-100 text-gray-600'}`}>
-                        {o.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-medium">{fmt(o.subtotal)}</td>
-                    <td className="px-4 py-3 text-right text-green-600 font-medium">{fmt(net)}</td>
-                    <td className="px-4 py-3 text-xs text-gray-400">
-                      {new Date(o.created_at).toLocaleDateString('en-GB')}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link
-                        to={`/admin/orders/${o.main_order?.id || o.id}`}
-                        className="text-xs text-purple-600 hover:underline flex items-center gap-0.5"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                    </span>
+                    <span className="text-gray-700 shrink-0">{o.main_order?.customer_name || '—'}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${STATUS_COLORS[o.status] || 'bg-gray-100 text-gray-600'}`}>
+                      {o.status}
+                    </span>
+                    <span className="text-xs text-gray-400 shrink-0">{new Date(o.created_at).toLocaleDateString('en-GB')}</span>
+                    <span className="ml-auto font-medium shrink-0">{fmt(o.subtotal)}</span>
+                    <span className="text-green-600 font-medium shrink-0">{fmt(net)}</span>
+                    <Link
+                      to={`/admin/orders/${o.main_order?.id || o.id}`}
+                      className="text-purple-600 hover:underline shrink-0"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+                  {/* Items row — product names + variations */}
+                  {items.length > 0 ? (
+                    <div className="mt-1.5 space-y-1">
+                      {items.map(item => {
+                        const variantParts = item.variation_details
+                          ? Object.entries(item.variation_details)
+                              .map(([k, v]) => `${k}: ${v}`)
+                              .join(' · ')
+                          : null;
+                        return (
+                          <div key={item.id} className="flex items-start gap-2 text-xs text-gray-600">
+                            <Package className="w-3 h-3 mt-0.5 shrink-0 text-gray-400" />
+                            <span>
+                              <span className="font-medium text-gray-800">{item.product_name}</span>
+                              {variantParts ? (
+                                <span className="ml-1.5 rounded bg-purple-50 px-1.5 py-0.5 text-purple-700">{variantParts}</span>
+                              ) : null}
+                              <span className="ml-1.5 text-gray-400">× {item.quantity}</span>
+                              {item.product_sku ? (
+                                <span className="ml-1.5 text-gray-400">SKU: {item.product_sku}</span>
+                              ) : null}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-xs text-gray-400">No item details available</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

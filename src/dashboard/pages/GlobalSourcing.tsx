@@ -622,37 +622,43 @@ function getManualShipmentEligibility(shipment: InboundShipment) {
 
 function buildManualSelectionSummary(selectedShipments: InboundShipment[]) {
   if (selectedShipments.length === 0) {
-    return { valid: false as const, error: 'Select one or more compatible inbound rows' };
+    return { valid: false as const, error: 'Select one or more pending CJ inbound rows' };
   }
 
-  let compatibilityKey: string | null = null;
+  type ProductGroup = {
+    snapshot: ReturnType<typeof getShipmentSnapshot>;
+    count: number;
+    totalQty: number;
+    cjUrl: string | null;
+  };
+  const productGroups = new Map<string, ProductGroup>();
   let totalQuantity = 0;
-  let snapshot: ReturnType<typeof getShipmentSnapshot> | null = null;
 
   for (const shipment of selectedShipments) {
     const eligibility = getManualShipmentEligibility(shipment);
     if (!eligibility.eligible) {
       return { valid: false as const, error: eligibility.reason || 'Selection is not eligible' };
     }
-    if (compatibilityKey && eligibility.compatibilityKey !== compatibilityKey) {
-      return {
-        valid: false as const,
-        error: 'Selected rows must share the same CJ product and variant before saving one manual order',
-      };
+    const snapshot = getShipmentSnapshot(shipment);
+    const key = eligibility.compatibilityKey || 'unknown';
+    totalQuantity += snapshot.quantity;
+    if (!productGroups.has(key)) {
+      productGroups.set(key, { snapshot, count: 0, totalQty: 0, cjUrl: buildCjProductUrl(snapshot.title, snapshot.cjPid) });
     }
-    compatibilityKey = eligibility.compatibilityKey || null;
-    const nextSnapshot = getShipmentSnapshot(shipment);
-    totalQuantity += nextSnapshot.quantity;
-    if (!snapshot) snapshot = nextSnapshot;
+    const pg = productGroups.get(key)!;
+    pg.count++;
+    pg.totalQty += snapshot.quantity;
   }
 
+  const products = Array.from(productGroups.values());
   return {
     valid: true as const,
     selectedCount: selectedShipments.length,
     totalQuantity,
-    compatibilityKey,
-    snapshot,
-    cjUrl: snapshot ? buildCjProductUrl(snapshot.title, snapshot.cjPid) : null,
+    products,
+    // single-product helpers for backward compat
+    snapshot: products[0]?.snapshot ?? null,
+    cjUrl: products.length === 1 ? (products[0].cjUrl ?? null) : null,
   };
 }
 
@@ -2676,7 +2682,7 @@ export function GlobalSourcingPage() {
               <div>
                 <h3 className="text-base font-semibold text-gray-900">Manual Supplier Order</h3>
                 <p className="text-sm text-gray-600">
-                  Select compatible pending CJ inbound rows, place one batched order on CJ, then save the shared order reference here.
+                  Select any pending CJ rows — same or different products — go to CJ, add them all to one cart, check out, then save the CJ order ID here.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -2691,17 +2697,22 @@ export function GlobalSourcingPage() {
 
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-lg border border-white bg-white p-3 text-sm text-gray-700 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Product</p>
-                <p className="mt-1 font-medium text-gray-900">
-                  {manualSelectionSummary.valid
-                    ? manualSelectionSummary.snapshot?.title || 'CJ product'
-                    : 'Select compatible rows'}
-                </p>
-                <p className="mt-1 text-xs text-gray-500">
-                  {manualSelectionSummary.valid
-                    ? `CJ PID ${manualSelectionSummary.snapshot?.cjPid || 'n/a'} / CJ VID ${manualSelectionSummary.snapshot?.cjVid || 'n/a'}`
-                    : 'Rows must share one CJ product and variant'}
-                </p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Products</p>
+                {manualSelectionSummary.valid ? (
+                  <ul className="mt-1 space-y-1">
+                    {manualSelectionSummary.products.map((pg) => (
+                      <li key={pg.snapshot.cjPid || pg.snapshot.title} className="text-xs">
+                        <span className="font-medium text-gray-900">{pg.snapshot.title || 'CJ product'}</span>
+                        {pg.snapshot.variationLabel ? (
+                          <span className="ml-1 rounded bg-primary-50 px-1 py-0.5 text-primary-700">{pg.snapshot.variationLabel}</span>
+                        ) : null}
+                        <span className="ml-1 text-gray-400">× {pg.totalQty}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-xs text-gray-500">Select pending CJ rows above</p>
+                )}
               </div>
               <div className="rounded-lg border border-white bg-white p-3 text-sm text-gray-700 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Customer Orders</p>
@@ -2719,18 +2730,24 @@ export function GlobalSourcingPage() {
               </div>
               <div className="rounded-lg border border-white bg-white p-3 text-sm text-gray-700 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Open CJ</p>
-                {manualSelectionSummary.valid && manualSelectionSummary.cjUrl ? (
-                  <a
-                    href={manualSelectionSummary.cjUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-1 inline-flex items-center gap-2 text-sm font-medium text-primary-700 hover:text-primary-800"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                    Open on CJ
-                  </a>
+                {manualSelectionSummary.valid && manualSelectionSummary.products.some((pg) => pg.cjUrl) ? (
+                  <ul className="mt-1 space-y-1">
+                    {manualSelectionSummary.products.filter((pg) => pg.cjUrl).map((pg) => (
+                      <li key={pg.snapshot.cjPid || pg.snapshot.title}>
+                        <a
+                          href={pg.cjUrl!}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-primary-700 hover:underline"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                          {pg.snapshot.title ? pg.snapshot.title.slice(0, 32) + (pg.snapshot.title.length > 32 ? '…' : '') : 'Open on CJ'}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
                 ) : (
-                  <p className="mt-1 text-xs text-gray-500">A CJ product link appears after you select compatible rows.</p>
+                  <p className="mt-1 text-xs text-gray-500">CJ product links appear after you select rows.</p>
                 )}
               </div>
             </div>

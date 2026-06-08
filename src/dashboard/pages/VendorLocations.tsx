@@ -30,6 +30,7 @@ interface HubOption {
   name: string;
   city: string;
   state: string;
+  is_active: boolean;
 }
 
 interface WaitlistEntry {
@@ -96,12 +97,17 @@ export function VendorLocationsPage() {
   useEffect(() => { if (tab === 'waitlist') fetchWaitlist(); }, [tab]);
 
   async function fetchHubs() {
-    const { data } = await supabase
-      .from('hubs')
-      .select('id, name, city, state')
-      .eq('is_active', true)
-      .order('state').order('name');
-    if (data) setHubOptions(data);
+    try {
+      const auth = await getAuthHeader();
+      const res = await fetch(`${JLO_API}/.netlify/functions/hubs`, {
+        headers: { Authorization: auth },
+      });
+      const data = await res.json();
+      const all: HubOption[] = Array.isArray(data.data) ? data.data : [];
+      setHubOptions(all.filter((h) => h.is_active).sort((a, b) => `${a.state}${a.name}`.localeCompare(`${b.state}${b.name}`)));
+    } catch {
+      // non-fatal — dropdown just stays empty
+    }
   }
 
   async function fetchLocations() {

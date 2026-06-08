@@ -1171,7 +1171,7 @@ export function GlobalSourcingPage() {
     if (!session?.access_token) return;
 
     const confirmed = window.confirm(
-      `Delete imported product "${productName}" (Woo #${wooProductId}) permanently? This will remove it from WooCommerce.`
+      `Delete imported product "${productName}" permanently?`
     );
     if (!confirmed) return;
 
@@ -1182,7 +1182,7 @@ export function GlobalSourcingPage() {
         session.access_token,
         { method: 'DELETE' }
       );
-      notification.success('Deleted', `Imported product Woo #${wooProductId} was deleted`);
+      notification.success('Deleted', `Imported product was deleted`);
       setImportedProducts((current) =>
         current.filter((product) => product.woo_product_id !== wooProductId)
       );
@@ -1607,7 +1607,7 @@ export function GlobalSourcingPage() {
     if ((!selectedVendorId && !manualWooVendorId.trim()) || !selectedHubId) {
       notification.error(
         'Missing mapping',
-        'Select a target vendor or enter a Woo/WCFM vendor id, and choose a receiving hub'
+        'Select a target vendor or enter a vendor ID override, and choose a receiving hub'
       );
       return;
     }
@@ -1666,7 +1666,7 @@ export function GlobalSourcingPage() {
           ...(manualWooVendorId.trim()
             ? {
                 woocommerce_vendor_id: manualWooVendorId.trim(),
-                store_name: manualWooVendorName.trim() || `Woo Vendor ${manualWooVendorId.trim()}`,
+                store_name: manualWooVendorName.trim() || `Vendor ${manualWooVendorId.trim()}`,
               }
             : {}),
         },
@@ -1688,8 +1688,8 @@ export function GlobalSourcingPage() {
       notification.success(
         'Imported',
         result.imported_variation_count
-          ? `Woo product ${result.woo_product_id} updated with ${result.imported_variation_count} variant(s)`
-          : `Woo product ${result.woo_product_id} updated`
+          ? `Product imported with ${result.imported_variation_count} variant(s)`
+          : `Product imported successfully`
       );
       if (Array.isArray(result.warnings) && result.warnings.length > 0) {
         notification.warning(
@@ -1926,7 +1926,7 @@ export function GlobalSourcingPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Global Sourcing</h1>
           <p className="mt-2 max-w-3xl text-gray-600">
-            Admin-only sourcing workflow for CJ product discovery, Woo product writeback, and inbound
+            Admin-only sourcing workflow for CJ product discovery, catalog import, and inbound
             shipment handling.
           </p>
         </div>
@@ -2079,8 +2079,8 @@ export function GlobalSourcingPage() {
 
           <div className="card space-y-4">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Import to Woo</h2>
-              <p className="text-sm text-gray-600">Woo remains the product source of truth.</p>
+              <h2 className="text-lg font-semibold text-gray-900">Import to Catalog</h2>
+              <p className="text-sm text-gray-600">Supabase is the product source of truth.</p>
             </div>
 
             {inspectError ? (
@@ -2201,7 +2201,7 @@ export function GlobalSourcingPage() {
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                   className="w-full rounded-lg border border-gray-300 px-4 py-3"
-                  placeholder="Woo title"
+                  placeholder="Product title"
                 />
                 <textarea
                   value={description}
@@ -2214,7 +2214,7 @@ export function GlobalSourcingPage() {
                   value={price}
                   readOnly
                   className="w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-3 text-gray-700"
-                  placeholder="Final Woo regular price (NGN)"
+                  placeholder="Final regular price (NGN)"
                 />
                 <div className="grid gap-3 md:grid-cols-3">
                   <label className="block">
@@ -2268,7 +2268,7 @@ export function GlobalSourcingPage() {
                     ) : (
                       vendors.map((vendor) => (
                         <option key={`vendor-visible-${vendor.id}`} value={vendor.id}>
-                          {vendor.store_name} � Woo vendor {vendor.woocommerce_vendor_id}
+                          {vendor.store_name}
                         </option>
                       ))
                     )}
@@ -2278,7 +2278,7 @@ export function GlobalSourcingPage() {
                 <div className="grid gap-3 md:grid-cols-2">
                   <label className="block">
                     <span className="mb-2 block text-sm font-medium text-gray-700">
-                      Woo/WCFM Vendor ID
+                      Vendor ID (manual override)
                     </span>
                     <input
                       value={manualWooVendorId}
@@ -2485,7 +2485,7 @@ export function GlobalSourcingPage() {
                     ) : (
                       vendors.map((vendor) => (
                         <option key={`source-link-vendor-${vendor.id}`} value={vendor.id}>
-                          {vendor.store_name} - Woo vendor {vendor.woocommerce_vendor_id}
+                          {vendor.store_name}
                         </option>
                       ))
                     )}
@@ -2561,7 +2561,7 @@ export function GlobalSourcingPage() {
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-gray-900">{product.name}</p>
-                      <p className="mt-1">Woo #{product.woo_product_id} · CJ PID {product.external_product_id || 'n/a'}</p>
+                      <p className="mt-1">CJ PID {product.external_product_id || 'n/a'}</p>
                       <p className="mt-1">Vendor: {product.vendor?.store_name || 'Not set'} · Hub: {product.receiving_hub?.name || 'Not set'}</p>
                       <p className="mt-1">Mode: {product.fulfillment_mode || 'Not set'} · Status: {product.status}</p>
                       <p className="mt-1">Updated: {formatDate(product.updated_at)}</p>
@@ -2798,7 +2798,7 @@ export function GlobalSourcingPage() {
                             {formatReadableStatus(orderStatus)}
                           </span>
                         </div>
-                        <p>Woo order: {shipment.woo_order_id ? `#${shipment.woo_order_id}` : 'Not linked'}</p>
+                        <p>Order Ref: {shipment.woo_order_id ? `#${shipment.woo_order_id}` : 'Not linked'}</p>
                         <p>Created: {formatDate(shipment.created_at)}</p>
                         <p>Hub: {shipment.hubs?.name || 'Not linked'} / Sub-order: {shipment.sub_orders?.tracking_number || 'Not linked'}</p>
                         <p>

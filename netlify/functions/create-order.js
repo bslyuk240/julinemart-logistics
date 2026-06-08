@@ -25,7 +25,7 @@ import {
   mergeGlobalSourcingMetadata,
   extractGlobalSourcingFromSupabaseMeta,
 } from './services/global-sourcing-utils.js';
-import { autoCreateCjOrdersForSubOrders } from './services/global-sourcing-cj.js';
+// CJ auto-ordering removed — supplier orders are placed manually via Global Sourcing → Inbound Shipments
 import { sendOrderEmails } from '../../shared/orderConfirmationEmail.js';
 import { computeInfluencerShippingDiscount } from './services/influencer-order-sale.js';
 import { sendPushToCustomer, sendPushToAllStaff } from './services/pushNotifications.js';
@@ -531,6 +531,7 @@ export async function handler(event) {
       }));
       await adminClient.from('tracking_events').insert(trackingEvents);
 
+      // Use the JLO order number as the reference stored on inbound shipment rows
       const wooOrderRef = String(orderNumber);
       const inboundShipments = subOrders
         .map((subOrder) => {
@@ -570,15 +571,7 @@ export async function handler(event) {
         }
       }
 
-      try {
-        await autoCreateCjOrdersForSubOrders({
-          client: adminClient,
-          subOrders,
-          wooOrderId: wooOrderRef,
-        });
-      } catch (cjOrderError) {
-        console.warn('Unable to auto-create CJ supplier orders (PWA):', cjOrderError);
-      }
+      // CJ supplier orders are placed manually via the Global Sourcing → Inbound Shipments page.
 
       // Notify each vendor of their new sub-order
       const vendorIds = [...new Set(subOrders.map((s) => s.vendor_id).filter(Boolean))];

@@ -1,66 +1,32 @@
 import {
-  extractMetaValue,
   GLOBAL_SOURCING_ALLOWED_ROLES,
   headers,
   jsonResponse,
-  requestWoo,
   requireAdmin,
 } from './services/global-sourcing-utils.js';
 
-async function loadHubMap(client, ids) {
-  if (ids.length === 0) return new Map();
-  const { data } = await client.from('hubs').select('id, name, code').in('id', ids);
-  return new Map((data || []).map((hub) => [hub.id, hub]));
-}
-
-async function loadVendorMap(client, ids) {
-  if (ids.length === 0) return new Map();
-  const { data } = await client
-    .from('vendors')
-    .select('id, store_name, woocommerce_vendor_id')
-    .in('id', ids);
-  return new Map((data || []).map((vendor) => [vendor.id, vendor]));
-}
-
-function normalizeProduct(product, hubMap, vendorMap) {
-  const provider = extractMetaValue(product?.meta_data, [
-    '_global_sourcing_provider',
-    'global_sourcing_provider',
-  ]);
+function normalizeProduct(row) {
+  const meta = row.sourcing_meta ?? {};
+  const provider =
+    meta.provider ??
+    (meta.cj_pid || meta.cjPid || row.ships_from_abroad ? 'cj' : null);
   if (!provider) return null;
 
-  const vendorId = extractMetaValue(product?.meta_data, ['_jlo_vendor_id', 'vendor_id', '_vendor_id']);
-  const hubId = extractMetaValue(product?.meta_data, ['_receiving_hub_id', 'receiving_hub_id']);
-
   return {
-    woo_product_id: String(product.id),
-    name: product.name,
-    status: product.status,
-    permalink: product.permalink || null,
-    image: product.images?.[0]?.src || null,
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    image: row._thumbnail?.src ?? null,
     provider,
-    external_product_id: extractMetaValue(product?.meta_data, [
-      '_supplier_product_id',
-      'supplier_product_id',
-      '_cj_pid',
-      'cj_pid',
-    ]),
-    external_variant_id: extractMetaValue(product?.meta_data, [
-      '_supplier_variant_id',
-      'supplier_variant_id',
-      '_cj_vid',
-      'cj_vid',
-    ]),
-    fulfillment_mode: extractMetaValue(product?.meta_data, ['_fulfillment_mode', 'fulfillment_mode']),
-    receiving_hub_id: hubId,
-    receiving_hub: hubId && hubMap.has(hubId) ? hubMap.get(hubId) : null,
-    vendor_id: vendorId,
-    vendor: vendorId && vendorMap.has(vendorId) ? vendorMap.get(vendorId) : null,
-    global_sourcing_tag: extractMetaValue(product?.meta_data, [
-      '_global_sourcing_tag',
-      'global_sourcing_tag',
-    ]),
-    updated_at: product.date_modified_gmt || product.date_modified || null,
+    external_product_id: meta.cj_pid ?? meta.cjPid ?? null,
+    external_variant_id: meta.cj_vid ?? meta.cjVid ?? null,
+    fulfillment_mode: meta.fulfillment_mode ?? meta.fulfillmentMode ?? null,
+    receiving_hub_id: row.hub_id ?? null,
+    receiving_hub: row.hubs ?? null,
+    vendor_id: row.vendor_id ?? null,
+    vendor: row.vendors ?? null,
+    global_sourcing_tag: meta.global_sourcing_tag ?? null,
+    updated_at: row.updated_at ?? null,
   };
 }
 
@@ -75,21 +41,33 @@ export async function handler(event) {
 
   const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
   if (auth.errorResponse) return auth.errorResponse;
+  const client = auth.adminClient;
 
   try {
     if (event.httpMethod === 'DELETE') {
-      const wooProductId = String(event.queryStringParameters?.woo_product_id || '').trim();
-      if (!wooProductId) {
-        return jsonResponse(400, {
-          success: false,
-          error: 'woo_product_id is required',
-        });
+      const productId = String(event.queryStringParameters?.id || '').trim();
+      if (!productId) {
+        return jsonResponse(400, { success: false, error: 'id is required' });
       }
 
-      const product = await requestWoo(`/products/${encodeURIComponent(wooProductId)}`);
-      const normalizedProduct = normalizeProduct(product, new Map(), new Map());
+      // Verify product exists and is managed by Global Sourcing before deleting
+      const { data: existing, error: fetchErr } = await client
+        .from('products')
+        .select('id, sourcing_meta, ships_from_abroad')
+        .eq('id', productId)
+        .maybeSingle();
 
-      if (!normalizedProduct) {
+      if (fetchErr || !existing) {
+        return jsonResponse(404, { success: false, error: 'Product not found' });
+      }
+
+      const meta = existing.sourcing_meta ?? {};
+      const isGlobalSourcing =
+        existing.ships_from_abroad ||
+        meta.provider === 'cj' ||
+        !!(meta.cj_pid || meta.cjPid);
+
+      if (!isGlobalSourcing) {
         return jsonResponse(400, {
           success: false,
           error: 'Product is not managed by Global Sourcing',
@@ -97,59 +75,64 @@ export async function handler(event) {
         });
       }
 
-      await requestWoo(`/products/${encodeURIComponent(wooProductId)}?force=true`, {
-        method: 'DELETE',
-      });
+      const { error: deleteErr } = await client
+        .from('products')
+        .delete()
+        .eq('id', productId);
+
+      if (deleteErr) throw deleteErr;
 
       return jsonResponse(200, {
         success: true,
-        data: {
-          woo_product_id: wooProductId,
-        },
+        data: { id: productId },
         message: 'Imported product deleted',
       });
     }
 
+    // GET — list CJ / global-sourcing products from Supabase
     const page = Math.max(Number(event.queryStringParameters?.page || 1), 1);
     const perPage = Math.min(Math.max(Number(event.queryStringParameters?.per_page || 50), 1), 100);
-    const products = await requestWoo(`/products?per_page=${perPage}&page=${page}&orderby=date&order=desc`);
-    const list = Array.isArray(products) ? products : [];
+    const offset = (page - 1) * perPage;
 
-    const hubIds = new Set();
-    const vendorIds = new Set();
+    const { data: rows, error: listErr } = await client
+      .from('products')
+      .select(`
+        id, name, status, ships_from_abroad, sourcing_meta, hub_id, vendor_id, updated_at,
+        product_images(src, alt, is_thumbnail),
+        hubs(id, name, code),
+        vendors(id, store_name)
+      `)
+      .or("ships_from_abroad.eq.true,sourcing_meta->>provider.eq.cj")
+      .order('updated_at', { ascending: false })
+      .range(offset, offset + perPage - 1);
 
-    list.forEach((product) => {
-      const hubId = extractMetaValue(product?.meta_data, ['_receiving_hub_id', 'receiving_hub_id']);
-      const vendorId = extractMetaValue(product?.meta_data, ['_jlo_vendor_id', 'vendor_id', '_vendor_id']);
-      if (hubId) hubIds.add(hubId);
-      if (vendorId) vendorIds.add(vendorId);
-    });
+    if (listErr) throw listErr;
 
-    const [hubMap, vendorMap] = await Promise.all([
-      loadHubMap(auth.adminClient, Array.from(hubIds)),
-      loadVendorMap(auth.adminClient, Array.from(vendorIds)),
-    ]);
+    const list = Array.isArray(rows) ? rows : [];
 
-    const importedProducts = list
-      .map((product) => normalizeProduct(product, hubMap, vendorMap))
+    const normalized = list
+      .map((row) => {
+        const images = Array.isArray(row.product_images) ? row.product_images : [];
+        const thumbnail =
+          images.find((img) => img.is_thumbnail) ?? images[0] ?? null;
+        return normalizeProduct({ ...row, _thumbnail: thumbnail });
+      })
       .filter(Boolean);
 
     return jsonResponse(200, {
       success: true,
-      data: importedProducts,
+      data: normalized,
       meta: {
         page,
         per_page: perPage,
-        scanned_count: list.length,
-        imported_count: importedProducts.length,
+        imported_count: normalized.length,
       },
     });
   } catch (error) {
     return jsonResponse(error?.statusCode || 500, {
       success: false,
       error: 'Unable to load imported products',
-      message: error?.message || 'Woo product query failed',
-      details: error?.responseBody || null,
+      message: error?.message || 'Supabase query failed',
     });
   }
 }

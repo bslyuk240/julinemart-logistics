@@ -76,10 +76,11 @@ interface ProductDetails {
 }
 
 interface ImportedProduct {
-  woo_product_id: string;
+  id: string;
   name: string;
   status: string;
   provider: string;
+  image: string | null;
   external_product_id: string | null;
   fulfillment_mode: string | null;
   receiving_hub?: { name: string } | null;
@@ -1167,7 +1168,7 @@ export function GlobalSourcingPage() {
     }
   }, [notification, session?.access_token]);
 
-  const deleteImportedProduct = async (wooProductId: string, productName: string) => {
+  const deleteImportedProduct = async (productId: string, productName: string) => {
     if (!session?.access_token) return;
 
     const confirmed = window.confirm(
@@ -1175,16 +1176,16 @@ export function GlobalSourcingPage() {
     );
     if (!confirmed) return;
 
-    setDeletingImportedProductId(wooProductId);
+    setDeletingImportedProductId(productId);
     try {
       await callAdmin(
-        `global-sourcing-products?woo_product_id=${encodeURIComponent(wooProductId)}`,
+        `global-sourcing-products?id=${encodeURIComponent(productId)}`,
         session.access_token,
         { method: 'DELETE' }
       );
       notification.success('Deleted', `Imported product was deleted`);
       setImportedProducts((current) =>
-        current.filter((product) => product.woo_product_id !== wooProductId)
+        current.filter((product) => product.id !== productId)
       );
       setImportedProductsCount((current) =>
         current === null ? current : Math.max(0, current - 1)
@@ -2542,7 +2543,7 @@ export function GlobalSourcingPage() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Imported Products</h2>
-              <p className="text-sm text-gray-600">Filtered from Woo by sourcing meta written by this module.</p>
+              <p className="text-sm text-gray-600">Imported from CJ via Global Sourcing. Stored in Supabase.</p>
             </div>
             <button type="button" onClick={() => void loadImportedProducts()} className="btn-secondary inline-flex items-center gap-2">
               {loadingImported ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -2557,8 +2558,11 @@ export function GlobalSourcingPage() {
           ) : (
             <div className="space-y-3">
               {importedProducts.map((product) => (
-                <div key={product.woo_product_id} className="rounded-lg border border-gray-200 p-4 text-sm text-gray-700">
+                <div key={product.id} className="rounded-lg border border-gray-200 p-4 text-sm text-gray-700">
                   <div className="flex items-start justify-between gap-4">
+                    {product.image ? (
+                      <img src={product.image} alt={product.name} className="h-16 w-16 flex-shrink-0 rounded object-cover" />
+                    ) : null}
                     <div className="min-w-0 flex-1">
                       <p className="font-semibold text-gray-900">{product.name}</p>
                       <p className="mt-1">CJ PID {product.external_product_id || 'n/a'}</p>
@@ -2580,11 +2584,11 @@ export function GlobalSourcingPage() {
                       ) : null}
                       <button
                         type="button"
-                        onClick={() => void deleteImportedProduct(product.woo_product_id, product.name)}
-                        disabled={deletingImportedProductId === product.woo_product_id}
+                        onClick={() => void deleteImportedProduct(product.id, product.name)}
+                        disabled={deletingImportedProductId === product.id}
                         className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
                       >
-                        {deletingImportedProductId === product.woo_product_id ? (
+                        {deletingImportedProductId === product.id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
                           <Trash2 className="h-4 w-4" />

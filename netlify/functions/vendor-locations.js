@@ -54,7 +54,8 @@ export const handler = async (event) => {
       supports_local_delivery,
       fez_hub_name,
       fez_hub_address,
-      vendor_pickup_surcharge
+      vendor_pickup_surcharge,
+      hubs ( name, address, city )
     `)
     .eq('status', 'active')
     .order('state')
@@ -75,12 +76,24 @@ export const handler = async (event) => {
   for (const loc of locations) {
     if (!grouped[loc.state]) grouped[loc.state] = {};
     if (!grouped[loc.state][loc.city]) grouped[loc.state][loc.city] = [];
+    // Resolve hub: JLO hub (primary) or Fez hub (fallback)
+    const jloHub = loc.hubs;
+    const hub_name    = jloHub?.name    || loc.fez_hub_name    || null;
+    const hub_address = jloHub
+      ? `${jloHub.address || ''}${jloHub.city ? ', ' + jloHub.city : ''}`.replace(/^,\s*/, '')
+      : (loc.fez_hub_address || null);
+    const hub_type = jloHub ? 'jlo' : (loc.fez_hub_name ? 'fez' : null);
+
     grouped[loc.state][loc.city].push({
       id:                          loc.id,
       lga:                         loc.lga,
       supports_vendor_direct_fez:  loc.supports_vendor_direct_fez,
       supports_vendor_to_hub:      loc.supports_vendor_to_hub,
       supports_local_delivery:     loc.supports_local_delivery,
+      hub_name,
+      hub_address,
+      hub_type,
+      // keep legacy fields for backward compat
       fez_hub_name:                loc.fez_hub_name,
       fez_hub_address:             loc.fez_hub_address,
       vendor_pickup_surcharge:     loc.vendor_pickup_surcharge,

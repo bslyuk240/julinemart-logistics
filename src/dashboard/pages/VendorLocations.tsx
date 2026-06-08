@@ -15,6 +15,7 @@ interface ApprovedLocation {
   supports_vendor_direct_fez: boolean;
   supports_vendor_to_hub: boolean;
   supports_local_delivery: boolean;
+  hub_id: string | null;
   fez_hub_name: string | null;
   fez_hub_address: string | null;
   vendor_pickup_surcharge: number;
@@ -22,6 +23,13 @@ interface ApprovedLocation {
   hubs?: { name: string; city: string; state: string } | null;
   couriers?: { name: string; code: string } | null;
   zones?: { name: string; code: string } | null;
+}
+
+interface HubOption {
+  id: string;
+  name: string;
+  city: string;
+  state: string;
 }
 
 interface WaitlistEntry {
@@ -58,11 +66,13 @@ export function VendorLocationsPage() {
   const [showForm, setShowForm]         = useState(false);
   const [editing, setEditing]           = useState<ApprovedLocation | null>(null);
   const [activatingId, setActivatingId] = useState<string | null>(null);
+  const [hubOptions, setHubOptions]     = useState<HubOption[]>([]);
   const notification                    = useNotification();
 
   type FormStatus = 'active' | 'paused' | 'waitlist_only' | 'coming_soon';
   type FormState = {
     state: string; city: string; lga: string; country: string;
+    hub_id: string;
     fez_hub_name: string; fez_hub_address: string; notes: string;
     supports_vendor_direct_fez: boolean;
     supports_vendor_to_hub: boolean;
@@ -72,6 +82,7 @@ export function VendorLocationsPage() {
   };
   const emptyForm: FormState = {
     state: '', city: '', lga: '', country: 'Nigeria',
+    hub_id: '',
     fez_hub_name: '', fez_hub_address: '', notes: '',
     supports_vendor_direct_fez: true,
     supports_vendor_to_hub: false,
@@ -81,8 +92,17 @@ export function VendorLocationsPage() {
   };
   const [form, setForm] = useState<FormState>(emptyForm);
 
-  useEffect(() => { fetchLocations(); }, []);
+  useEffect(() => { fetchLocations(); fetchHubs(); }, []);
   useEffect(() => { if (tab === 'waitlist') fetchWaitlist(); }, [tab]);
+
+  async function fetchHubs() {
+    const { data } = await supabase
+      .from('hubs')
+      .select('id, name, city, state')
+      .eq('is_active', true)
+      .order('state').order('name');
+    if (data) setHubOptions(data);
+  }
 
   async function fetchLocations() {
     setLoading(true);
@@ -126,6 +146,7 @@ export function VendorLocationsPage() {
       city:                       loc.city,
       lga:                        loc.lga,
       country:                    loc.country || 'Nigeria',
+      hub_id:                     loc.hub_id || '',
       fez_hub_name:               loc.fez_hub_name || '',
       fez_hub_address:            loc.fez_hub_address || '',
       notes:                      loc.notes || '',
@@ -290,7 +311,7 @@ export function VendorLocationsPage() {
                       <tr>
                         <th className="text-left px-4 py-3 font-medium text-gray-600">City / LGA</th>
                         <th className="text-left px-4 py-3 font-medium text-gray-600">Modes</th>
-                        <th className="text-left px-4 py-3 font-medium text-gray-600">Fez Hub</th>
+                        <th className="text-left px-4 py-3 font-medium text-gray-600">Hub</th>
                         <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
                         <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
                       </tr>
@@ -312,7 +333,15 @@ export function VendorLocationsPage() {
                               <p className="text-xs text-gray-400 mt-0.5">Pickup fee: ₦{loc.vendor_pickup_surcharge.toLocaleString()}</p>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-xs text-gray-500">{loc.fez_hub_name || '—'}</td>
+                          <td className="px-4 py-3 text-xs">
+                            {loc.hubs ? (
+                              <span className="font-medium text-primary-700">{loc.hubs.name}</span>
+                            ) : loc.fez_hub_name ? (
+                              <span className="text-gray-500">{loc.fez_hub_name} <span className="text-gray-400">(Fez)</span></span>
+                            ) : (
+                              <span className="text-gray-400">—</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3">
                             <span className={`text-xs px-2 py-1 rounded-full font-medium ${STATUS_BADGE[loc.status] || 'bg-gray-100 text-gray-500'}`}>
                               {loc.status.replace(/_/g, ' ')}
@@ -357,9 +386,11 @@ export function VendorLocationsPage() {
                         {loc.supports_local_delivery && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Local Delivery</span>}
                       </div>
 
-                      {loc.fez_hub_name && (
-                        <p className="text-xs text-gray-400 mb-3">Hub: {loc.fez_hub_name}</p>
-                      )}
+                      {loc.hubs ? (
+                        <p className="text-xs font-medium text-primary-700 mb-3">Hub: {loc.hubs.name}</p>
+                      ) : loc.fez_hub_name ? (
+                        <p className="text-xs text-gray-400 mb-3">Fez Hub: {loc.fez_hub_name}</p>
+                      ) : null}
                       {loc.vendor_pickup_surcharge > 0 && (
                         <p className="text-xs text-gray-400 mb-3">Pickup fee: ₦{loc.vendor_pickup_surcharge.toLocaleString()}</p>
                       )}
@@ -529,12 +560,23 @@ export function VendorLocationsPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Fez Hub Name</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">JLO Hub (primary)</label>
+                <select value={form.hub_id} onChange={e => setForm(f => ({ ...f, hub_id: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  <option value="">— No JLO hub (use Fez hub below) —</option>
+                  {hubOptions.map(h => (
+                    <option key={h.id} value={h.id}>{h.name} — {h.city}, {h.state}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">If set, vendors in this location drop off at this JLO hub. Fez hub below is the fallback.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Fez Hub Name <span className="font-normal text-gray-400">(fallback)</span></label>
                 <input type="text" value={form.fez_hub_name} onChange={e => setForm(f => ({ ...f, fez_hub_name: e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="e.g. Fez Lagos Hub" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Fez Hub Address</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Fez Hub Address <span className="font-normal text-gray-400">(fallback)</span></label>
                 <input type="text" value={form.fez_hub_address} onChange={e => setForm(f => ({ ...f, fez_hub_address: e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Full address for vendors to drop off" />
               </div>

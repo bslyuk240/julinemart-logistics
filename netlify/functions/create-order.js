@@ -29,6 +29,7 @@ import {
 import { sendOrderEmails } from '../../shared/orderConfirmationEmail.js';
 import { computeInfluencerShippingDiscount } from './services/influencer-order-sale.js';
 import { sendPushToCustomer, sendPushToAllStaff } from './services/pushNotifications.js';
+import { sendTransactionalEmail } from './services/emailNotifications.js';
 
 function generateRef() {
   const ts = Date.now().toString(36).toUpperCase();
@@ -573,15 +574,77 @@ export async function handler(event) {
 
       // CJ supplier orders are placed manually via the Global Sourcing → Inbound Shipments page.
 
-      // Notify each vendor of their new sub-order
+      // Notify each vendor of their new sub-order (push + email)
       const vendorIds = [...new Set(subOrders.map((s) => s.vendor_id).filter(Boolean))];
-      for (const vendorId of vendorIds) {
-        sendPushToCustomer(vendorId, {
+
+      // Batch-fetch vendor email, collection method, and hub info in one query
+      const { data: vendorRows } = vendorIds.length > 0
+        ? await adminClient
+            .from('vendors')
+            .select(`
+              id, email, store_name, fez_collection_method,
+              approved_vendor_locations (
+                fez_hub_name, fez_hub_address,
+                hubs ( name, address, city )
+              )
+            `)
+            .in('id', vendorIds)
+        : { data: [] };
+
+      const vendorMap = new Map((vendorRows || []).map((v) => [v.id, v]));
+
+      for (const subOrder of subOrders) {
+        if (!subOrder.vendor_id) continue;
+        const vendor = vendorMap.get(subOrder.vendor_id);
+        if (!vendor) continue;
+
+        // Push notification
+        sendPushToCustomer(subOrder.vendor_id, {
           title: '🛍️ New Order Received',
           message: `Order #${orderNumber} — please confirm and process promptly.`,
           type: 'new_vendor_order',
           data: { order_id: orderId, order_number: String(orderNumber) },
         }).catch((e) => console.warn('Vendor push failed:', e?.message));
+
+        if (!vendor.email) continue;
+
+        const loc = vendor.approved_vendor_locations;
+        const collectionMethod = vendor.fez_collection_method || 'hub_dropoff';
+        const itemCount = Array.isArray(subOrder.items) ? subOrder.items.length : 1;
+        const orderTotal = `₦${Number(subOrder.subtotal || 0).toLocaleString()}`;
+
+        if (collectionMethod === 'fez_pickup') {
+          sendTransactionalEmail({
+            templateName: 'Vendor Order Fez Pickup',
+            to: vendor.email,
+            data: {
+              vendor_name: vendor.store_name || 'Vendor',
+              order_number: String(orderNumber),
+              order_total: orderTotal,
+              item_count: String(itemCount),
+            },
+          }).catch((e) => console.warn('Vendor Fez Pickup email failed:', e?.message));
+        } else {
+          // hub_dropoff — use JLO hub if set on the location, else fall back to Fez hub
+          const jloHub = loc?.hubs;
+          const hubName = jloHub?.name || loc?.fez_hub_name || 'Your designated hub';
+          const hubAddress = jloHub
+            ? `${jloHub.address || ''}${jloHub.city ? ', ' + jloHub.city : ''}`.replace(/^,\s*/, '')
+            : (loc?.fez_hub_address || '');
+
+          sendTransactionalEmail({
+            templateName: 'Vendor Order Hub Dropoff',
+            to: vendor.email,
+            data: {
+              vendor_name: vendor.store_name || 'Vendor',
+              order_number: String(orderNumber),
+              hub_name: hubName,
+              hub_address: hubAddress,
+              order_total: orderTotal,
+              item_count: String(itemCount),
+            },
+          }).catch((e) => console.warn('Vendor Hub Dropoff email failed:', e?.message));
+        }
       }
 
       // Notify all admin/staff of the new order

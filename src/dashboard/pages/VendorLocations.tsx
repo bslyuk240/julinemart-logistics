@@ -10,7 +10,7 @@ interface ApprovedLocation {
   country: string;
   state: string;
   city: string;
-  lga: string;
+  lgas: string[];
   status: 'active' | 'paused' | 'waitlist_only' | 'coming_soon';
   supports_vendor_direct_fez: boolean;
   supports_vendor_to_hub: boolean;
@@ -72,7 +72,7 @@ export function VendorLocationsPage() {
 
   type FormStatus = 'active' | 'paused' | 'waitlist_only' | 'coming_soon';
   type FormState = {
-    state: string; city: string; lga: string; country: string;
+    state: string; city: string; lgas: string[]; country: string;
     hub_id: string;
     fez_hub_name: string; fez_hub_address: string; notes: string;
     supports_vendor_direct_fez: boolean;
@@ -82,7 +82,7 @@ export function VendorLocationsPage() {
     status: FormStatus;
   };
   const emptyForm: FormState = {
-    state: '', city: '', lga: '', country: 'Nigeria',
+    state: '', city: '', lgas: [''], country: 'Nigeria',
     hub_id: '',
     fez_hub_name: '', fez_hub_address: '', notes: '',
     supports_vendor_direct_fez: true,
@@ -150,7 +150,7 @@ export function VendorLocationsPage() {
     setForm({
       state:                      loc.state,
       city:                       loc.city,
-      lga:                        loc.lga,
+      lgas:                       loc.lgas?.length ? loc.lgas : [''],
       country:                    loc.country || 'Nigeria',
       hub_id:                     loc.hub_id || '',
       fez_hub_name:               loc.fez_hub_name || '',
@@ -166,14 +166,15 @@ export function VendorLocationsPage() {
   }
 
   async function handleSave() {
-    if (!form.state || !form.city || !form.lga) {
-      notification.error('Validation', 'State, city, and LGA are required');
+    const lgas = form.lgas.map(l => l.trim()).filter(Boolean);
+    if (!form.state || !form.city || lgas.length === 0) {
+      notification.error('Validation', 'State, city, and at least one LGA are required');
       return;
     }
     try {
       const auth = await getAuthHeader();
       const method = editing ? 'PUT' : 'POST';
-      const body = editing ? { id: editing.id, ...form } : form;
+      const body = editing ? { id: editing.id, ...form, lgas } : { ...form, lgas };
       const res = await fetch(`${JLO_API}/.netlify/functions/vendor-locations-admin`, {
         method,
         headers: { 'Content-Type': 'application/json', Authorization: auth },
@@ -181,7 +182,7 @@ export function VendorLocationsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
-      notification.success('Saved', `${form.city}, ${form.lga} (${form.state}) ${editing ? 'updated' : 'added'}`);
+      notification.success('Saved', `${form.city} (${form.state}) ${editing ? 'updated' : 'added'}`);
       setShowForm(false);
       fetchLocations();
     } catch (e: any) {
@@ -230,7 +231,7 @@ export function VendorLocationsPage() {
   }
 
   async function handleDelete(loc: ApprovedLocation) {
-    if (!window.confirm(`Delete ${loc.city}, ${loc.lga} (${loc.state})? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete ${loc.city} (${loc.state})? This cannot be undone.`)) return;
     try {
       const auth = await getAuthHeader();
       const res = await fetch(`${JLO_API}/.netlify/functions/vendor-locations-admin`, {
@@ -240,7 +241,7 @@ export function VendorLocationsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
-      notification.success('Deleted', `${loc.city}, ${loc.lga} removed`);
+      notification.success('Deleted', `${loc.city} removed`);
       fetchLocations();
     } catch (e: any) {
       notification.error('Cannot delete', e.message);
@@ -327,7 +328,11 @@ export function VendorLocationsPage() {
                         <tr key={loc.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3">
                             <p className="font-medium text-gray-900">{loc.city}</p>
-                            <p className="text-xs text-gray-500">{loc.lga}</p>
+                            <div className="flex flex-wrap gap-1 mt-0.5">
+                              {(loc.lgas || []).map(lga => (
+                                <span key={lga} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{lga}</span>
+                              ))}
+                            </div>
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap gap-1">
@@ -376,7 +381,11 @@ export function VendorLocationsPage() {
                       <div className="flex items-start justify-between gap-3 mb-2">
                         <div>
                           <p className="font-semibold text-gray-900">{loc.city}</p>
-                          <p className="text-xs text-gray-500">{loc.lga}</p>
+                          <div className="flex flex-wrap gap-1 mt-0.5">
+                            {(loc.lgas || []).map(lga => (
+                              <span key={lga} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{lga}</span>
+                            ))}
+                          </div>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[loc.status] || 'bg-gray-100 text-gray-500'}`}>
@@ -519,8 +528,8 @@ export function VendorLocationsPage() {
               </button>
             </div>
             <div className="p-5 space-y-4">
-              {/* State / City / LGA — stack on mobile */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* State / City */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">State *</label>
                   <input type="text" value={form.state} onChange={e => setForm(f => ({ ...f, state: e.target.value }))}
@@ -529,12 +538,42 @@ export function VendorLocationsPage() {
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">City *</label>
                   <input type="text" value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="e.g. Ikeja" />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="e.g. Ibadan" />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">LGA *</label>
-                  <input type="text" value={form.lga} onChange={e => setForm(f => ({ ...f, lga: e.target.value }))}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="e.g. Ikeja" />
+              </div>
+
+              {/* LGAs — multi */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-medium text-gray-600">LGAs *</label>
+                  <button type="button"
+                    onClick={() => setForm(f => ({ ...f, lgas: [...f.lgas, ''] }))}
+                    className="flex items-center gap-1 text-xs text-primary-600 hover:text-primary-700 font-medium">
+                    <Plus className="w-3.5 h-3.5" /> Add LGA
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {form.lgas.map((lga, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={lga}
+                        onChange={e => setForm(f => {
+                          const next = [...f.lgas];
+                          next[i] = e.target.value;
+                          return { ...f, lgas: next };
+                        })}
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        placeholder={i === 0 ? 'e.g. Ibadan North' : 'e.g. Ibadan South-West'} />
+                      {form.lgas.length > 1 && (
+                        <button type="button"
+                          onClick={() => setForm(f => ({ ...f, lgas: f.lgas.filter((_, j) => j !== i) }))}
+                          className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg transition">
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
 

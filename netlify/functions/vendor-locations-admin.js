@@ -76,7 +76,7 @@ export const handler = async (event) => {
       `)
       .order('state')
       .order('city')
-      .order('lga');
+      .order('state');
 
     if (error) return { statusCode: 500, headers: cors, body: JSON.stringify({ error: error.message }) };
     return { statusCode: 200, headers: { ...cors, 'Content-Type': 'application/json' }, body: JSON.stringify({ locations: data }) };
@@ -90,7 +90,7 @@ export const handler = async (event) => {
   // ── POST — create ────────────────────────────────────────────────────────────
   if (event.httpMethod === 'POST') {
     const {
-      state, city, lga, country,
+      state, city, lgas, country,
       zone_id, hub_id, default_courier_id,
       fez_hub_name, fez_hub_address,
       supports_vendor_direct_fez,
@@ -100,15 +100,16 @@ export const handler = async (event) => {
       status, notes,
     } = body;
 
-    if (!state || !city || !lga) {
-      return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'state, city, and lga are required' }) };
+    const lgasArr = Array.isArray(lgas) ? lgas.filter(Boolean) : (lgas ? [lgas] : []);
+    if (!state || !city || lgasArr.length === 0) {
+      return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'state, city, and at least one LGA are required' }) };
     }
 
     const { data, error } = await adminClient
       .from('approved_vendor_locations')
       .insert({
         country:                     country || 'Nigeria',
-        state, city, lga,
+        state, city, lgas: lgasArr,
         zone_id:                     zone_id || null,
         hub_id:                      hub_id || null,
         default_courier_id:          default_courier_id || null,
@@ -129,7 +130,7 @@ export const handler = async (event) => {
       return {
         statusCode: isDuplicate ? 409 : 500,
         headers: cors,
-        body: JSON.stringify({ error: isDuplicate ? `${city}, ${lga} (${state}) is already in the approved locations list.` : error.message }),
+        body: JSON.stringify({ error: isDuplicate ? `${city} (${state}) is already in the approved locations list.` : error.message }),
       };
     }
     return { statusCode: 201, headers: { ...cors, 'Content-Type': 'application/json' }, body: JSON.stringify({ location: data }) };

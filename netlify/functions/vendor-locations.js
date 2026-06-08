@@ -48,7 +48,7 @@ export const handler = async (event) => {
       id,
       state,
       city,
-      lga,
+      lgas,
       supports_vendor_direct_fez,
       supports_vendor_to_hub,
       supports_local_delivery,
@@ -59,8 +59,7 @@ export const handler = async (event) => {
     `)
     .eq('status', 'active')
     .order('state')
-    .order('city')
-    .order('lga');
+    .order('city');
 
   if (error) {
     console.error('vendor-locations fetch error:', error);
@@ -71,11 +70,14 @@ export const handler = async (event) => {
     };
   }
 
-  // Build grouped structure for cascading dropdowns
+  // Build grouped structure for cascading dropdowns.
+  // Each location row may cover multiple LGAs — expand into one entry per LGA
+  // so the vendor registration form still has one option per LGA.
   const grouped = {};
   for (const loc of locations) {
     if (!grouped[loc.state]) grouped[loc.state] = {};
     if (!grouped[loc.state][loc.city]) grouped[loc.state][loc.city] = [];
+
     // Resolve hub: JLO hub (primary) or Fez hub (fallback)
     const jloHub = loc.hubs;
     const hub_name    = jloHub?.name    || loc.fez_hub_name    || null;
@@ -84,20 +86,23 @@ export const handler = async (event) => {
       : (loc.fez_hub_address || null);
     const hub_type = jloHub ? 'jlo' : (loc.fez_hub_name ? 'fez' : null);
 
-    grouped[loc.state][loc.city].push({
-      id:                          loc.id,
-      lga:                         loc.lga,
-      supports_vendor_direct_fez:  loc.supports_vendor_direct_fez,
-      supports_vendor_to_hub:      loc.supports_vendor_to_hub,
-      supports_local_delivery:     loc.supports_local_delivery,
-      hub_name,
-      hub_address,
-      hub_type,
-      // keep legacy fields for backward compat
-      fez_hub_name:                loc.fez_hub_name,
-      fez_hub_address:             loc.fez_hub_address,
-      vendor_pickup_surcharge:     loc.vendor_pickup_surcharge,
-    });
+    const lgaList = Array.isArray(loc.lgas) && loc.lgas.length > 0 ? loc.lgas : ['—'];
+    for (const lga of lgaList) {
+      grouped[loc.state][loc.city].push({
+        id:                          loc.id,
+        lga,                         // single LGA string for this dropdown entry
+        supports_vendor_direct_fez:  loc.supports_vendor_direct_fez,
+        supports_vendor_to_hub:      loc.supports_vendor_to_hub,
+        supports_local_delivery:     loc.supports_local_delivery,
+        hub_name,
+        hub_address,
+        hub_type,
+        // keep legacy fields for backward compat
+        fez_hub_name:                loc.fez_hub_name,
+        fez_hub_address:             loc.fez_hub_address,
+        vendor_pickup_surcharge:     loc.vendor_pickup_surcharge,
+      });
+    }
   }
 
   return {

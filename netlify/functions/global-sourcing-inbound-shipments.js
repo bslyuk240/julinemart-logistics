@@ -335,7 +335,64 @@ async function listShipments(client) {
     .order('created_at', { ascending: false });
 
   if (error) throw error;
-  return data || [];
+  const shipments = data || [];
+
+  // ── Attach product thumbnail images ──────────────────────────────────────
+  // Extract product_id / variation_id from each shipment's item snapshot,
+  // then batch-fetch thumbnails from product_images.
+  const productIds = new Set();
+  const variationIds = new Set();
+  const snapshotMap = new Map();
+
+  for (const shipment of shipments) {
+    const snapshot = getShipmentProductSnapshot(shipment);
+    snapshotMap.set(shipment.id, snapshot);
+    if (snapshot.productId) productIds.add(snapshot.productId);
+    if (snapshot.variationId) variationIds.add(snapshot.variationId);
+  }
+
+  // Fetch thumbnails for all referenced products/variations in one query
+  const imageByVariationId = new Map();
+  const imageByProductId = new Map();
+
+  if (productIds.size > 0) {
+    const { data: imgs } = await client
+      .from('product_images')
+      .select('product_id, variation_id, src, is_thumbnail')
+      .in('product_id', Array.from(productIds));
+
+    for (const img of (imgs || [])) {
+      if (!img.src) continue;
+      if (img.variation_id && img.is_thumbnail) {
+        if (!imageByVariationId.has(img.variation_id)) {
+          imageByVariationId.set(img.variation_id, img.src);
+        }
+      } else if (img.product_id && img.is_thumbnail && !img.variation_id) {
+        if (!imageByProductId.has(img.product_id)) {
+          imageByProductId.set(img.product_id, img.src);
+        }
+      }
+    }
+
+    // Fallback: first non-thumbnail image if no thumbnail found
+    for (const img of (imgs || [])) {
+      if (!img.src) continue;
+      if (img.variation_id && !imageByVariationId.has(img.variation_id)) {
+        imageByVariationId.set(img.variation_id, img.src);
+      } else if (img.product_id && !img.variation_id && !imageByProductId.has(img.product_id)) {
+        imageByProductId.set(img.product_id, img.src);
+      }
+    }
+  }
+
+  return shipments.map((shipment) => {
+    const snapshot = snapshotMap.get(shipment.id);
+    const product_image =
+      (snapshot?.variationId && imageByVariationId.get(snapshot.variationId)) ||
+      (snapshot?.productId && imageByProductId.get(snapshot.productId)) ||
+      null;
+    return { ...shipment, product_image };
+  });
 }
 
 function validateShipmentForManualSupplierOrder(shipment, compatibilityKey = null) {

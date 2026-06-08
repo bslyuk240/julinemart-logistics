@@ -94,6 +94,7 @@ interface InboundShipment {
   created_at: string;
   updated_at?: string;
   provider: string;
+  product_image?: string | null;
   woo_order_id: string | null;
   cj_order_id: string | null;
   cj_pid?: string | null;
@@ -2803,6 +2804,9 @@ export function GlobalSourcingPage() {
                     {/* Product */}
                     <div className="space-y-1">
                       <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Product</p>
+                      {ds.product_image ? (
+                        <img src={ds.product_image} alt={dsSnapshot.title || 'Product'} className="h-20 w-20 rounded-lg object-cover" />
+                      ) : null}
                       <p className="font-medium text-gray-900">{dsSnapshot.title || 'CJ product'}</p>
                       {dsSnapshot.variationLabel ? <p className="text-gray-600">{dsSnapshot.variationLabel}</p> : null}
                       <p><span className="text-gray-500">Qty:</span> {dsSnapshot.quantity}</p>
@@ -2930,17 +2934,30 @@ export function GlobalSourcingPage() {
                       </div>
 
                       {/* Product + variant — the main content */}
-                      <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
-                        <p className="font-semibold text-gray-900">
-                          {snapshot.title || 'CJ product'}
+                      <div className="mt-3 flex items-start gap-3 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2.5">
+                        {shipment.product_image ? (
+                          <img
+                            src={shipment.product_image}
+                            alt={snapshot.title || 'Product'}
+                            className="h-14 w-14 shrink-0 rounded-lg object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-300">
+                            <ImageIcon className="h-6 w-6" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="font-semibold text-gray-900 leading-tight">
+                            {snapshot.title || 'CJ product'}
+                          </p>
                           {snapshot.variationLabel ? (
-                            <span className="ml-2 rounded bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700">{snapshot.variationLabel}</span>
+                            <span className="mt-1 inline-block rounded bg-primary-50 px-2 py-0.5 text-xs font-medium text-primary-700">{snapshot.variationLabel}</span>
                           ) : null}
-                        </p>
-                        <p className="mt-1 text-xs text-gray-500">
-                          Qty: <span className="font-medium text-gray-700">{snapshot.quantity}</span>
-                          {snapshot.sku ? <><span className="mx-1.5">·</span>SKU: <span className="font-medium text-gray-700">{snapshot.sku}</span></> : null}
-                        </p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            Qty: <span className="font-medium text-gray-700">{snapshot.quantity}</span>
+                            {snapshot.sku ? <><span className="mx-1.5">·</span>SKU: <span className="font-medium text-gray-700">{snapshot.sku}</span></> : null}
+                          </p>
+                        </div>
                       </div>
                     </div>
 

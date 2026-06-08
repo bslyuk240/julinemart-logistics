@@ -553,7 +553,7 @@ export function VendorLocationsPage() {
                 <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Supported Modes</p>
                 {[
                   { key: 'supports_vendor_direct_fez', label: 'Fez pickup from vendor address' },
-                  { key: 'supports_vendor_to_hub',     label: 'Vendor drops off at Fez hub' },
+                  { key: 'supports_vendor_to_hub',     label: 'Vendor drops off at hub' },
                   { key: 'supports_local_delivery',    label: 'Local delivery (non-Fez)' },
                 ].map(({ key, label }) => (
                   <label key={key} className="flex items-center gap-3 cursor-pointer">

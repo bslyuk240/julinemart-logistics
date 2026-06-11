@@ -152,7 +152,16 @@ export async function handler(event) {
       if (productIdFilter?.length) b = b.in('id', productIdFilter);
       if (vendorIdResolved) b = b.eq('vendor_id', vendorIdResolved);
       if (q.type) b = b.eq('type', q.type);
-      if (q.search) b = b.ilike('name', `%${q.search}%`);
+      if (q.search) {
+        // Split into individual terms so "electric fan" matches any product
+        // whose name/description contains both words (not necessarily together).
+        // Each term is AND-ed; within a term the match can be in name OR description.
+        const terms = String(q.search).trim().split(/\s+/).filter(Boolean)
+          .map(t => t.replace(/[%_\\]/g, '\\$&')); // escape PG wildcard chars
+        for (const term of terms) {
+          b = b.or(`name.ilike.%${term}%,short_description.ilike.%${term}%`);
+        }
+      }
       return b;
     }
 

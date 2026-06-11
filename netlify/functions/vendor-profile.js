@@ -4,6 +4,7 @@
  */
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateVendor, getAdminClient } from './services/vendorAuth.js';
+import { enrichVendorProfile } from './services/vendorFulfillmentProfile.js';
 
 export async function handler(event) {
   const origin = event.headers?.origin || event.headers?.Origin || '';
@@ -14,16 +15,11 @@ export async function handler(event) {
 
   // ── GET ──────────────────────────────────────────────────────────────────
   if (event.httpMethod === 'GET') {
-    // Join approved_vendor_locations so vendor portal can display hub name/address
-    const { data: fullVendor } = await getAdminClient()
-      .from('vendors')
-      .select('*, approved_vendor_locations(fez_hub_name, fez_hub_address, vendor_pickup_surcharge, hubs(name, address, city))')
-      .eq('id', vendor.id)
-      .single();
+    const { vendor: enriched } = await enrichVendorProfile(getAdminClient(), vendor);
     return {
       statusCode: 200,
       headers: corsHeaders(origin),
-      body: JSON.stringify({ success: true, data: fullVendor ?? vendor }),
+      body: JSON.stringify({ success: true, data: enriched }),
     };
   }
 

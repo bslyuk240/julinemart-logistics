@@ -1,9 +1,10 @@
-import { useState, FormEvent, useRef } from 'react';
-import { Settings as SettingsIcon, Store, CreditCard, CheckCircle, AlertCircle, Upload, Truck } from 'lucide-react';
+import { useState, FormEvent, useRef, useMemo } from 'react';
+import { Settings as SettingsIcon, Store, CreditCard, CheckCircle, AlertCircle, Upload, Truck, MapPin } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
 import { formatVendorAddressForDisplay } from '../lib/formatVendorAddress';
 import { ensureSupabaseStoragePublicUrl } from '../lib/supabase';
+import { resolveVendorFulfillment } from '../lib/vendorFulfillment';
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB
 
@@ -34,6 +35,7 @@ export default function Settings() {
   const currentMethod = vendor?.fez_collection_method ?? null;
   const [selectedMethod, setSelectedMethod] = useState<'fez_pickup' | 'hub_dropoff' | null>(currentMethod);
   const [addressConfirmed, setAddressConfirmed] = useState(false);
+  const fulfillment = useMemo(() => resolveVendorFulfillment(vendor), [vendor]);
 
   const canSaveMethod =
     selectedMethod !== null &&
@@ -305,8 +307,27 @@ export default function Settings() {
             </button>
           </form>
 
-          {/* Fez collection method — only visible if vendor has an approved location */}
-          {currentMethod !== null && (
+          {/* JLO hub fulfilment — vendors in a JulineMart hub area */}
+          {fulfillment.isJloHubVendor && (
+            <div className="card">
+              <div className="flex items-center gap-2 mb-4">
+                <MapPin className="w-5 h-5 text-primary-600" />
+                <h2 className="font-semibold text-gray-900">JulineMart Hub Fulfilment</h2>
+              </div>
+              <p className="text-sm text-gray-700 mb-3">
+                Your store is in a <strong>JulineMart hub service area</strong>. Pack orders and drop them at your assigned hub — JulineMart staff create customer shipments from the hub.
+              </p>
+              {(fulfillment.hubName || fulfillment.hubAddress) && (
+                <div className="rounded-xl bg-primary-50 border border-primary-100 p-3 text-sm text-gray-700">
+                  <p className="font-semibold text-primary-900">{fulfillment.hubName || 'Your JulineMart hub'}</p>
+                  {fulfillment.hubAddress && <p className="text-xs mt-1 text-primary-800">{fulfillment.hubAddress}</p>}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Fez collection method — only for vendors outside JLO hub areas */}
+          {fulfillment.showFezCollectionSettings && currentMethod !== null && (
             <div className="card">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">

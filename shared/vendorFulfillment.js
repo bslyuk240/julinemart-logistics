@@ -4,8 +4,10 @@
  */
 
 export function resolveVendorFulfillment(vendor) {
+  if (vendor?.fulfillment_context) return vendor.fulfillment_context;
+
   const loc = vendor?.approved_vendor_locations;
-  const jloHub = loc?.hubs || null;
+  const jloHub = loc?.hubs || vendor?.hub || null;
   const isJloHubVendor = Boolean(jloHub?.name || vendor?.hub_id);
   const collectionMethod = vendor?.fez_collection_method || 'hub_dropoff';
   const hubName = jloHub?.name || loc?.fez_hub_name || null;
@@ -19,6 +21,8 @@ export function resolveVendorFulfillment(vendor) {
     hubName,
     hubAddress,
     hubType: isJloHubVendor ? 'jlo' : loc?.fez_hub_name ? 'fez' : null,
+    sentToHubAction: isJloHubVendor && collectionMethod === 'hub_dropoff',
+    showFezCollectionSettings: !isJloHubVendor,
   };
 }
 

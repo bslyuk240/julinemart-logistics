@@ -24,6 +24,15 @@ interface Vendor {
   fez_collection_method: 'fez_pickup' | 'hub_dropoff' | null;
   approved_location_id: string | null;
   hub_id: string | null;
+  hub?: { name: string; address: string | null; city: string | null } | null;
+  fulfillment_context?: {
+    isJloHubVendor: boolean;
+    collectionMethod: 'fez_pickup' | 'hub_dropoff';
+    hubName: string | null;
+    hubAddress: string | null;
+    sentToHubAction: boolean;
+    showFezCollectionSettings: boolean;
+  } | null;
   approved_vendor_locations: {
     fez_hub_name: string | null;
     fez_hub_address: string | null;

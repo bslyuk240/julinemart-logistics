@@ -3,34 +3,11 @@ import { ShoppingBag, AlertCircle, X, ChevronRight, Truck, Printer, Download, Pa
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../lib/logActivity';
+import { isRealShipmentTracking, resolveVendorFulfillment } from '../lib/vendorFulfillment';
 
 const JLO_API = import.meta.env.VITE_JLO_API_URL || 'https://jlo.julinemart.com';
 
 const fmt = (n: number) => `₦${Number(n || 0).toLocaleString()}`;
-
-function isRealShipmentTracking(value?: string | null) {
-  if (!value || typeof value !== 'string') return false;
-  const lower = value.toLowerCase();
-  return !['error', 'cannot', 'failed', 'jlo-', 'cr-'].some((b) => lower.includes(b));
-}
-
-function resolveVendorFulfillment(vendor: {
-  hub_id?: string | null;
-  fez_collection_method?: 'fez_pickup' | 'hub_dropoff' | null;
-  approved_vendor_locations?: {
-    fez_hub_name?: string | null;
-    fez_hub_address?: string | null;
-    hubs?: { name?: string; address?: string | null } | null;
-  } | null;
-} | null) {
-  const jloHub = vendor?.approved_vendor_locations?.hubs;
-  const isJloHubVendor = Boolean(jloHub?.name || vendor?.hub_id);
-  const collectionMethod = vendor?.fez_collection_method || 'hub_dropoff';
-  const hubName = jloHub?.name || vendor?.approved_vendor_locations?.fez_hub_name || null;
-  const hubAddress = jloHub?.address || vendor?.approved_vendor_locations?.fez_hub_address || null;
-  const sentToHubAction = isJloHubVendor && collectionMethod === 'hub_dropoff';
-  return { isJloHubVendor, collectionMethod, hubName, hubAddress, sentToHubAction };
-}
 
 const STATUS_BADGE: Record<string, string> = {
   pending:           'bg-yellow-100 text-yellow-700',

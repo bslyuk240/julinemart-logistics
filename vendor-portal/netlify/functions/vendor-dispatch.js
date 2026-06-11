@@ -39,7 +39,7 @@ export const handler = async (event) => {
 
   const { data: vendor, error: vendorErr } = await admin
     .from('vendors')
-    .select('id, is_active, fez_collection_method, hub_id, approved_vendor_locations(hubs(name))')
+    .select('id, is_active, city, state, fez_collection_method, hub_id, hub:hubs!hub_id(name), approved_vendor_locations(hubs(name))')
     .eq('user_id', user.id)
     .single();
   if (vendorErr || !vendor) return { statusCode: 403, headers, body: JSON.stringify({ error: 'No vendor account' }) };
@@ -81,7 +81,7 @@ export const handler = async (event) => {
     if (updateErr2) return { statusCode: 500, headers, body: JSON.stringify({ error: updateErr2.message }) };
   }
 
-  const jloHub = vendor.approved_vendor_locations?.hubs;
+  const jloHub = vendor.approved_vendor_locations?.hubs || vendor.hub;
   const isJloHubVendor = Boolean(jloHub?.name || vendor.hub_id);
   const sentToHub = isJloHubVendor && (vendor.fez_collection_method || 'hub_dropoff') === 'hub_dropoff';
 

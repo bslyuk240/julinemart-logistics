@@ -17,6 +17,9 @@ interface ApprovedLGA {
   fez_hub_name: string | null;
   fez_hub_address: string | null;
   vendor_pickup_surcharge: number;
+  hub_id: string | null;
+  hub_name: string | null;
+  hub_type: 'jlo' | 'fez' | null;
 }
 
 interface GroupedLocations {

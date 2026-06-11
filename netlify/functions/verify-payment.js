@@ -14,8 +14,8 @@
  */
 
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
-import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { recordInfluencerSaleForPaidOrder } from './services/influencer-order-sale.js';
+import { notifyOnPaidOrder } from './services/paidOrderNotify.js';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 
@@ -105,25 +105,14 @@ export async function handler(event) {
     return jsonResponse(404, { success: false, error: 'Order not found' });
   }
 
-  // Send order confirmation email only when this call actually confirmed the payment
-  // (updatedOrder is non-null). The paystack-webhook does the same with dedup protection.
-  if (updatedOrder && orderRow.customer_email) {
-    const portalUrl = process.env.CUSTOMER_PORTAL_URL || 'https://julinemart.com';
-    sendTransactionalEmail({
-      templateName: 'Order Confirmation',
-      to: orderRow.customer_email,
-      orderId: orderRow.id,
-      data: {
-        customerName: orderRow.customer_name || 'Customer',
-        orderNumber: orderRow.order_number ?? orderRow.id,
-        orderDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
-        totalAmount: Number(orderRow.total_amount || 0).toLocaleString(),
-        trackingUrl: `${portalUrl}/orders/${orderRow.order_number ?? orderRow.id}`,
-      },
-    });
-  }
-
+  // Notify customer, staff, and vendors only when this call actually confirmed payment.
   if (updatedOrder?.id) {
+    try {
+      await notifyOnPaidOrder(adminClient, updatedOrder.id, updatedOrder.order_number);
+    } catch (e) {
+      console.warn('verify-payment: paid order notify', e?.message || e);
+    }
+
     try {
       const { data: fullOrder } = await adminClient
         .from('orders')

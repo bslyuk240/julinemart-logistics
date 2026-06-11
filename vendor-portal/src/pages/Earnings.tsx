@@ -93,6 +93,7 @@ export default function Earnings() {
           <div className="brand-gradient rounded-2xl p-5 text-white">
             <p className="text-primary-100 text-xs font-medium mb-1">Available Balance · All Time</p>
             <p className="text-3xl font-bold">{fmt(at.available_balance)}</p>
+            <p className="text-primary-200 text-xs mt-2">Only confirmed (paid) orders count toward earnings.</p>
             <div className="grid grid-cols-2 gap-3 mt-4">
               <div className="bg-white/10 rounded-xl p-3">
                 <p className="text-primary-200 text-xs">Total Net Earned</p>

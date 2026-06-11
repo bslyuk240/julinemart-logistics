@@ -27,7 +27,7 @@ export async function handler(event) {
         id, vendor_id, status, tracking_number, courier_waybill, subtotal, created_at, updated_at,
         couriers(name, code),
         hubs(name, city, state),
-        orders(id, order_number, overall_status, customer_name, customer_email,
+        orders(id, order_number, overall_status, payment_status, customer_name, customer_email,
                delivery_address, created_at)
       `)
       .eq('id', qs.id)
@@ -49,12 +49,23 @@ export async function handler(event) {
     }
 
     const gross = Number(so.subtotal || items.reduce((s, i) => s + Number(i.subtotal), 0));
-    const vendorAmount = gross * (1 - Number(vendor.commission_rate || 0) / 100);
+    const isPaid = so.orders?.payment_status === 'paid';
+    const vendorAmount = isPaid ? gross * (1 - Number(vendor.commission_rate || 0) / 100) : 0;
 
     return {
       statusCode: 200,
       headers: corsHeaders(origin),
-      body: JSON.stringify({ success: true, data: { ...so, order_items: items, vendor_amount: vendorAmount } }),
+      body: JSON.stringify({
+        success: true,
+        data: {
+          ...so,
+          order_items: items,
+          payment_status: so.orders?.payment_status || 'pending',
+          is_paid: isPaid,
+          vendor_amount: vendorAmount,
+          potential_payout: gross * (1 - Number(vendor.commission_rate || 0) / 100),
+        },
+      }),
     };
   }
 
@@ -63,7 +74,7 @@ export async function handler(event) {
     .from('sub_orders')
     .select(`
       id, status, tracking_number, created_at, subtotal,
-      orders(id, order_number, overall_status, customer_name, created_at, total_amount)
+      orders(id, order_number, overall_status, payment_status, customer_name, created_at, total_amount)
     `, { count: 'exact' })
     .eq('vendor_id', vendor.id)
     .order('created_at', { ascending: false })
@@ -74,17 +85,25 @@ export async function handler(event) {
   const { data: subOrders, count, error: qErr } = await query;
   if (qErr) return { statusCode: 500, headers: corsHeaders(origin), body: JSON.stringify({ success: false, error: qErr.message }) };
 
-  const orders = (subOrders || []).map(so => ({
-    id:           so.id,
-    order_number: so.orders?.order_number,
-    order_id:     so.orders?.id,
-    status:       so.status,
-    tracking:     so.tracking_number,
-    customer:     so.orders?.customer_name,
-    gross_amount:  Number(so.subtotal || 0),
-    vendor_amount: Number(so.subtotal || 0) * (1 - Number(vendor.commission_rate || 0) / 100),
-    created_at:   so.created_at,
-  }));
+  const orders = (subOrders || []).map(so => {
+    const gross = Number(so.subtotal || 0);
+    const potential = gross * (1 - Number(vendor.commission_rate || 0) / 100);
+    const isPaid = so.orders?.payment_status === 'paid';
+    return {
+      id:              so.id,
+      order_number:    so.orders?.order_number,
+      order_id:        so.orders?.id,
+      status:          so.status,
+      payment_status:  so.orders?.payment_status || 'pending',
+      is_paid:         isPaid,
+      tracking:        so.tracking_number,
+      customer:        so.orders?.customer_name,
+      gross_amount:    gross,
+      vendor_amount:   isPaid ? potential : 0,
+      potential_payout: potential,
+      created_at:      so.created_at,
+    };
+  });
 
   return {
     statusCode: 200,

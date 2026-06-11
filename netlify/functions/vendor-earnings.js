@@ -73,7 +73,7 @@ export async function handler(event) {
   // Available balance = all-time net - all-time withdrawn (period filter only for display)
   const { data: fullEarnings } = await adminClient
     .from('vendor_earnings_summary')
-    .select('available_balance, total_withdrawn, net_earnings')
+    .select('available_balance, total_withdrawn, net_earnings, pending_withdrawals')
     .eq('vendor_id', vendor.id)
     .single();
 
@@ -131,9 +131,10 @@ export async function handler(event) {
           cogs_tracked:         cogsTracked,
         },
         all_time: {
-          available_balance: Number(fullEarnings?.available_balance || 0),
-          total_withdrawn:   Number(fullEarnings?.total_withdrawn || 0),
+          available_balance:  Number(fullEarnings?.available_balance || 0),
+          total_withdrawn:    Number(fullEarnings?.total_withdrawn || 0),
           total_net_earnings: Number(fullEarnings?.net_earnings || 0),
+          pending_withdrawals: Number(fullEarnings?.pending_withdrawals || 0),
         },
         monthly_chart: (monthlyData || []).map(m => ({
           month:       m.month,

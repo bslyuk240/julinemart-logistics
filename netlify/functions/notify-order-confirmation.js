@@ -1,47 +1,27 @@
 /**
  * POST /api/notify-order-confirmation
  *
- * Secured hook for Supabase Database Webhooks on `public.orders` INSERT (PWA direct inserts).
- * The storefront on test-julinemart / julinemart often writes orders via Supabase client — it never
- * hits `create-order.js`, so this sends the same confirmation + vendor mails + email_logs rows.
+ * Secured hook for Supabase Database Webhooks on `public.orders` INSERT.
+ * The storefront on test-julinemart / julinemart sometimes writes orders via Supabase client —
+ * it never hits `create-order.js`, so this sends confirmation emails when payment is already paid
+ * (e.g. WooCommerce orders inserted as processing/paid).
  *
  * Configure in Supabase: Database → Webhooks → New → table `orders`, INSERT only,
  * URL: https://jlo.julinemart.com/api/notify-order-confirmation
  * HTTP Header: Authorization: Bearer <ORDER_EMAIL_WEBHOOK_SECRET>
  *
  * Orders created by `create-order` set metadata.order_confirmation_handler = 'netlify_create_order';
- * this handler skips those to avoid duplicate emails.
+ * PWA unpaid orders are notified after Paystack via paidOrderNotify (verify-payment / webhook).
  */
 
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
-import { sendOrderEmails } from '../../shared/orderConfirmationEmail.js';
-import { sendPushToAllStaff } from './services/pushNotifications.js';
+import { notifyOnPaidOrder } from './services/paidOrderNotify.js';
 
 const cors = {
   ...headers,
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
-
-async function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-async function loadOrderItemsWithRetry(supabase, orderId) {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const { data, error } = await supabase
-      .from('order_items')
-      .select('product_id, product_name, variation_details, vendor_id, hub_id, quantity, subtotal')
-      .eq('order_id', orderId);
-    if (error) {
-      console.error('[notify-order-confirmation] order_items error:', error.message);
-      return [];
-    }
-    if (data?.length) return data;
-    await sleep(350);
-  }
-  return [];
-}
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
@@ -89,9 +69,7 @@ export async function handler(event) {
 
   const { data: order, error: orderErr } = await adminClient
     .from('orders')
-    .select(
-      'id, order_number, customer_name, customer_email, customer_phone, delivery_address, delivery_city, delivery_state, subtotal, discount_amount, shipping_fee_paid, total_amount, metadata',
-    )
+    .select('id, order_number, payment_status, metadata')
     .eq('id', orderId)
     .maybeSingle();
 
@@ -105,7 +83,7 @@ export async function handler(event) {
 
   const meta = order.metadata && typeof order.metadata === 'object' ? order.metadata : {};
   if (meta.order_confirmation_handler === 'netlify_create_order') {
-    console.log('[notify-order-confirmation] skip: create-order already owns confirmation', orderId);
+    console.log('[notify-order-confirmation] skip: create-order handles paid notify after Paystack', orderId);
     return jsonResponse(200, {
       success: true,
       skipped: true,
@@ -113,60 +91,21 @@ export async function handler(event) {
     });
   }
 
-  const { data: dup } = await adminClient
-    .from('email_logs')
-    .select('id')
-    .eq('order_id', orderId)
-    .eq('status', 'sent')
-    .ilike('subject', '%Confirmed - JulineMart%')
-    .limit(1)
-    .maybeSingle();
-
-  if (dup) {
-    return jsonResponse(200, { success: true, skipped: true, reason: 'confirmation_already_sent' });
+  if (order.payment_status !== 'paid') {
+    console.log('[notify-order-confirmation] skip: awaiting payment', orderId);
+    return jsonResponse(200, {
+      success: true,
+      skipped: true,
+      reason: 'awaiting_payment',
+    });
   }
 
-  const itemRows = await loadOrderItemsWithRetry(adminClient, orderId);
-  const resolvedItems = (itemRows || []).map((row) => ({
-    product_id: row.product_id,
-    product_name: row.product_name,
-    vendor_id: row.vendor_id,
-    variation_details: row.variation_details || { attributes: [] },
-    quantity: row.quantity,
-    subtotal: Number(row.subtotal),
-  }));
-
-  console.log('[notify-order-confirmation] sending mail', orderId, 'items:', resolvedItems.length);
-
-  await sendOrderEmails(adminClient, {
-    orderId: order.id,
-    orderNumber: order.order_number,
-    customer_name: order.customer_name,
-    customer_email: order.customer_email,
-    customer_phone: order.customer_phone || '',
-    delivery_address: order.delivery_address,
-    delivery_city: order.delivery_city,
-    delivery_state: order.delivery_state,
-    subtotal: Number(order.subtotal),
-    discountAmount: Number(order.discount_amount || 0),
-    shippingFee: Number(order.shipping_fee_paid || 0),
-    totalAmount: Number(order.total_amount),
-    resolvedItems,
-  });
-
-  console.log('[notify-order-confirmation] sendOrderEmails finished', orderId);
-
-  // Push notification to all staff
-  sendPushToAllStaff({
-    title: '🛍️ New Order',
-    message: `Order #${order.order_number} from ${order.customer_name} — ₦${Number(order.total_amount).toLocaleString()}`,
-    type: 'order_update',
-    data: { order_id: order.id, order_number: String(order.order_number) },
-  }).catch((e) => console.warn('[notify-order-confirmation] staff push failed:', e?.message));
+  console.log('[notify-order-confirmation] notifying paid order', orderId);
+  const result = await notifyOnPaidOrder(adminClient, order.id, order.order_number);
 
   return jsonResponse(200, {
     success: true,
     order_id: order.id,
-    items_used: resolvedItems.length,
+    ...result,
   });
 }

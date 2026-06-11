@@ -32,8 +32,9 @@ export async function handler(event) {
 
     // Recent orders (last 5) — join through order_items
     adminClient.from('order_items')
-      .select('order_id, subtotal, orders(id, order_number, overall_status, created_at, customer_name)')
+      .select('order_id, subtotal, orders(id, order_number, overall_status, payment_status, created_at, customer_name)')
       .eq('vendor_id', vendor.id)
+      .eq('orders.payment_status', 'paid')
       .order('created_at', { ascending: false })
       .limit(5),
 
@@ -77,12 +78,13 @@ export async function handler(event) {
       success: true,
       data: {
         earnings: {
-          gross_sales:        Number(earnings.gross_sales || 0),
+          gross_sales:         Number(earnings.gross_sales || 0),
           platform_commission: Number(earnings.platform_commission || 0),
-          net_earnings:       Number(earnings.net_earnings || 0),
-          total_withdrawn:    Number(earnings.total_withdrawn || 0),
-          available_balance:  Number(earnings.available_balance || 0),
-          commission_rate:    Number(vendor.commission_rate || 0),
+          net_earnings:        Number(earnings.net_earnings || 0),
+          total_withdrawn:     Number(earnings.total_withdrawn || 0),
+          pending_withdrawals: Number(earnings.pending_withdrawals || 0),
+          available_balance:   Number(earnings.available_balance || 0),
+          commission_rate:     Number(vendor.commission_rate || 0),
         },
         pending_withdrawal_amount: pendingWithdrawals,
         pending_orders:   pendingOrdersRes.count || 0,

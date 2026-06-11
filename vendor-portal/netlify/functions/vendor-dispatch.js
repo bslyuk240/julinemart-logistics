@@ -54,12 +54,19 @@ export const handler = async (event) => {
   // Fetch sub_order and verify ownership
   const { data: so, error: soErr } = await admin
     .from('sub_orders')
-    .select('id, vendor_id, status, orders(order_number)')
+    .select('id, vendor_id, status, orders(order_number, payment_status)')
     .eq('id', sub_order_id)
     .single();
 
   if (soErr || !so) return { statusCode: 404, headers, body: JSON.stringify({ error: 'Order not found' }) };
   if (so.vendor_id !== vendor.id) return { statusCode: 403, headers, body: JSON.stringify({ error: 'Forbidden' }) };
+  if (so.orders?.payment_status !== 'paid') {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ error: 'Cannot prepare this order — customer payment has not been confirmed yet.' }),
+    };
+  }
   if (so.status !== 'pending') {
     return { statusCode: 400, headers, body: JSON.stringify({ error: `Cannot dispatch: order is already ${so.status}` }) };
   }

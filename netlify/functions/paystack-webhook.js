@@ -13,8 +13,8 @@
 
 import crypto from 'crypto';
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
-import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { recordInfluencerSaleForPaidOrder } from './services/influencer-order-sale.js';
+import { notifyOnPaidOrder } from './services/paidOrderNotify.js';
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
@@ -99,25 +99,13 @@ export async function handler(event) {
           }).catch(() => {});
         }
 
-        // Send order confirmation email — dedup handles the case where
-        // verify-payment already sent it from the browser flow
-        if (updatedOrder?.customer_email) {
-          const portalUrl = process.env.CUSTOMER_PORTAL_URL || 'https://julinemart.com';
-          sendTransactionalEmail({
-            templateName: 'Order Confirmation',
-            to: updatedOrder.customer_email,
-            orderId: updatedOrder.id,
-            data: {
-              customerName: updatedOrder.customer_name || 'Customer',
-              orderNumber: updatedOrder.order_number ?? updatedOrder.id,
-              orderDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
-              totalAmount: Number(updatedOrder.total_amount || 0).toLocaleString(),
-              trackingUrl: `${portalUrl}/orders/${updatedOrder.order_number ?? updatedOrder.id}`,
-            },
-          });
-        }
-
         if (updatedOrder?.id) {
+          try {
+            await notifyOnPaidOrder(adminClient, updatedOrder.id, updatedOrder.order_number);
+          } catch (e) {
+            console.warn('paystack-webhook: paid order notify', e?.message || e);
+          }
+
           try {
             const { data: fullOrder } = await adminClient
               .from('orders')

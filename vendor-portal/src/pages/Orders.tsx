@@ -20,6 +20,17 @@ const STATUS_BADGE: Record<string, string> = {
   returned:         'bg-gray-100 text-gray-600',
 };
 
+const PAYMENT_BADGE: Record<string, string> = {
+  paid:     'bg-green-100 text-green-700',
+  pending:  'bg-orange-100 text-orange-700',
+  failed:   'bg-red-100 text-red-700',
+  refunded: 'bg-gray-100 text-gray-600',
+};
+
+function payoutLabel(o: { is_paid?: boolean; payment_status?: string }) {
+  return o.is_paid || o.payment_status === 'paid' ? 'Your payout' : 'If paid';
+}
+
 export default function Orders() {
   const { vendor } = useAuth();
   const [data, setData]                   = useState<any>(null);
@@ -108,6 +119,8 @@ export default function Orders() {
   const commissionRate = Number(vendor?.commission_rate || 0);
   const hasStaffTracking = selected ? isRealShipmentTracking(selected.tracking_number) : false;
   const showLabelTools = hasStaffTracking && !fulfillment.isJloHubVendor;
+  const selectedPaid = selected?.is_paid || selected?.payment_status === 'paid' || selected?.orders?.payment_status === 'paid';
+  const selectedPaymentStatus = selected?.payment_status || selected?.orders?.payment_status || 'pending';
 
   return (
     <div className="space-y-4">
@@ -152,19 +165,28 @@ export default function Orders() {
               >
                 <div className="flex items-center gap-3 px-4 py-3">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                       <span className="font-mono text-xs text-gray-400">#{o.order_number || o.id?.slice(0, 8)}</span>
                       <span className={`badge ${STATUS_BADGE[o.status] || 'bg-gray-100 text-gray-600'}`}>
                         {o.status?.replace(/_/g, ' ')}
                       </span>
+                      {!o.is_paid && o.payment_status !== 'paid' && (
+                        <span className={`badge ${PAYMENT_BADGE[o.payment_status] || PAYMENT_BADGE.pending}`}>
+                          awaiting payment
+                        </span>
+                      )}
                     </div>
                     <p className="text-sm font-semibold text-gray-900 truncate">{o.customer || 'Customer'}</p>
                     <p className="text-xs text-gray-400">{new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <div className="text-right">
-                      <p className="text-sm font-bold text-gray-900">{fmt(o.vendor_amount)}</p>
-                      <p className="text-xs text-green-600">Your payout</p>
+                      <p className="text-sm font-bold text-gray-900">
+                        {fmt(o.is_paid || o.payment_status === 'paid' ? o.vendor_amount : o.potential_payout ?? o.vendor_amount)}
+                      </p>
+                      <p className={`text-xs ${o.is_paid || o.payment_status === 'paid' ? 'text-green-600' : 'text-orange-600'}`}>
+                        {payoutLabel(o)}
+                      </p>
                     </div>
                     <ChevronRight className="w-4 h-4 text-gray-400" />
                   </div>
@@ -194,13 +216,22 @@ export default function Orders() {
                       <td className="px-5 py-3 font-mono text-xs text-gray-500">#{o.order_number || o.id?.slice(0, 8)}</td>
                       <td className="px-5 py-3 font-medium text-gray-900">{o.customer || '—'}</td>
                       <td className="px-5 py-3">
-                        <span className={`badge ${STATUS_BADGE[o.status] || 'bg-gray-100 text-gray-600'}`}>
-                          {o.status?.replace(/_/g, ' ')}
-                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          <span className={`badge ${STATUS_BADGE[o.status] || 'bg-gray-100 text-gray-600'}`}>
+                            {o.status?.replace(/_/g, ' ')}
+                          </span>
+                          {!o.is_paid && o.payment_status !== 'paid' && (
+                            <span className={`badge ${PAYMENT_BADGE[o.payment_status] || PAYMENT_BADGE.pending}`}>
+                              awaiting payment
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-5 py-3 text-gray-500 text-xs">{new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
                       <td className="px-5 py-3 text-right text-gray-700">{fmt(o.gross_amount)}</td>
-                      <td className="px-5 py-3 text-right font-bold text-gray-900">{fmt(o.vendor_amount)}</td>
+                      <td className="px-5 py-3 text-right font-bold text-gray-900">
+                        {fmt(o.is_paid || o.payment_status === 'paid' ? o.vendor_amount : o.potential_payout ?? o.vendor_amount)}
+                      </td>
                       <td className="px-5 py-3 text-right"><ChevronRight className="w-4 h-4 text-gray-400 ml-auto" /></td>
                     </tr>
                   ))}
@@ -243,9 +274,16 @@ export default function Orders() {
                   {selected ? `Order #${selected.orders?.order_number}` : 'Loading…'}
                 </h2>
                 {selected && (
-                  <span className={`badge mt-1 ${STATUS_BADGE[selected.status] || 'bg-gray-100 text-gray-600'}`}>
-                    {selected.status?.replace(/_/g, ' ')}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2 mt-1">
+                    <span className={`badge ${STATUS_BADGE[selected.status] || 'bg-gray-100 text-gray-600'}`}>
+                      {selected.status?.replace(/_/g, ' ')}
+                    </span>
+                    {!selectedPaid && (
+                      <span className={`badge ${PAYMENT_BADGE[selectedPaymentStatus] || PAYMENT_BADGE.pending}`}>
+                        awaiting payment
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
               <button
@@ -319,8 +357,20 @@ export default function Orders() {
                   </div>
                 </div>
 
-                {/* Vendor action — mark ready / sent to hub (staff creates shipments) */}
-                {selected.status === 'pending' && (
+                {/* Vendor action — only after customer payment is confirmed */}
+                {!selectedPaid && selected.status === 'pending' && (
+                  <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 flex gap-3 items-start">
+                    <AlertCircle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-semibold text-orange-800">Awaiting customer payment</p>
+                      <p className="text-xs text-orange-700 mt-0.5">
+                        Do not prepare or ship this order until payment is confirmed. It will not count toward your earnings until then.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {selectedPaid && selected.status === 'pending' && (
                   <div className="space-y-2">
                     <button
                       onClick={markReadyOrSentToHub}
@@ -423,13 +473,17 @@ export default function Orders() {
                 )}
 
                 {/* Payout summary */}
-                <div className="bg-primary-50 rounded-xl p-4">
+                <div className={`rounded-xl p-4 ${selectedPaid ? 'bg-primary-50' : 'bg-orange-50'}`}>
                   <div className="flex justify-between items-center">
                     <div>
-                      <p className="text-xs text-primary-600 font-medium">Your Payout</p>
+                      <p className={`text-xs font-medium ${selectedPaid ? 'text-primary-600' : 'text-orange-600'}`}>
+                        {selectedPaid ? 'Your Payout' : 'Potential Payout (if paid)'}
+                      </p>
                       <p className="text-xs text-gray-500">After {commissionRate}% commission</p>
                     </div>
-                    <p className="text-2xl font-bold text-primary-700">{fmt(selected.vendor_amount)}</p>
+                    <p className={`text-2xl font-bold ${selectedPaid ? 'text-primary-700' : 'text-orange-700'}`}>
+                      {fmt(selectedPaid ? selected.vendor_amount : (selected.potential_payout ?? selected.vendor_amount))}
+                    </p>
                   </div>
                 </div>
 

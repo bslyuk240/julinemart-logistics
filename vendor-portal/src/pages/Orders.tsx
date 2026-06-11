@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ShoppingBag, AlertCircle, X, ChevronRight, Truck, Printer, Download, Package } from 'lucide-react';
+import { useEffect, useState, useMemo } from 'react';
+import { ShoppingBag, AlertCircle, X, ChevronRight, Truck, Printer, Download, Package, MapPin } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 import { logActivity } from '../lib/logActivity';
@@ -7,6 +7,30 @@ import { logActivity } from '../lib/logActivity';
 const JLO_API = import.meta.env.VITE_JLO_API_URL || 'https://jlo.julinemart.com';
 
 const fmt = (n: number) => `₦${Number(n || 0).toLocaleString()}`;
+
+function isRealShipmentTracking(value?: string | null) {
+  if (!value || typeof value !== 'string') return false;
+  const lower = value.toLowerCase();
+  return !['error', 'cannot', 'failed', 'jlo-', 'cr-'].some((b) => lower.includes(b));
+}
+
+function resolveVendorFulfillment(vendor: {
+  hub_id?: string | null;
+  fez_collection_method?: 'fez_pickup' | 'hub_dropoff' | null;
+  approved_vendor_locations?: {
+    fez_hub_name?: string | null;
+    fez_hub_address?: string | null;
+    hubs?: { name?: string; address?: string | null } | null;
+  } | null;
+} | null) {
+  const jloHub = vendor?.approved_vendor_locations?.hubs;
+  const isJloHubVendor = Boolean(jloHub?.name || vendor?.hub_id);
+  const collectionMethod = vendor?.fez_collection_method || 'hub_dropoff';
+  const hubName = jloHub?.name || vendor?.approved_vendor_locations?.fez_hub_name || null;
+  const hubAddress = jloHub?.address || vendor?.approved_vendor_locations?.fez_hub_address || null;
+  const sentToHubAction = isJloHubVendor && collectionMethod === 'hub_dropoff';
+  return { isJloHubVendor, collectionMethod, hubName, hubAddress, sentToHubAction };
+}
 
 const STATUS_BADGE: Record<string, string> = {
   pending:           'bg-yellow-100 text-yellow-700',
@@ -29,8 +53,7 @@ export default function Orders() {
   const [statusFilter, setStatus]         = useState('');
   const [page, setPage]                   = useState(1);
   const [dispatching, setDispatching]     = useState(false);
-  const [sendingToFez, setSendingToFez]   = useState(false);
-  const [fezError, setFezError]           = useState('');
+  const fulfillment = useMemo(() => resolveVendorFulfillment(vendor), [vendor]);
 
   useEffect(() => {
     setLoading(true);
@@ -51,9 +74,10 @@ export default function Orders() {
     finally { setDetailLoading(false); }
   };
 
-  const markDispatched = async () => {
+  const markReadyOrSentToHub = async () => {
     if (!selected || dispatching) return;
     setDispatching(true);
+    setError('');
     try {
       const { data: { session } } = await (await import('../lib/supabase')).supabase.auth.getSession();
       const token = session?.access_token || '';
@@ -64,7 +88,12 @@ export default function Orders() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed');
-      logActivity({ action: 'ORDER_DISPATCHED', resource_type: 'orders', resource_id: selected.id, details: { status: 'vendor_dispatched' } });
+      logActivity({
+        action: 'ORDER_DISPATCHED',
+        resource_type: 'orders',
+        resource_id: selected.id,
+        details: { status: 'vendor_dispatched', sent_to_hub: fulfillment.sentToHubAction },
+      });
       setSelected((prev: any) => ({ ...prev, status: 'vendor_dispatched' }));
       setData((prev: any) => prev ? {
         ...prev,
@@ -72,34 +101,6 @@ export default function Orders() {
       } : prev);
     } catch (e: any) { setError(e.message); }
     finally { setDispatching(false); }
-  };
-
-  const sendToFez = async () => {
-    if (!selected || sendingToFez) return;
-    setSendingToFez(true);
-    setFezError('');
-    try {
-      const { data: { session } } = await (await import('../lib/supabase')).supabase.auth.getSession();
-      const token = session?.access_token || '';
-      const res = await fetch(`${JLO_API}/.netlify/functions/fez-create-shipment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ subOrderId: selected.id }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.success) throw new Error(json.error || 'Failed to create Fez shipment');
-      // Refresh order detail to get updated tracking number + status
-      const updated = await api.getOrder(selected.id);
-      setSelected(updated);
-      setData((prev: any) => prev ? {
-        ...prev,
-        orders: prev.orders.map((o: any) => o.id === selected.id ? { ...o, status: updated.status } : o),
-      } : prev);
-    } catch (e: any) {
-      setFezError(e.message || 'Failed to send to Fez. Please try again.');
-    } finally {
-      setSendingToFez(false);
-    }
   };
 
   const printLabel = () => {
@@ -128,6 +129,8 @@ export default function Orders() {
 
   const fezCollectionMethod = vendor?.fez_collection_method || 'hub_dropoff';
   const commissionRate = Number(vendor?.commission_rate || 0);
+  const hasStaffTracking = selected ? isRealShipmentTracking(selected.tracking_number) : false;
+  const showLabelTools = hasStaffTracking && !fulfillment.isJloHubVendor;
 
   return (
     <div className="space-y-4">
@@ -339,25 +342,57 @@ export default function Orders() {
                   </div>
                 </div>
 
-                {/* Send to Fez CTA — visible when pending and no tracking yet */}
-                {selected.status === 'pending' && !selected.tracking_number && (
+                {/* Vendor action — mark ready / sent to hub (staff creates shipments) */}
+                {selected.status === 'pending' && (
                   <div className="space-y-2">
                     <button
-                      onClick={sendToFez}
-                      disabled={sendingToFez}
+                      onClick={markReadyOrSentToHub}
+                      disabled={dispatching}
                       className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors"
                     >
                       <Package className="w-4 h-4" />
-                      {sendingToFez ? 'Creating Fez shipment…' : 'Send to Fez'}
+                      {dispatching
+                        ? 'Saving…'
+                        : fulfillment.sentToHubAction
+                        ? 'Mark sent to hub'
+                        : 'Mark ready'}
                     </button>
-                    {fezError && (
-                      <p className="text-xs text-red-600 text-center">{fezError}</p>
-                    )}
+                    <p className="text-xs text-gray-500 text-center">
+                      {fulfillment.sentToHubAction
+                        ? 'Drop the packed parcel at your JulineMart hub after marking sent.'
+                        : 'JulineMart staff will create your shipment and email you the label.'}
+                    </p>
                   </div>
                 )}
 
-                {/* After Fez shipment created — label, waybill, collection instructions */}
-                {selected.tracking_number && (
+                {selected.status === 'vendor_dispatched' && !hasStaffTracking && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-3 items-start">
+                    <Truck className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      {fulfillment.sentToHubAction ? (
+                        <>
+                          <p className="text-sm font-semibold text-amber-800">Awaiting hub receipt</p>
+                          <p className="text-xs text-amber-700 mt-0.5">
+                            Drop the packed parcel at{' '}
+                            {fulfillment.hubName ? `${fulfillment.hubName}` : 'your JulineMart hub'}
+                            {fulfillment.hubAddress ? ` — ${fulfillment.hubAddress}` : ''}.
+                            JulineMart staff will dispatch to the customer from the hub.
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm font-semibold text-amber-800">Awaiting JulineMart shipment</p>
+                          <p className="text-xs text-amber-700 mt-0.5">
+                            Your order is marked ready. Staff will create the Fez shipment and email you the tracking number and label.
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* After staff creates shipment — label + instructions (non-JLO vendors only) */}
+                {showLabelTools && (
                   <div className="space-y-3">
                     {/* Tracking info */}
                     <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 flex items-center justify-between">
@@ -390,34 +425,20 @@ export default function Orders() {
                         <div>
                           <p className="text-sm font-semibold text-green-800">Fez will come to your shop</p>
                           <p className="text-xs text-green-700 mt-0.5">
-                            Stick the label on the package and have it ready at your business address.
-                            A Fez rider will pick it up shortly.
+                            Print the label, stick it on the package, and have it ready at your business address for Fez pickup.
                           </p>
                         </div>
                       </div>
                     ) : (
                       <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-3 items-start">
-                        <Truck className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                        <MapPin className="w-4 h-4 text-amber-600 mt-0.5 flex-shrink-0" />
                         <div>
-                          {(() => {
-                            const jloHub = vendor?.approved_vendor_locations?.hubs;
-                            const hubName = jloHub?.name || vendor?.approved_vendor_locations?.fez_hub_name;
-                            const hubAddress = jloHub?.address || vendor?.approved_vendor_locations?.fez_hub_address;
-                            const isJloHub = !!jloHub?.name;
-                            return (
-                              <>
-                                <p className="text-sm font-semibold text-amber-800">
-                                  Drop off at {isJloHub ? 'JulineMart hub' : 'Fez hub'}
-                                </p>
-                                <p className="text-xs text-amber-700 mt-0.5">
-                                  Stick the label on the package and drop it at{' '}
-                                  {isJloHub ? 'the JulineMart hub' : 'your nearest Fez collection hub'}.
-                                  {hubName && ` Hub: ${hubName}`}
-                                  {hubAddress && ` — ${hubAddress}.`}
-                                </p>
-                              </>
-                            );
-                          })()}
+                          <p className="text-sm font-semibold text-amber-800">Drop off at Fez hub</p>
+                          <p className="text-xs text-amber-700 mt-0.5">
+                            Print the label and drop the parcel at your nearest Fez collection hub.
+                            {fulfillment.hubName && ` Hub: ${fulfillment.hubName}`}
+                            {fulfillment.hubAddress && ` — ${fulfillment.hubAddress}.`}
+                          </p>
                         </div>
                       </div>
                     )}

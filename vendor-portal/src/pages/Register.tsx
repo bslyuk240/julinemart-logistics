@@ -100,7 +100,7 @@ export default function Register() {
   useEffect(() => {
     (supabase as any)
       .from('approved_vendor_locations')
-      .select('id,state,city,lga,supports_vendor_direct_fez,supports_vendor_to_hub,supports_local_delivery,fez_hub_name,fez_hub_address,vendor_pickup_surcharge')
+      .select('id,state,city,lga,supports_vendor_direct_fez,supports_vendor_to_hub,supports_local_delivery,fez_hub_name,fez_hub_address,vendor_pickup_surcharge,hub_id,hubs(name,address,city)')
       .eq('status', 'active')
       .order('state').order('city').order('lga')
       .then(({ data, error }: { data: any[] | null; error: any }) => {
@@ -117,6 +117,9 @@ export default function Register() {
             fez_hub_name: loc.fez_hub_name,
             fez_hub_address: loc.fez_hub_address,
             vendor_pickup_surcharge: loc.vendor_pickup_surcharge,
+            hub_id: loc.hub_id,
+            hub_name: loc.hubs?.name || loc.fez_hub_name || null,
+            hub_type: loc.hubs?.name || loc.hub_id ? 'jlo' : (loc.fez_hub_name ? 'fez' : null),
           });
         }
         setGrouped(g);
@@ -477,11 +480,17 @@ export default function Register() {
                               onChange={() => set('fez_collection_method', 'hub_dropoff')}
                               className="mt-0.5" />
                             <div>
-                              <p className="text-sm font-medium text-gray-800">I drop off at Fez hub</p>
+                              <p className="text-sm font-medium text-gray-800">
+                                {selectedLocation.hub_type === 'jlo'
+                                  ? 'I drop off at JulineMart hub'
+                                  : 'I drop off at Fez hub'}
+                              </p>
                               <p className="text-xs text-gray-500 mt-0.5">
-                                You bring your parcel to the nearest Fez collection point.
-                                {selectedLocation.fez_hub_name &&
-                                  ` Nearest hub: ${selectedLocation.fez_hub_name}${selectedLocation.fez_hub_address ? ` — ${selectedLocation.fez_hub_address}` : ''}.`}
+                                {selectedLocation.hub_type === 'jlo'
+                                  ? 'Bring your parcel to the JulineMart hub for consolidation and dispatch.'
+                                  : 'You bring your parcel to the nearest Fez collection point.'}
+                                {selectedLocation.hub_name &&
+                                  ` Hub: ${selectedLocation.hub_name}${selectedLocation.fez_hub_address && selectedLocation.hub_type !== 'jlo' ? ` — ${selectedLocation.fez_hub_address}` : ''}.`}
                               </p>
                             </div>
                           </label>

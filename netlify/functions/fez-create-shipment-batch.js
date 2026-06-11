@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -7,7 +8,7 @@ const supabase = createClient(
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Content-Type': 'application/json',
 };
 
@@ -122,6 +123,11 @@ export async function handler(event) {
         headers,
         body: JSON.stringify({ success: false, error: 'hubId and non-empty subOrderIds[] are required' }),
       };
+    }
+
+    const access = await assertStaffCanCreateShipment(event);
+    if (!access.ok) {
+      return { statusCode: access.statusCode, headers, body: access.body };
     }
 
     const uniqueIds = [...new Set(subOrderIds.filter(Boolean))];

@@ -4,6 +4,7 @@
 import nodemailer from 'nodemailer';
 import { decryptEmailConfigSecrets } from './emailSecretsCrypto.js';
 import { buildCustomSmtpTransportOptions } from './smtpTransport.js';
+import { buildVendorNewOrderInstructionHtml } from './vendorFulfillment.js';
 
 export async function logOrderEmail(supabase, { orderId, recipient, subject, status, errorMessage }) {
   try {
@@ -332,7 +333,7 @@ async function buildVendorItemMap(supabase, orderId, resolvedItems) {
 }
 
 /** Columns that exist on all vendor rows (avoid optional columns that break PostgREST in some DBs). */
-const VENDOR_EMAIL_SELECT = 'id, email, store_name, user_id, fez_collection_method, approved_vendor_locations(fez_hub_name, fez_hub_address, hubs(name, address, city))';
+const VENDOR_EMAIL_SELECT = 'id, email, store_name, user_id, hub_id, fez_collection_method, approved_vendor_locations(fez_hub_name, fez_hub_address, hubs(name, address, city))';
 
 /**
  * Load vendor rows for notification. Batch `.in()` first; then per-id `.eq()` for any miss
@@ -629,21 +630,7 @@ export async function sendOrderEmails(
     </table>
     <div style="padding:16px;background:#fef9c3;border-radius:8px;margin-top:16px">
       <p style="margin:0;font-weight:bold">Customer delivery area: ${delivery_city}, ${delivery_state}</p>
-      ${vendor.fez_collection_method === 'fez_pickup'
-        ? `<p style="margin:8px 0 0;font-size:13px;color:#555"><strong>Fez pickup:</strong> Pack the items, go to your portal, click <strong>Send to Fez</strong>, print the label, and have the parcel ready — a Fez rider will come to your shop to collect.</p>`
-        : (() => {
-            const loc = vendor.approved_vendor_locations;
-            const jloHub = loc?.hubs;
-            const hubName = jloHub?.name || loc?.fez_hub_name || null;
-            const hubAddress = jloHub
-              ? `${jloHub.address || ''}${jloHub.city ? ', ' + jloHub.city : ''}`.replace(/^,\s*/, '')
-              : (loc?.fez_hub_address || null);
-            const hubDetail = hubName
-              ? ` (<strong>${hubName}</strong>${hubAddress ? ` — ${hubAddress}` : ''})`
-              : '';
-            return `<p style="margin:8px 0 0;font-size:13px;color:#555"><strong>Hub drop-off:</strong> Pack the items, go to your portal, click <strong>Send to Fez</strong>, print the label, then drop the parcel at your designated hub${hubDetail}.</p>`;
-          })()
-      }
+      ${buildVendorNewOrderInstructionHtml(vendor, { deliveryCity: delivery_city, deliveryState: delivery_state })}
     </div>
     <p style="margin-top:20px">Open <a href="${vendorOrdersUrl}" style="color:#6b21a8;font-weight:600">your vendor portal (Orders)</a> to view this order and fulfil it.</p>
   </div>

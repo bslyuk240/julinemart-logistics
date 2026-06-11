@@ -3,6 +3,9 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { sendApiCourierStatusCustomerEmail } from '../../shared/riderAssignedEmail.js';
+import { sendVendorShipmentReadyEmail } from '../../shared/vendorFulfillment.js';
+import { sendTransactionalEmail } from './services/emailNotifications.js';
+import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -11,7 +14,7 @@ const supabase = createClient(
 
 const headers = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Content-Type": "application/json"
 };
 
@@ -222,6 +225,11 @@ exports.handler = async (event) => {
       };
     }
 
+    const access = await assertStaffCanCreateShipment(event);
+    if (!access.ok) {
+      return { statusCode: access.statusCode, headers, body: access.body };
+    }
+
     const { data: subOrder, error } = await supabase
       .from("sub_orders")
       .select(`
@@ -252,6 +260,10 @@ exports.handler = async (event) => {
           )
         ),
         vendors (
+          id,
+          email,
+          store_name,
+          hub_id,
           fez_collection_method,
           address,
           city,
@@ -259,7 +271,8 @@ exports.handler = async (event) => {
           approved_location_id,
           approved_vendor_locations (
             fez_hub_name,
-            fez_hub_address
+            fez_hub_address,
+            hubs ( name, address, city )
           )
         )
       `)
@@ -518,6 +531,17 @@ exports.handler = async (event) => {
       } catch (mailErr) {
         console.error('sendApiCourierStatusCustomerEmail (fez-create-shipment):', mailErr?.message || mailErr);
       }
+    }
+
+    if (subOrder.vendors) {
+      await sendVendorShipmentReadyEmail(supabase, sendTransactionalEmail, {
+        vendor: subOrder.vendors,
+        orderId: subOrder.orders?.id,
+        orderNumber: subOrder.orders?.order_number ?? subOrder.orders?.id,
+        subOrderId,
+        trackingNumber: orderId,
+        trackingUrl,
+      });
     }
 
     console.log("✅ SHIPMENT CREATED SUCCESSFULLY:", { orderId, trackingId, trackingUrl });

@@ -39,7 +39,7 @@ export const handler = async (event) => {
 
   const { data: vendor, error: vendorErr } = await admin
     .from('vendors')
-    .select('id, is_active')
+    .select('id, is_active, fez_collection_method, hub_id, approved_vendor_locations(hubs(name))')
     .eq('user_id', user.id)
     .single();
   if (vendorErr || !vendor) return { statusCode: 403, headers, body: JSON.stringify({ error: 'No vendor account' }) };
@@ -81,11 +81,19 @@ export const handler = async (event) => {
     if (updateErr2) return { statusCode: 500, headers, body: JSON.stringify({ error: updateErr2.message }) };
   }
 
+  const jloHub = vendor.approved_vendor_locations?.hubs;
+  const isJloHubVendor = Boolean(jloHub?.name || vendor.hub_id);
+  const sentToHub = isJloHubVendor && (vendor.fez_collection_method || 'hub_dropoff') === 'hub_dropoff';
+
+  const description = sentToHub
+    ? `Vendor marked items sent to JulineMart hub${jloHub?.name ? `: ${jloHub.name}` : ''}`
+    : 'Vendor marked order ready — awaiting JulineMart shipment creation';
+
   // Log tracking event
   await admin.from('tracking_events').insert({
     sub_order_id,
     status: 'vendor_dispatched',
-    description: 'Vendor has dispatched items to hub',
+    description,
     actor_type: 'vendor',
     actor_id: vendor.id,
     created_at: now,
@@ -94,6 +102,9 @@ export const handler = async (event) => {
   return {
     statusCode: 200,
     headers,
-    body: JSON.stringify({ success: true, message: 'Order marked as dispatched to hub' }),
+    body: JSON.stringify({
+      success: true,
+      message: sentToHub ? 'Order marked as sent to hub' : 'Order marked as ready',
+    }),
   };
 };

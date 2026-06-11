@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader, RefreshCw, Truck, User } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
+import { supabase } from '../../lib/supabase';
 
 type Hub = { id: string; name: string; city?: string | null };
 
@@ -176,9 +177,13 @@ export function HubDispatchPage() {
 
     setDispatching(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(`${functionsBase}/fez-create-shipment-batch`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({ hubId: selectedHubId, subOrderIds, force }),
       });
       const payload = await res.json();

@@ -487,9 +487,10 @@ export function OrderDetailsPage() {
       const laneUpdated = await updateShipmentLane(subOrder, 'fez');
       if (!laneUpdated) return;
 
+      const authHeaders = await getAuthHeaders();
       const response = await fetch(`${functionsBase}/fez-create-shipment`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ subOrderId, force }),
       });
 

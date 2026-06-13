@@ -62,7 +62,7 @@
     "@types/react-dom": "^18.3.7",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
-    "@vitejs/plugin-react": "^4.7.0",
+    "@vitejs/plugin-react": "^6.0.2",
     "autoprefixer": "^10.4.21",
     "eslint": "^8.57.1",
     "eslint-plugin-react-hooks": "^4.6.2",
@@ -70,10 +70,10 @@
     "prettier": "^3.6.2",
     "supabase": "^2.89.1",
     "tailwindcss": "^3.4.18",
-    "tsx": "^4.20.6",
+    "tsx": "^4.22.4",
     "typescript": "^5.9.3",
-    "vite": "^5.4.21",
-    "vitest": "^1.6.1"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8"
   },
   "directories": {
     "doc": "docs",

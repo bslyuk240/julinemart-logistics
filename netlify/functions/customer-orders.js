@@ -50,7 +50,7 @@ export async function handler(event) {
       let query = supabase
         .from('orders')
         .select(`
-          id, order_number, overall_status, payment_method,
+          id, order_number, overall_status, payment_method, payment_status,
           payment_reference, customer_name, customer_email, customer_phone,
           delivery_address, delivery_city, delivery_state,
           subtotal, shipping_fee_paid, discount_amount, total_amount,
@@ -119,7 +119,7 @@ export async function handler(event) {
     const { data: orders, error } = await supabase
       .from('orders')
       .select(`
-        id, order_number, overall_status, payment_method,
+        id, order_number, overall_status, payment_method, payment_status,
         payment_reference, customer_name, customer_email, customer_phone,
         delivery_address, delivery_city, delivery_state,
         subtotal, shipping_fee_paid, discount_amount, total_amount,

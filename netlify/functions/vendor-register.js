@@ -37,6 +37,7 @@ export const handler = async (event) => {
     return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
+  try {
   const { personal, business, bank, documents } = body;
 
   // Basic validation
@@ -97,9 +98,16 @@ export const handler = async (event) => {
     return { statusCode: 409, headers: cors, body: JSON.stringify({ error: 'A vendor account with this email already exists.' }) };
   }
 
-  // Check if email is already registered as a customer (auth.users)
-  const { data: existingAuthUser } = await adminClient.auth.admin.getUserByEmail(personal.email);
-  if (existingAuthUser?.user) {
+  // Check if email is already registered as a storefront customer.
+  // (Supabase JS has no auth.admin.getUserByEmail — querying customers is equivalent here.)
+  const emailNorm = String(personal.email || '').trim().toLowerCase();
+  const { data: existingCustomer } = await adminClient
+    .from('customers')
+    .select('id')
+    .eq('email', emailNorm)
+    .maybeSingle();
+
+  if (existingCustomer) {
     return {
       statusCode: 409,
       headers: cors,
@@ -194,4 +202,12 @@ export const handler = async (event) => {
       message: 'Application submitted successfully. We will review and get back to you within 2-3 business days.',
     }),
   };
+  } catch (err) {
+    console.error('[vendor-register] unhandled error:', err);
+    return {
+      statusCode: 500,
+      headers: cors,
+      body: JSON.stringify({ error: 'Failed to submit application. Please try again or contact support.' }),
+    };
+  }
 };

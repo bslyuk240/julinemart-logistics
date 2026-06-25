@@ -10,6 +10,7 @@ const ACCESS_TOKEN   = process.env.META_ADS_ACCESS_TOKEN || '';
 const META_PAGE_ID   = process.env.META_PAGE_ID || '';
 const ANTHROPIC_KEY  = process.env.ANTHROPIC_API_KEY || '';
 const STORE_URL      = process.env.STORE_URL || 'https://julinemart.com';
+const META_APP_ID    = process.env.META_APP_ID || '';
 
 /** Meta floors vary by optimisation (often ~₦1.4k–₦3.5k/day); publishing below this wastes API calls */
 const META_MIN_DAILY_BUDGET_NGN = Number(process.env.META_MIN_DAILY_BUDGET_NGN) || 4000;
@@ -669,8 +670,9 @@ async function publishDraft(draftId, body, userId) {
   if (!resolvedCampaignId) {
     const newCampaign = await metaPost(`${AD_ACCOUNT_ID}/campaigns`, {
       name:      new_campaign_name,
-      // App-install CTAs require OUTCOME_APP_PROMOTION; everything else uses traffic
-      objective: isAppCta ? 'OUTCOME_APP_PROMOTION' : 'OUTCOME_TRAFFIC',
+      // App-install CTAs require OUTCOME_APP_PROMOTION + a Facebook App ID.
+      // Falls back to OUTCOME_TRAFFIC if META_APP_ID env var is not set.
+      objective: (isAppCta && META_APP_ID) ? 'OUTCOME_APP_PROMOTION' : 'OUTCOME_TRAFFIC',
       status:    'PAUSED',
       special_ad_categories: [],
       is_adset_budget_sharing_enabled: false,
@@ -783,15 +785,16 @@ async function publishDraft(draftId, body, userId) {
     // Some ad accounts default to a bid-cap strategy unless this is explicit (error_subcode 2490487).
     ...(!campaignHoldsBudget ? { bid_strategy: 'LOWEST_COST_WITHOUT_CAP' } : {}),
     targeting:        { geo_locations: { countries: ['NG'] } },
-    destination_type: isAppCta ? 'APP' : 'WEBSITE',
-    // App campaigns require a promoted_object with the store URL
-    ...(isAppCta ? { promoted_object: { application_id: null, object_store_url: destinationUrl } } : {}),
+    destination_type: isAppCta && META_APP_ID ? 'APP' : 'WEBSITE',
+    // App campaigns require promoted_object with a real Facebook App ID.
+    // Falls back to WEBSITE destination if META_APP_ID is not configured.
+    ...(isAppCta && META_APP_ID ? { promoted_object: { application_id: META_APP_ID, object_store_url: destinationUrl } } : {}),
     status:           'PAUSED',
     start_time:       new Date().toISOString(),
     ...(!campaignHoldsBudget ? { end_time: 0 } : {}),
   };
 
-  const adSetAttempts = isAppCta ? [
+  const adSetAttempts = (isAppCta && META_APP_ID) ? [
     { ...adSetBase, billing_event: 'IMPRESSIONS', optimization_goal: 'APP_INSTALLS' },
     { ...adSetBase, billing_event: 'IMPRESSIONS', optimization_goal: 'LINK_CLICKS' },
   ] : [

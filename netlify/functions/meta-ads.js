@@ -391,7 +391,7 @@ async function searchCatalogProducts(search) {
 }
 
 async function updateDraft(draftId, body, userId) {
-  const { destination_url, ad_format, meta_video_id } = body;
+  const { destination_url, ad_format, meta_video_id, title, headline, body_text, call_to_action } = body;
   if (!draftId) return err('Draft ID required', 400);
 
   const { data: draft } = await supabase.from('meta_ad_drafts').select('status').eq('id', draftId).single();
@@ -402,6 +402,10 @@ async function updateDraft(draftId, body, userId) {
   if (destination_url !== undefined) updates.destination_url = destination_url || null;
   if (ad_format !== undefined) updates.ad_format = ad_format;
   if (meta_video_id !== undefined) updates.meta_video_id = meta_video_id || null;
+  if (title !== undefined && title.trim()) updates.title = title.trim();
+  if (headline !== undefined && headline.trim()) updates.headline = headline.trim();
+  if (body_text !== undefined && body_text.trim()) updates.body_text = body_text.trim();
+  if (call_to_action !== undefined && call_to_action.trim()) updates.call_to_action = call_to_action.trim();
 
   const { error } = await supabase.from('meta_ad_drafts').update(updates).eq('id', draftId);
   if (error) throw error;

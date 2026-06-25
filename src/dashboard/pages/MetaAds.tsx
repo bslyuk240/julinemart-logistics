@@ -640,6 +640,9 @@ export function MetaAdsPage() {
   const [publishBudget, setPublishBudget]             = useState('');
   const [publishing, setPublishing]                   = useState(false);
   const [deletingId, setDeletingId]                   = useState<string | null>(null);
+  const [editingDraftId, setEditingDraftId]           = useState<string | null>(null);
+  const [editFields, setEditFields]                   = useState<{ title: string; headline: string; body_text: string; call_to_action: string }>({ title: '', headline: '', body_text: '', call_to_action: '' });
+  const [savingEdit, setSavingEdit]                   = useState(false);
 
   // True when the currently-selected publish campaign has a campaign-level (CBO) budget
   const selectedCampaignIsCBO =
@@ -775,6 +778,24 @@ export function MetaAdsPage() {
       body: JSON.stringify({ destination_url: url.trim() || null }),
     });
     await loadDrafts();
+  };
+
+  const openEditDraft = (d: Draft) => {
+    setEditFields({ title: d.title || '', headline: d.headline || '', body_text: d.body_text || '', call_to_action: d.call_to_action || 'SHOP_NOW' });
+    setEditingDraftId(d.id);
+  };
+
+  const handleSaveEditDraft = async (draftId: string) => {
+    setSavingEdit(true);
+    try {
+      await api(`/api/meta/drafts/${draftId}`, {
+        method: 'PUT',
+        body: JSON.stringify(editFields),
+      });
+      setEditingDraftId(null);
+      await loadDrafts();
+    } catch { setError('Failed to save draft'); }
+    finally { setSavingEdit(false); }
   };
 
   const handleApprove = async (id: string) => {
@@ -990,6 +1011,17 @@ export function MetaAdsPage() {
                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${STATUS_COLOR[d.status] || 'bg-gray-100'}`}>
                       {d.status}
                     </span>
+                    {d.status !== 'published' && (
+                      <button
+                        type="button"
+                        title="Edit draft"
+                        onClick={(e) => { e.stopPropagation(); openEditDraft(d); setExpandedDraft(d.id); }}
+                        disabled={deletingId === d.id || publishingId === d.id}
+                        className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 disabled:opacity-40 transition-colors"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                    )}
                     <button
                       type="button"
                       title="Delete draft"
@@ -1008,6 +1040,52 @@ export function MetaAdsPage() {
 
                 {expandedDraft === d.id && (
                   <div className="border-t border-gray-100 px-5 py-4 space-y-4">
+
+                    {/* ── Inline edit form ── */}
+                    {editingDraftId === d.id ? (
+                      <div className="space-y-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
+                        <p className="text-sm font-semibold text-blue-900">Edit Draft</p>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Title</label>
+                          <input value={editFields.title} onChange={(e) => setEditFields((f) => ({ ...f, title: e.target.value }))}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Headline</label>
+                          <input value={editFields.headline} onChange={(e) => setEditFields((f) => ({ ...f, headline: e.target.value }))}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Body Text</label>
+                          <textarea rows={3} value={editFields.body_text} onChange={(e) => setEditFields((f) => ({ ...f, body_text: e.target.value }))}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Button (CTA)</label>
+                          <select value={editFields.call_to_action} onChange={(e) => setEditFields((f) => ({ ...f, call_to_action: e.target.value }))}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            {[
+                              { value: 'SHOP_NOW', label: 'Shop Now' }, { value: 'LEARN_MORE', label: 'Learn More' },
+                              { value: 'SIGN_UP', label: 'Sign Up' }, { value: 'CONTACT_US', label: 'Contact Us' },
+                              { value: 'BOOK_NOW', label: 'Book Now' }, { value: 'GET_OFFER', label: 'Get Offer' },
+                              { value: 'SUBSCRIBE', label: 'Subscribe' }, { value: 'WATCH_MORE', label: 'Watch More' },
+                              { value: 'INSTALL_MOBILE_APP', label: 'Install App' }, { value: 'USE_MOBILE_APP', label: 'Open App' },
+                            ].map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                          </select>
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <button onClick={() => handleSaveEditDraft(d.id)} disabled={savingEdit}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                            {savingEdit ? 'Saving…' : 'Save changes'}
+                          </button>
+                          <button onClick={() => setEditingDraftId(null)}
+                            className="border border-gray-300 text-gray-600 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                    <>
                     {d.ad_format === 'video' && d.meta_video_id && (
                       <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
                         <Video className="w-4 h-4 text-blue-600 shrink-0" />
@@ -1181,6 +1259,8 @@ export function MetaAdsPage() {
                         <Send className="w-4 h-4" />
                         Published to Meta{d.published_at ? ` · ${new Date(d.published_at).toLocaleDateString()}` : ''}{d.meta_ad_id ? ` · Ad ID: ${d.meta_ad_id}` : ''}
                       </div>
+                    )}
+                    </>
                     )}
                   </div>
                 )}

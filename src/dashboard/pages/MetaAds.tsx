@@ -286,6 +286,7 @@ function FbAdPreview({ headline, body, cta, imageUrl }: {
   const ctaLabel: Record<string, string> = {
     SHOP_NOW: 'Shop Now', LEARN_MORE: 'Learn More',
     ORDER_NOW: 'Order Now', GET_OFFER: 'Get Offer',
+    INSTALL_MOBILE_APP: 'Install App', USE_MOBILE_APP: 'Open App',
   };
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm max-w-sm mx-auto">
@@ -1418,6 +1419,8 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
     { value: "GET_OFFER", label: "Get Offer" },
     { value: "SUBSCRIBE", label: "Subscribe" },
     { value: "WATCH_MORE", label: "Watch More" },
+    { value: "INSTALL_MOBILE_APP", label: "Install App" },
+    { value: "USE_MOBILE_APP", label: "Open App" },
   ];
 
   const handleAiAssist = async () => {

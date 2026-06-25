@@ -784,7 +784,11 @@ async function publishDraft(draftId, body, userId) {
     ...(!campaignHoldsBudget ? { daily_budget: budgetCents } : {}),
     // Some ad accounts default to a bid-cap strategy unless this is explicit (error_subcode 2490487).
     ...(!campaignHoldsBudget ? { bid_strategy: 'LOWEST_COST_WITHOUT_CAP' } : {}),
-    targeting:        { geo_locations: { countries: ['NG'] } },
+    targeting:        {
+      geo_locations: { countries: ['NG'] },
+      // Android OS targeting required when promoting a Play Store app
+      ...(isAppCta && META_APP_ID ? { user_os: ['Android'] } : {}),
+    },
     destination_type: isAppCta && META_APP_ID ? 'APP' : 'WEBSITE',
     // App campaigns require promoted_object with a real Facebook App ID.
     // Falls back to WEBSITE destination if META_APP_ID is not configured.

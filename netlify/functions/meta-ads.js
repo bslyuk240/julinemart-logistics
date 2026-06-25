@@ -658,13 +658,15 @@ async function publishDraft(draftId, body, userId) {
 
   const destinationUrl = draft.destination_url || STORE_URL;
   const budgetCents    = daily_budget ? Math.round(Number(daily_budget) * 100) : 0; // Meta expects cents; 0 is safe — only used when !campaignHoldsBudget
+  const isAppCta       = ['INSTALL_MOBILE_APP', 'USE_MOBILE_APP'].includes(draft.call_to_action);
 
   // 0. Create campaign if not provided
   let resolvedCampaignId = campaign_id;
   if (!resolvedCampaignId) {
     const newCampaign = await metaPost(`${AD_ACCOUNT_ID}/campaigns`, {
       name:      new_campaign_name,
-      objective: 'OUTCOME_TRAFFIC',
+      // App-install CTAs require OUTCOME_APP_PROMOTION; everything else uses traffic
+      objective: isAppCta ? 'OUTCOME_APP_PROMOTION' : 'OUTCOME_TRAFFIC',
       status:    'PAUSED',
       special_ad_categories: [],
       is_adset_budget_sharing_enabled: false,
@@ -777,13 +779,18 @@ async function publishDraft(draftId, body, userId) {
     // Some ad accounts default to a bid-cap strategy unless this is explicit (error_subcode 2490487).
     ...(!campaignHoldsBudget ? { bid_strategy: 'LOWEST_COST_WITHOUT_CAP' } : {}),
     targeting:        { geo_locations: { countries: ['NG'] } },
-    destination_type: 'WEBSITE',
+    destination_type: isAppCta ? 'APP' : 'WEBSITE',
+    // App campaigns require a promoted_object with the store URL
+    ...(isAppCta ? { promoted_object: { application_id: null, object_store_url: destinationUrl } } : {}),
     status:           'PAUSED',
     start_time:       new Date().toISOString(),
     ...(!campaignHoldsBudget ? { end_time: 0 } : {}),
   };
 
-  const adSetAttempts = [
+  const adSetAttempts = isAppCta ? [
+    { ...adSetBase, billing_event: 'IMPRESSIONS', optimization_goal: 'APP_INSTALLS' },
+    { ...adSetBase, billing_event: 'IMPRESSIONS', optimization_goal: 'LINK_CLICKS' },
+  ] : [
     { ...adSetBase, billing_event: 'IMPRESSIONS', optimization_goal: 'LANDING_PAGE_VIEWS' },
     { ...adSetBase, billing_event: 'LINK_CLICKS', optimization_goal: 'LINK_CLICKS' },
   ];

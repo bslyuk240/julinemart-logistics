@@ -368,17 +368,19 @@ export default function HomepageContent() {
         {slides.length === 0 ? (
           <p style={styles.muted}>No slides yet. Click "+ Add Slide" to create one.</p>
         ) : (
-          slides.map((slide, i) => (
-            <SlideCard
-              key={i}
-              slide={slide}
-              index={i}
-              total={slides.length}
-              onChange={handleSlideChange}
-              onDelete={handleSlideDelete}
-              onMove={handleSlideMove}
-            />
-          ))
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(480px, 1fr))', gap: 16 }}>
+            {slides.map((slide, i) => (
+              <SlideCard
+                key={i}
+                slide={slide}
+                index={i}
+                total={slides.length}
+                onChange={handleSlideChange}
+                onDelete={handleSlideDelete}
+                onMove={handleSlideMove}
+              />
+            ))}
+          </div>
         )}
       </section>
 
@@ -585,7 +587,7 @@ function SectionEditor({
 // ─── styles ───────────────────────────────────────────────────────────────────
 
 const styles: Record<string, React.CSSProperties> = {
-  page: { padding: 24, maxWidth: 860, margin: '0 auto' },
+  page: { padding: 24 },
   header: { marginBottom: 28 },
   title: { fontSize: 22, fontWeight: 700, margin: 0 },
   subtitle: { fontSize: 14, color: '#6b7280', marginTop: 4 },

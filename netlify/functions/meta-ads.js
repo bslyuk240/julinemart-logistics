@@ -12,6 +12,24 @@ const ANTHROPIC_KEY  = process.env.ANTHROPIC_API_KEY || '';
 const STORE_URL      = process.env.STORE_URL || 'https://julinemart.com';
 const META_APP_ID    = process.env.META_APP_ID || '';
 
+// Allowlist of trusted hostnames from which the server may fetch media.
+// Prevents SSRF attacks via user-supplied image/video/thumbnail URLs.
+const TRUSTED_MEDIA_HOSTS = (() => {
+  const supabaseHost = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '')
+    .replace(/^https?:\/\//, '').split('/')[0];
+  const defaults = ['res.cloudinary.com', 'storage.googleapis.com'];
+  return new Set([supabaseHost, ...defaults].filter(Boolean));
+})();
+
+function assertTrustedMediaUrl(url, label = 'URL') {
+  let parsed;
+  try { parsed = new URL(url); } catch { throw new Error(`${label} is not a valid URL`); }
+  if (parsed.protocol !== 'https:') throw new Error(`${label} must use HTTPS`);
+  if (!TRUSTED_MEDIA_HOSTS.has(parsed.hostname)) {
+    throw new Error(`${label} host "${parsed.hostname}" is not in the trusted media allowlist`);
+  }
+}
+
 /** Meta floors vary by optimisation (often ~₦1.4k–₦3.5k/day); publishing below this wastes API calls */
 const META_MIN_DAILY_BUDGET_NGN = Number(process.env.META_MIN_DAILY_BUDGET_NGN) || 4000;
 
@@ -76,6 +94,7 @@ async function metaPost(path, payload) {
  * without Meta having to crawl the original URL.
  */
 async function uploadImageToMeta(imageUrl) {
+  assertTrustedMediaUrl(imageUrl, 'image_url');
   const imgRes = await fetch(imageUrl);
   if (!imgRes.ok) throw new Error(`Could not fetch image: ${imgRes.status} ${imageUrl}`);
 
@@ -485,6 +504,7 @@ async function uploadVideoToMeta(body) {
 
   if (video_url) {
     // Preferred path: fetch video from Supabase Storage URL (avoids Netlify's 6 MB body limit)
+    assertTrustedMediaUrl(video_url, 'video_url');
     let storageRes;
     try {
       storageRes = await fetch(video_url);
@@ -896,6 +916,7 @@ async function setVideoThumbnail(body) {
   if (!video_id || !thumb_url) return err('video_id and thumb_url are required', 400);
   if (!ACCESS_TOKEN) return err('META_ADS_ACCESS_TOKEN not configured', 500);
 
+  assertTrustedMediaUrl(thumb_url, 'thumb_url');
   let thumbRes;
   try {
     thumbRes = await fetch(thumb_url);
@@ -968,6 +989,20 @@ async function getUserId(event) {
   return data?.user?.id || null;
 }
 
+async function requireAdminUser(event) {
+  const userId = await getUserId(event);
+  if (!userId) return { userId: null, authErr: err('Unauthorized', 401) };
+  const { data: profile } = await supabase
+    .from('users')
+    .select('role')
+    .eq('id', userId)
+    .single();
+  if (!profile || !['admin', 'manager', 'marketing', 'social_media_manager'].includes(profile.role)) {
+    return { userId: null, authErr: err('Forbidden', 403) };
+  }
+  return { userId, authErr: null };
+}
+
 // ── Router ───────────────────────────────────────────────────────────────────
 
 export async function handler(event) {
@@ -988,8 +1023,11 @@ export async function handler(event) {
     }
   }
 
-  const qs     = event.queryStringParameters || {};
-  const userId = await getUserId(event);
+  const qs = event.queryStringParameters || {};
+
+  // All routes require an authenticated admin/manager/marketing user
+  const { userId, authErr } = await requireAdminUser(event);
+  if (authErr) return authErr;
 
   try {
     // GET /api/meta/campaigns

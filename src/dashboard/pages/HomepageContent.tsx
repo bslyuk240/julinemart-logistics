@@ -145,53 +145,52 @@ function SlideCard({
         <input
           value={slide.media_url}
           onChange={(e) => onChange(index, { media_url: e.target.value })}
-          placeholder="https://..."
+          placeholder="https://res.cloudinary.com/..."
           style={styles.input}
         />
 
-        <label style={styles.label}>Title</label>
-        <input
-          value={slide.title}
-          onChange={(e) => onChange(index, { title: e.target.value })}
-          style={styles.input}
-        />
-
-        <label style={styles.label}>Description</label>
-        <input
-          value={slide.description}
-          onChange={(e) => onChange(index, { description: e.target.value })}
-          style={styles.input}
-        />
-
-        <label style={styles.label}>Button Text</label>
-        <input
-          value={slide.button_text}
-          onChange={(e) => onChange(index, { button_text: e.target.value })}
-          style={styles.input}
-        />
-
-        <label style={styles.label}>Button Link</label>
+        <label style={styles.label}>Banner Link</label>
         <input
           value={slide.button_link}
           onChange={(e) => onChange(index, { button_link: e.target.value })}
-          placeholder="/category/..."
+          placeholder="/products or https://vendors.julinemart.com"
           style={styles.input}
         />
 
-        <label style={styles.label}>Overlay Opacity</label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={slide.overlay_opacity}
-            onChange={(e) => onChange(index, { overlay_opacity: parseFloat(e.target.value) })}
-            style={{ flex: 1 }}
-          />
-          <span style={{ fontSize: 13, minWidth: 32 }}>{(slide.overlay_opacity * 100).toFixed(0)}%</span>
-        </div>
+        {slide.type === 'video' && (
+          <>
+            <label style={styles.label}>Overlay Opacity</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={slide.overlay_opacity}
+                onChange={(e) => onChange(index, { overlay_opacity: parseFloat(e.target.value) })}
+                style={{ flex: 1 }}
+              />
+              <span style={{ fontSize: 13, minWidth: 32 }}>{(slide.overlay_opacity * 100).toFixed(0)}%</span>
+            </div>
+          </>
+        )}
       </div>
+
+      {/* Preview */}
+      {slide.type === 'video' && slide.media_url ? (
+        <video
+          src={slide.media_url}
+          controls
+          muted
+          style={{ marginTop: 12, width: '100%', aspectRatio: '16/9', objectFit: 'cover', borderRadius: 6, background: '#000' }}
+        />
+      ) : slide.type === 'image' && slide.media_url ? (
+        <img
+          src={slide.media_url}
+          alt={`Slide ${index + 1} preview`}
+          style={{ marginTop: 12, width: '100%', aspectRatio: '16/9', objectFit: 'cover', borderRadius: 6 }}
+        />
+      ) : null}
     </div>
   );
 }

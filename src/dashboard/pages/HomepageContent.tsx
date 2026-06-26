@@ -29,7 +29,9 @@ interface BannerContent {
 }
 
 interface HeroAd {
+  type: 'image' | 'video';
   image_url: string;
+  video_url: string;
   link: string;
 }
 
@@ -206,7 +208,10 @@ export default function HomepageContent() {
   // Local editable state
   const [slides, setSlides] = useState<HeroSlide[]>([]);
   const [banner, setBanner] = useState<BannerContent>({ enabled: true, text: '' });
-  const [heroAds, setHeroAds] = useState<HeroAds>({ left: { image_url: '', link: '' }, right: { image_url: '', link: '' } });
+  const [heroAds, setHeroAds] = useState<HeroAds>({
+    left:  { type: 'image', image_url: '', video_url: '', link: '' },
+    right: { type: 'image', image_url: '', video_url: '', link: '' },
+  });
   const [sections, setSections] = useState<HomepageRow[]>([]);
 
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -236,8 +241,8 @@ export default function HomepageContent() {
       setBanner({ enabled: Boolean(bc.enabled ?? true), text: bc.text ?? '', bg_color: bc.bg_color, link: bc.link });
       if (heroAdsRow?.content) {
         setHeroAds({
-          left: heroAdsRow.content.left ?? { image_url: '', link: '' },
-          right: heroAdsRow.content.right ?? { image_url: '', link: '' },
+          left:  { type: 'image', image_url: '', video_url: '', link: '', ...heroAdsRow.content.left },
+          right: { type: 'image', image_url: '', video_url: '', link: '', ...heroAdsRow.content.right },
         });
       }
       setSections(sectionRows);
@@ -399,34 +404,94 @@ export default function HomepageContent() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          {(['left', 'right'] as const).map((side) => (
-            <div key={side} style={styles.slideCard}>
-              <p style={{ ...styles.slideNum, marginBottom: 12 }}>{side === 'left' ? '◀ Left Ad' : 'Right Ad ▶'}</p>
-              <div style={styles.fieldGrid}>
-                <label style={styles.label}>Image URL</label>
-                <input
-                  value={heroAds[side].image_url}
-                  onChange={(e) => setHeroAds((a) => ({ ...a, [side]: { ...a[side], image_url: e.target.value } }))}
-                  placeholder="https://res.cloudinary.com/..."
-                  style={styles.input}
-                />
-                <label style={styles.label}>Link</label>
-                <input
-                  value={heroAds[side].link}
-                  onChange={(e) => setHeroAds((a) => ({ ...a, [side]: { ...a[side], link: e.target.value } }))}
-                  placeholder="/category/electronics"
-                  style={styles.input}
-                />
+          {(['left', 'right'] as const).map((side) => {
+            const ad = heroAds[side];
+            const update = (patch: Partial<HeroAd>) =>
+              setHeroAds((a) => ({ ...a, [side]: { ...a[side], ...patch } }));
+            return (
+              <div key={side} style={styles.slideCard}>
+                <p style={{ ...styles.slideNum, marginBottom: 12 }}>{side === 'left' ? '◀ Left Ad' : 'Right Ad ▶'}</p>
+
+                {/* Type toggle */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                  {(['image', 'video'] as const).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => update({ type: t })}
+                      style={{
+                        padding: '5px 14px',
+                        borderRadius: 6,
+                        border: '1px solid',
+                        fontSize: 13,
+                        cursor: 'pointer',
+                        background: ad.type === t ? '#2563eb' : '#f3f4f6',
+                        color: ad.type === t ? '#fff' : '#374151',
+                        borderColor: ad.type === t ? '#2563eb' : '#d1d5db',
+                        fontWeight: 500,
+                      }}
+                    >
+                      {t === 'image' ? '🖼 Image' : '🎬 Video'}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={styles.fieldGrid}>
+                  {ad.type === 'image' ? (
+                    <>
+                      <label style={styles.label}>Image URL</label>
+                      <input
+                        value={ad.image_url}
+                        onChange={(e) => update({ image_url: e.target.value })}
+                        placeholder="https://res.cloudinary.com/..."
+                        style={styles.input}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <label style={styles.label}>Video URL</label>
+                      <input
+                        value={ad.video_url}
+                        onChange={(e) => update({ video_url: e.target.value })}
+                        placeholder="https://res.cloudinary.com/...mp4"
+                        style={styles.input}
+                      />
+                      <label style={styles.label}>Poster Image</label>
+                      <input
+                        value={ad.image_url}
+                        onChange={(e) => update({ image_url: e.target.value })}
+                        placeholder="Thumbnail shown before video plays"
+                        style={styles.input}
+                      />
+                    </>
+                  )}
+                  <label style={styles.label}>Link</label>
+                  <input
+                    value={ad.link}
+                    onChange={(e) => update({ link: e.target.value })}
+                    placeholder="/category/electronics"
+                    style={styles.input}
+                  />
+                </div>
+
+                {/* Preview */}
+                {ad.type === 'video' && ad.video_url ? (
+                  <video
+                    src={ad.video_url}
+                    poster={ad.image_url || undefined}
+                    controls
+                    muted
+                    style={{ marginTop: 12, width: '100%', maxHeight: 160, borderRadius: 6, objectFit: 'cover' }}
+                  />
+                ) : ad.type === 'image' && ad.image_url ? (
+                  <img
+                    src={ad.image_url}
+                    alt={`${side} ad preview`}
+                    style={{ marginTop: 12, width: '100%', maxHeight: 140, objectFit: 'cover', borderRadius: 6 }}
+                  />
+                ) : null}
               </div>
-              {heroAds[side].image_url && (
-                <img
-                  src={heroAds[side].image_url}
-                  alt={`${side} ad preview`}
-                  style={{ marginTop: 12, width: '100%', maxHeight: 140, objectFit: 'cover', borderRadius: 6 }}
-                />
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 

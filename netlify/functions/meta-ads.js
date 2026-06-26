@@ -175,7 +175,7 @@ async function getDrafts(status) {
 async function createDraft(body, userId) {
   const { title, headline, body_text, call_to_action, image_url, destination_url,
           source_products, source_context, target_audience, suggested_budget,
-          ai_generated, ad_format, meta_video_id } = body;
+          ai_generated, ad_format, meta_video_id, carousel_elements } = body;
   if (!title || !body_text) return err('title and body_text are required', 400);
 
   const { data, error } = await supabase
@@ -188,6 +188,7 @@ async function createDraft(body, userId) {
       ai_generated: ai_generated || false,
       ad_format: ad_format || 'image',
       meta_video_id: meta_video_id || null,
+      carousel_elements: carousel_elements || null,
       created_by: userId || null,
       status: 'draft',
     })
@@ -700,7 +701,39 @@ async function publishDraft(draftId, body, userId) {
   // 1. Create Ad Creative
   let creativePayload;
 
-  if (draft.ad_format === 'video' && draft.meta_video_id) {
+  if (draft.ad_format === 'carousel' && Array.isArray(draft.carousel_elements) && draft.carousel_elements.length >= 2) {
+    // ── Carousel creative ───────────────────────────────────────────────────
+    // Upload each card's image to Meta in parallel, then build child_attachments
+    const uploadResults = await Promise.all(
+      draft.carousel_elements.map(async (card, i) => {
+        if (!card.image_url) throw new Error(`Carousel card ${i + 1} is missing an image`);
+        const hash = await uploadImageToMeta(card.image_url);
+        return { hash, card };
+      })
+    );
+
+    const childAttachments = uploadResults.map(({ hash, card }) => ({
+      link:        card.link || destinationUrl,
+      name:        card.headline || draft.headline || draft.title,
+      description: card.description || '',
+      image_hash:  hash,
+    }));
+
+    creativePayload = {
+      name: draft.title,
+      object_story_spec: {
+        page_id: META_PAGE_ID,
+        link_data: {
+          link:    destinationUrl,
+          message: draft.body_text,
+          child_attachments: childAttachments,
+          multi_share_optimized: true,
+          call_to_action: { type: draft.call_to_action || 'SHOP_NOW' },
+        },
+      },
+    };
+
+  } else if (draft.ad_format === 'video' && draft.meta_video_id) {
     // ── Video creative ──────────────────────────────────────────────────────
     // Meta requires image_url or image_hash in video_data for the thumbnail.
     // If the draft has no image, auto-fetch one from Meta's video thumbnails.

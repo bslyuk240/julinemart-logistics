@@ -4,7 +4,7 @@ import {
   TrendingUp, RefreshCw, Sparkles, CheckCircle, XCircle,
   Clock, Eye, MousePointer, DollarSign, Users, Plus,
   ChevronDown, ChevronUp, AlertCircle, Megaphone, AlertTriangle,
-  Play, Pause, Upload, ImageIcon, X, Search, Send, Trash2, Video, Wand2, FileText, Pencil, Info,
+  Play, Pause, Upload, ImageIcon, X, Search, Send, Trash2, Video, Wand2, FileText, Pencil, Info, LayoutGrid,
 } from 'lucide-react';
 
 const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
@@ -1464,7 +1464,14 @@ export function MetaAdsPage() {
 
 // ─── Smart Creator ────────────────────────────────────────────────────────────
 
-type MediaMode = "image" | "video" | "none";
+type MediaMode = "image" | "video" | "carousel" | "none";
+
+interface CarouselCard {
+  image_url: string;
+  headline: string;
+  description: string;
+  link: string;
+}
 
 function SmartCreator({ onSaved }: { onSaved: () => void }) {
   const [headline, setHeadline]       = useState("");
@@ -1483,6 +1490,10 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
   const [assistTone, setAssistTone]   = useState("engaging");
   const [assisting, setAssisting]     = useState(false);
   const [suggestions, setSuggestions] = useState<{ headline: string; body_text: string }[]>([]);
+  const [carouselCards, setCarouselCards] = useState<CarouselCard[]>([
+    { image_url: '', headline: '', description: '', link: '' },
+    { image_url: '', headline: '', description: '', link: '' },
+  ]);
   const [uploading, setUploading]     = useState(false);
   const [uploadProgress, setUploadProgress] = useState("");
   const [saving, setSaving]           = useState(false);
@@ -1576,6 +1587,10 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
     if (!headline.trim()) { setError("Headline is required"); return; }
     if (!bodyText.trim()) { setError("Body text is required"); return; }
     if (mediaMode === "video" && !videoId) { setError("Upload a video first"); return; }
+    if (mediaMode === "carousel") {
+      if (carouselCards.length < 2) { setError("Carousel requires at least 2 cards"); return; }
+      if (carouselCards.some((c) => !c.image_url)) { setError("All carousel cards need an image"); return; }
+    }
     setSaving(true); setError("");
     try {
       const res = await api("/api/meta/drafts", {
@@ -1585,8 +1600,9 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
           body_text: bodyText.trim(), call_to_action: cta,
           destination_url: destUrl.trim() || null,
           image_url: mediaMode === "image" ? (imageUrl || null) : mediaMode === "video" ? (videoThumbUrl || null) : null,
-          ad_format: mediaMode === "video" ? "video" : mediaMode === "none" ? "text" : "image",
+          ad_format: mediaMode === "video" ? "video" : mediaMode === "none" ? "text" : mediaMode === "carousel" ? "carousel" : "image",
           meta_video_id: mediaMode === "video" ? videoId : null,
+          carousel_elements: mediaMode === "carousel" ? carouselCards : null,
           ai_generated: false,
         }),
       });
@@ -1680,7 +1696,7 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Media</label>
             <div className="flex gap-2 mb-3">
-              {([["image", "Image", ImageIcon], ["video", "Video", Video], ["none", "Text Only", FileText]] as [MediaMode, string, React.ElementType][]).map(([mode, label, Icon]) => (
+              {([["image", "Image", ImageIcon], ["video", "Video", Video], ["carousel", "Carousel", LayoutGrid], ["none", "Text Only", FileText]] as [MediaMode, string, React.ElementType][]).map(([mode, label, Icon]) => (
                 <button key={mode} onClick={() => setMediaMode(mode)}
                   className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
                     mediaMode === mode ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-200 text-gray-600 hover:border-gray-300"}`}>
@@ -1689,6 +1705,76 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
               ))}
             </div>
             {mediaMode === "image" && <ImagePicker value={imageUrl} onChange={setImageUrl} />}
+            {mediaMode === "carousel" && (
+              <div className="space-y-3">
+                <p className="text-xs text-gray-500">Add 2–10 cards. Each card needs an image. Headline and link are per-card.</p>
+                {carouselCards.map((card, i) => (
+                  <div key={i} className="border border-gray-200 rounded-xl p-3 space-y-2 bg-gray-50">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-semibold text-gray-600">Card {i + 1}</span>
+                      <div className="flex gap-1">
+                        {i > 0 && (
+                          <button onClick={() => setCarouselCards((cards) => { const a = [...cards]; [a[i-1], a[i]] = [a[i], a[i-1]]; return a; })}
+                            className="text-gray-400 hover:text-gray-600 text-xs px-1">▲</button>
+                        )}
+                        {i < carouselCards.length - 1 && (
+                          <button onClick={() => setCarouselCards((cards) => { const a = [...cards]; [a[i], a[i+1]] = [a[i+1], a[i]]; return a; })}
+                            className="text-gray-400 hover:text-gray-600 text-xs px-1">▼</button>
+                        )}
+                        {carouselCards.length > 2 && (
+                          <button onClick={() => setCarouselCards((cards) => cards.filter((_, idx) => idx !== i))}
+                            className="text-red-400 hover:text-red-600 text-xs px-1">✕</button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-2 items-start">
+                      {card.image_url ? (
+                        <div className="relative shrink-0">
+                          <img src={card.image_url} alt="" className="w-16 h-16 rounded-lg object-cover border border-gray-200" />
+                          <button onClick={() => setCarouselCards((cards) => cards.map((c, idx) => idx === i ? { ...c, image_url: '' } : c))}
+                            className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">✕</button>
+                        </div>
+                      ) : (
+                        <ImagePicker
+                          value={card.image_url}
+                          onChange={(url) => setCarouselCards((cards) => cards.map((c, idx) => idx === i ? { ...c, image_url: url } : c))}
+                        />
+                      )}
+                      <div className="flex-1 space-y-1.5 min-w-0">
+                        <input
+                          value={card.headline}
+                          onChange={(e) => setCarouselCards((cards) => cards.map((c, idx) => idx === i ? { ...c, headline: e.target.value } : c))}
+                          placeholder="Card headline"
+                          maxLength={40}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                        <input
+                          value={card.description}
+                          onChange={(e) => setCarouselCards((cards) => cards.map((c, idx) => idx === i ? { ...c, description: e.target.value } : c))}
+                          placeholder="Short description (optional)"
+                          maxLength={60}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                        <input
+                          value={card.link}
+                          onChange={(e) => setCarouselCards((cards) => cards.map((c, idx) => idx === i ? { ...c, link: e.target.value } : c))}
+                          placeholder={`Link (default: ${destUrl || 'destination URL'})`}
+                          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {carouselCards.length < 10 && (
+                  <button
+                    onClick={() => setCarouselCards((cards) => [...cards, { image_url: '', headline: '', description: '', link: '' }])}
+                    className="w-full border border-dashed border-gray-300 rounded-xl py-2 text-xs text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors"
+                  >
+                    + Add Card ({carouselCards.length}/10)
+                  </button>
+                )}
+              </div>
+            )}
             {mediaMode === "video" && (
               <div className="space-y-2">
                 <input ref={videoRef} type="file" accept="video/mp4,video/quicktime" className="hidden" onChange={handleVideoUpload} />
@@ -1790,6 +1876,40 @@ function SmartCreator({ onSaved }: { onSaved: () => void }) {
                   {CTA_OPTIONS.find((o) => o.value === cta)?.label || "Shop Now"}
                 </button>
               </div>
+            </div>
+          ) : mediaMode === "carousel" ? (
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm max-w-sm mx-auto">
+              <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-100">
+                <div className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
+                  <span className="text-white font-bold text-xs">J</span>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900">JulineMart</p>
+                  <p className="text-xs text-gray-400">Sponsored · 🌍</p>
+                </div>
+              </div>
+              <div className="px-4 py-2">
+                <p className="text-sm text-gray-800">{bodyText || 'Ad body text…'}</p>
+              </div>
+              <div className="flex gap-2 overflow-x-auto px-4 pb-3 snap-x snap-mandatory">
+                {carouselCards.map((card, i) => (
+                  <div key={i} className="shrink-0 w-40 snap-start border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="w-full aspect-square bg-gray-100 flex items-center justify-center">
+                      {card.image_url
+                        ? <img src={card.image_url} alt="" className="w-full h-full object-cover" />
+                        : <ImageIcon className="w-8 h-8 text-gray-300" />}
+                    </div>
+                    <div className="p-2 bg-gray-50 border-t border-gray-100">
+                      <p className="text-xs font-semibold text-gray-900 truncate">{card.headline || `Card ${i + 1}`}</p>
+                      {card.description && <p className="text-[10px] text-gray-500 truncate">{card.description}</p>}
+                      <button className="mt-1.5 w-full bg-blue-600 text-white text-[10px] font-semibold py-1 rounded-md">
+                        {CTA_OPTIONS.find((o) => o.value === cta)?.label || 'Shop Now'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-gray-400 text-center pb-2">← Swipe to see more cards →</p>
             </div>
           ) : (
             <FbAdPreview headline={headline} body={bodyText} cta={cta} imageUrl={imageUrl} />

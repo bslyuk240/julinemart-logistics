@@ -28,6 +28,16 @@ interface BannerContent {
   link?: string;
 }
 
+interface HeroAd {
+  image_url: string;
+  link: string;
+}
+
+interface HeroAds {
+  left: HeroAd;
+  right: HeroAd;
+}
+
 interface SectionContent {
   title: string;
   tag_slug?: string;
@@ -196,6 +206,7 @@ export default function HomepageContent() {
   // Local editable state
   const [slides, setSlides] = useState<HeroSlide[]>([]);
   const [banner, setBanner] = useState<BannerContent>({ enabled: true, text: '' });
+  const [heroAds, setHeroAds] = useState<HeroAds>({ left: { image_url: '', link: '' }, right: { image_url: '', link: '' } });
   const [sections, setSections] = useState<HomepageRow[]>([]);
 
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -217,11 +228,18 @@ export default function HomepageContent() {
 
       const sliderRow = res.data.find((r) => r.key === 'hero_slider');
       const bannerRow = res.data.find((r) => r.key === 'announcement_bar');
+      const heroAdsRow = res.data.find((r) => r.key === 'hero_ads');
       const sectionRows = res.data.filter((r) => r.type === 'section');
 
       setSlides(sliderRow?.content?.slides ?? []);
       const bc = bannerRow?.content ?? {};
       setBanner({ enabled: Boolean(bc.enabled ?? true), text: bc.text ?? '', bg_color: bc.bg_color, link: bc.link });
+      if (heroAdsRow?.content) {
+        setHeroAds({
+          left: heroAdsRow.content.left ?? { image_url: '', link: '' },
+          right: heroAdsRow.content.right ?? { image_url: '', link: '' },
+        });
+      }
       setSections(sectionRows);
     } catch (e: any) {
       setError(e.message || 'Failed to load');
@@ -282,6 +300,20 @@ export default function HomepageContent() {
       setError(e.message);
     } finally {
       setSaving((s) => ({ ...s, announcement_bar: false }));
+    }
+  };
+
+  // ── Hero Ads actions ───────────────────────────────────────────────────────
+
+  const saveHeroAds = async () => {
+    setSaving((s) => ({ ...s, hero_ads: true }));
+    try {
+      await apiPut('catalog-homepage?key=hero_ads', { content: heroAds });
+      showSuccess('Hero ad banners saved');
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSaving((s) => ({ ...s, hero_ads: false }));
     }
   };
 
@@ -348,6 +380,52 @@ export default function HomepageContent() {
             />
           ))
         )}
+      </section>
+
+      {/* ── Hero Ad Banners ─────────────────────────────────────────────── */}
+      <section style={styles.section}>
+        <div style={styles.sectionHead}>
+          <div>
+            <h2 style={styles.sectionTitle}>Hero Ad Banners</h2>
+            <p style={{ ...styles.muted, marginTop: 2 }}>
+              Left &amp; right static ads beside the main slider (desktop only). Design at <strong>220 × 371px</strong> or any proportional size.
+            </p>
+          </div>
+          <button onClick={saveHeroAds} disabled={saving.hero_ads} style={styles.primaryBtn}>
+            {saving.hero_ads ? 'Saving...' : 'Save Ads'}
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          {(['left', 'right'] as const).map((side) => (
+            <div key={side} style={styles.slideCard}>
+              <p style={{ ...styles.slideNum, marginBottom: 12 }}>{side === 'left' ? '◀ Left Ad' : 'Right Ad ▶'}</p>
+              <div style={styles.fieldGrid}>
+                <label style={styles.label}>Image URL</label>
+                <input
+                  value={heroAds[side].image_url}
+                  onChange={(e) => setHeroAds((a) => ({ ...a, [side]: { ...a[side], image_url: e.target.value } }))}
+                  placeholder="https://res.cloudinary.com/..."
+                  style={styles.input}
+                />
+                <label style={styles.label}>Link</label>
+                <input
+                  value={heroAds[side].link}
+                  onChange={(e) => setHeroAds((a) => ({ ...a, [side]: { ...a[side], link: e.target.value } }))}
+                  placeholder="/category/electronics"
+                  style={styles.input}
+                />
+              </div>
+              {heroAds[side].image_url && (
+                <img
+                  src={heroAds[side].image_url}
+                  alt={`${side} ad preview`}
+                  style={{ marginTop: 12, width: '100%', maxHeight: 140, objectFit: 'cover', borderRadius: 6 }}
+                />
+              )}
+            </div>
+          ))}
+        </div>
       </section>
 
       {/* ── Announcement Banner ─────────────────────────────────────────── */}

@@ -405,6 +405,28 @@ export async function handler(event) {
     }
 
     const items = normalizeItems(Array.isArray(payload.items) ? payload.items : []);
+
+    // Cart items carry the WooCommerce vendor route key (e.g. "jlo-{application_uuid}")
+    // but voucher.vendor_ids stores Supabase vendors.id UUIDs. Resolve the mapping so
+    // vendor-restricted vouchers match correctly.
+    if (voucher.vendor_ids?.length > 0) {
+      const jloKeys = [...new Set(items.map(i => i.vendorId).filter(v => v && String(v).startsWith('jlo-')))];
+      if (jloKeys.length > 0) {
+        const { data: vendorRows } = await supabase
+          .from('vendors')
+          .select('id, woocommerce_vendor_id')
+          .in('woocommerce_vendor_id', jloKeys);
+        if (vendorRows?.length) {
+          const keyToUuid = Object.fromEntries(vendorRows.map(v => [v.woocommerce_vendor_id, v.id]));
+          for (const item of items) {
+            if (item.vendorId && keyToUuid[item.vendorId]) {
+              item.vendorId = keyToUuid[item.vendorId];
+            }
+          }
+        }
+      }
+    }
+
     const itemValidation = validateVoucherItems(voucher, items);
     if (!itemValidation.isValid) {
       return {

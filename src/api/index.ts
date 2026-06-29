@@ -101,6 +101,13 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .map(o => o.trim())
   .filter(Boolean);
 
+// Fallback allowlist — used when ALLOWED_ORIGINS env var is not set.
+// Never falls back to wildcard '*' in production.
+const DEFAULT_ORIGINS = [
+  'https://jlo.julinemart.com',
+  'https://julinemart.com',
+];
+
 // Security headers
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -111,14 +118,20 @@ app.use(helmet({
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
-// CORS — restrict to known origins in production
+// CORS — restrict to known origins; never wildcard in production
 app.use((req: Request, res: Response, next: NextFunction) => {
   const origin = req.headers.origin ?? '';
   const isProd = process.env.NODE_ENV === 'production';
+  const allowed = ALLOWED_ORIGINS.length > 0 ? ALLOWED_ORIGINS : DEFAULT_ORIGINS;
 
-  if (!isProd || ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) {
+  if (!isProd) {
+    // Development: allow any origin (localhost etc.)
     res.header('Access-Control-Allow-Origin', origin || '*');
+  } else if (allowed.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
   }
+  // Production requests from unlisted origins receive no ACAO header → browser blocks them
+
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   if (req.method === 'OPTIONS') return res.sendStatus(200);
@@ -213,13 +226,13 @@ app.post('/api/calc-shipping', publicLimiter, calcShippingHandler);
 app.get('/api/zones/:state', publicLimiter, getZoneHandler);
 console.log('📦 Shipping routes registered');
 
-// Influencer routes
-app.get('/api/influencers', getInfluencersHandler);
-app.post('/api/influencers', createInfluencerHandler);
-app.get('/api/influencers/:id', getInfluencerByIdHandler);
-app.put('/api/influencers/:id', updateInfluencerHandler);
-app.delete('/api/influencers/:id', deleteInfluencerHandler);
-app.get('/api/influencers/:id/sales', getInfluencerSalesHandler);
+// Influencer routes — admin/manager only
+app.get('/api/influencers', authenticate, requireRole('admin', 'manager'), getInfluencersHandler);
+app.post('/api/influencers', authenticate, requireRole('admin', 'manager'), createInfluencerHandler);
+app.get('/api/influencers/:id', authenticate, requireRole('admin', 'manager'), getInfluencerByIdHandler);
+app.put('/api/influencers/:id', authenticate, requireRole('admin', 'manager'), updateInfluencerHandler);
+app.delete('/api/influencers/:id', authenticate, requireRole('admin'), deleteInfluencerHandler);
+app.get('/api/influencers/:id/sales', authenticate, requireRole('admin', 'manager'), getInfluencerSalesHandler);
 app.post('/api/influencers/validate-coupon', authLimiter, validateInfluencerCouponHandler);
 app.post('/api/influencers/record-sale', authLimiter, recordInfluencerSaleHandler);
 app.post(

@@ -4,6 +4,9 @@ dotenv.config();
 dotenv.config({ path: '.env.local', override: true });
 
 import express, { Request, Response, NextFunction } from 'express';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import { logger } from '../lib/logger.js';
 import { calcShippingHandler, getZoneHandler } from './routes/shipping.js';
 import { getOrdersHandler, getOrderByIdHandler, createOrderHandler, updateOrderStatusHandler, deleteOrderHandler } from './routes/orders.js';
 import { getTrackingHandler, updateTrackingHandler } from './routes/tracking.js';
@@ -93,25 +96,68 @@ console.log('  - SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
 
-// CORS
+// Security headers
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: false, // API server — no HTML rendering
+}));
+
+// Body size limits
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// CORS — restrict to known origins in production
 app.use((req: Request, res: Response, next: NextFunction) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
+  const origin = req.headers.origin ?? '';
+  const isProd = process.env.NODE_ENV === 'production';
+
+  if (!isProd || ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin || '*');
   }
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
   next();
 });
 
-// Request logging
+// Rate limiters
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many authentication attempts. Please try again in 15 minutes.' },
+});
+
+const publicLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please slow down.' },
+});
+
+app.use(generalLimiter);
+
+// Request logging (dev only)
 app.use((req: Request, res: Response, next: NextFunction) => {
-  void res; // avoid TS unused param warning
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  void res;
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  }
   next();
 });
 
@@ -163,8 +209,8 @@ app.get('/', (_req: Request, res: Response) => {
 });
 
 // Shipping routes (public)
-app.post('/api/calc-shipping', calcShippingHandler);
-app.get('/api/zones/:state', getZoneHandler);
+app.post('/api/calc-shipping', publicLimiter, calcShippingHandler);
+app.get('/api/zones/:state', publicLimiter, getZoneHandler);
 console.log('📦 Shipping routes registered');
 
 // Influencer routes
@@ -174,8 +220,8 @@ app.get('/api/influencers/:id', getInfluencerByIdHandler);
 app.put('/api/influencers/:id', updateInfluencerHandler);
 app.delete('/api/influencers/:id', deleteInfluencerHandler);
 app.get('/api/influencers/:id/sales', getInfluencerSalesHandler);
-app.post('/api/influencers/validate-coupon', validateInfluencerCouponHandler);
-app.post('/api/influencers/record-sale', recordInfluencerSaleHandler);
+app.post('/api/influencers/validate-coupon', authLimiter, validateInfluencerCouponHandler);
+app.post('/api/influencers/record-sale', authLimiter, recordInfluencerSaleHandler);
 app.post(
   '/api/influencers/reports',
   authenticate,
@@ -293,8 +339,8 @@ app.get('/api/settlements/stats/:courier_id?', getCourierPaymentStatsHandler);
 console.log('💳 Settlement routes registered');
 
 // Public tracking routes (no auth required)
-app.get('/api/track-order', trackOrderPublicHandler);
-app.post('/api/shipping-estimate', getShippingEstimatePublicHandler);
+app.get('/api/track-order', publicLimiter, trackOrderPublicHandler);
+app.post('/api/shipping-estimate', publicLimiter, getShippingEstimatePublicHandler);
 
 console.log('🌐 Public tracking routes registered');
 
@@ -359,9 +405,9 @@ app.patch('/api/return-shipments/:id/status', authenticate, requireRole('admin',
 // Return request lookup (public) - get return_request_id by WooCommerce order number
 app.get('/api/return-requests/by-woocommerce/:orderNumber', getReturnRequestIdByWooOrder);
 // Return request creation (public for PWA)
-app.post('/api/return-requests', createReturnRequest);
+app.post('/api/return-requests', authLimiter, createReturnRequest);
 // Return shipment creation (public) - handles Fez pickup when method=pickup
-app.post('/api/create-return-shipment', createReturnShipment);
+app.post('/api/create-return-shipment', authLimiter, createReturnShipment);
 
 console.log('💰 Refund routes registered');
 
@@ -394,12 +440,9 @@ app.use((req: Request, res: Response) => {
 
 // Error handler
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-  void _next; // keep 4-arg signature for Express error handler
-  console.error('❌ Error:', err);
-  res.status(500).json({
-    error: 'Internal server error',
-    message: (err instanceof Error ? err.message : 'Unknown error'),
-  });
+  void _next;
+  logger.error('Unhandled server error', err instanceof Error ? err : new Error(String(err)));
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 // Start server

@@ -67,3 +67,4 @@ Thumbs.db
 # === Miscellaneous ===
 *.pem
 .claude/
+.mcp.json

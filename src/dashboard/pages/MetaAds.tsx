@@ -8,11 +8,14 @@ import {
 } from 'lucide-react';
 
 const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
-const api = (path: string, opts?: RequestInit) =>
-  fetch(`${apiBase}${path}`, {
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('sb-access-token') || ''}` },
+const api = async (path: string, opts?: RequestInit) => {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token || '';
+  return fetch(`${apiBase}${path}`, {
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     ...opts,
   }).then((r) => r.json());
+};
 
 /** Meta rejects ad-set budgets below about ₦3.5k for some setups; ₦4k is a practical floor */
 const META_PUBLISH_MIN_DAILY_BUDGET_NGN = 4000;

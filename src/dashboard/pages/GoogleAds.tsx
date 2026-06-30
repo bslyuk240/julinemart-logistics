@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { supabase } from '../../lib/supabase';
 import {
   TrendingUp, RefreshCw, Sparkles, CheckCircle, XCircle,
   Clock, Eye, MousePointer, DollarSign, Target, Plus,
@@ -9,14 +10,14 @@ import {
 } from 'lucide-react';
 
 const apiBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
-const api = (path: string, opts?: RequestInit) =>
-  fetch(`${apiBase}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${localStorage.getItem('sb-access-token') || ''}`,
-    },
+const api = async (path: string, opts?: RequestInit) => {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token || '';
+  return fetch(`${apiBase}${path}`, {
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     ...opts,
   }).then((r) => r.json());
+};
 
 const GOOGLE_PUBLISH_MIN_DAILY_BUDGET_NGN = 1000;
 

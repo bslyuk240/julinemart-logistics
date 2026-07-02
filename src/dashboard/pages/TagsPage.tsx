@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../contexts/AuthContext';
-import { Tag, Trash2, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Tag, Trash2, RefreshCw, AlertTriangle, Plus } from 'lucide-react';
 
 interface TagAudit {
   id: string;
@@ -30,6 +30,11 @@ export default function TagsPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [confirmBulk, setConfirmBulk] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newSlug, setNewSlug] = useState('');
+  const [slugManual, setSlugManual] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -98,6 +103,39 @@ export default function TagsPage() {
     setTimeout(() => setSuccess(null), 3000);
   };
 
+  const handleNameChange = (val: string) => {
+    setNewName(val);
+    if (!slugManual) {
+      setNewSlug(val.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''));
+    }
+  };
+
+  const createTag = async () => {
+    if (!newName.trim() || !newSlug.trim()) return;
+    setCreating(true);
+    try {
+      const auth = await getAuthHeader();
+      const res = await fetch(functionsUrl('catalog-meta?type=tags'), {
+        method: 'POST',
+        headers: { Authorization: auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName.trim(), slug: newSlug.trim() }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Create failed');
+      setTags((prev) => [...prev, { ...json.data, product_count: 0 }]);
+      setNewName('');
+      setNewSlug('');
+      setSlugManual(false);
+      setShowCreate(false);
+      setSuccess(`Tag "${json.data.name}" created`);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const visible = tags.filter(
     (t) =>
       filter === '' ||
@@ -155,6 +193,12 @@ export default function TagsPage() {
             style={{ flex: 1, minWidth: 200, padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14 }}
           />
           <button
+            onClick={() => setShowCreate((v) => !v)}
+            style={{ padding: '7px 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500 }}
+          >
+            <Plus size={14} /> Add Tag
+          </button>
+          <button
             onClick={load}
             disabled={loading}
             style={{ padding: '7px 14px', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
@@ -179,6 +223,38 @@ export default function TagsPage() {
             </button>
           )}
         </div>
+
+        {showCreate && (
+          <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: 16, marginBottom: 14 }}>
+            <p style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, color: '#0369a1' }}>New Tag</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '10px 16px', alignItems: 'center', marginBottom: 12 }}>
+              <label style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Name</label>
+              <input
+                value={newName}
+                onChange={(e) => handleNameChange(e.target.value)}
+                placeholder="Flash Sale"
+                style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, width: '100%', boxSizing: 'border-box' as const }}
+              />
+              <label style={{ fontSize: 13, fontWeight: 500, color: '#374151' }}>Slug</label>
+              <input
+                value={newSlug}
+                onChange={(e) => { setNewSlug(e.target.value); setSlugManual(true); }}
+                placeholder="flash-sale"
+                style={{ padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 14, fontFamily: 'monospace', width: '100%', boxSizing: 'border-box' as const }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShowCreate(false); setNewName(''); setNewSlug(''); setSlugManual(false); }} style={{ padding: '6px 14px', background: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+              <button
+                onClick={createTag}
+                disabled={!newName.trim() || !newSlug.trim() || creating}
+                style={{ padding: '6px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: (!newName.trim() || !newSlug.trim()) ? 0.5 : 1 }}
+              >
+                {creating ? 'Creating...' : 'Create Tag'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {confirmBulk && (
           <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: 14, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12 }}>

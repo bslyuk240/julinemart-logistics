@@ -35,6 +35,27 @@ export async function handler(event) {
     }
   }
 
+  // POST /catalog-meta?type=tags — create a new tag
+  if (event.httpMethod === 'POST') {
+    if (type !== 'tags') return jsonResponse(400, { error: 'POST only supported for type=tags' });
+    let body;
+    try { body = JSON.parse(event.body || '{}'); } catch { return jsonResponse(400, { error: 'Invalid JSON' }); }
+    const name = String(body.name || '').trim();
+    const slug = String(body.slug || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    if (!name || !slug) return jsonResponse(400, { error: 'name and slug are required' });
+    try {
+      const { data, error } = await auth.adminClient
+        .from('tags').insert({ name, slug }).select('id, name, slug').single();
+      if (error) {
+        if (error.code === '23505') return jsonResponse(409, { error: `Tag slug "${slug}" already exists` });
+        return jsonResponse(500, { error: error.message });
+      }
+      return jsonResponse(201, { success: true, data });
+    } catch (err) {
+      return jsonResponse(500, { error: err?.message });
+    }
+  }
+
   if (event.httpMethod !== 'GET') return jsonResponse(405, { error: 'Method not allowed' });
 
   if (!type) return jsonResponse(400, { error: 'type query param required: vendors|hubs|categories|tags|tags_audit' });

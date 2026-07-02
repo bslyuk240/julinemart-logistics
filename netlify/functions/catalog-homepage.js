@@ -74,5 +74,39 @@ export async function handler(event) {
     return jsonResponse(200, { success: true, data });
   }
 
+  // POST — create a new section row (admin only)
+  if (event.httpMethod === 'POST') {
+    const auth = await requireAdmin(event, ['admin']);
+    if (auth.errorResponse) return auth.errorResponse;
+
+    const body = parseJsonBody(event.body);
+    if (!body) return jsonResponse(400, { error: 'Invalid JSON body' });
+
+    const { key, content, display_order } = body;
+    if (!key || typeof key !== 'string' || !/^[a-z0-9_]+$/.test(key)) {
+      return jsonResponse(400, { error: 'key is required and must be lowercase alphanumeric/underscore' });
+    }
+
+    const { data, error } = await auth.adminClient
+      .from('homepage_content')
+      .insert({
+        type: 'section',
+        key,
+        content: content || { title: '', tag_slug: '', display_limit: 10 },
+        is_active: false,
+        display_order: typeof display_order === 'number' ? display_order : 100,
+        updated_by: auth.profile?.id || null,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      if (error.code === '23505') return jsonResponse(409, { error: `Section key "${key}" already exists` });
+      return jsonResponse(500, { success: false, error: error.message });
+    }
+
+    return jsonResponse(201, { success: true, data });
+  }
+
   return jsonResponse(405, { error: 'Method not allowed' });
 }

@@ -91,6 +91,20 @@ async function apiPut<T>(path: string, body: unknown): Promise<T> {
   return res.json();
 }
 
+async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  const auth = await getAuthHeader();
+  const res = await fetch(endpointUrl(path), {
+    method: 'POST',
+    headers: { Authorization: auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).error || `POST ${path} → ${res.status}`);
+  }
+  return res.json();
+}
+
 // ─── sub-components ───────────────────────────────────────────────────────────
 
 function SlideCard({
@@ -203,6 +217,10 @@ export default function HomepageContent() {
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [addingSectionKey, setAddingSectionKey] = useState('');
+  const [addingSectionTitle, setAddingSectionTitle] = useState('');
+  const [showAddSection, setShowAddSection] = useState(false);
+  const [addingSectionLoading, setAddingSectionLoading] = useState(false);
 
   // Local editable state
   const [slides, setSlides] = useState<HeroSlide[]>([]);
@@ -322,6 +340,27 @@ export default function HomepageContent() {
   };
 
   // ── Section actions ────────────────────────────────────────────────────────
+
+  const handleAddSection = async () => {
+    const key = addingSectionKey.trim().toLowerCase().replace(/\s+/g, '_');
+    if (!key) return;
+    setAddingSectionLoading(true);
+    try {
+      const res = await apiPost<{ success: boolean; data: HomepageRow }>('catalog-homepage', {
+        key,
+        content: { title: addingSectionTitle.trim() || key, tag_slug: '', display_limit: 10 },
+      });
+      setSections((prev) => [...prev, res.data]);
+      setShowAddSection(false);
+      setAddingSectionKey('');
+      setAddingSectionTitle('');
+      showSuccess(`Section "${key}" created`);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setAddingSectionLoading(false);
+    }
+  };
 
   const saveSection = async (key: string, content: SectionContent, is_active: boolean) => {
     setSaving((s) => ({ ...s, [key]: true }));
@@ -555,20 +594,56 @@ export default function HomepageContent() {
 
       {/* ── Homepage Sections ────────────────────────────────────────────── */}
       <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Product Sections</h2>
-        <p style={styles.muted} >Each section pulls products by tag or category slug from the catalog.</p>
+        <div style={styles.sectionHead}>
+          <div>
+            <h2 style={styles.sectionTitle}>Product Sections</h2>
+            <p style={{ ...styles.muted, marginTop: 2 }}>Each section pulls products by tag or category slug from the catalog.</p>
+          </div>
+          <button onClick={() => setShowAddSection((v) => !v)} style={styles.secondaryBtn}>
+            + Add Section
+          </button>
+        </div>
 
-        {sections.map((row) => {
-          const content = row.content as SectionContent;
-          return (
-            <SectionEditor
-              key={row.key}
-              row={row}
-              onSave={(c, active) => saveSection(row.key, c, active)}
-              saving={!!saving[row.key]}
-            />
-          );
-        })}
+        {showAddSection && (
+          <div style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+            <p style={{ fontWeight: 600, fontSize: 14, marginBottom: 12, color: '#0369a1' }}>New Section</p>
+            <div style={styles.fieldGrid}>
+              <label style={styles.label}>Section Key</label>
+              <input
+                value={addingSectionKey}
+                onChange={(e) => setAddingSectionKey(e.target.value)}
+                placeholder="new_arrivals"
+                style={styles.input}
+              />
+              <label style={styles.label}>Section Title</label>
+              <input
+                value={addingSectionTitle}
+                onChange={(e) => setAddingSectionTitle(e.target.value)}
+                placeholder="New Arrivals"
+                style={styles.input}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowAddSection(false)} style={styles.secondaryBtn}>Cancel</button>
+              <button
+                onClick={handleAddSection}
+                disabled={!addingSectionKey.trim() || addingSectionLoading}
+                style={styles.primaryBtn}
+              >
+                {addingSectionLoading ? 'Creating...' : 'Create Section'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {sections.map((row) => (
+          <SectionEditor
+            key={row.key}
+            row={row}
+            onSave={(c, active) => saveSection(row.key, c, active)}
+            saving={!!saving[row.key]}
+          />
+        ))}
       </section>
     </div>
   );

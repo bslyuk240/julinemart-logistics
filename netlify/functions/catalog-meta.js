@@ -14,13 +14,30 @@ import {
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
-  if (event.httpMethod !== 'GET') return jsonResponse(405, { error: 'Method not allowed' });
 
   const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
   if (auth.errorResponse) return auth.errorResponse;
 
-  const type = event.queryStringParameters?.type;
-  if (!type) return jsonResponse(400, { error: 'type query param required: vendors|hubs|categories|tags' });
+  const q = event.queryStringParameters || {};
+  const type = q.type;
+
+  // DELETE /catalog-meta?type=tags&id=<uuid>
+  if (event.httpMethod === 'DELETE') {
+    if (type !== 'tags') return jsonResponse(400, { error: 'DELETE only supported for type=tags' });
+    const id = q.id;
+    if (!id) return jsonResponse(400, { error: 'id query param required' });
+    try {
+      const { error } = await auth.adminClient.from('tags').delete().eq('id', id);
+      if (error) return jsonResponse(500, { success: false, error: error.message });
+      return jsonResponse(200, { success: true });
+    } catch (err) {
+      return jsonResponse(500, { error: err?.message });
+    }
+  }
+
+  if (event.httpMethod !== 'GET') return jsonResponse(405, { error: 'Method not allowed' });
+
+  if (!type) return jsonResponse(400, { error: 'type query param required: vendors|hubs|categories|tags|tags_audit' });
 
   try {
     switch (type) {
@@ -56,8 +73,33 @@ export async function handler(event) {
         if (error) return jsonResponse(500, { error: error.message });
         return jsonResponse(200, { success: true, data: data || [] });
       }
+      case 'tags_audit': {
+        // All tags + count of published products using each
+        const { data: tags, error: tagErr } = await auth.adminClient
+          .from('tags')
+          .select('id, name, slug');
+        if (tagErr) return jsonResponse(500, { error: tagErr.message });
+
+        const { data: maps, error: mapErr } = await auth.adminClient
+          .from('product_tag_map')
+          .select('tag_id, product_id, products!inner(status)')
+          .eq('products.status', 'published');
+        if (mapErr) return jsonResponse(500, { error: mapErr.message });
+
+        const countByTag = {};
+        for (const row of (maps || [])) {
+          countByTag[row.tag_id] = (countByTag[row.tag_id] || 0) + 1;
+        }
+
+        const result = (tags || []).map((t) => ({
+          ...t,
+          product_count: countByTag[t.id] || 0,
+        })).sort((a, b) => b.product_count - a.product_count || a.name.localeCompare(b.name));
+
+        return jsonResponse(200, { success: true, data: result });
+      }
       default:
-        return jsonResponse(400, { error: 'type must be one of: vendors, hubs, categories, tags' });
+        return jsonResponse(400, { error: 'type must be one of: vendors, hubs, categories, tags, tags_audit' });
     }
   } catch (err) {
     return jsonResponse(500, { error: 'Failed to load meta', message: err?.message });

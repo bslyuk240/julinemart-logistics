@@ -33,6 +33,7 @@ import {
   Activity,
   AlertCircle,
   ShoppingBag,
+  Tag,
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
 import { BrandLogo } from '../../shared/BrandLogo';
@@ -73,6 +74,7 @@ const navigation: NavItem[] = [
   { name: 'Product Reviews', href: '/admin/products/reviews', icon: Star, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
   { name: 'Global Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
   { name: 'Homepage Content', href: '/admin/homepage-content', icon: LayoutGrid, roles: ['admin'] },
+  { name: 'Tags', href: '/admin/tags', icon: Tag, roles: ['admin'] },
   { name: 'Catalog Migration', href: '/admin/catalog-migration', icon: DatabaseZap, roles: ['admin'] },
   // Admin only
   { name: 'Hubs', href: '/admin/hubs', icon: MapPin, roles: ['admin'] },

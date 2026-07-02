@@ -26,6 +26,7 @@ import { GlobalSourcingPage } from './dashboard/pages/GlobalSourcing';
 import { ProductModerationPage } from './dashboard/pages/ProductModeration';
 import ProductReviewsPage from './dashboard/pages/ProductReviewsPage';
 import HomepageContent from './dashboard/pages/HomepageContent';
+import TagsPage from './dashboard/pages/TagsPage';
 import CatalogMigration from './dashboard/pages/CatalogMigration';
 import ProductUpload from './dashboard/pages/ProductUpload';
 import { HubsPage } from './dashboard/pages/Hubs';
@@ -119,6 +120,7 @@ const sharedRoutes = [
     ),
   },
   { path: 'homepage-content', element: <ProtectedRoute allowedRoles={['admin']}><HomepageContent /></ProtectedRoute> },
+  { path: 'tags', element: <ProtectedRoute allowedRoles={['admin']}><TagsPage /></ProtectedRoute> },
   {
     path: 'catalog-migration',
     element: (

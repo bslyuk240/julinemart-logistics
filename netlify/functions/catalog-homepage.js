@@ -15,12 +15,21 @@ import {
   requireAdmin,
   adminClient,
 } from './services/global-sourcing-utils.js';
+import { checkRateLimit } from './services/rate-limit.js';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
 
   // GET — public, no auth required
   if (event.httpMethod === 'GET') {
+    const { limited, response } = await checkRateLimit(event, {
+      name: 'catalog-homepage',
+      max: 30,
+      window: '1 m',
+      retryAfterSeconds: 60,
+    });
+    if (limited) return response;
+
     if (!adminClient) return jsonResponse(503, { error: 'Database not configured' });
 
     const q = event.queryStringParameters || {};
@@ -37,7 +46,11 @@ export async function handler(event) {
     const { data, error } = await query;
     if (error) return jsonResponse(500, { success: false, error: error.message });
 
-    return jsonResponse(200, { success: true, data: data || [] });
+    return {
+      statusCode: 200,
+      headers: { ...headers, 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' },
+      body: JSON.stringify({ success: true, data: data || [] }),
+    };
   }
 
   // PUT — update content for a specific key (admin only)

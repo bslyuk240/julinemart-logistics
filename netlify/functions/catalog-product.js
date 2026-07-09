@@ -16,10 +16,23 @@ import {
   jsonResponse,
   adminClient,
 } from './services/global-sourcing-utils.js';
+import { checkRateLimit } from './services/rate-limit.js';
+
+/** Short — mirrors catalog-products; this is also fetched with `cache: 'no-store'`
+ * by the storefront so edits/unpublishes show up immediately. */
+const CACHE_CONTROL = 'public, max-age=5, stale-while-revalidate=30';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
   if (event.httpMethod !== 'GET') return jsonResponse(405, { error: 'Method not allowed' });
+
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'catalog-product',
+    max: 90,
+    window: '1 m',
+    retryAfterSeconds: 60,
+  });
+  if (limited) return response;
 
   if (!adminClient) return jsonResponse(503, { error: 'Database not configured' });
 
@@ -75,10 +88,14 @@ export async function handler(event) {
     if (error) return jsonResponse(500, { success: false, error: error.message });
     if (!data) return jsonResponse(404, { success: false, error: 'Product not found' });
 
-    return jsonResponse(200, {
-      success: true,
-      data: normalizeProductDetail(data),
-    });
+    return {
+      statusCode: 200,
+      headers: { ...headers, 'Cache-Control': CACHE_CONTROL },
+      body: JSON.stringify({
+        success: true,
+        data: normalizeProductDetail(data),
+      }),
+    };
   } catch (error) {
     return jsonResponse(error?.statusCode || 500, {
       success: false,

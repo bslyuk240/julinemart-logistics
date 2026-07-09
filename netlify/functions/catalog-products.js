@@ -13,9 +13,15 @@ import {
   jsonResponse,
   adminClient,
 } from './services/global-sourcing-utils.js';
+import { checkRateLimit } from './services/rate-limit.js';
 
 const DEFAULT_PER_PAGE = 20;
 const MAX_PER_PAGE = 100;
+
+/** Short — this endpoint is intentionally fetched with `cache: 'no-store'` by the
+ * storefront so edits/unpublishes show up immediately. This only absorbs duplicate
+ * bursts (bots, retries), not meaningful staleness. */
+const CACHE_CONTROL = 'public, max-age=5, stale-while-revalidate=30';
 
 function emptyListMeta(page, perPage) {
   return { page, per_page: perPage, total: 0, total_pages: 0 };
@@ -44,6 +50,14 @@ function applyCatalogOrdering(query, orderbyRaw, orderRaw) {
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
   if (event.httpMethod !== 'GET') return jsonResponse(405, { error: 'Method not allowed' });
+
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'catalog-products',
+    max: 60,
+    window: '1 m',
+    retryAfterSeconds: 60,
+  });
+  if (limited) return response;
 
   if (!adminClient) return jsonResponse(503, { error: 'Database not configured' });
 
@@ -202,11 +216,15 @@ export async function handler(event) {
 
     const products = (data || []).map(normalizeProduct);
 
-    return jsonResponse(200, {
-      success: true,
-      data: products,
-      meta: { page, per_page: perPage, total, total_pages: totalPages },
-    });
+    return {
+      statusCode: 200,
+      headers: { ...headers, 'Cache-Control': CACHE_CONTROL },
+      body: JSON.stringify({
+        success: true,
+        data: products,
+        meta: { page, per_page: perPage, total, total_pages: totalPages },
+      }),
+    };
   } catch (error) {
     return jsonResponse(error?.statusCode || 500, {
       success: false,

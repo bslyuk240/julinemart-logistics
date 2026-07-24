@@ -204,7 +204,7 @@ export function CampaignsPage() {
 
   const [vouchers, setVouchers] = useState<{ id: string; code: string; campaign_name: string }[]>([]);
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
-  const [vendorsList, setVendorsList] = useState<{ id: string; store_name: string; logo_url: string | null }[]>([]);
+  const [vendorsList, setVendorsList] = useState<{ id: string; store_name: string; logo_url: string | null; woocommerce_vendor_id: string | null }[]>([]);
 
   // Inline "create voucher for this campaign" shortcut (INT-505) — only usable
   // once the campaign has a real id (editingId), since the voucher links back
@@ -264,7 +264,7 @@ export function CampaignsPage() {
     const [{ data: v }, { data: c }, { data: vend }] = await Promise.all([
       supabase.from('campaign_vouchers').select('id, code, campaign_name').eq('status', 'active'),
       supabase.from('categories').select('id, name').order('name'),
-      supabase.from('vendors').select('id, store_name, logo_url').eq('is_active', true).order('store_name'),
+      supabase.from('vendors').select('id, store_name, logo_url, woocommerce_vendor_id').eq('is_active', true).order('store_name'),
     ]);
     setVouchers(v || []);
     setCategories(c || []);
@@ -514,6 +514,19 @@ export function CampaignsPage() {
 
   function buildPayload() {
     const voucher = vouchers.find((v) => v.id === formData.offer_voucher_id);
+    const selectedVendor = vendorsList.find((v) => v.id === formData.target_id);
+    const rawStoreLink = formData.vendor_store_link.trim();
+    // Accept "/vendor/10", bare "10", or mistaken "/10" — always persist the
+    // storefront route the PWA actually serves.
+    const normalizedStoreLink = (() => {
+      if (!rawStoreLink) {
+        const routeKey = selectedVendor?.woocommerce_vendor_id || formData.target_id.trim();
+        return routeKey ? `/vendor/${routeKey}` : undefined;
+      }
+      if (/^https?:\/\//i.test(rawStoreLink) || rawStoreLink.startsWith('/vendor/')) return rawStoreLink;
+      return `/vendor/${rawStoreLink.replace(/^\//, '')}`;
+    })();
+
     return {
       internal_name: formData.internal_name.trim(),
       public_title: formData.public_title.trim(),
@@ -541,7 +554,7 @@ export function CampaignsPage() {
               story: formData.vendor_story.trim() || undefined,
               location: formData.vendor_location.trim() || undefined,
               yearsOperating: formData.vendor_years_operating === '' ? undefined : Number(formData.vendor_years_operating),
-              storeLinkUrl: formData.vendor_store_link.trim() || undefined,
+              storeLinkUrl: normalizedStoreLink,
               logoUrl: formData.vendor_logo.trim() || undefined,
               shopImageUrl: formData.vendor_shop_image.trim() || undefined,
               introVideoUrl: formData.vendor_intro_video.trim() || undefined,
@@ -1151,11 +1164,14 @@ export function CampaignsPage() {
                       <label className="block text-sm font-medium text-gray-700 mb-2">Vendor</label>
                       <select value={formData.target_id} onChange={(e) => {
                         const v = vendorsList.find((x) => x.id === e.target.value);
+                        const routeKey = v?.woocommerce_vendor_id || e.target.value;
                         setFormData({
                           ...formData,
                           target_id: e.target.value,
                           vendor_name: v?.store_name || formData.vendor_name,
                           vendor_logo: v?.logo_url || formData.vendor_logo,
+                          // Storefront vendor pages live at /vendor/[woo_or_jlo_key], not /[id].
+                          vendor_store_link: routeKey ? `/vendor/${routeKey}` : formData.vendor_store_link,
                         });
                       }} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500">
                         <option value="">Select a vendor…</option>

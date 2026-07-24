@@ -117,7 +117,12 @@ export async function validateVoucher(supabase, couponCode, orderData) {
  * @returns {Object} Matching items and validation result
  */
 export function validateVoucherItems(voucher, orderItems) {
-  if (!voucher.product_ids?.length && !voucher.product_skus?.length && !voucher.vendor_ids?.length) {
+  if (
+    !voucher.product_ids?.length &&
+    !voucher.product_skus?.length &&
+    !voucher.vendor_ids?.length &&
+    !voucher.category_ids?.length
+  ) {
     return {
       isValid: true,
       matchingItems: orderItems,
@@ -133,6 +138,9 @@ export function validateVoucherItems(voucher, orderItems) {
     .filter(Boolean);
   const normalizedVendorIds = (voucher.vendor_ids || [])
     .map((vid) => vid?.toString().trim())
+    .filter(Boolean);
+  const normalizedCategoryIds = (voucher.category_ids || [])
+    .map((cid) => cid?.toString().trim())
     .filter(Boolean);
   const requiresProductMatch = normalizedProductIds.length > 0 || normalizedProductSkus.length > 0;
 
@@ -152,6 +160,11 @@ export function validateVoucherItems(voucher, orderItems) {
     if (normalizedVendorIds.length > 0) {
       if (!item.vendorId) return false;
       if (!normalizedVendorIds.includes(item.vendorId)) return false;
+    }
+
+    if (normalizedCategoryIds.length > 0) {
+      const itemCategoryIds = (item.categoryIds || []).map((cid) => cid?.toString());
+      if (!itemCategoryIds.some((cid) => normalizedCategoryIds.includes(cid))) return false;
     }
 
     return true;
@@ -422,6 +435,37 @@ export async function handler(event) {
             if (item.vendorId && keyToUuid[item.vendorId]) {
               item.vendorId = keyToUuid[item.vendorId];
             }
+          }
+        }
+      }
+    }
+
+    // Cart items only carry the WooCommerce product id, but voucher.category_ids
+    // stores Supabase categories.id UUIDs — resolve each item's category
+    // membership via products.woo_product_id -> product_category_map, same
+    // request-time-resolution pattern as the vendor_ids block above.
+    if (voucher.category_ids?.length > 0) {
+      const wooProductIds = [...new Set(items.map((i) => i.productId).filter(Boolean))]
+        .map(Number)
+        .filter((n) => Number.isFinite(n));
+      if (wooProductIds.length > 0) {
+        const { data: productRows } = await supabase
+          .from('products')
+          .select('id, woo_product_id')
+          .in('woo_product_id', wooProductIds);
+        if (productRows?.length) {
+          const wooIdToUuid = Object.fromEntries(productRows.map((p) => [String(p.woo_product_id), p.id]));
+          const { data: categoryMapRows } = await supabase
+            .from('product_category_map')
+            .select('product_id, category_id')
+            .in('product_id', productRows.map((p) => p.id));
+          const productUuidToCategoryIds = {};
+          (categoryMapRows || []).forEach((row) => {
+            (productUuidToCategoryIds[row.product_id] ||= []).push(row.category_id);
+          });
+          for (const item of items) {
+            const productUuid = wooIdToUuid[item.productId];
+            item.categoryIds = productUuid ? productUuidToCategoryIds[productUuid] || [] : [];
           }
         }
       }

@@ -1,8 +1,8 @@
 import { useEffect, useState, useMemo } from 'react';
-import { 
-  Ticket, Plus, Edit, Trash2, Eye, EyeOff, Loader2, 
+import {
+  Ticket, Plus, Edit, Trash2, Eye, EyeOff, Loader2,
   Calendar, Users, DollarSign, Package, TrendingUp, AlertCircle,
-  CheckCircle, XCircle, Clock
+  CheckCircle, XCircle, Clock, Megaphone
 } from 'lucide-react';
 import { supabase, useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
@@ -11,12 +11,14 @@ interface CampaignVoucher {
   id: string;
   code: string;
   campaign_name: string;
+  campaign_id: string | null;
   description: string | null;
   discount_type: 'free' | 'percentage' | 'fixed_amount';
   discount_value: number | null;
   product_ids: string[] | null;
   product_skus: string[] | null;
   vendor_ids: string[] | null;
+  category_ids: string[] | null;
   max_uses: number;
   current_uses: number;
   max_uses_per_customer: number;
@@ -53,6 +55,7 @@ interface FormState {
   product_ids: string;
   product_skus: string;
   vendor_ids: string;
+  category_ids: string;
   max_uses: number;
   max_uses_per_customer: number;
   valid_from: string;
@@ -69,6 +72,7 @@ const emptyForm: FormState = {
   product_ids: '',
   product_skus: '',
   vendor_ids: '',
+  category_ids: '',
   max_uses: 1,
   max_uses_per_customer: 1,
   valid_from: new Date().toISOString().slice(0, 16),
@@ -94,6 +98,7 @@ export function VouchersPage() {
   const { user } = useAuth();
   const notification = useNotification();
   const [vouchers, setVouchers] = useState<CampaignVoucher[]>([]);
+  const [campaignTitles, setCampaignTitles] = useState<Record<string, string>>({});
   const [redemptions, setRedemptions] = useState<VoucherRedemption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -108,6 +113,7 @@ export function VouchersPage() {
 
   useEffect(() => {
     void loadVouchers();
+    void loadCampaignTitles();
   }, []);
 
   const loadVouchers = async () => {
@@ -125,6 +131,11 @@ export function VouchersPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadCampaignTitles = async () => {
+    const { data } = await supabase.from('campaigns').select('id, public_title');
+    setCampaignTitles(Object.fromEntries((data || []).map((c) => [c.id, c.public_title])));
   };
 
   const loadRedemptions = async (voucherId: string) => {
@@ -167,6 +178,7 @@ export function VouchersPage() {
       product_ids: (voucher.product_ids || []).join(', '),
       product_skus: (voucher.product_skus || []).join(', '),
       vendor_ids: (voucher.vendor_ids || []).join(', '),
+      category_ids: (voucher.category_ids || []).join(', '),
       max_uses: voucher.max_uses,
       max_uses_per_customer: voucher.max_uses_per_customer,
       valid_from: new Date(voucher.valid_from).toISOString().slice(0, 16),
@@ -214,6 +226,7 @@ export function VouchersPage() {
       product_ids: parseArray(formData.product_ids),
       product_skus: parseArray(formData.product_skus).map((sku) => sku.toUpperCase()),
       vendor_ids: parseArray(formData.vendor_ids),
+      category_ids: parseArray(formData.category_ids),
       max_uses: Number(formData.max_uses),
       max_uses_per_customer: Number(formData.max_uses_per_customer),
       valid_from: new Date(formData.valid_from).toISOString(),
@@ -433,9 +446,17 @@ export function VouchersPage() {
                 </div>
 
                 {/* Discount Badge */}
-                <div className="inline-flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm font-medium">
-                  <Package className="w-4 h-4" />
-                  {getDiscountLabel(voucher)}
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm font-medium">
+                    <Package className="w-4 h-4" />
+                    {getDiscountLabel(voucher)}
+                  </div>
+                  {voucher.campaign_id && (
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-medium">
+                      <Megaphone className="w-3.5 h-3.5" />
+                      {campaignTitles[voucher.campaign_id] || 'Linked campaign'}
+                    </div>
+                  )}
                 </div>
 
                 {/* Usage Bar */}
@@ -654,6 +675,19 @@ export function VouchersPage() {
                     value={formData.vendor_ids}
                     onChange={(e) => setFormData({ ...formData, vendor_ids: e.target.value })}
                     placeholder="UUIDs (leave empty for all vendors)"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 font-mono text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Category IDs (comma-separated)
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.category_ids}
+                    onChange={(e) => setFormData({ ...formData, category_ids: e.target.value })}
+                    placeholder="UUIDs (leave empty for all categories)"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 font-mono text-sm"
                   />
                 </div>

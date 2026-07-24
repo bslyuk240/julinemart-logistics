@@ -48,6 +48,7 @@ import { UsersPage } from './dashboard/pages/Users';
 import SupportInbox from './dashboard/pages/SupportInbox';
 import SupportChatView from './dashboard/pages/SupportChatView';
 import { VouchersPage } from './dashboard/pages/Vouchers';
+import { CampaignsPage } from './dashboard/pages/Campaigns';
 import { CustomersPage } from './dashboard/pages/Customers';
 import { VendorsPage } from './dashboard/pages/Vendors';
 import VendorDetail from './dashboard/pages/VendorDetail';
@@ -152,6 +153,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'settlements', element: <SettlementsPage /> },
   { path: 'activity-logs', element: <ActivityLogsPage /> },
   { path: 'vouchers', element: <VouchersPage /> },
+  { path: 'campaigns', element: <CampaignsPage />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
   { path: 'vendors', element: <VendorsPage />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendors/:id', element: <VendorDetail />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-withdrawals', element: <VendorWithdrawals />, allowedRoles: ['admin', 'manager'] },

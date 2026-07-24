@@ -91,6 +91,7 @@ const navigation: NavItem[] = [
   { name: 'Vendor Debits', href: '/admin/vendor-debits', icon: AlertCircle, roles: ['admin', 'manager'] },
   { name: 'Vendor Locations', href: '/admin/vendor-locations', icon: MapPin, roles: ['admin', 'manager'] },
   { name: 'Vouchers', href: '/admin/vouchers', icon: Ticket, roles: ['admin'] },
+  { name: 'Campaigns', href: '/admin/campaigns', icon: Megaphone, roles: ['admin', 'manager', 'social_media_manager'] },
   { name: 'Meta Ads', href: '/admin/meta-ads', icon: TrendingUp, roles: ['admin', 'manager', 'social_media_manager'] },
   { name: 'Google Ads', href: '/admin/google-ads', icon: Search, roles: ['admin', 'manager', 'social_media_manager'] },
   { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },

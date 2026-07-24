@@ -60,7 +60,9 @@ export type Database = {
       }
       campaign_vouchers: {
         Row: {
+          campaign_id: string | null
           campaign_name: string
+          category_ids: string[] | null
           code: string
           created_at: string | null
           created_by: string | null
@@ -84,7 +86,9 @@ export type Database = {
           vendor_ids: string[] | null
         }
         Insert: {
+          campaign_id?: string | null
           campaign_name: string
+          category_ids?: string[] | null
           code: string
           created_at?: string | null
           created_by?: string | null
@@ -108,7 +112,9 @@ export type Database = {
           vendor_ids?: string[] | null
         }
         Update: {
+          campaign_id?: string | null
           campaign_name?: string
+          category_ids?: string[] | null
           code?: string
           created_at?: string | null
           created_by?: string | null
@@ -131,7 +137,15 @@ export type Database = {
           valid_until?: string | null
           vendor_ids?: string[] | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "campaign_vouchers_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       categories: {
         Row: {

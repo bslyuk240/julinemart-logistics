@@ -1,0 +1,178 @@
+// Shared contract with julinemart-pwa (INT-501).
+// Keep this file's shapes identical to src/types/campaigns.ts over there —
+// this repo writes these rows (Campaign Builder), the PWA reads them.
+//
+// section_type is fixed here as the canonical list (build-plan Appendix A
+// flagged 3 conflicting lists in the source PRD; this is the settled answer):
+export type CampaignSectionType =
+  | 'hero'
+  | 'benefits'
+  | 'vendor_story'
+  | 'products'
+  | 'offer'
+  | 'reviews'
+  | 'media_gallery'
+  | 'cta_footer';
+
+export type CampaignStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'expired' | 'archived';
+
+export type CampaignTargetType = 'vendor' | 'category' | 'product' | 'collection' | 'multi_vendor' | 'general';
+
+export type CampaignAnalyticsEventType =
+  | 'scan'
+  | 'page_visit'
+  | 'video_view'
+  | 'cta_click'
+  | 'add_to_cart'
+  | 'checkout_start'
+  | 'checkout_complete';
+
+export interface CampaignHeroConfig {
+  headline: string;
+  subtitle: string;
+  heroImageDesktop?: string;
+  heroImageMobile?: string;
+  introductoryVideoUrl?: string;
+  ctaLabel: string;
+  ctaActionUrl?: string;
+  secondaryCtaLabel?: string;
+  secondaryCtaVideoUrl?: string;
+  badgeText?: string;
+  brandThemePalette?: { primaryColor?: string; badgeTextColor?: string };
+}
+
+export interface CampaignBenefit {
+  title: string;
+  description: string;
+  icon?: string;
+}
+
+// media_gallery section config shape: { items: CampaignMediaItem[] }
+export interface CampaignMediaItem {
+  type: 'image' | 'video';
+  url: string;
+  caption?: string;
+}
+
+export interface CampaignVendorOverride {
+  vendorId: string | number;
+  name?: string;
+  logoUrl?: string;
+  shopImageUrl?: string;
+  story?: string;
+  location?: string;
+  introVideoUrl?: string;
+  yearsOperating?: number;
+  storeLinkUrl?: string;
+}
+
+export type ProductSelectionSource = 'automatic' | 'manual' | 'rules_based';
+
+export interface CampaignProductSelectionRules {
+  source: ProductSelectionSource;
+  vendorId?: string | number;
+  categoryIds?: (string | number)[];
+  manualProductIds?: (string | number)[];
+  pinnedProductIds?: (string | number)[];
+  minimumRating?: number;
+  inStockOnly?: boolean;
+  discountedOnly?: boolean;
+  maxProducts?: number;
+  excludeSkus?: string[];
+}
+
+export type ReviewScope = 'product' | 'featured_products' | 'vendor' | 'category' | 'mixed';
+
+export interface CampaignReviewRules {
+  scope: ReviewScope;
+  minimumRating?: number;
+  maxReviews?: number;
+  verifiedPurchaseOnly?: boolean;
+  imagesOnly?: boolean;
+  sort?: 'newest' | 'highest_rated' | 'manual';
+  allowVideoTestimonials?: boolean;
+  fallbackScope?: ReviewScope;
+  manualExclusionIds?: string[];
+}
+
+// Mirrors the fields already present on `CampaignVoucher` in
+// src/dashboard/pages/Vouchers.tsx — the campaign offer should LINK an
+// existing voucher/coupon record from that system, not define a parallel
+// discount engine. See build-plan Appendix C.
+export interface CampaignOfferConfig {
+  voucherId?: string;
+  couponCode?: string;
+  discountType?: 'free' | 'percentage' | 'fixed_amount';
+  discountValue?: number;
+  freeDelivery?: boolean;
+  minimumSpend?: number;
+  newCustomersOnly?: boolean;
+  displayText?: string;
+  expirationDate?: string;
+}
+
+export interface CampaignSection {
+  id: string;
+  campaignId: string;
+  sectionType: CampaignSectionType;
+  orderIndex: number;
+  isVisible: boolean;
+  config: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface CampaignQrVariant {
+  id: string;
+  campaignId: string;
+  channelName: string;
+  trackingSlug: string;
+  createdAt: string;
+}
+
+export interface CampaignAnalyticsEvent {
+  id: number;
+  campaignId: string;
+  qrId?: string | null;
+  eventType: CampaignAnalyticsEventType;
+  visitorSessionId: string;
+  userId?: string | null;
+  orderId?: string | null;
+  revenue?: number;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface CampaignManualExclusion {
+  id: string;
+  campaignId: string;
+  entityType: 'review' | 'product';
+  entityId: string;
+  reason?: string;
+  createdBy?: string;
+  createdAt: string;
+}
+
+export interface Campaign {
+  id: string;
+  slug: string;
+  internalName: string;
+  publicTitle: string;
+  campaignObjective?: string;
+  status: CampaignStatus;
+  startDate?: string;
+  endDate?: string;
+  targetType: CampaignTargetType;
+  targetId?: string;
+  templateId?: string;
+
+  sectionLayout: CampaignSection[];
+  heroConfig: CampaignHeroConfig;
+  vendorOverride?: CampaignVendorOverride;
+  productSelectionRules: CampaignProductSelectionRules;
+  reviewRules: CampaignReviewRules;
+  offerConfig?: CampaignOfferConfig;
+  metaSeo?: { title?: string; description?: string; ogImage?: string };
+
+  createdAt: string;
+  updatedAt: string;
+}

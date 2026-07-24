@@ -60,46 +60,109 @@ type NavItem = {
   requireCatalogAccess?: boolean;
 };
 
-const navigation: NavItem[] = [
-  // Manager = scoped ops + catalog + vendors (no hub dispatch); agent/viewer keep hub dispatch
-  { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'agent', 'manager', 'viewer'] },
-  { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent', 'manager', 'viewer'] },
-  { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent', 'viewer'] },
-  { name: 'Live Support', href: '/admin/support', icon: Headphones, roles: ['admin', 'agent', 'manager', 'viewer'] },
-  { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent', 'manager', 'viewer'] },
-  { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'agent', 'manager', 'viewer'] },
-  // Catalog: manager always; shop_manager + admin; agents only with catalog_access
-  { name: 'Add Product', href: '/admin/products/upload', icon: Plus, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
-  { name: 'Product Moderation', href: '/admin/products/moderation', icon: ClipboardCheck, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
-  { name: 'Product Reviews', href: '/admin/products/reviews', icon: Star, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
-  { name: 'Global Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
-  { name: 'Homepage Content', href: '/admin/homepage-content', icon: LayoutGrid, roles: ['admin'] },
-  { name: 'Tags', href: '/admin/tags', icon: Tag, roles: ['admin'] },
-  { name: 'Catalog Migration', href: '/admin/catalog-migration', icon: DatabaseZap, roles: ['admin'] },
-  // Admin only
-  { name: 'Hubs', href: '/admin/hubs', icon: MapPin, roles: ['admin'] },
-  { name: 'Couriers', href: '/admin/couriers', icon: Truck, roles: ['admin'] },
-  { name: 'Finance', href: '/admin/finance', icon: TrendingUp, roles: ['admin'] },
-  { name: 'Settlements', href: '/admin/settlements', icon: DollarSign, roles: ['admin'] },
-  { name: 'Analytics', href: '/admin/analytics', icon: BarChart3, roles: ['admin'] },
-  { name: 'PWA Monitoring', href: '/admin/pwa-monitoring', icon: Activity, roles: ['admin'] },
-  { name: 'Users', href: '/admin/users', icon: Users, roles: ['admin'] },
-  { name: 'Customers', href: '/admin/customers', icon: ShoppingBag, roles: ['admin', 'manager'] },
-  { name: 'Shipping Discounts', href: '/admin/discounts', icon: Percent, roles: ['admin'] },
-  { name: 'Vendors', href: '/admin/vendors', icon: Store, roles: ['admin', 'manager'] },
-  { name: 'Vendor Payouts', href: '/admin/vendor-withdrawals', icon: Wallet, roles: ['admin', 'manager'] },
-  { name: 'Vendor Debits', href: '/admin/vendor-debits', icon: AlertCircle, roles: ['admin', 'manager'] },
-  { name: 'Vendor Locations', href: '/admin/vendor-locations', icon: MapPin, roles: ['admin', 'manager'] },
-  { name: 'Vouchers', href: '/admin/vouchers', icon: Ticket, roles: ['admin'] },
-  { name: 'Campaigns', href: '/admin/campaigns', icon: Megaphone, roles: ['admin', 'manager', 'social_media_manager'] },
-  { name: 'Meta Ads', href: '/admin/meta-ads', icon: TrendingUp, roles: ['admin', 'manager', 'social_media_manager'] },
-  { name: 'Google Ads', href: '/admin/google-ads', icon: Search, roles: ['admin', 'manager', 'social_media_manager'] },
-  { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },
-  { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
-  { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },
-  { name: 'Email Settings', href: '/admin/email-settings', icon: Mail, roles: ['admin'] },
-  { name: 'Notifications', href: '/admin/notifications', icon: BellRing, roles: ['admin'] },
-  { name: 'Activity Logs', href: '/admin/activity-logs', icon: Activity, roles: ['admin'] },
+type NavSection = {
+  id: string;
+  label: string | null;
+  items: NavItem[];
+};
+
+const navigationSections: NavSection[] = [
+  {
+    id: 'overview',
+    label: null,
+    items: [
+      { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard, roles: ['admin', 'agent', 'manager', 'viewer'] },
+    ],
+  },
+  {
+    id: 'operations',
+    label: 'Operations',
+    items: [
+      { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent', 'manager', 'viewer'] },
+      { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent', 'viewer'] },
+      { name: 'Live Support', href: '/admin/support', icon: Headphones, roles: ['admin', 'agent', 'manager', 'viewer'] },
+      { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent', 'manager', 'viewer'] },
+    ],
+  },
+  {
+    id: 'catalog',
+    label: 'Catalog',
+    items: [
+      { name: 'Add Product', href: '/admin/products/upload', icon: Plus, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
+      { name: 'Product Moderation', href: '/admin/products/moderation', icon: ClipboardCheck, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
+      { name: 'Product Reviews', href: '/admin/products/reviews', icon: Star, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
+      { name: 'Global Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
+      { name: 'Homepage Content', href: '/admin/homepage-content', icon: LayoutGrid, roles: ['admin'] },
+      { name: 'Tags', href: '/admin/tags', icon: Tag, roles: ['admin'] },
+      { name: 'Catalog Migration', href: '/admin/catalog-migration', icon: DatabaseZap, roles: ['admin'] },
+    ],
+  },
+  {
+    id: 'vendors',
+    label: 'Vendors',
+    items: [
+      { name: 'Vendors', href: '/admin/vendors', icon: Store, roles: ['admin', 'manager'] },
+      { name: 'Vendor Payouts', href: '/admin/vendor-withdrawals', icon: Wallet, roles: ['admin', 'manager'] },
+      { name: 'Vendor Debits', href: '/admin/vendor-debits', icon: AlertCircle, roles: ['admin', 'manager'] },
+      { name: 'Vendor Locations', href: '/admin/vendor-locations', icon: MapPin, roles: ['admin', 'manager'] },
+    ],
+  },
+  {
+    id: 'marketing',
+    label: 'Marketing',
+    items: [
+      { name: 'Campaigns', href: '/admin/campaigns', icon: Megaphone, roles: ['admin', 'manager', 'social_media_manager'] },
+      { name: 'Vouchers', href: '/admin/vouchers', icon: Ticket, roles: ['admin'] },
+      { name: 'Shipping Discounts', href: '/admin/discounts', icon: Percent, roles: ['admin'] },
+      { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },
+      { name: 'Meta Ads', href: '/admin/meta-ads', icon: TrendingUp, roles: ['admin', 'manager', 'social_media_manager'] },
+      { name: 'Google Ads', href: '/admin/google-ads', icon: Search, roles: ['admin', 'manager', 'social_media_manager'] },
+    ],
+  },
+  {
+    id: 'network',
+    label: 'Network',
+    items: [
+      { name: 'Hubs', href: '/admin/hubs', icon: MapPin, roles: ['admin'] },
+      { name: 'Couriers', href: '/admin/couriers', icon: Truck, roles: ['admin'] },
+      { name: 'Shipping Rates', href: '/admin/rates', icon: DollarSign, roles: ['admin', 'agent', 'manager', 'viewer'] },
+      { name: 'Courier Settings', href: '/admin/courier-settings', icon: Settings, roles: ['admin'] },
+    ],
+  },
+  {
+    id: 'finance',
+    label: 'Finance',
+    items: [
+      { name: 'Finance', href: '/admin/finance', icon: TrendingUp, roles: ['admin'] },
+      { name: 'Settlements', href: '/admin/settlements', icon: DollarSign, roles: ['admin'] },
+    ],
+  },
+  {
+    id: 'people',
+    label: 'People',
+    items: [
+      { name: 'Users', href: '/admin/users', icon: Users, roles: ['admin'] },
+      { name: 'Customers', href: '/admin/customers', icon: ShoppingBag, roles: ['admin', 'manager'] },
+    ],
+  },
+  {
+    id: 'insights',
+    label: 'Insights',
+    items: [
+      { name: 'Analytics', href: '/admin/analytics', icon: BarChart3, roles: ['admin'] },
+      { name: 'PWA Monitoring', href: '/admin/pwa-monitoring', icon: Activity, roles: ['admin'] },
+      { name: 'Activity Logs', href: '/admin/activity-logs', icon: Activity, roles: ['admin'] },
+    ],
+  },
+  {
+    id: 'system',
+    label: 'System',
+    items: [
+      { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },
+      { name: 'Email Settings', href: '/admin/email-settings', icon: Mail, roles: ['admin'] },
+      { name: 'Notifications', href: '/admin/notifications', icon: BellRing, roles: ['admin'] },
+    ],
+  },
 ];
 
 const ADMIN_MANIFEST_LINK_ID = 'admin-manifest-link';
@@ -248,14 +311,21 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     return colors[role] || 'bg-gray-100 text-gray-800';
   };
 
-  // Filter navigation items based on user role and catalog_access flag
-  const filteredNavigation = navigation.filter(item => {
+  const canAccessNavItem = (item: NavItem) => {
     if (!item.roles) return true;
     if (item.roles.includes(user?.role || '')) return true;
     // Agents need catalog_access for catalog nav; manager/admin/shop_manager are in roles already
     if (item.requireCatalogAccess && user?.catalog_access && user?.role === 'agent') return true;
     return false;
-  });
+  };
+
+  // Role-filter items, then drop empty sections so labels don't float alone
+  const filteredSections = navigationSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter(canAccessNavItem),
+    }))
+    .filter((section) => section.items.length > 0);
   const canInstallApp = user?.role === 'admin' && !isInstalled;
 
   return (
@@ -284,32 +354,41 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           </button>
         </div>
 
-        <nav className="admin-sidebar-scroll flex-1 overflow-y-auto px-4 py-6 space-y-1">
-          {filteredNavigation.map((item) => {
-            const isActive =
-              location.pathname === item.href ||
-              (item.href !== '/admin/dashboard' && location.pathname.startsWith(`${item.href}/`)) ||
-              (item.href === '/admin/dashboard' && location.pathname.startsWith('/admin/dashboard'));
-            const Icon = item.icon;
-            
-            return (
-              <Link
-                key={item.name}
-                to={item.href}
-                onClick={() => setSidebarOpen(false)}
-                className={`
-                  flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-colors relative
-                  ${isActive 
-                    ? 'bg-primary-50 text-primary-700' 
-                    : 'text-gray-700 hover:bg-gray-100'
-                  }
-                `}
-              >
-                <Icon className={`w-5 h-5 mr-3 ${isActive ? 'text-primary-600' : 'text-gray-500'}`} />
-                {item.name}
-              </Link>
-            );
-          })}
+        <nav className="admin-sidebar-scroll flex-1 overflow-y-auto px-4 py-4 space-y-5">
+          {filteredSections.map((section) => (
+            <div key={section.id} className="space-y-1">
+              {section.label && (
+                <p className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  {section.label}
+                </p>
+              )}
+              {section.items.map((item) => {
+                const isActive =
+                  location.pathname === item.href ||
+                  (item.href !== '/admin/dashboard' && location.pathname.startsWith(`${item.href}/`)) ||
+                  (item.href === '/admin/dashboard' && location.pathname.startsWith('/admin/dashboard'));
+                const Icon = item.icon;
+
+                return (
+                  <Link
+                    key={item.name}
+                    to={item.href}
+                    onClick={() => setSidebarOpen(false)}
+                    className={`
+                      flex items-center px-4 py-2.5 text-sm font-medium rounded-lg transition-colors relative
+                      ${isActive
+                        ? 'bg-primary-50 text-primary-700'
+                        : 'text-gray-700 hover:bg-gray-100'
+                      }
+                    `}
+                  >
+                    <Icon className={`w-5 h-5 mr-3 shrink-0 ${isActive ? 'text-primary-600' : 'text-gray-500'}`} />
+                    {item.name}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
       </div>
 

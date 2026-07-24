@@ -25,13 +25,14 @@ export async function checkThresholdAndSync(adminClient, newRate) {
     return runFxPriceSync(adminClient, { newRate, reason: 'initial_sync' });
   }
 
-  const changePct = Math.abs((newRate - lastSyncRate) / lastSyncRate) * 100;
+  const absChangePct = Math.abs((newRate - lastSyncRate) / lastSyncRate) * 100;
+  const signedChangePct = parseFloat((((newRate - lastSyncRate) / lastSyncRate) * 100).toFixed(2));
 
-  if (changePct < THRESHOLD_PERCENT) {
+  if (absChangePct < THRESHOLD_PERCENT) {
     return {
       synced: false,
       reason: 'below_threshold',
-      changePct: parseFloat(changePct.toFixed(2)),
+      changePct: signedChangePct,
       lastSyncRate,
       currentRate: newRate,
     };
@@ -40,7 +41,7 @@ export async function checkThresholdAndSync(adminClient, newRate) {
   return runFxPriceSync(adminClient, {
     newRate,
     reason: 'threshold_triggered',
-    changePct: parseFloat(changePct.toFixed(2)),
+    changePct: signedChangePct,
     lastSyncRate,
   });
 }
@@ -56,6 +57,26 @@ export async function runFxPriceSync(adminClient, { newRate, reason = 'manual', 
   }
 
   const syncAt = new Date().toISOString();
+
+  // Weekly cron + manual "Run Sync Now" historically omitted previous_rate /
+  // change_pct, so the admin log Change column showed "—". Resolve from the
+  // last persisted sync rate when callers don't pass them.
+  let resolvedLastSyncRate = asFiniteNumber(lastSyncRate);
+  if (resolvedLastSyncRate === null) {
+    const { data: settingsRow } = await adminClient
+      .from('global_sourcing_settings')
+      .select('fx_last_price_sync_rate')
+      .eq('provider', SYNC_PROVIDER)
+      .maybeSingle();
+    resolvedLastSyncRate = asFiniteNumber(settingsRow?.fx_last_price_sync_rate);
+  }
+
+  let resolvedChangePct = Number.isFinite(changePct) ? changePct : null;
+  if (resolvedChangePct === null && resolvedLastSyncRate !== null && resolvedLastSyncRate > 0) {
+    resolvedChangePct = parseFloat(
+      (((newRate - resolvedLastSyncRate) / resolvedLastSyncRate) * 100).toFixed(2)
+    );
+  }
 
   const pricingDefaults = await loadGlobalSourcingPricingDefaults(adminClient, SYNC_PROVIDER);
   const {
@@ -189,8 +210,8 @@ export async function runFxPriceSync(adminClient, { newRate, reason = 'manual', 
     await adminClient.from('fx_price_sync_logs').insert({
       reason,
       rate_used: newRate,
-      previous_rate: lastSyncRate ?? null,
-      change_pct: changePct ?? null,
+      previous_rate: resolvedLastSyncRate ?? null,
+      change_pct: resolvedChangePct ?? null,
       updated_simple: updatedSimple,
       updated_variations: updatedVariations,
       skipped,
@@ -205,8 +226,8 @@ export async function runFxPriceSync(adminClient, { newRate, reason = 'manual', 
     reason,
     newRate,
     syncAt,
-    ...(changePct !== undefined ? { changePct } : {}),
-    ...(lastSyncRate !== undefined ? { lastSyncRate } : {}),
+    ...(resolvedChangePct !== null && resolvedChangePct !== undefined ? { changePct: resolvedChangePct } : {}),
+    ...(resolvedLastSyncRate !== null && resolvedLastSyncRate !== undefined ? { lastSyncRate: resolvedLastSyncRate } : {}),
     updatedSimple,
     updatedVariations,
     skipped,

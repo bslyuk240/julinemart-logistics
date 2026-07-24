@@ -3319,9 +3319,18 @@ export function GlobalSourcingPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {fxSyncStatus.logs.map((entry) => {
+                      {fxSyncStatus.logs.map((entry, index) => {
                         const total = entry.updated_simple + entry.updated_variations;
                         const hasErrors = entry.errors && entry.errors.length > 0;
+                        const older = fxSyncStatus.logs[index + 1];
+                        const changePct =
+                          entry.change_pct != null
+                            ? Number(entry.change_pct)
+                            : entry.previous_rate != null && Number(entry.previous_rate) > 0
+                              ? ((Number(entry.rate_used) - Number(entry.previous_rate)) / Number(entry.previous_rate)) * 100
+                              : older?.rate_used != null && Number(older.rate_used) > 0
+                                ? ((Number(entry.rate_used) - Number(older.rate_used)) / Number(older.rate_used)) * 100
+                                : null;
                         return (
                           <tr key={entry.id} className="text-gray-700">
                             <td className="py-2.5 pr-4 text-xs text-gray-500 whitespace-nowrap">
@@ -3336,9 +3345,9 @@ export function GlobalSourcingPage() {
                               ₦{Number(entry.rate_used).toLocaleString()}
                             </td>
                             <td className="py-2.5 pr-4 whitespace-nowrap">
-                              {entry.change_pct != null
-                                ? <span className={entry.change_pct >= 3 ? 'text-amber-600 font-medium' : 'text-gray-500'}>
-                                    {entry.change_pct > 0 ? '+' : ''}{entry.change_pct.toFixed(2)}%
+                              {changePct != null && Number.isFinite(changePct)
+                                ? <span className={Math.abs(changePct) >= 3 ? 'text-amber-600 font-medium' : 'text-gray-500'}>
+                                    {changePct > 0 ? '+' : ''}{changePct.toFixed(2)}%
                                   </span>
                                 : <span className="text-gray-400">—</span>}
                             </td>
@@ -3366,9 +3375,18 @@ export function GlobalSourcingPage() {
 
                 {/* Mobile cards */}
                 <div className="space-y-2 sm:hidden">
-                  {fxSyncStatus.logs.map((entry) => {
+                  {fxSyncStatus.logs.map((entry, index) => {
                     const total = entry.updated_simple + entry.updated_variations;
                     const hasErrors = entry.errors && entry.errors.length > 0;
+                    const older = fxSyncStatus.logs[index + 1];
+                    const changePct =
+                      entry.change_pct != null
+                        ? Number(entry.change_pct)
+                        : entry.previous_rate != null && Number(entry.previous_rate) > 0
+                          ? ((Number(entry.rate_used) - Number(entry.previous_rate)) / Number(entry.previous_rate)) * 100
+                          : older?.rate_used != null && Number(older.rate_used) > 0
+                            ? ((Number(entry.rate_used) - Number(older.rate_used)) / Number(older.rate_used)) * 100
+                            : null;
                     return (
                       <div key={entry.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm">
                         <div className="flex items-start justify-between gap-2">
@@ -3384,8 +3402,8 @@ export function GlobalSourcingPage() {
                         </div>
                         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-700">
                           <span><span className="text-gray-500">Rate:</span> ₦{Number(entry.rate_used).toLocaleString()}</span>
-                          {entry.change_pct != null && (
-                            <span><span className="text-gray-500">Δ:</span> {entry.change_pct > 0 ? '+' : ''}{entry.change_pct.toFixed(2)}%</span>
+                          {changePct != null && Number.isFinite(changePct) && (
+                            <span><span className="text-gray-500">Δ:</span> {changePct > 0 ? '+' : ''}{changePct.toFixed(2)}%</span>
                           )}
                           <span><span className="text-gray-500">Updated:</span> <strong>{total}</strong> ({entry.updated_simple}S / {entry.updated_variations}V)</span>
                         </div>

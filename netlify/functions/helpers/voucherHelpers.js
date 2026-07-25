@@ -449,33 +449,57 @@ export async function handler(event) {
       }
     }
 
-    // Cart items only carry the WooCommerce product id, but voucher.category_ids
-    // stores Supabase categories.id UUIDs — resolve each item's category
-    // membership via products.woo_product_id -> product_category_map, same
-    // request-time-resolution pattern as the vendor_ids block above.
+    // Cart/checkout may send either a Supabase products.id UUID (preferred by
+    // the PWA jloItemIdsFromCartLine helper) or a numeric WooCommerce product
+    // id. voucher.category_ids stores Supabase categories.id UUIDs — resolve
+    // membership via product_category_map for either key shape.
     if (voucher.category_ids?.length > 0) {
-      const wooProductIds = [...new Set(items.map((i) => i.productId).filter(Boolean))]
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const rawProductIds = [...new Set(
+        items.map((i) => (i.productId != null && i.productId !== '' ? String(i.productId).trim() : '')).filter(Boolean)
+      )];
+      const uuidProductIds = rawProductIds.filter((id) => UUID_RE.test(id));
+      const wooProductIds = rawProductIds
+        .filter((id) => !UUID_RE.test(id))
         .map(Number)
         .filter((n) => Number.isFinite(n));
+
+      const productRows = [];
+      if (uuidProductIds.length > 0) {
+        const { data } = await supabase
+          .from('products')
+          .select('id, woo_product_id')
+          .in('id', uuidProductIds);
+        if (data?.length) productRows.push(...data);
+      }
       if (wooProductIds.length > 0) {
-        const { data: productRows } = await supabase
+        const { data } = await supabase
           .from('products')
           .select('id, woo_product_id')
           .in('woo_product_id', wooProductIds);
-        if (productRows?.length) {
-          const wooIdToUuid = Object.fromEntries(productRows.map((p) => [String(p.woo_product_id), p.id]));
-          const { data: categoryMapRows } = await supabase
-            .from('product_category_map')
-            .select('product_id, category_id')
-            .in('product_id', productRows.map((p) => p.id));
-          const productUuidToCategoryIds = {};
-          (categoryMapRows || []).forEach((row) => {
-            (productUuidToCategoryIds[row.product_id] ||= []).push(row.category_id);
-          });
-          for (const item of items) {
-            const productUuid = wooIdToUuid[item.productId];
-            item.categoryIds = productUuid ? productUuidToCategoryIds[productUuid] || [] : [];
-          }
+        if (data?.length) productRows.push(...data);
+      }
+
+      if (productRows.length > 0) {
+        const byUuid = Object.fromEntries(productRows.map((p) => [String(p.id), p.id]));
+        const byWooId = Object.fromEntries(
+          productRows
+            .filter((p) => p.woo_product_id != null)
+            .map((p) => [String(p.woo_product_id), p.id])
+        );
+        const uniqueProductUuids = [...new Set(productRows.map((p) => p.id))];
+        const { data: categoryMapRows } = await supabase
+          .from('product_category_map')
+          .select('product_id, category_id')
+          .in('product_id', uniqueProductUuids);
+        const productUuidToCategoryIds = {};
+        (categoryMapRows || []).forEach((row) => {
+          (productUuidToCategoryIds[row.product_id] ||= []).push(row.category_id);
+        });
+        for (const item of items) {
+          const key = item.productId != null ? String(item.productId).trim() : '';
+          const productUuid = byUuid[key] || byWooId[key];
+          item.categoryIds = productUuid ? productUuidToCategoryIds[productUuid] || [] : [];
         }
       }
     }

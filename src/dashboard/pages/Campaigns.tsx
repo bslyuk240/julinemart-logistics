@@ -357,7 +357,12 @@ export function CampaignsPage() {
         formData.product_source === 'manual'
           ? formData.product_manual_ids.split(',').map((s) => s.trim()).filter(Boolean)
           : [];
-      const categoryIds = formData.product_category_id ? [formData.product_category_id] : [];
+      // Prefer product-selection category, else category-targeted campaign id.
+      const categoryIds = formData.product_category_id
+        ? [formData.product_category_id]
+        : formData.target_type === 'category' && formData.target_id
+          ? [formData.target_id]
+          : [];
 
       const payload = {
         code: voucherForm.code.trim().toUpperCase(),
@@ -1019,8 +1024,60 @@ export function CampaignsPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Target ID (vendor/category/product id)</label>
-                    <input type="text" value={formData.target_id} onChange={(e) => setFormData({ ...formData, target_id: e.target.value })} className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-primary-500" />
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      {formData.target_type === 'vendor'
+                        ? 'Target Vendor'
+                        : formData.target_type === 'category'
+                          ? 'Target Category'
+                          : 'Target ID'}
+                    </label>
+                    {formData.target_type === 'vendor' ? (
+                      <select
+                        value={formData.target_id}
+                        onChange={(e) => {
+                          const v = vendorsList.find((x) => x.id === e.target.value);
+                          const routeKey = v?.woocommerce_vendor_id || e.target.value;
+                          setFormData({
+                            ...formData,
+                            target_id: e.target.value,
+                            vendor_name: v?.store_name || formData.vendor_name,
+                            vendor_logo: v?.logo_url || formData.vendor_logo,
+                            vendor_store_link: routeKey ? `/vendor/${routeKey}` : formData.vendor_store_link,
+                          });
+                        }}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      >
+                        <option value="">Select a vendor…</option>
+                        {vendorsList.map((v) => (
+                          <option key={v.id} value={v.id}>{v.store_name}</option>
+                        ))}
+                      </select>
+                    ) : formData.target_type === 'category' ? (
+                      <select
+                        value={formData.target_id}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          target_id: e.target.value,
+                          // Keep product-selection category in sync for voucher scoping.
+                          product_category_id: e.target.value || formData.product_category_id,
+                          product_source: e.target.value ? 'rules_based' : formData.product_source,
+                        })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      >
+                        <option value="">Select a category…</option>
+                        {categories.map((c) => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={formData.target_id}
+                        onChange={(e) => setFormData({ ...formData, target_id: e.target.value })}
+                        placeholder="vendor / category / product uuid"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-primary-500"
+                      />
+                    )}
                   </div>
                 </div>
               </section>

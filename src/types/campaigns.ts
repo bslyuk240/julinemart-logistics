@@ -52,6 +52,8 @@ export interface CampaignMediaItem {
   type: 'image' | 'video';
   url: string;
   caption?: string;
+  /** Video only. Optional — YouTube links auto-derive a thumbnail without this. */
+  thumbnailUrl?: string;
 }
 
 export interface CampaignVendorOverride {

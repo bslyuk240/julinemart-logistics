@@ -55,6 +55,7 @@ interface MediaGalleryItem {
   type: 'image' | 'video';
   url: string;
   caption: string;
+  thumbnailUrl: string;
 }
 
 interface QrVariantRow {
@@ -407,7 +408,7 @@ export function CampaignsPage() {
   function addMediaItem() {
     setFormData((prev) => ({
       ...prev,
-      media_gallery_items: [...prev.media_gallery_items, { type: 'image', url: '', caption: '' }],
+      media_gallery_items: [...prev.media_gallery_items, { type: 'image', url: '', caption: '', thumbnailUrl: '' }],
     }));
   }
 
@@ -509,9 +510,15 @@ export function CampaignsPage() {
     setSections(nextSections);
 
     const mediaGallerySection = (sectionRows as SectionRow[] | null)?.find((s) => s.section_type === 'media_gallery');
+    const rawMediaItems = Array.isArray(mediaGallerySection?.config?.items) ? mediaGallerySection!.config!.items : [];
     setFormData((prev) => ({
       ...prev,
-      media_gallery_items: Array.isArray(mediaGallerySection?.config?.items) ? mediaGallerySection!.config!.items : [],
+      media_gallery_items: rawMediaItems.map((item: Partial<MediaGalleryItem>) => ({
+        type: item.type ?? 'image',
+        url: item.url ?? '',
+        caption: item.caption ?? '',
+        thumbnailUrl: item.thumbnailUrl ?? '',
+      })),
     }));
     setEditingId(campaign.id);
     setFormOpen(true);
@@ -548,8 +555,11 @@ export function CampaignsPage() {
         subtitle: formData.hero_subtitle.trim(),
         ctaLabel: formData.hero_cta_label.trim() || 'Shop Now',
         badgeText: formData.hero_badge_text.trim() || undefined,
-        heroImageDesktop: formData.hero_image_desktop.trim() || undefined,
-        heroImageMobile: formData.hero_image_mobile.trim() || undefined,
+        // Landing page prefers desktop; fall back either way so one pasted URL still shows.
+        heroImageDesktop:
+          formData.hero_image_desktop.trim() || formData.hero_image_mobile.trim() || undefined,
+        heroImageMobile:
+          formData.hero_image_mobile.trim() || formData.hero_image_desktop.trim() || undefined,
         introductoryVideoUrl: formData.hero_intro_video.trim() || undefined,
       },
       vendor_override:
@@ -1205,9 +1215,9 @@ export function CampaignsPage() {
                   </div>
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Intro Video URL</label>
-                    <input type="text" value={formData.hero_intro_video} onChange={(e) => setFormData({ ...formData, hero_intro_video: e.target.value })} placeholder="https://... (Supabase Storage, YouTube, or Vimeo link)" className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-primary-500" />
+                    <input type="text" value={formData.hero_intro_video} onChange={(e) => setFormData({ ...formData, hero_intro_video: e.target.value })} placeholder="https://res.cloudinary.com/.../video/upload/....mp4" className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-primary-500" />
                     <p className="text-xs text-gray-500 mt-1">
-                      Paste a link for now — upload a file, then paste its Storage URL here (no direct upload widget yet).
+                      Paste a direct Cloudinary/Supabase MP4 delivery URL (…/video/upload/….mp4), or a YouTube/Vimeo link. Console/share pages will not play.
                     </p>
                   </div>
                 </div>
@@ -1264,7 +1274,7 @@ export function CampaignsPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Intro Video URL</label>
-                      <input type="text" value={formData.vendor_intro_video} onChange={(e) => setFormData({ ...formData, vendor_intro_video: e.target.value })} placeholder="https://..." className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-primary-500" />
+                      <input type="text" value={formData.vendor_intro_video} onChange={(e) => setFormData({ ...formData, vendor_intro_video: e.target.value })} placeholder="https://res.cloudinary.com/.../video/upload/....mp4" className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-primary-500" />
                     </div>
                   </div>
                 </section>
@@ -1497,7 +1507,7 @@ export function CampaignsPage() {
                         type="text"
                         value={item.url}
                         onChange={(e) => updateMediaItem(index, { url: e.target.value })}
-                        placeholder={item.type === 'video' ? 'Video URL' : 'Image URL'}
+                        placeholder={item.type === 'video' ? 'https://res.cloudinary.com/.../video/upload/....mp4' : 'https://res.cloudinary.com/.../image/upload/...'}
                         className="flex-1 min-w-[200px] px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
                       />
                       <input
@@ -1507,6 +1517,15 @@ export function CampaignsPage() {
                         placeholder="Caption (optional)"
                         className="flex-1 min-w-[160px] px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
                       />
+                      {item.type === 'video' && (
+                        <input
+                          type="text"
+                          value={item.thumbnailUrl}
+                          onChange={(e) => updateMediaItem(index, { thumbnailUrl: e.target.value })}
+                          placeholder="Thumbnail URL (optional — auto-filled for YouTube links)"
+                          className="flex-1 min-w-[220px] px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+                        />
+                      )}
                       <button
                         type="button"
                         onClick={() => removeMediaItem(index)}

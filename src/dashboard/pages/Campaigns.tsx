@@ -563,9 +563,10 @@ export function CampaignsPage() {
         introductoryVideoUrl: formData.hero_intro_video.trim() || undefined,
       },
       vendor_override:
-        formData.target_type === 'vendor' && formData.vendor_name.trim()
+        formData.target_type === 'vendor' && formData.target_id.trim()
           ? {
-              name: formData.vendor_name.trim(),
+              vendorId: formData.target_id.trim(),
+              name: formData.vendor_name.trim() || undefined,
               story: formData.vendor_story.trim() || undefined,
               location: formData.vendor_location.trim() || undefined,
               yearsOperating: formData.vendor_years_operating === '' ? undefined : Number(formData.vendor_years_operating),
@@ -577,7 +578,18 @@ export function CampaignsPage() {
           : {},
       product_selection_rules: {
         source: formData.product_source,
-        categoryIds: formData.product_category_id ? [formData.product_category_id] : undefined,
+        // Inherit campaign target so landing pages never mix other vendors/categories.
+        vendorId:
+          formData.target_type === 'vendor' && formData.target_id.trim()
+            ? formData.target_id.trim()
+            : undefined,
+        categoryIds: (() => {
+          if (formData.product_category_id) return [formData.product_category_id];
+          if (formData.target_type === 'category' && formData.target_id.trim()) {
+            return [formData.target_id.trim()];
+          }
+          return undefined;
+        })(),
         manualProductIds: formData.product_manual_ids
           ? formData.product_manual_ids.split(',').map((s) => s.trim()).filter(Boolean)
           : undefined,
@@ -1027,7 +1039,34 @@ export function CampaignsPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Target Type</label>
-                    <select value={formData.target_type} onChange={(e) => setFormData({ ...formData, target_type: e.target.value as TargetType })} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500">
+                    <select
+                      value={formData.target_type}
+                      onChange={(e) => {
+                        const next = e.target.value as TargetType;
+                        setFormData({
+                          ...formData,
+                          target_type: next,
+                          target_id: '',
+                          // Reset product scope to match the new target type.
+                          product_category_id: '',
+                          product_source:
+                            next === 'product'
+                              ? 'manual'
+                              : next === 'vendor' || next === 'category'
+                                ? 'rules_based'
+                                : formData.product_source,
+                          review_scope:
+                            next === 'vendor'
+                              ? 'vendor'
+                              : next === 'category'
+                                ? 'category'
+                                : next === 'product'
+                                  ? 'product'
+                                  : formData.review_scope,
+                        });
+                      }}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                    >
                       {(['vendor', 'category', 'product', 'collection', 'multi_vendor', 'general'] as TargetType[]).map((t) => (
                         <option key={t} value={t}>{t.replace('_', ' ')}</option>
                       ))}
@@ -1053,6 +1092,10 @@ export function CampaignsPage() {
                             vendor_name: v?.store_name || formData.vendor_name,
                             vendor_logo: v?.logo_url || formData.vendor_logo,
                             vendor_store_link: routeKey ? `/vendor/${routeKey}` : formData.vendor_store_link,
+                            // Vendor campaigns pull that vendor's catalog — don't force a category.
+                            product_source: formData.product_source === 'manual' ? 'manual' : 'rules_based',
+                            product_category_id: '',
+                            review_scope: 'vendor',
                           });
                         }}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
@@ -1071,6 +1114,7 @@ export function CampaignsPage() {
                           // Keep product-selection category in sync for voucher scoping.
                           product_category_id: e.target.value || formData.product_category_id,
                           product_source: e.target.value ? 'rules_based' : formData.product_source,
+                          review_scope: 'category',
                         })}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                       >
@@ -1229,18 +1273,21 @@ export function CampaignsPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Vendor</label>
-                      <select value={formData.target_id} onChange={(e) => {
-                        const v = vendorsList.find((x) => x.id === e.target.value);
-                        const routeKey = v?.woocommerce_vendor_id || e.target.value;
-                        setFormData({
-                          ...formData,
-                          target_id: e.target.value,
-                          vendor_name: v?.store_name || formData.vendor_name,
-                          vendor_logo: v?.logo_url || formData.vendor_logo,
-                          // Storefront vendor pages live at /vendor/[woo_or_jlo_key], not /[id].
-                          vendor_store_link: routeKey ? `/vendor/${routeKey}` : formData.vendor_store_link,
-                        });
-                      }} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500">
+                      <select value={formData.target_id}                         onChange={(e) => {
+                          const v = vendorsList.find((x) => x.id === e.target.value);
+                          const routeKey = v?.woocommerce_vendor_id || e.target.value;
+                          setFormData({
+                            ...formData,
+                            target_id: e.target.value,
+                            vendor_name: v?.store_name || formData.vendor_name,
+                            vendor_logo: v?.logo_url || formData.vendor_logo,
+                            // Storefront vendor pages live at /vendor/[woo_or_jlo_key], not /[id].
+                            vendor_store_link: routeKey ? `/vendor/${routeKey}` : formData.vendor_store_link,
+                            product_source: formData.product_source === 'manual' ? 'manual' : 'rules_based',
+                            product_category_id: '',
+                            review_scope: 'vendor',
+                          });
+                        }} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500">
                         <option value="">Select a vendor…</option>
                         {vendorsList.map((v) => (
                           <option key={v.id} value={v.id}>{v.store_name}</option>
@@ -1282,34 +1329,119 @@ export function CampaignsPage() {
 
               <section className="space-y-4 pt-4 border-t">
                 <h3 className="text-sm font-bold uppercase tracking-wide text-primary-600">4. Product selection</h3>
+
+                {formData.target_type === 'vendor' && (
+                  <div className="rounded-lg border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-900">
+                    <p className="font-semibold">
+                      Scoped to vendor{formData.vendor_name ? `: ${formData.vendor_name}` : formData.target_id ? '' : ' (select a vendor above)'}
+                    </p>
+                    <p className="mt-1 text-xs text-primary-800/80">
+                      Only this vendor&apos;s products will appear on the landing page. Category below is optional — use it to narrow within the vendor, not instead of the vendor.
+                    </p>
+                  </div>
+                )}
+                {formData.target_type === 'category' && (
+                  <div className="rounded-lg border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-900">
+                    <p className="font-semibold">
+                      Scoped to category
+                      {formData.product_category_id || formData.target_id
+                        ? `: ${categories.find((c) => c.id === (formData.product_category_id || formData.target_id))?.name || 'selected category'}`
+                        : ' (select a category above)'}
+                    </p>
+                    <p className="mt-1 text-xs text-primary-800/80">
+                      Products are pulled from this category across vendors. Prefer a vendor target if you need one seller only.
+                    </p>
+                  </div>
+                )}
+                {formData.target_type === 'product' && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    Use Manual selection and paste the specific product IDs for this campaign.
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Selection Method</label>
                     <select value={formData.product_source} onChange={(e) => setFormData({ ...formData, product_source: e.target.value as ProductSource })} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500">
-                      <option value="automatic">Automatic (in-stock, top-rated)</option>
-                      <option value="rules_based">Rules-based (category + filters)</option>
-                      <option value="manual">Manual (pick product IDs)</option>
+                      {formData.target_type === 'vendor' ? (
+                        <>
+                          <option value="automatic">Automatic (this vendor, top products)</option>
+                          <option value="rules_based">Rules-based (this vendor + optional category)</option>
+                          <option value="manual">Manual (product IDs from this vendor)</option>
+                        </>
+                      ) : formData.target_type === 'category' ? (
+                        <>
+                          <option value="automatic">Automatic (this category)</option>
+                          <option value="rules_based">Rules-based (this category + filters)</option>
+                          <option value="manual">Manual (pick product IDs)</option>
+                        </>
+                      ) : formData.target_type === 'product' ? (
+                        <>
+                          <option value="manual">Manual (pick product IDs)</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="automatic">Automatic (in-stock, top-rated)</option>
+                          <option value="rules_based">Rules-based (category + filters)</option>
+                          <option value="manual">Manual (pick product IDs)</option>
+                        </>
+                      )}
                     </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Max Products</label>
                     <input type="number" value={formData.product_max_products} onChange={(e) => setFormData({ ...formData, product_max_products: Number(e.target.value) })} min="1" max="50" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500" />
                   </div>
-                  {formData.product_source === 'rules_based' && (
+                  {(formData.product_source === 'rules_based' || formData.product_source === 'automatic') &&
+                    formData.target_type !== 'product' && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
-                      <select value={formData.product_category_id} onChange={(e) => setFormData({ ...formData, product_category_id: e.target.value })} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500">
-                        <option value="">Any category</option>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        {formData.target_type === 'vendor'
+                          ? 'Category filter (optional)'
+                          : formData.target_type === 'category'
+                            ? 'Category'
+                            : 'Category'}
+                      </label>
+                      <select
+                        value={
+                          formData.target_type === 'category'
+                            ? formData.product_category_id || formData.target_id
+                            : formData.product_category_id
+                        }
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            product_category_id: e.target.value,
+                            ...(formData.target_type === 'category'
+                              ? { target_id: e.target.value || formData.target_id }
+                              : {}),
+                          })
+                        }
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      >
+                        <option value="">
+                          {formData.target_type === 'vendor' ? 'All categories from this vendor' : 'Any category'}
+                        </option>
                         {categories.map((c) => (
                           <option key={c.id} value={c.id}>{c.name}</option>
                         ))}
                       </select>
+                      {formData.target_type === 'vendor' && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Leave empty to show all products from the selected vendor.
+                        </p>
+                      )}
                     </div>
                   )}
                   {formData.product_source === 'manual' && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Product IDs (comma-separated)</label>
                       <input type="text" value={formData.product_manual_ids} onChange={(e) => setFormData({ ...formData, product_manual_ids: e.target.value })} placeholder="123, 456, 789" className="w-full px-4 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-primary-500" />
+                      {formData.target_type === 'vendor' && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Prefer IDs that belong to this vendor — the landing page still filters by vendor when set.
+                        </p>
+                      )}
                     </div>
                   )}
                   <div>

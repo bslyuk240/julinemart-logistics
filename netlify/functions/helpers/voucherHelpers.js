@@ -423,8 +423,56 @@ export async function handler(event) {
     // ids (e.g. "10") or JLO synthetic ids ("jlo-{application_uuid}") — but
     // voucher.vendor_ids stores Supabase vendors.id UUIDs. Resolve any non-UUID
     // keys via vendors.woocommerce_vendor_id so vendor-scoped vouchers match.
+    // Also backfill missing vendorId from the product row (campaign landing
+    // products historically omitted store, so cart lines arrived without vendor).
     if (voucher.vendor_ids?.length > 0) {
       const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+      const missingVendorItems = items.filter(
+        (i) => !i.vendorId && i.productId != null && String(i.productId).trim() !== ''
+      );
+      if (missingVendorItems.length > 0) {
+        const rawIds = [
+          ...new Set(missingVendorItems.map((i) => String(i.productId).trim())),
+        ];
+        const uuidIds = rawIds.filter((id) => UUID_RE.test(id));
+        const wooIds = rawIds
+          .filter((id) => !UUID_RE.test(id))
+          .map(Number)
+          .filter((n) => Number.isFinite(n));
+        const productVendorRows = [];
+        if (uuidIds.length > 0) {
+          const { data } = await supabase
+            .from('products')
+            .select('id, woo_product_id, vendor_id')
+            .in('id', uuidIds);
+          if (data?.length) productVendorRows.push(...data);
+        }
+        if (wooIds.length > 0) {
+          const { data } = await supabase
+            .from('products')
+            .select('id, woo_product_id, vendor_id')
+            .in('woo_product_id', wooIds);
+          if (data?.length) productVendorRows.push(...data);
+        }
+        if (productVendorRows.length > 0) {
+          const byUuid = Object.fromEntries(
+            productVendorRows.map((p) => [String(p.id), p.vendor_id])
+          );
+          const byWoo = Object.fromEntries(
+            productVendorRows
+              .filter((p) => p.woo_product_id != null)
+              .map((p) => [String(p.woo_product_id), p.vendor_id])
+          );
+          for (const item of items) {
+            if (item.vendorId) continue;
+            const key = item.productId != null ? String(item.productId).trim() : '';
+            const vendorUuid = byUuid[key] || byWoo[key];
+            if (vendorUuid) item.vendorId = vendorUuid;
+          }
+        }
+      }
+
       const routeKeys = [...new Set(
         items
           .map((i) => (i.vendorId != null && i.vendorId !== '' ? String(i.vendorId).trim() : ''))

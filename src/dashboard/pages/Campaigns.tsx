@@ -353,17 +353,23 @@ export function CampaignsPage() {
       // Scope inherited from the campaign's own targeting — vendor/product/
       // category — rather than re-entered, so the voucher can't drift out of
       // sync with what the campaign is actually promoting.
+      // Vendor campaigns: vendor_ids only. Do NOT also attach the optional
+      // product-selection category — that filter is for listing, and AND-ing it
+      // into the voucher rejects valid vendor products outside that category
+      // (and fails when cart lines lack category metadata).
       const vendorIds = formData.target_type === 'vendor' && formData.target_id ? [formData.target_id] : [];
       const productIds =
         formData.product_source === 'manual'
           ? formData.product_manual_ids.split(',').map((s) => s.trim()).filter(Boolean)
           : [];
-      // Prefer product-selection category, else category-targeted campaign id.
-      const categoryIds = formData.product_category_id
-        ? [formData.product_category_id]
-        : formData.target_type === 'category' && formData.target_id
-          ? [formData.target_id]
-          : [];
+      const categoryIds =
+        formData.target_type === 'vendor'
+          ? []
+          : formData.product_category_id
+            ? [formData.product_category_id]
+            : formData.target_type === 'category' && formData.target_id
+              ? [formData.target_id]
+              : [];
 
       const payload = {
         code: voucherForm.code.trim().toUpperCase(),

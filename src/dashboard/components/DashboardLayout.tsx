@@ -34,6 +34,7 @@ import {
   AlertCircle,
   ShoppingBag,
   Tag,
+  FolderTree,
 } from 'lucide-react';
 import { NotificationsPanel } from './NotificationsPanel';
 import { BrandLogo } from '../../shared/BrandLogo';
@@ -94,6 +95,7 @@ const navigationSections: NavSection[] = [
       { name: 'Global Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['admin', 'shop_manager', 'manager'], requireCatalogAccess: true },
       { name: 'Homepage Content', href: '/admin/homepage-content', icon: LayoutGrid, roles: ['admin'] },
       { name: 'Tags', href: '/admin/tags', icon: Tag, roles: ['admin'] },
+      { name: 'Categories', href: '/admin/categories', icon: FolderTree, roles: ['admin'] },
       { name: 'Catalog Migration', href: '/admin/catalog-migration', icon: DatabaseZap, roles: ['admin'] },
     ],
   },

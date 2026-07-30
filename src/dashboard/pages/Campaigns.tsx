@@ -204,8 +204,42 @@ export function CampaignsPage() {
   const [showId, setShowId] = useState<Record<string, boolean>>({});
 
   const [vouchers, setVouchers] = useState<{ id: string; code: string; campaign_name: string }[]>([]);
-  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [categories, setCategories] = useState<{ id: string; name: string; parent_id: string | null }[]>([]);
   const [vendorsList, setVendorsList] = useState<{ id: string; store_name: string; logo_url: string | null; woocommerce_vendor_id: string | null }[]>([]);
+
+  // Top-level categories first, each immediately followed by its own children
+  // (alphabetical within each level) — lets the flat <select> below render
+  // real hierarchy via indentation, e.g. "— Kitchenware" under "Household",
+  // instead of an unlabeled flat list where it'd be indistinguishable from a
+  // sibling like "Kitchen Appliances".
+  const categoryOptions = useMemo(() => {
+    const byParent = new Map<string | null, typeof categories>();
+    categories.forEach((c) => {
+      const key = c.parent_id;
+      if (!byParent.has(key)) byParent.set(key, []);
+      byParent.get(key)!.push(c);
+    });
+    byParent.forEach((list) => list.sort((a, b) => a.name.localeCompare(b.name)));
+
+    const result: { id: string; name: string; depth: number }[] = [];
+    const visited = new Set<string>();
+    function walk(parentId: string | null, depth: number) {
+      for (const c of byParent.get(parentId) || []) {
+        if (visited.has(c.id)) continue;
+        visited.add(c.id);
+        result.push({ id: c.id, name: c.name, depth });
+        walk(c.id, depth + 1);
+      }
+    }
+    walk(null, 0);
+    categories.forEach((c) => {
+      if (!visited.has(c.id)) {
+        visited.add(c.id);
+        result.push({ id: c.id, name: c.name, depth: 0 });
+      }
+    });
+    return result;
+  }, [categories]);
 
   // Inline "create voucher for this campaign" shortcut (INT-505) — only usable
   // once the campaign has a real id (editingId), since the voucher links back
@@ -264,7 +298,7 @@ export function CampaignsPage() {
   async function loadLookups() {
     const [{ data: v }, { data: c }, { data: vend }] = await Promise.all([
       supabase.from('campaign_vouchers').select('id, code, campaign_name').eq('status', 'active'),
-      supabase.from('categories').select('id, name').order('name'),
+      supabase.from('categories').select('id, name, parent_id').order('name'),
       supabase.from('vendors').select('id, store_name, logo_url, woocommerce_vendor_id').eq('is_active', true).order('store_name'),
     ]);
     setVouchers(v || []);
@@ -1125,8 +1159,10 @@ export function CampaignsPage() {
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                       >
                         <option value="">Select a category…</option>
-                        {categories.map((c) => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
+                        {categoryOptions.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {'  '.repeat(c.depth)}{c.depth > 0 ? '— ' : ''}{c.name}
+                          </option>
                         ))}
                       </select>
                     ) : (
@@ -1428,8 +1464,10 @@ export function CampaignsPage() {
                         <option value="">
                           {formData.target_type === 'vendor' ? 'All categories from this vendor' : 'Any category'}
                         </option>
-                        {categories.map((c) => (
-                          <option key={c.id} value={c.id}>{c.name}</option>
+                        {categoryOptions.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {'  '.repeat(c.depth)}{c.depth > 0 ? '— ' : ''}{c.name}
+                          </option>
                         ))}
                       </select>
                       {formData.target_type === 'vendor' && (

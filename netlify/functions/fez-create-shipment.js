@@ -6,6 +6,7 @@ import { sendApiCourierStatusCustomerEmail } from '../../shared/riderAssignedEma
 import { sendVendorShipmentReadyEmail } from '../../shared/vendorFulfillment.js';
 import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
+import { resolveSender } from './services/resolveSender.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -351,6 +352,7 @@ exports.handler = async (event) => {
 
     // Generate a shorter unique ID for Fez
     const uniqueId = generateShortUniqueId(subOrderId);
+    const sender = resolveSender(subOrder);
 
     const shipmentData = {
       recipientAddress: subOrder.orders?.delivery_address || "",
@@ -363,28 +365,12 @@ exports.handler = async (event) => {
       itemDescription: items.map(i => `${i.quantity}x ${i.name}`).join(", ") || "Package",
       valueOfItem: String(shippingValue),
       weight: Math.max(1, Math.round(totalWeight)) || 1,
-      // Pickup address depends on vendor's collection preference:
-      // fez_pickup  → Fez rides to vendor's shop
-      // hub_dropoff → Fez collects from the dispatch hub
-      //               Sub-hub: parcel has been consolidated at main hub → use parent hub address
-      //               Main hub: use this hub's address directly
-      ...(subOrder.vendors?.fez_collection_method === 'fez_pickup'
-        ? {
-            pickUpAddress:    subOrder.vendors.address || subOrder.hubs?.address || "",
-            pickUpState:      subOrder.vendors.state   || subOrder.hubs?.state   || "",
-            additionalDetails: `Vendor pickup: ${subOrder.vendors.city || ''} — ${subOrder.vendors.address || ''}`,
-          }
-        : (() => {
-            const dispatchHub = subOrder.hubs?.is_sub_hub && subOrder.hubs?.parent_hub
-              ? subOrder.hubs.parent_hub
-              : subOrder.hubs;
-            return {
-              pickUpAddress:    dispatchHub?.address || "",
-              pickUpState:      dispatchHub?.state   || "",
-              additionalDetails: `Hub: ${dispatchHub?.name || 'JulineMart'}, ${dispatchHub?.city || ''}`,
-            };
-          })()
-      )
+      // Pickup address depends on vendor's collection preference — see resolveSender.js.
+      pickUpAddress: sender.address,
+      pickUpState: sender.state,
+      additionalDetails: sender.kind === 'vendor_pickup'
+        ? `Vendor pickup: ${sender.city} — ${sender.address}`
+        : `Hub: ${sender.name}, ${sender.city}`,
     };
 
     console.log("SHIPMENT DATA TO SEND:", JSON.stringify(shipmentData, null, 2));
@@ -446,6 +432,19 @@ exports.handler = async (event) => {
     // Build tracking URL
     const trackingUrl = `https://web.fezdelivery.co/track-delivery?tracking=${orderId}`;
 
+    // Generate a JLO waybill number if this sub-order doesn't have one yet.
+    // Non-fatal on failure — dispatch must not be blocked by this; the
+    // waybill document self-heals a number on first view if this fails.
+    let waybillNumber = subOrder.waybill_number || null;
+    if (!waybillNumber) {
+      const { data: nextNumber, error: wbError } = await supabase.rpc("next_waybill_number");
+      if (wbError) {
+        console.error("waybill number generation failed:", wbError);
+      } else {
+        waybillNumber = nextNumber;
+      }
+    }
+
     // Update suborder
     const { data: updatedRows, error: updateError } = await supabase
       .from("sub_orders")
@@ -454,7 +453,8 @@ exports.handler = async (event) => {
         courier_shipment_id: trackingId,
         courier_waybill: orderId,
         courier_tracking_url: trackingUrl,
-        status: "assigned"
+        status: "assigned",
+        ...(waybillNumber ? { waybill_number: waybillNumber } : {}),
       })
       .eq("id", subOrderId)
       .select("id")

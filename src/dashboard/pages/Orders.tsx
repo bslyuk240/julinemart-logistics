@@ -85,8 +85,10 @@ export function OrdersPage() {
     setDeletingOrderId(orderId);
 
     try {
-      const apiBase = import.meta.env.VITE_API_BASE_URL || '';
-      const response = await fetch(`${apiBase}/.netlify/functions/orders/${orderId}`, {
+      // Not VITE_API_BASE_URL — that's the Supabase URL in this project, not a
+      // Netlify functions base; concatenating it here produced a dead URL.
+      const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
+      const response = await fetch(`${functionsBase}/orders/${orderId}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',

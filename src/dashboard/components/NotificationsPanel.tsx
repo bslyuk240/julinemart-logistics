@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Bell, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 interface Notification {
   id: string;
@@ -26,6 +28,7 @@ interface ActivityLog {
 
 export function NotificationsPanel() {
   const { session } = useAuth();
+  const isMobile = useIsMobile();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
@@ -396,6 +399,18 @@ export function NotificationsPanel() {
                 </div>
               )}
             </div>
+
+            {isMobile && (
+              <div className="border-t border-gray-100 p-3">
+                <Link
+                  to="/admin/notifications"
+                  onClick={() => setIsOpen(false)}
+                  className="block text-center text-sm font-medium text-primary-600"
+                >
+                  See all notifications
+                </Link>
+              </div>
+            )}
           </div>
         </>
       )}

@@ -23,6 +23,14 @@ import { supabase } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 import RichTextEditor from '../components/RichTextEditor';
 import { clearProductListSessionCache } from '../lib/productListSessionCache';
+import {
+  toSlug,
+  toNullableDim,
+  decodeBasicHtmlEntities,
+  categorySkuCode,
+  vendorSkuCode,
+  orderedSelectedCategoryIds,
+} from '../lib/productSku';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -102,22 +110,6 @@ const EMPTY_FORM: FormState = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function toSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-');
-}
-
-/** Parse optional dimension/weight field: empty → null, invalid → null. */
-function toNullableDim(value: string): number | null {
-  if (value === '' || value == null) return null;
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) return null;
-  return n;
-}
 
 /**
  * Stable key for matching rows to matrix combos (Generate / sort on load).
@@ -221,62 +213,6 @@ function applyRealignFromOptionOrder(rows: VarRow[], varAttrs: VarAttr[]): VarRo
   }));
 }
 
-/** Minimal HTML entity decode for category names stored as `Baby &amp; Kids`. */
-function decodeBasicHtmlEntities(s: string): string {
-  return s
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/gi, '"');
-}
-
-function skuCodeFromPrimarySegment(rawSeg: string, padSource: string, len = 3): string {
-  const alnum = rawSeg.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  let core = alnum.slice(0, len);
-  if (core.length < len) {
-    const pad = toSlug(padSource || 'x')
-      .replace(/[^a-z0-9]/gi, '')
-      .toUpperCase();
-    core = (core + pad).slice(0, len);
-  }
-  return core.padEnd(len, 'X').slice(0, len);
-}
-
-/**
- * Category prefix: prefer the first word of the **name** (slugified).
- * Child Woo slugs often repeat the parent (`electronics-electronics-3` → would wrongly be ELE for every subcategory).
- */
-function categorySkuCode(name: string, slug: string, len = 3): string {
-  const clean = decodeBasicHtmlEntities(name || '');
-  const nameSeg = toSlug(clean).split('-').filter(Boolean)[0] || '';
-  const slugSeg = (slug || '').split('-').filter(Boolean)[0] || '';
-  const raw = nameSeg || slugSeg || 'x';
-  return skuCodeFromPrimarySegment(raw, clean || slug, len);
-}
-
-/** Vendor prefix: prefer **store_slug** first segment (stable store codes), then name. */
-function vendorSkuCode(slug: string, name: string, len = 3): string {
-  const slugSeg = (slug || '').split('-').filter(Boolean)[0] || '';
-  const nameSeg = toSlug(decodeBasicHtmlEntities(name || '')).split('-').filter(Boolean)[0] || '';
-  const raw = slugSeg || nameSeg || 'x';
-  return skuCodeFromPrimarySegment(raw, name || slug, len);
-}
-
-/** Selected categories in tree order (parent block, then children) for a stable “primary” category. */
-function orderedSelectedCategoryIds(allCategories: CatOption[], categoryIds: string[]): string[] {
-  const sel = new Set(categoryIds);
-  const out: string[] = [];
-  const tops = allCategories.filter((c) => !c.parent_id);
-  for (const t of tops) {
-    if (sel.has(t.id)) out.push(t.id);
-    for (const ch of allCategories.filter((c) => c.parent_id === t.id)) {
-      if (sel.has(ch.id)) out.push(ch.id);
-    }
-  }
-  return out;
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ProductUpload() {
@@ -286,7 +222,11 @@ export default function ProductUpload() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const editId = searchParams.get('id');
-  const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+  // Not VITE_API_BASE_URL — that's the Supabase URL in this project, not a
+  // Netlify functions base; concatenating it here produced a dead URL that
+  // broke SKU generation, AI drafts, category/vendor/hub lookups, loading a
+  // product for edit, and creating/updating a product.
+  const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
   const moderationListPath =
     (location.state as { returnTo?: string } | null)?.returnTo ?? '/admin/products/moderation';
 
@@ -402,7 +342,7 @@ export default function ProductUpload() {
   };
 
   const suggestNextSkuRequest = async (prefix: string, extraSkus: string[]) => {
-    const res = await fetch(`${apiBase}/.netlify/functions/product-sku-next`, {
+    const res = await fetch(`${functionsBase}/product-sku-next`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ prefix, extra_skus: extraSkus }),
@@ -489,7 +429,7 @@ export default function ProductUpload() {
 
     setAiDrafting(true);
     try {
-      const res = await fetch(`${apiBase}/.netlify/functions/admin-ai-product-draft`, {
+      const res = await fetch(`${functionsBase}/admin-ai-product-draft`, {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({
@@ -551,7 +491,7 @@ export default function ProductUpload() {
     const load = async () => {
       try {
         const meta = (type: string) =>
-          fetch(`${apiBase}/.netlify/functions/catalog-meta?type=${type}`, { headers: authHeaders() })
+          fetch(`${functionsBase}/catalog-meta?type=${type}`, { headers: authHeaders() })
             .then((r) => r.json())
             .catch(() => ({ data: [] }));
         const [vData, hData, cData, tData] = await Promise.all([
@@ -571,13 +511,13 @@ export default function ProductUpload() {
       }
     };
     load();
-  }, [apiBase, authHeaders]);
+  }, [functionsBase, authHeaders]);
 
   // ── Load product for edit ────────────────────────────────────────────────────
   useEffect(() => {
     if (!editId) return;
     const load = async () => {
-      const res = await fetch(`${apiBase}/.netlify/functions/catalog-product?id=${editId}`);
+      const res = await fetch(`${functionsBase}/catalog-product?id=${editId}`);
       const json = await res.json();
       if (!json.success || !json.data) return;
       const p = json.data;
@@ -646,7 +586,7 @@ export default function ProductUpload() {
       slugEditedManually.current = true;
     };
     load();
-  }, [editId, apiBase]);
+  }, [editId, functionsBase]);
 
   // ── Form helpers ─────────────────────────────────────────────────────────────
   const set = (key: keyof FormState, value: any) =>
@@ -797,8 +737,8 @@ export default function ProductUpload() {
     setSaving(true);
     try {
       const url = editId
-        ? `${apiBase}/.netlify/functions/catalog-product-upsert?id=${editId}`
-        : `${apiBase}/.netlify/functions/catalog-product-upsert`;
+        ? `${functionsBase}/catalog-product-upsert?id=${editId}`
+        : `${functionsBase}/catalog-product-upsert`;
       const method = editId ? 'PUT' : 'POST';
 
       const payload: Record<string, any> = {
@@ -886,7 +826,7 @@ export default function ProductUpload() {
     setDeleting(true);
     try {
       const res = await fetch(
-        `${apiBase}/.netlify/functions/catalog-product-upsert?id=${encodeURIComponent(editId)}`,
+        `${functionsBase}/catalog-product-upsert?id=${encodeURIComponent(editId)}`,
         { method: 'DELETE', headers: authHeaders() }
       );
       const json = await res.json().catch(() => ({}));

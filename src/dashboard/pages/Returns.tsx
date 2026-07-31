@@ -2,10 +2,11 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   RefreshCw, Search, Package, CheckCircle, XCircle,
   Clock, Truck, AlertTriangle, ChevronDown, ChevronUp,
-  RotateCcw, DollarSign, Eye, X,
+  RotateCcw, DollarSign, Eye, X, Download,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
+import { openWaybillPrint } from '../lib/waybillPrint';
 
 const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
@@ -56,6 +57,7 @@ interface ReturnShipment {
   destination_address: Record<string, string> | null;
   vendor_id: string | null;
   label_url: string | null;
+  waybill_number: string | null;
   customer_submitted_tracking: boolean;
   created_at: string;
 }
@@ -689,6 +691,23 @@ function ExpandedDetail({ item }: { item: ReturnRequest }) {
                   {s.fez_tracking}
                 </a>
               </div>
+            )}
+            {s.waybill_number && (
+              <DetailRow label="Waybill No" value={s.waybill_number} />
+            )}
+            {s.fez_tracking && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void openWaybillPrint({ returnShipmentId: s.id }).catch((err) => {
+                    alert(err instanceof Error ? err.message : 'Could not open waybill');
+                  });
+                }}
+                className="btn-secondary text-xs flex items-center w-full justify-center mt-1"
+              >
+                <Download className="w-3.5 h-3.5 mr-1.5" />
+                Download Waybill
+              </button>
             )}
           </div>
         ))}

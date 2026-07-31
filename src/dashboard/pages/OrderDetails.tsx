@@ -18,6 +18,7 @@ import {
 import { useNotification } from '../contexts/NotificationContext';
 import { supabase } from '../contexts/AuthContext';
 import { buildSupabaseFunctionUrl } from '../utils/supabaseFunctions';
+import { openWaybillPrint } from '../lib/waybillPrint';
 
 type Identifier = string | number;
 type KnownStatus =
@@ -84,6 +85,7 @@ type SubOrder = {
   courier_tracking_url?: string;
   label_url?: string;
   waybill_url?: string;
+  waybill_number?: string | null;
   last_tracking_update?: string;
   items?: Item[];
   hubs?: {
@@ -674,6 +676,14 @@ export function OrderDetailsPage() {
     window.open(labelUrl, '_blank');
   };
 
+  const printWaybill = async (subOrderId: Identifier) => {
+    try {
+      await openWaybillPrint({ subOrderId: String(subOrderId) });
+    } catch (err) {
+      notification.error('Waybill failed', err instanceof Error ? err.message : 'Could not open waybill');
+    }
+  };
+
   const getDisplayTracking = (subOrder: SubOrder) => {
     // Only return tracking if it's a REAL Fez tracking number
     const tracking = subOrder.tracking_number || subOrder.courier_waybill;
@@ -1259,10 +1269,10 @@ export function OrderDetailsPage() {
                           </button>
                         )}
 
-                        {/* Download Waybill if URL exists */}
-                        {subOrder.waybill_url && (
+                        {/* Download Waybill - available once dispatched (fez or local rider) */}
+                        {(subOrder.tracking_number || subOrder.delivery_person_name) && (
                           <button
-                            onClick={() => downloadLabel(subOrder.waybill_url)}
+                            onClick={() => printWaybill(subOrder.id)}
                             className="btn-secondary text-sm flex items-center"
                           >
                             <Download className="w-4 h-4 mr-2" />
@@ -1278,6 +1288,12 @@ export function OrderDetailsPage() {
                             <div>
                               <span className="font-semibold">JLO Tracking:</span>{' '}
                               {subOrder.tracking_number}
+                            </div>
+                          )}
+                          {subOrder.waybill_number && (
+                            <div className="mt-1">
+                              <span className="font-semibold">Waybill No:</span>{' '}
+                              {subOrder.waybill_number}
                             </div>
                           )}
                           {subOrder.delivery_person_name && (

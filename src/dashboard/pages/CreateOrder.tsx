@@ -2,6 +2,12 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNotification } from '../contexts/NotificationContext';
+import { supabase } from '../contexts/AuthContext';
+
+async function authHeader(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabase.auth.getSession();
+  return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+}
 
 interface OrderItem {
   id: string;
@@ -78,7 +84,10 @@ export function CreateOrderPage() {
 
   const fetchHubs = async () => {
     try {
-      const response = await fetch('/api/hubs');
+      // /api/hubs requires an admin session — this fetch previously sent no
+      // Authorization header at all, so it always failed with 401 and the
+      // hub dropdown was permanently empty, blocking the whole form.
+      const response = await fetch('/api/hubs', { headers: await authHeader() });
       const data = await response.json();
       setHubs(data.data || []);
     } catch (error) {
@@ -232,7 +241,7 @@ export function CreateOrderPage() {
 
       const response = await fetch('/api/orders', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
         body: JSON.stringify(orderData),
       });
 

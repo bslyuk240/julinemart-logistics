@@ -4,12 +4,13 @@ import { CustomerPortalLanding } from './pages/Landing';
 import { OrderTrackingPage } from './pages/Track';
 import { ShippingEstimatePage } from './pages/ShippingEstimate';
 import { CustomerContactPage } from './pages/Contact';
-import DevBanner from '../components/DevBanner';
+import DevBanner, { useDevBannerHeight } from '../components/DevBanner';
 import { logActivity } from './lib/logActivity';
 
 function CustomerPortalApp() {
   const isDevMode = process.env.NODE_ENV !== 'production';
-  const contentStyle = isDevMode ? { paddingTop: 36 } : undefined;
+  const bannerHeight = useDevBannerHeight();
+  const contentStyle = isDevMode ? { paddingTop: bannerHeight } : undefined;
 
   useEffect(() => {
     logActivity({

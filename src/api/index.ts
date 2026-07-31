@@ -1,7 +1,5 @@
-// Load .env then .env.local (override) so local secrets match Vite — `dotenv/config` alone only reads `.env`.
-import dotenv from 'dotenv';
-dotenv.config();
-dotenv.config({ path: '.env.local', override: true });
+// Must be the first import — see loadEnv.ts for why.
+import './loadEnv.js';
 
 import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
@@ -65,7 +63,6 @@ import {
   sendInfluencerReportsHandler
 } from './handlers/influencers';
 import { sendTestEmail, sendTestEmailWithTemplate } from './services/emailService.js';
-import { getRefundRequests, updateRefundRequestMeta, addRefundOrderNote, createWooRefund } from './routes/refundRequests.js';
 import { getReturnShipmentsByOrder, updateReturnShipmentStatus, getReturnRequestIdByWooOrder, createReturnRequest, createReturnShipment } from './routes/returnShipments.js';
 import { getPwaStatsHandler } from './routes/pwaStats.js';
 import {
@@ -405,11 +402,6 @@ console.log('✉️  Email routes registered');
 // Refund routes (admin or agent)
 app.post('/api/refunds/paystack', authenticate, requireRole('admin', 'agent'), paystackRefundHandler);
 app.get('/api/refunds/paystack/:reference', authenticate, requireRole('admin', 'agent'), getPaystackRefundStatus);
-app.get('/api/refunds/requests', authenticate, requireRole('admin', 'agent'), getRefundRequests);
-app.put('/api/refunds/requests/:orderId', authenticate, requireRole('admin', 'agent'), updateRefundRequestMeta);
-app.post('/api/refunds/requests/:orderId/note', authenticate, requireRole('admin', 'agent'), addRefundOrderNote);
-app.post('/api/refunds/requests/:orderId/create-refund', authenticate, requireRole('admin', 'agent'), createWooRefund);
-app.get('/api/refunds/requests', authenticate, requireRole('admin', 'agent'), getRefundRequests);
 
 // Return shipments (admin or agent)
 app.get('/api/return-shipments/order/:orderId', authenticate, requireRole('admin', 'agent'), getReturnShipmentsByOrder);

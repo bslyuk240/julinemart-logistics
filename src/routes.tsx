@@ -11,6 +11,64 @@ import { OrderTrackingPage } from './customer-portal/pages/Track';
 
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { DashboardLayout } from './dashboard/components/DashboardLayout';
+import { MobileShell } from './dashboard/mobile/MobileShell';
+import MoreMenu from './dashboard/mobile/MoreMenu';
+import MobileHome from './dashboard/mobile/screens/Home';
+import MobileOrders from './dashboard/mobile/screens/Orders';
+import MobileSupport from './dashboard/mobile/screens/Support';
+import MobileDispatch from './dashboard/mobile/screens/Dispatch';
+import MobileRefunds from './dashboard/mobile/screens/Refunds';
+import MobileProductModeration from './dashboard/mobile/screens/ProductModeration';
+import MobileSupportChat from './dashboard/mobile/screens/SupportChat';
+import MobileOrderDetails from './dashboard/mobile/screens/OrderDetails';
+import MobileCreateOrder from './dashboard/mobile/screens/CreateOrder';
+import MobileProductUpload from './dashboard/mobile/screens/ProductUpload';
+import MobileManualShipments from './dashboard/mobile/screens/ManualShipments';
+import MobileManualShipmentDetail from './dashboard/mobile/screens/ManualShipmentDetail';
+import MobileCreateManualShipment from './dashboard/mobile/screens/CreateManualShipment';
+import MobileRefundDetail from './dashboard/mobile/screens/RefundDetail';
+import MobilePushNotifications from './dashboard/mobile/screens/PushNotifications';
+import MobilePushNotificationCompose from './dashboard/mobile/screens/PushNotificationCompose';
+import MobilePushNotificationDetail from './dashboard/mobile/screens/PushNotificationDetail';
+import MobilePushTokenRegistry from './dashboard/mobile/screens/PushTokenRegistry';
+import MobileProfile from './dashboard/mobile/screens/Profile';
+import MobileShippingRates from './dashboard/mobile/screens/ShippingRates';
+import MobileProductReviews from './dashboard/mobile/screens/ProductReviews';
+import MobileCustomers from './dashboard/mobile/screens/Customers';
+import MobileUsers from './dashboard/mobile/screens/Users';
+import MobileAnalytics from './dashboard/mobile/screens/Analytics';
+import MobileActivityLogs from './dashboard/mobile/screens/ActivityLogs';
+import MobilePWAMonitoring from './dashboard/mobile/screens/PWAMonitoring';
+import MobileGlobalSourcing from './dashboard/mobile/screens/GlobalSourcing';
+import MobileTags from './dashboard/mobile/screens/Tags';
+import MobileCategories from './dashboard/mobile/screens/Categories';
+import MobileHomepageContent from './dashboard/mobile/screens/HomepageContent';
+import MobileVendors from './dashboard/mobile/screens/Vendors';
+import MobileVendorDetail from './dashboard/mobile/screens/VendorDetail';
+import MobileVendorWithdrawals from './dashboard/mobile/screens/VendorWithdrawals';
+import MobileVendorDebits from './dashboard/mobile/screens/VendorDebits';
+import MobileVendorLocations from './dashboard/mobile/screens/VendorLocations';
+import MobileCampaigns from './dashboard/mobile/screens/Campaigns';
+import MobileVouchers from './dashboard/mobile/screens/Vouchers';
+import MobileShippingDiscounts from './dashboard/mobile/screens/ShippingDiscounts';
+import MobileInfluencers from './dashboard/mobile/screens/Influencers';
+import MobileInfluencerDetail from './dashboard/mobile/screens/InfluencerDetail';
+import MobileMetaAds from './dashboard/mobile/screens/MetaAds';
+import MobileGoogleAds from './dashboard/mobile/screens/GoogleAds';
+import MobileFinance from './dashboard/mobile/screens/Finance';
+import MobileSettlements from './dashboard/mobile/screens/Settlements';
+import MobileHubs from './dashboard/mobile/screens/Hubs';
+import MobileCouriers from './dashboard/mobile/screens/Couriers';
+import MobileSettings from './dashboard/mobile/screens/Settings';
+import MobileGlobalSourcingSettings from './dashboard/mobile/screens/settings/GlobalSourcingSettings';
+import MobileCourierSettings from './dashboard/mobile/screens/settings/CourierSettings';
+import MobileEmailSettings from './dashboard/mobile/screens/settings/EmailSettings';
+import MobileSettingsDocumentation from './dashboard/mobile/screens/settings/SettingsDocumentation';
+import MobileSettingsWebhooks from './dashboard/mobile/screens/settings/SettingsWebhooks';
+import MobileSettingsApi from './dashboard/mobile/screens/settings/SettingsApi';
+import MobileSettingsDatabase from './dashboard/mobile/screens/settings/SettingsDatabase';
+import MobileEmailLogs from './dashboard/mobile/screens/settings/EmailLogs';
+import { useIsMobile } from './dashboard/hooks/useIsMobile';
 import { ActivityLogsPage } from './dashboard/pages/ActivityLogs';
 import { AnalyticsPage } from './dashboard/pages/Analytics';
 import { AuthCallbackPage } from './dashboard/pages/auth/AuthCallback';
@@ -20,6 +78,9 @@ import { ResetPasswordPage } from './dashboard/pages/auth/ResetPassword';
 import { CouriersPage } from './dashboard/pages/Couriers';
 import { CourierSettingsPage } from './dashboard/pages/CourierSettings';
 import { CreateOrderPage } from './dashboard/pages/CreateOrder';
+import { CreateManualShipmentPage } from './dashboard/pages/CreateManualShipment';
+import { ManualShipmentsPage } from './dashboard/pages/ManualShipments';
+import { ManualShipmentDetailPage } from './dashboard/pages/ManualShipmentDetail';
 import { DashboardHome } from './dashboard/pages/DashboardHome';
 import { EmailSettingsPage } from './dashboard/pages/EmailSettings';
 import { GlobalSourcingPage } from './dashboard/pages/GlobalSourcing';
@@ -28,7 +89,6 @@ import ProductReviewsPage from './dashboard/pages/ProductReviewsPage';
 import HomepageContent from './dashboard/pages/HomepageContent';
 import TagsPage from './dashboard/pages/TagsPage';
 import CategoriesPage from './dashboard/pages/CategoriesPage';
-import CatalogMigration from './dashboard/pages/CatalogMigration';
 import ProductUpload from './dashboard/pages/ProductUpload';
 import { HubsPage } from './dashboard/pages/Hubs';
 import { HubDispatchPage } from './dashboard/pages/HubDispatch';
@@ -37,6 +97,7 @@ import InfluencersPage from './dashboard/pages/InfluencersPage.tsx';
 import { NotificationDetailsPage } from './dashboard/pages/NotificationDetails';
 import { NotificationsNewPage } from './dashboard/pages/NotificationsNew';
 import { NotificationsPage } from './dashboard/pages/Notifications';
+import { PushTokenRegistryPage } from './dashboard/pages/PushTokenRegistry';
 import { OrderDetailsPage } from './dashboard/pages/OrderDetails';
 import { OrdersPage } from './dashboard/pages/Orders';
 import ReturnsPage from './dashboard/pages/Returns';
@@ -60,40 +121,341 @@ import { UnauthorizedPage } from './shared/UnauthorizedPage';
 import { MetaAdsPage } from './dashboard/pages/MetaAds';
 import { GoogleAdsPage } from './dashboard/pages/GoogleAds';
 import { PWAMonitoringPage } from './dashboard/pages/PWAMonitoring';
+import { ProfilePage } from './dashboard/pages/Profile';
+
+// Branch point for the mobile shell: viewport-gated, not user-agent
+// sniffed, so resizing/rotating switches shells live. Desktop's DashboardLayout
+// is otherwise untouched by this.
+function AdminShell({ children }: { children: ReactElement }) {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileShell>{children}</MobileShell> : <DashboardLayout>{children}</DashboardLayout>;
+}
 
 // Role-aware landing: social_media_manager goes straight to Meta Ads
 function AdminLanding() {
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   if (user?.role === 'social_media_manager') {
     return <Navigate to="/admin/meta-ads" replace />;
   }
-  return <DashboardHome />;
+  return isMobile ? <MobileHome /> : <DashboardHome />;
+}
+
+function OrdersRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileOrders /> : <OrdersPage />;
+}
+
+function SupportRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileSupport /> : <SupportInbox />;
+}
+
+function DispatchRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileDispatch /> : <HubDispatchPage />;
+}
+
+function RefundsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileRefunds /> : <ReturnsPage />;
+}
+
+function ProductModerationRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileProductModeration /> : <ProductModerationPage />;
+}
+
+function SupportChatRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileSupportChat /> : <SupportChatView />;
+}
+
+function OrderDetailsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileOrderDetails /> : <OrderDetailsPage />;
+}
+
+function CreateOrderRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileCreateOrder /> : <CreateOrderPage />;
+}
+
+function ProductUploadRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileProductUpload /> : <ProductUpload />;
+}
+
+function ManualShipmentsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileManualShipments /> : <ManualShipmentsPage />;
+}
+
+function ManualShipmentDetailRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileManualShipmentDetail /> : <ManualShipmentDetailPage />;
+}
+
+function CreateManualShipmentRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileCreateManualShipment /> : <CreateManualShipmentPage />;
+}
+
+function RefundDetailRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileRefundDetail /> : <Navigate to="/admin/refunds" replace />;
+}
+
+function NotificationsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobilePushNotifications /> : <NotificationsPage />;
+}
+
+function NotificationsNewRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobilePushNotificationCompose /> : <NotificationsNewPage />;
+}
+
+function NotificationDetailsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobilePushNotificationDetail /> : <NotificationDetailsPage />;
+}
+
+function PushTokenRegistryRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobilePushTokenRegistry /> : <PushTokenRegistryPage />;
+}
+
+function ProfileRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileProfile /> : <ProfilePage />;
+}
+
+function ShippingRatesRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileShippingRates /> : <ShippingRatesPage />;
+}
+
+function GlobalSourcingRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileGlobalSourcing /> : <GlobalSourcingPage />;
+}
+
+function TagsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileTags /> : <TagsPage />;
+}
+
+function CategoriesRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileCategories /> : <CategoriesPage />;
+}
+
+function HomepageContentRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileHomepageContent /> : <HomepageContent />;
+}
+
+function CatalogMigrationRoute() {
+  return <Navigate to="/admin/products/moderation" replace />;
+}
+
+function ProductReviewsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileProductReviews /> : <ProductReviewsPage />;
+}
+
+function CustomersRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileCustomers /> : <CustomersPage />;
+}
+
+function UsersRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileUsers /> : <UsersPage />;
+}
+
+function AnalyticsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileAnalytics /> : <AnalyticsPage />;
+}
+
+function ActivityLogsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileActivityLogs /> : <ActivityLogsPage />;
+}
+
+function PWAMonitoringRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobilePWAMonitoring /> : <PWAMonitoringPage />;
+}
+
+function VendorsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileVendors /> : <VendorsPage />;
+}
+
+function VendorDetailRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileVendorDetail /> : <VendorDetail />;
+}
+
+function VendorWithdrawalsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileVendorWithdrawals /> : <VendorWithdrawals />;
+}
+
+function VendorDebitsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileVendorDebits /> : <VendorDebits />;
+}
+
+function VendorLocationsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileVendorLocations /> : <VendorLocationsPage />;
+}
+
+function CampaignsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileCampaigns /> : <CampaignsPage />;
+}
+
+function VouchersRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileVouchers /> : <VouchersPage />;
+}
+
+function ShippingDiscountsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileShippingDiscounts /> : <ShippingDiscountsPage />;
+}
+
+function InfluencersRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileInfluencers /> : <InfluencersPage />;
+}
+
+function InfluencerDetailRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileInfluencerDetail /> : <InfluencerDetailPage />;
+}
+
+function MetaAdsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileMetaAds /> : <MetaAdsPage />;
+}
+
+function GoogleAdsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileGoogleAds /> : <GoogleAdsPage />;
+}
+
+function FinanceRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileFinance /> : <FinancePage />;
+}
+
+function SettlementsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileSettlements /> : <SettlementsPage />;
+}
+
+function HubsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileHubs /> : <HubsPage />;
+}
+
+function CouriersRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileCouriers /> : <CouriersPage />;
+}
+
+function SettingsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileSettings /> : <SettingsPage />;
+}
+
+function SettingsGlobalSourcingRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileGlobalSourcingSettings /> : <Navigate to="/admin/settings" replace />;
+}
+
+function SettingsCouriersRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileCourierSettings /> : <CourierSettingsPage />;
+}
+
+function SettingsEmailRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileEmailSettings /> : <EmailSettingsPage />;
+}
+
+function SettingsEmailLogsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileEmailLogs /> : <Navigate to="/admin/email-settings" replace />;
+}
+
+function SettingsDocumentationRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileSettingsDocumentation /> : <Navigate to="/admin/settings" replace />;
+}
+
+function SettingsWebhooksRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileSettingsWebhooks /> : <Navigate to="/admin/settings" replace />;
+}
+
+function SettingsApiRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileSettingsApi /> : <Navigate to="/admin/settings" replace />;
+}
+
+function SettingsDatabaseRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileSettingsDatabase /> : <Navigate to="/admin/settings" replace />;
+}
+
+function CourierSettingsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <Navigate to="/admin/settings/couriers" replace /> : <CourierSettingsPage />;
+}
+
+function EmailSettingsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <Navigate to="/admin/settings/email" replace /> : <EmailSettingsPage />;
 }
 
 // Routes accessible by both admin and agent
 const sharedRoutes = [
   { path: '', element: <AdminLanding /> },
   { path: 'dashboard', element: <AdminLanding /> },
-  { path: 'orders', element: <OrdersPage /> },
-  { path: 'orders/create', element: <CreateOrderPage /> },
+  { path: 'orders', element: <OrdersRoute /> },
+  { path: 'orders/create', element: <CreateOrderRoute /> },
+  { path: 'manual-shipments', element: <ManualShipmentsRoute /> },
+  { path: 'manual-shipments/create', element: <CreateManualShipmentRoute /> },
+  { path: 'manual-shipments/:id', element: <ManualShipmentDetailRoute /> },
   {
     path: 'dispatch/hub',
     element: (
       <ProtectedRoute allowedRoles={['admin', 'agent', 'viewer']}>
-        <HubDispatchPage />
+        <DispatchRoute />
       </ProtectedRoute>
     ),
   },
-  { path: 'refunds', element: <ReturnsPage /> },
-  { path: 'orders/:id', element: <OrderDetailsPage /> },
-  { path: 'rates', element: <ShippingRatesPage /> },
-  { path: 'support', element: <SupportInbox /> },
-  { path: 'support/:sessionId', element: <SupportChatView /> },
+  { path: 'refunds', element: <RefundsRoute /> },
+  { path: 'refunds/:id', element: <RefundDetailRoute /> },
+  { path: 'more', element: <MoreMenu /> },
+  { path: 'profile', element: <ProfileRoute /> },
+  { path: 'notifications', element: <NotificationsRoute /> },
+  { path: 'orders/:id', element: <OrderDetailsRoute /> },
+  { path: 'rates', element: <ShippingRatesRoute /> },
+  { path: 'support', element: <SupportRoute /> },
+  { path: 'support/:sessionId', element: <SupportChatRoute /> },
   {
     path: 'products/upload',
     element: (
       <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent', 'manager']}>
-        <ProductUpload />
+        <ProductUploadRoute />
       </ProtectedRoute>
     ),
   },
@@ -101,7 +463,7 @@ const sharedRoutes = [
     path: 'global-sourcing',
     element: (
       <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent', 'manager']}>
-        <GlobalSourcingPage />
+        <GlobalSourcingRoute />
       </ProtectedRoute>
     ),
   },
@@ -109,7 +471,7 @@ const sharedRoutes = [
     path: 'products/moderation',
     element: (
       <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent', 'manager']}>
-        <ProductModerationPage />
+        <ProductModerationRoute />
       </ProtectedRoute>
     ),
   },
@@ -117,18 +479,18 @@ const sharedRoutes = [
     path: 'products/reviews',
     element: (
       <ProtectedRoute allowedRoles={['admin', 'shop_manager', 'agent', 'manager']}>
-        <ProductReviewsPage />
+        <ProductReviewsRoute />
       </ProtectedRoute>
     ),
   },
-  { path: 'homepage-content', element: <ProtectedRoute allowedRoles={['admin']}><HomepageContent /></ProtectedRoute> },
-  { path: 'tags', element: <ProtectedRoute allowedRoles={['admin']}><TagsPage /></ProtectedRoute> },
-  { path: 'categories', element: <ProtectedRoute allowedRoles={['admin']}><CategoriesPage /></ProtectedRoute> },
+  { path: 'homepage-content', element: <ProtectedRoute allowedRoles={['admin']}><HomepageContentRoute /></ProtectedRoute> },
+  { path: 'tags', element: <ProtectedRoute allowedRoles={['admin']}><TagsRoute /></ProtectedRoute> },
+  { path: 'categories', element: <ProtectedRoute allowedRoles={['admin']}><CategoriesRoute /></ProtectedRoute> },
   {
     path: 'catalog-migration',
     element: (
       <ProtectedRoute allowedRoles={['admin']}>
-        <CatalogMigration />
+        <CatalogMigrationRoute />
       </ProtectedRoute>
     ),
   },
@@ -138,33 +500,42 @@ type AdminRouteConfig = { path: string; element: ReactElement; allowedRoles?: st
 
 // Default allowedRoles is ['admin'] when omitted
 const adminOnlyRoutes: AdminRouteConfig[] = [
-  { path: 'hubs', element: <HubsPage /> },
-  { path: 'couriers', element: <CouriersPage /> },
-  { path: 'analytics', element: <AnalyticsPage /> },
-  { path: 'users', element: <UsersPage /> },
-  { path: 'customers', element: <CustomersPage /> },
-  { path: 'discounts', element: <ShippingDiscountsPage /> },
-  { path: 'meta-ads', element: <MetaAdsPage />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
-  { path: 'google-ads', element: <GoogleAdsPage />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
-  { path: 'influencers', element: <InfluencersPage /> },
-  { path: 'influencers/:id', element: <InfluencerDetailPage /> },
-  { path: 'courier-settings', element: <CourierSettingsPage /> },
-  { path: 'settings', element: <SettingsPage /> },
-  { path: 'email-settings', element: <EmailSettingsPage /> },
-  { path: 'finance', element: <FinancePage /> },
-  { path: 'settlements', element: <SettlementsPage /> },
-  { path: 'activity-logs', element: <ActivityLogsPage /> },
-  { path: 'vouchers', element: <VouchersPage /> },
-  { path: 'campaigns', element: <CampaignsPage />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
-  { path: 'vendors', element: <VendorsPage />, allowedRoles: ['admin', 'manager'] },
-  { path: 'vendors/:id', element: <VendorDetail />, allowedRoles: ['admin', 'manager'] },
-  { path: 'vendor-withdrawals', element: <VendorWithdrawals />, allowedRoles: ['admin', 'manager'] },
-  { path: 'vendor-debits', element: <VendorDebits />, allowedRoles: ['admin', 'manager'] },
-  { path: 'vendor-locations', element: <VendorLocationsPage />, allowedRoles: ['admin', 'manager'] },
-  { path: 'notifications', element: <NotificationsPage /> },
-  { path: 'notifications/new', element: <NotificationsNewPage /> },
-  { path: 'notifications/:id', element: <NotificationDetailsPage /> },
-  { path: 'pwa-monitoring', element: <PWAMonitoringPage /> },
+  { path: 'hubs', element: <HubsRoute /> },
+  { path: 'couriers', element: <CouriersRoute /> },
+  { path: 'analytics', element: <AnalyticsRoute /> },
+  { path: 'users', element: <UsersRoute /> },
+  { path: 'customers', element: <CustomersRoute /> },
+  { path: 'discounts', element: <ShippingDiscountsRoute /> },
+  { path: 'meta-ads', element: <MetaAdsRoute />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
+  { path: 'google-ads', element: <GoogleAdsRoute />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
+  { path: 'influencers', element: <InfluencersRoute /> },
+  { path: 'influencers/:id', element: <InfluencerDetailRoute /> },
+  { path: 'courier-settings', element: <CourierSettingsRoute /> },
+  { path: 'settings', element: <SettingsRoute /> },
+  { path: 'settings/global-sourcing', element: <SettingsGlobalSourcingRoute /> },
+  { path: 'settings/couriers', element: <SettingsCouriersRoute /> },
+  { path: 'settings/email', element: <SettingsEmailRoute /> },
+  { path: 'settings/email/logs', element: <SettingsEmailLogsRoute /> },
+  { path: 'settings/documentation', element: <SettingsDocumentationRoute /> },
+  { path: 'settings/webhooks', element: <SettingsWebhooksRoute /> },
+  { path: 'settings/api', element: <SettingsApiRoute /> },
+  { path: 'settings/database', element: <SettingsDatabaseRoute /> },
+  { path: 'email-settings', element: <EmailSettingsRoute /> },
+  { path: 'finance', element: <FinanceRoute /> },
+  { path: 'settlements', element: <SettlementsRoute /> },
+  { path: 'activity-logs', element: <ActivityLogsRoute /> },
+  { path: 'vouchers', element: <VouchersRoute /> },
+  { path: 'campaigns', element: <CampaignsRoute />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
+  { path: 'vendors', element: <VendorsRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'vendors/:id', element: <VendorDetailRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'vendor-withdrawals', element: <VendorWithdrawalsRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'vendor-debits', element: <VendorDebitsRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'vendor-locations', element: <VendorLocationsRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'notifications', element: <NotificationsRoute /> },
+  { path: 'notifications/new', element: <NotificationsNewRoute /> },
+  { path: 'notifications/tokens', element: <PushTokenRegistryRoute /> },
+  { path: 'notifications/:id', element: <NotificationDetailsRoute /> },
+  { path: 'pwa-monitoring', element: <PWAMonitoringRoute /> },
 ];
 
 const customerRoutes = [
@@ -213,9 +584,9 @@ export const router = createBrowserRouter([
     path: '/admin',
     element: (
       <ProtectedRoute allowedRoles={['admin', 'agent', 'shop_manager', 'manager', 'viewer', 'social_media_manager']}>
-        <DashboardLayout>
+        <AdminShell>
           <Outlet />
-        </DashboardLayout>
+        </AdminShell>
       </ProtectedRoute>
     ),
     children: [

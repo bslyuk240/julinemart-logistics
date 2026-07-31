@@ -6,6 +6,7 @@ import {
   extractOrderReference,
   sendPushToCustomer,
 } from './services/pushNotifications.js';
+import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -62,6 +63,11 @@ exports.handler = async (event) => {
   }
 
   try {
+    const access = await assertStaffCanCreateShipment(event);
+    if (!access.ok) {
+      return { statusCode: access.statusCode, headers, body: access.body };
+    }
+
     const { sub_order_id, rider_name, rider_phone, rider_vehicle } = JSON.parse(
       event.body || '{}'
     );
@@ -97,7 +103,7 @@ exports.handler = async (event) => {
 
     const { data: existingSubOrder, error: existingSubOrderError } = await supabase
       .from('sub_orders')
-      .select('id, tracking_number, metadata, main_order_id')
+      .select('id, tracking_number, metadata, main_order_id, waybill_number')
       .eq('id', sub_order_id)
       .single();
 
@@ -122,6 +128,19 @@ exports.handler = async (event) => {
         ? existingSubOrder.metadata
         : {};
 
+    // Generate a JLO waybill number if this sub-order doesn't have one yet.
+    // Non-fatal on failure — dispatch must not be blocked by this; the
+    // waybill document self-heals a number on first view if this fails.
+    let waybillNumber = existingSubOrder.waybill_number || null;
+    if (!waybillNumber) {
+      const { data: nextNumber, error: wbError } = await supabase.rpc('next_waybill_number');
+      if (wbError) {
+        console.error('waybill number generation failed:', wbError);
+      } else {
+        waybillNumber = nextNumber;
+      }
+    }
+
     const { data: updatedSubOrder, error } = await supabase
       .from('sub_orders')
       .update({
@@ -133,6 +152,7 @@ exports.handler = async (event) => {
         status: 'assigned',
         rider_name: rider_name,
         rider_phone: rider_phone,
+        ...(waybillNumber ? { waybill_number: waybillNumber } : {}),
         metadata: {
           ...existingMetadata,
           selected_lane: 'local_rider',

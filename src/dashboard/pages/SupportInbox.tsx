@@ -84,10 +84,15 @@ export default function SupportInbox() {
               setTimeout(() => setNewSessionAlert(false), 4000);
               // Browser notification
               if (Notification.permission === 'granted') {
-                new Notification('New Support Chat', {
+                const notif = new Notification('New Support Chat', {
                   body: `${newSession.customer_name || 'A customer'} needs help`,
                   icon: '/icon-192.png',
                 });
+                notif.onclick = () => {
+                  window.focus();
+                  navigate(`/admin/support/${newSession.id}`);
+                  notif.close();
+                };
               }
             }
           } else if (payload.eventType === 'UPDATE') {
@@ -100,10 +105,15 @@ export default function SupportInbox() {
               setNewSessionAlert(true);
               setTimeout(() => setNewSessionAlert(false), 4000);
               if (Notification.permission === 'granted') {
-                new Notification('Customer Needs an Agent', {
+                const notif = new Notification('Customer Needs an Agent', {
                   body: `${updated.customer_name || 'A customer'} requested a human agent`,
                   icon: '/icon-192.png',
                 });
+                notif.onclick = () => {
+                  window.focus();
+                  navigate(`/admin/support/${updated.id}`);
+                  notif.close();
+                };
               }
             }
           }

@@ -1,7 +1,6 @@
 import {
   asFiniteNumber,
   computeWooNgnPricing,
-  fetchWooProductSourcingContext,
   isPlainObject,
   mergeGlobalSourcingMetadata,
 } from './global-sourcing-utils.js';
@@ -597,17 +596,6 @@ async function resolveSubOrderItems(client, subOrder, inboundShipment = null) {
         cjVid =
           cjVid ||
           pickString(match?.globalSourcing?.cjVid, match?.globalSourcing?.cj_vid);
-      }
-
-      if ((!cjPid || !cjVid) && productId) {
-        const context = await fetchWooProductSourcingContext({ productId, variationId });
-        if (context) {
-          cjPid = cjPid || pickString(context.cjPid);
-          cjVid = cjVid || pickString(context.cjVid);
-          if (cjPid || cjVid) {
-            didHydrate = true;
-          }
-        }
       }
 
       if ((!cjPid || !cjVid || !carrierName) && (productId || cjPid)) {

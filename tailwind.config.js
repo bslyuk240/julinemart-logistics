@@ -4,8 +4,16 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  darkMode: 'class',
   theme: {
     extend: {
+      // Scoped, not global: the customer portal imports this same stylesheet
+      // (src/customer-portal/main.tsx), so these stay opt-in utilities rather
+      // than overriding Tailwind's default `sans`/`mono` for the whole app.
+      fontFamily: {
+        display: ['"IBM Plex Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        'admin-mono': ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+      },
       colors: {
         // Brand palette
         primary: {

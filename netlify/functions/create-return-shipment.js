@@ -109,39 +109,45 @@ async function createFezShipment(authToken, secretKey, baseUrl, shipmentData) {
   if (data.status === "Success" && data.orderNos) {
     const trackingId = Object.keys(data.orderNos)[0];
     const orderId = Object.values(data.orderNos)[0];
-    
+
     if (isValidFezOrderNumber(orderId)) {
       console.log("✅ FEZ SUCCESS - Order created:", { orderId, trackingId });
-      return { orderId, trackingId, success: true };
+      return { orderId, trackingId, success: true, raw: data };
     }
-    
+
     const extractedCode = extractOrderCodeFromMessage(orderId);
     if (extractedCode) {
       console.log("✅ FEZ SUCCESS - Extracted existing order:", { orderId: extractedCode, trackingId });
-      return { orderId: extractedCode, trackingId, success: true };
+      return { orderId: extractedCode, trackingId, success: true, raw: data };
     }
-    
+
     console.error("❌ FEZ returned Success but orderId is invalid:", orderId);
-    throw new Error(orderId || "Fez returned invalid order number");
+    const invalidErr = new Error(orderId || "Fez returned invalid order number");
+    invalidErr.raw = data;
+    throw invalidErr;
   }
 
   if (data.orderNos && Object.keys(data.orderNos).length > 0) {
     const trackingId = Object.keys(data.orderNos)[0];
     const orderId = Object.values(data.orderNos)[0];
-    
+
     if (isValidFezOrderNumber(orderId)) {
-      return { orderId, trackingId, success: true };
+      return { orderId, trackingId, success: true, raw: data };
     }
-    
+
     const extractedCode = extractOrderCodeFromMessage(orderId);
     if (extractedCode) {
-      return { orderId: extractedCode, trackingId, success: true };
+      return { orderId: extractedCode, trackingId, success: true, raw: data };
     }
-    
-    throw new Error(orderId || data.description || "Failed to create order on Fez");
+
+    const failErr = new Error(orderId || data.description || "Failed to create order on Fez");
+    failErr.raw = data;
+    throw failErr;
   }
 
-  throw new Error(data.description || data.message || "Error creating order on Fez Delivery");
+  const err = new Error(data.description || data.message || "Error creating order on Fez Delivery");
+  err.raw = data;
+  throw err;
 }
 
 export async function handler(event) {
@@ -181,6 +187,7 @@ export async function handler(event) {
     const returnCode = generateReturnCode();
     let fezTracking = null;
     let status = "awaiting_dropoff";
+    let rawPayload = null;
 
     // For PICKUP method, create Fez shipment
     if (method === "pickup") {
@@ -267,6 +274,7 @@ export async function handler(event) {
 
       fezTracking = result.orderId;
       status = "pickup_scheduled";
+      rawPayload = result.raw ?? null;
 
       if (!isValidFezOrderNumber(fezTracking)) {
         console.error("Invalid fezTracking received:", fezTracking);
@@ -282,6 +290,19 @@ export async function handler(event) {
       }
     }
 
+    // Only worth a waybill number if this is an actual dispatched (pickup)
+    // shipment — dropoff returns have no courier involvement to waybill.
+    // Non-fatal on failure, same as order dispatch.
+    let waybillNumber = null;
+    if (fezTracking) {
+      const { data: nextNumber, error: wbError } = await supabase.rpc("next_waybill_number");
+      if (wbError) {
+        console.error("waybill number generation failed:", wbError);
+      } else {
+        waybillNumber = nextNumber;
+      }
+    }
+
     // Save to return_shipments table
     const { data: shipment, error: insertError } = await supabase
       .from("return_shipments")
@@ -290,7 +311,9 @@ export async function handler(event) {
         return_code: returnCode,
         method,
         fez_tracking: fezTracking,
-        status
+        status,
+        waybill_number: waybillNumber,
+        raw_payload: rawPayload,
       })
       .select()
       .single();

@@ -85,6 +85,7 @@ export async function handler(event) {
           destination_address,
           vendor_id,
           label_url,
+          waybill_number,
           customer_submitted_tracking,
           created_at
         )

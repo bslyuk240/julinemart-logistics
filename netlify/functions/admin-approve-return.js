@@ -74,14 +74,18 @@ async function createFezShipment(auth, payload) {
   if (data.status === 'Success' && data.orderNos) {
     const trackingId = Object.keys(data.orderNos)[0];
     const orderId = Object.values(data.orderNos)[0];
-    if (isValidFezOrderNumber(orderId)) return { trackingId, orderId };
+    if (isValidFezOrderNumber(orderId)) return { trackingId, orderId, raw: data };
     // Handle "already exists" message with embedded code
     const match = orderId?.match?.(/order\s+([A-Za-z0-9_-]+)/i);
-    if (match && isValidFezOrderNumber(match[1])) return { trackingId, orderId: match[1] };
-    throw new Error(orderId || 'Fez returned invalid order number');
+    if (match && isValidFezOrderNumber(match[1])) return { trackingId, orderId: match[1], raw: data };
+    const invalidErr = new Error(orderId || 'Fez returned invalid order number');
+    invalidErr.raw = data;
+    throw invalidErr;
   }
 
-  throw new Error(data.description || data.message || 'Failed to create Fez order');
+  const failErr = new Error(data.description || data.message || 'Failed to create Fez order');
+  failErr.raw = data;
+  throw failErr;
 }
 
 async function createFezShipmentWithRetry(auth, payload) {
@@ -248,13 +252,16 @@ export async function handler(event) {
 
       let fezTracking = null;
       let fezShipmentId = null;
+      let rawPayload = null;
 
       try {
         const fezResult = await createFezShipmentWithRetry(auth, fezPayload);
         fezTracking = fezResult.orderId;
         fezShipmentId = fezResult.trackingId;
+        rawPayload = fezResult.raw ?? null;
       } catch (err) {
         shipmentErrors.push(`${group.destinationType === 'vendor' ? group.vendor?.store_name || key : 'hub'}: ${err.message}`);
+        rawPayload = err.raw ?? { error: err.message };
         // Still insert the DB row so admin can see it and retry
       }
 
@@ -265,6 +272,19 @@ export async function handler(event) {
         name: recipient.name,
         phone: recipient.phone,
       };
+
+      // Only worth a waybill number if the shipment actually has real Fez
+      // tracking — non-fatal on failure, same as order dispatch: this must
+      // not block the return approval itself.
+      let waybillNumber = null;
+      if (fezTracking) {
+        const { data: nextNumber, error: wbError } = await adminClient.rpc('next_waybill_number');
+        if (wbError) {
+          console.error('waybill number generation failed:', wbError);
+        } else {
+          waybillNumber = nextNumber;
+        }
+      }
 
       const { data: shipment, error: shipErr } = await adminClient
         .from('return_shipments')
@@ -279,6 +299,8 @@ export async function handler(event) {
           destination_type: group.destinationType,
           destination_address: destinationAddress,
           customer_submitted_tracking: false,
+          waybill_number: waybillNumber,
+          raw_payload: rawPayload,
         })
         .select('*')
         .single();

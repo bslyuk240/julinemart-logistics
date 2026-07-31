@@ -50,7 +50,12 @@ interface ListProduct {
 
 type StatusFilter = 'all' | 'draft' | 'published';
 
-const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+// Not VITE_API_BASE_URL — in this project that var is set to the Supabase
+// URL (used for Supabase edge functions elsewhere), not a Netlify functions
+// base. Concatenating it with /.netlify/functions/ produced a dead URL: the
+// Supabase domain with a path that doesn't exist there. Every status filter
+// other than the initial page load broke silently because of this.
+const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 function cacheKey(page: number, status: string, search: string, vendorId: string) {
@@ -140,7 +145,7 @@ export function ProductModerationPage() {
 
   // Load vendors for filter dropdown
   useEffect(() => {
-    fetch(`${apiBase}/.netlify/functions/catalog-meta?type=vendors`, {
+    fetch(`${functionsBase}/catalog-meta?type=vendors`, {
       headers: { Authorization: authHeader() },
     })
       .then((r) => r.json())
@@ -169,7 +174,7 @@ export function ProductModerationPage() {
       if (vendorId) params.set('vendor_id', vendorId);
 
       const res = await fetch(
-        `${apiBase}/.netlify/functions/catalog-products?${params.toString()}`,
+        `${functionsBase}/catalog-products?${params.toString()}`,
         { headers: { Authorization: authHeader() } }
       );
       const json = await res.json();
@@ -216,7 +221,7 @@ export function ProductModerationPage() {
     setActionLoading(product.id);
     try {
       const res = await fetch(
-        `${apiBase}/.netlify/functions/catalog-product-upsert?id=${product.id}`,
+        `${functionsBase}/catalog-product-upsert?id=${product.id}`,
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: authHeader() },
@@ -240,7 +245,7 @@ export function ProductModerationPage() {
     setDeleteConfirm(null);
     try {
       const res = await fetch(
-        `${apiBase}/.netlify/functions/catalog-product-upsert?id=${id}`,
+        `${functionsBase}/catalog-product-upsert?id=${id}`,
         { method: 'DELETE', headers: { Authorization: authHeader() } }
       );
       const json = await res.json();

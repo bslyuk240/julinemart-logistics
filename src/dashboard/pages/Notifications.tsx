@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BellRing, ChevronRight, Clock, Plus, Trash2 } from 'lucide-react';
+import { BellRing, ChevronRight, Clock, Plus, Smartphone, Trash2 } from 'lucide-react';
 import {
   loadNotificationHistory,
   NotificationHistoryEntry,
@@ -48,10 +48,20 @@ export function NotificationsPage() {
             Manage manual push sends and review recent notification attempts.
           </p>
         </div>
-        <button onClick={() => navigate('/admin/notifications/new')} className="btn-primary inline-flex items-center gap-2">
-          <Plus className="h-4 w-4" />
-          New Notification
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate('/admin/notifications/tokens')}
+            className="btn-secondary inline-flex items-center gap-2"
+          >
+            <Smartphone className="h-4 w-4" />
+            Push subscribers
+          </button>
+          <button onClick={() => navigate('/admin/notifications/new')} className="btn-primary inline-flex items-center gap-2">
+            <Plus className="h-4 w-4" />
+            New Notification
+          </button>
+        </div>
       </div>
 
       {entries.length === 0 ? (

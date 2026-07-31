@@ -6,6 +6,13 @@ import {
   requireAdmin,
 } from './services/global-sourcing-utils.js';
 
+function credentialChecks() {
+  return {
+    cj_api_key: Boolean(process.env.CJ_API_KEY),
+    cj_api_base_url: Boolean(process.env.CJ_API_BASE_URL),
+  };
+}
+
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
@@ -18,12 +25,8 @@ export async function handler(event) {
   const auth = await requireAdmin(event, GLOBAL_SOURCING_ALLOWED_ROLES);
   if (auth.errorResponse) return auth.errorResponse;
 
-  const configured = Boolean(process.env.CJ_API_KEY && process.env.CJ_API_BASE_URL);
-  const wooConfigured = Boolean(
-    (process.env.WOO_BASE_URL || process.env.WOOCOMMERCE_URL) &&
-      (process.env.WOO_CONSUMER_KEY || process.env.WOOCOMMERCE_CONSUMER_KEY) &&
-      (process.env.WOO_CONSUMER_SECRET || process.env.WOOCOMMERCE_CONSUMER_SECRET)
-  );
+  const checks = credentialChecks();
+  const configured = checks.cj_api_key && checks.cj_api_base_url;
 
   if (event.httpMethod === 'GET') {
     return jsonResponse(200, {
@@ -31,39 +34,34 @@ export async function handler(event) {
       data: {
         provider: 'cj',
         configured,
-        wooConfigured,
-        checks: {
-          cj_api_key: Boolean(process.env.CJ_API_KEY),
-          cj_api_base_url: Boolean(process.env.CJ_API_BASE_URL),
-          woo_base_url: Boolean(process.env.WOO_BASE_URL || process.env.WOOCOMMERCE_URL),
-          woo_consumer_key: Boolean(
-            process.env.WOO_CONSUMER_KEY || process.env.WOOCOMMERCE_CONSUMER_KEY
-          ),
-          woo_consumer_secret: Boolean(
-            process.env.WOO_CONSUMER_SECRET || process.env.WOOCOMMERCE_CONSUMER_SECRET
-          ),
-        },
+        checks,
+        cj_connected: null,
+        connection_tested_at: null,
       },
     });
   }
 
+  const data = {
+    provider: 'cj',
+    configured,
+    checks,
+    authenticated: false,
+    cj_connected: false,
+    cj_connection_error: null,
+    connection_tested_at: new Date().toISOString(),
+  };
+
   try {
     const token = await getCjAccessToken();
-    return jsonResponse(200, {
-      success: true,
-      data: {
-        provider: 'cj',
-        authenticated: true,
-        cached: token.cached,
-        expires_at: token.expiresAt,
-      },
-    });
+    data.authenticated = true;
+    data.cj_connected = true;
+    data.cached = token.cached;
+    data.expires_at = token.expiresAt;
   } catch (error) {
-    return jsonResponse(500, {
-      success: false,
-      error: 'CJ authentication failed',
-      message: error?.message || 'Unable to authenticate with CJ',
-      details: error?.details || [],
-    });
+    data.authenticated = false;
+    data.cj_connected = false;
+    data.cj_connection_error = error?.message || 'Unable to authenticate with CJ';
   }
+
+  return jsonResponse(200, { success: true, data });
 }

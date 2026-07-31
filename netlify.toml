@@ -72,6 +72,16 @@
   status = 200
 
 [[redirects]]
+  from = "/api/admin/device-tokens"
+  to = "/.netlify/functions/admin-device-tokens-list"
+  status = 200
+
+[[redirects]]
+  from = "/api/admin/settings-health"
+  to = "/.netlify/functions/admin-settings-health"
+  status = 200
+
+[[redirects]]
   from = "/api/admin/vendor-debits"
   to = "/.netlify/functions/admin-vendor-debits"
   status = 200
@@ -158,21 +168,6 @@
 [functions."google-ads"]
   timeout = 60
 
-[functions."product-moderation-list"]
-  timeout = 30
-
-[functions."product-moderation-detail"]
-  timeout = 30
-
-[functions."product-moderation-update"]
-  timeout = 30
-
-[functions."product-moderation-meta"]
-  timeout = 20
-
-[functions."woo-migrate-catalog"]
-  timeout = 60
-
 [functions."catalog-products"]
   timeout = 15
 
@@ -190,9 +185,6 @@
 
 [functions."paystack-webhook"]
   timeout = 10
-
-[functions."vendor-sync-profiles"]
-  timeout = 26
 
 [functions."vendor-invite"]
   timeout = 15

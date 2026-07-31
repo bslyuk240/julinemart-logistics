@@ -2,21 +2,31 @@ import '../dashboard/index.css';
 import { RouterProvider } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import { router } from '../routes';
-import DevBanner from '../components/DevBanner';
+import DevBanner, { useDevBannerHeight } from '../components/DevBanner';
 
 function App() {
+  const bannerHeight = useDevBannerHeight();
   const isDevMode = process.env.NODE_ENV !== 'production';
-  const containerStyle = isDevMode ? { paddingTop: 36 } : undefined;
 
   return (
     <>
       <DevBanner />
-      <div style={containerStyle}>
+      <div
+        style={{
+          height: '100%',
+          boxSizing: 'border-box',
+          paddingTop: isDevMode ? bannerHeight : 0,
+          minHeight: 0,
+        }}
+      >
         <AuthProvider>
-          <NotificationProvider>
-            <RouterProvider router={router} />
-          </NotificationProvider>
+          <ThemeProvider>
+            <NotificationProvider>
+              <RouterProvider router={router} />
+            </NotificationProvider>
+          </ThemeProvider>
         </AuthProvider>
       </div>
     </>

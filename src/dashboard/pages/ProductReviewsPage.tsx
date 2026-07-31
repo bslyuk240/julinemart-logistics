@@ -5,7 +5,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { Loader2, Star, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
-const apiBase = import.meta.env.VITE_API_BASE_URL || '';
+// Not VITE_API_BASE_URL — that's the Supabase URL in this project, not a
+// Netlify functions base; concatenating it here produced a dead URL and
+// broke every load and status change on this page.
+const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
 interface ReviewRow {
   id: string;
@@ -53,7 +56,7 @@ function ProductReviewsPage() {
       if (statusFilter !== 'all') params.set('status', statusFilter);
 
       const res = await fetch(
-        `${apiBase}/.netlify/functions/admin-product-reviews?${params}`,
+        `${functionsBase}/admin-product-reviews?${params}`,
         { headers: { Authorization: authHeader } }
       );
       const json = await res.json();
@@ -76,7 +79,7 @@ function ProductReviewsPage() {
     setBusyId(id);
     setError(null);
     try {
-      const res = await fetch(`${apiBase}/.netlify/functions/admin-product-reviews`, {
+      const res = await fetch(`${functionsBase}/admin-product-reviews`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: authHeader },
         body: JSON.stringify({ id, status }),

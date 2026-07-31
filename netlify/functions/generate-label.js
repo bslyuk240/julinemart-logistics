@@ -2,6 +2,8 @@
 // Creates a branded PDF shipping label with barcode
 
 import { createClient } from '@supabase/supabase-js';
+import QRCode from 'qrcode';
+import { resolveSender } from './services/resolveSender.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
@@ -22,7 +24,7 @@ const JULINEMART_LOGO = 'https://res.cloudinary.com/dupgdbwrt/image/upload/v1759
 const FEZ_LOGO = 'https://res.cloudinary.com/dupgdbwrt/image/upload/v1764293124/icon-512x512.png_2_er5opu.png';
 
 // Generate simple HTML label
-function generateLabelHTML(labelData) {
+async function generateLabelHTML(labelData) {
   const {
     tracking_number,
     order_number,
@@ -40,6 +42,16 @@ function generateLabelHTML(labelData) {
     created_date,
     lane,
   } = labelData;
+
+  // A phone camera reads a QR code far more reliably than a 1D barcode at
+  // handling angles/distances, and the mobile scanner (Phase 3) decodes this
+  // exact string against sub_orders.tracking_number to look the order up.
+  const qrSvg = await QRCode.toString(tracking_number, {
+    type: 'svg',
+    margin: 0,
+    width: 96,
+    errorCorrectionLevel: 'M',
+  });
 
   const isFezLane = lane !== 'local_rider';
   const laneBadge = isFezLane
@@ -177,24 +189,13 @@ function generateLabelHTML(labelData) {
     }
     .barcode {
       display: inline-block;
-      background: repeating-linear-gradient(
-        90deg,
-        #000 0px,
-        #000 2px,
-        #fff 2px,
-        #fff 4px,
-        #000 4px,
-        #000 5px,
-        #fff 5px,
-        #fff 8px,
-        #000 8px,
-        #000 10px,
-        #fff 10px,
-        #fff 11px
-      );
-      width: 220px;
-      height: 50px;
-      border: 1px solid #000;
+      width: 96px;
+      height: 96px;
+      line-height: 0;
+    }
+    .barcode svg {
+      width: 96px;
+      height: 96px;
     }
     .barcode-text {
       font-size: 10px;
@@ -343,7 +344,7 @@ function generateLabelHTML(labelData) {
     
     <!-- Barcode -->
     <div class="barcode-section">
-      <div class="barcode"></div>
+      <div class="barcode">${qrSvg}</div>
       <div class="barcode-text">${tracking_number}</div>
     </div>
 
@@ -514,31 +515,15 @@ exports.handler = async (event) => {
       return sum + (Number(item.weight || 0) * Number(item.quantity || 1));
     }, 0);
 
+    const sender = resolveSender(subOrder);
+
     const labelData = {
       tracking_number: subOrder.tracking_number,
       order_number: subOrder.orders.order_number,
-      // Sender address: vendor's shop for fez_pickup, dispatch hub for hub_dropoff.
-      // If vendor's hub is a sub-hub, the parcel is consolidated at the parent (main) hub
-      // before Fez collects — so the label sender is the main hub.
-      ...(subOrder.vendors?.fez_collection_method === 'fez_pickup'
-        ? {
-            sender_name:    subOrder.vendors.store_name || subOrder.hubs?.name || 'JulineMart',
-            sender_address: subOrder.vendors.address    || subOrder.hubs?.address || '',
-            sender_city:    `${subOrder.vendors.city || ''}, ${subOrder.vendors.state || ''}`.replace(/^,\s*|,\s*$/, ''),
-            sender_phone:   subOrder.vendors.phone      || subOrder.hubs?.phone || '',
-          }
-        : (() => {
-            const senderHub = subOrder.hubs?.is_sub_hub && subOrder.hubs?.parent_hub
-              ? subOrder.hubs.parent_hub
-              : subOrder.hubs;
-            return {
-              sender_name:    senderHub?.name    || 'JulineMart',
-              sender_address: senderHub?.address || '',
-              sender_city:    `${senderHub?.city || ''}, ${senderHub?.state || ''}`.replace(/^,\s*|,\s*$/, ''),
-              sender_phone:   senderHub?.phone   || '',
-            };
-          })()
-      ),
+      sender_name: sender.name,
+      sender_address: sender.address,
+      sender_city: `${sender.city}, ${sender.state}`.replace(/^,\s*|,\s*$/, ''),
+      sender_phone: sender.phone,
       recipient_name: subOrder.orders.customer_name,
       recipient_address: subOrder.orders.delivery_address,
       recipient_city: subOrder.orders.delivery_city,
@@ -555,7 +540,7 @@ exports.handler = async (event) => {
     };
 
     // Generate HTML
-    const labelHTML = generateLabelHTML(labelData);
+    const labelHTML = await generateLabelHTML(labelData);
 
     // Return HTML (can be printed as PDF by browser)
     return {

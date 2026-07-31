@@ -28,6 +28,7 @@ import MobileManualShipmentDetail from './dashboard/mobile/screens/ManualShipmen
 import MobileCreateManualShipment from './dashboard/mobile/screens/CreateManualShipment';
 import MobileRefundDetail from './dashboard/mobile/screens/RefundDetail';
 import MobilePushNotifications from './dashboard/mobile/screens/PushNotifications';
+import MobileNotifications from './dashboard/mobile/screens/Notifications';
 import MobilePushNotificationCompose from './dashboard/mobile/screens/PushNotificationCompose';
 import MobilePushNotificationDetail from './dashboard/mobile/screens/PushNotificationDetail';
 import MobilePushTokenRegistry from './dashboard/mobile/screens/PushTokenRegistry';
@@ -209,6 +210,11 @@ function RefundDetailRoute() {
 function NotificationsRoute() {
   const isMobile = useIsMobile();
   return isMobile ? <MobilePushNotifications /> : <NotificationsPage />;
+}
+
+function InboxRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileNotifications /> : <Navigate to="/admin/dashboard" replace />;
 }
 
 function NotificationsNewRoute() {
@@ -446,6 +452,7 @@ const sharedRoutes = [
   { path: 'refunds/:id', element: <RefundDetailRoute /> },
   { path: 'more', element: <MoreMenu /> },
   { path: 'profile', element: <ProfileRoute /> },
+  { path: 'inbox', element: <InboxRoute /> },
   { path: 'notifications', element: <NotificationsRoute /> },
   { path: 'orders/:id', element: <OrderDetailsRoute /> },
   { path: 'rates', element: <ShippingRatesRoute /> },

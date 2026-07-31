@@ -26,7 +26,7 @@ export function TabBar() {
     <nav
       role="tablist"
       aria-label="Main"
-      className="fixed inset-x-0 bottom-0 z-40 grid border-t border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
+      className="fixed inset-x-0 bottom-0 z-30 grid border-t border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900"
       style={{
         gridTemplateColumns: `repeat(${tabs.length + 1}, minmax(0, 1fr))`,
         paddingBottom: 'max(env(safe-area-inset-bottom), 8px)',

@@ -24,6 +24,7 @@ const MOBILE_NATIVE_PATHS = new Set([
   '/admin/dispatch/hub',
   '/admin/support',
   '/admin/refunds',
+  '/admin/inbox',
   '/admin/notifications',
   '/admin/notifications/new',
   '/admin/notifications/tokens',

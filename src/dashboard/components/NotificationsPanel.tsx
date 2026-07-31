@@ -1,8 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Bell, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useIsMobile } from '../hooks/useIsMobile';
+import {
+  ACTIVITY_NOTIFICATIONS_CLEARED_KEY,
+  ACTIVITY_NOTIFICATIONS_READ_KEY,
+  loadNotificationIdSet,
+  saveNotificationIdSet,
+  shouldShowActivityNotification,
+  type ActivityLogRow,
+} from '../lib/activityNotifications';
 
 interface Notification {
   id: string;
@@ -15,45 +23,22 @@ interface Notification {
   iconSymbol?: string;
 }
 
-interface ActivityLog {
-  id: string;
-  action: string;
-  resource_type: string;
-  resource_id?: string;
-  details: Record<string, unknown> | string | null;
-  description?: string | null;
-  metadata?: Record<string, unknown> | null;
-  created_at: string;
-}
+type ActivityLog = ActivityLogRow;
 
 export function NotificationsPanel() {
   const { session } = useAuth();
   const isMobile = useIsMobile();
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
-  const STORAGE_KEY = 'jm_dashboard_cleared_notifications_v1';
 
-  const loadClearedIds = () => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return new Set<string>();
-      const parsed = JSON.parse(raw);
-      return new Set<string>(Array.isArray(parsed) ? parsed : []);
-    } catch {
-      return new Set<string>();
-    }
-  };
-
-  const saveClearedIds = (ids: Set<string>) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(ids)));
-    } catch {
-      // ignore storage errors
-    }
-  };
-
-  const [clearedIds, setClearedIds] = useState<Set<string>>(() => loadClearedIds());
+  const [clearedIds, setClearedIds] = useState<Set<string>>(() =>
+    loadNotificationIdSet(ACTIVITY_NOTIFICATIONS_CLEARED_KEY),
+  );
+  const [readIds, setReadIds] = useState<Set<string>>(() =>
+    loadNotificationIdSet(ACTIVITY_NOTIFICATIONS_READ_KEY),
+  );
 
   const toTitleCase = (value: string) =>
     value
@@ -223,23 +208,14 @@ export function NotificationsPanel() {
       message,
       bulletEmoji,
       timestamp: new Date(log.created_at),
-      read: false,
+      read: readIds.has(log.id),
       iconSymbol,
     };
   }
 
-  const shouldShowLog = (log: ActivityLog) => {
-    const actionLower = log.action?.toLowerCase() || '';
-    const resourceLower = log.resource_type?.toLowerCase() || '';
-    return (
-      actionLower.includes('order') ||
-      actionLower.includes('tracking') ||
-      actionLower.includes('refund') ||
-      resourceLower.includes('order') ||
-      resourceLower.includes('return') ||
-      resourceLower.includes('refund')
-    );
-  };
+  useEffect(() => {
+    setReadIds(loadNotificationIdSet(ACTIVITY_NOTIFICATIONS_READ_KEY));
+  }, [isOpen]);
 
   useEffect(() => {
     let mounted = true;
@@ -253,7 +229,7 @@ export function NotificationsPanel() {
         if (mounted && data.success && Array.isArray(data.data)) {
           const filtered = (data.data as ActivityLog[])
             .filter((log) => !clearedIds.has(log.id))
-            .filter((log) => shouldShowLog(log));
+            .filter((log) => shouldShowActivityNotification(log));
           const mapped = filtered.map((log) => formatNotification(log));
           setNotifications(mapped);
         }
@@ -262,19 +238,33 @@ export function NotificationsPanel() {
       }
     };
     fetchNotifications();
+    const interval = isMobile ? window.setInterval(fetchNotifications, 60_000) : undefined;
     return () => {
       mounted = false;
+      if (interval) window.clearInterval(interval);
     };
-  }, [functionsBase, clearedIds]);
+  }, [functionsBase, clearedIds, readIds, session?.access_token, isMobile]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const markAsRead = (id: string) => {
     setNotifications((prev) => prev.map((notif) => (notif.id === id ? { ...notif, read: true } : notif)));
+    setReadIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      saveNotificationIdSet(ACTIVITY_NOTIFICATIONS_READ_KEY, next);
+      return next;
+    });
   };
 
   const markAllAsRead = () => {
     setNotifications((prev) => prev.map((notif) => ({ ...notif, read: true })));
+    setReadIds((prev) => {
+      const next = new Set(prev);
+      notifications.forEach((n) => next.add(n.id));
+      saveNotificationIdSet(ACTIVITY_NOTIFICATIONS_READ_KEY, next);
+      return next;
+    });
   };
 
   const clearNotification = (id: string) => {
@@ -282,7 +272,7 @@ export function NotificationsPanel() {
     setClearedIds((prev) => {
       const next = new Set(prev);
       next.add(id);
-      saveClearedIds(next);
+      saveNotificationIdSet(ACTIVITY_NOTIFICATIONS_CLEARED_KEY, next);
       return next;
     });
   };
@@ -292,7 +282,7 @@ export function NotificationsPanel() {
     setClearedIds((prev) => {
       const next = new Set(prev);
       notifications.forEach((n) => next.add(n.id));
-      saveClearedIds(next);
+      saveNotificationIdSet(ACTIVITY_NOTIFICATIONS_CLEARED_KEY, next);
       return next;
     });
   };
@@ -316,11 +306,17 @@ export function NotificationsPanel() {
     return `${Math.floor(seconds / 86400)}d ago`;
   };
 
+  const openInbox = () => {
+    navigate('/admin/inbox');
+  };
+
   return (
     <div className="relative">
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="relative rounded-lg p-2 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+        type="button"
+        onClick={() => (isMobile ? openInbox() : setIsOpen((open) => !open))}
+        aria-label={isMobile ? 'Open notifications inbox' : 'Toggle notifications'}
+        className="relative rounded-lg p-2 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-gray-100"
       >
         <Bell className="h-6 w-6" />
         {unreadCount > 0 && (
@@ -330,7 +326,7 @@ export function NotificationsPanel() {
         )}
       </button>
 
-      {isOpen && (
+      {!isMobile && isOpen && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
 
@@ -400,17 +396,6 @@ export function NotificationsPanel() {
               )}
             </div>
 
-            {isMobile && (
-              <div className="border-t border-gray-100 p-3">
-                <Link
-                  to="/admin/notifications"
-                  onClick={() => setIsOpen(false)}
-                  className="block text-center text-sm font-medium text-primary-600"
-                >
-                  See all notifications
-                </Link>
-              </div>
-            )}
           </div>
         </>
       )}

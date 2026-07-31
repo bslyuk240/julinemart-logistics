@@ -26,8 +26,17 @@ function forbidden(message) {
   };
 }
 
+function staffAuthFailure(staffAuth) {
+  return {
+    ok: false,
+    statusCode: staffAuth.errorResponse.statusCode,
+    body: staffAuth.errorResponse.body,
+  };
+}
+
 /**
  * Staff read access — rejects vendors and unauthenticated callers.
+ * Staff JWT is checked first so dual staff/vendor accounts are not blocked.
  * @returns {{ ok: true, profile? } | { ok: false, statusCode: number, body: string }}
  */
 export async function assertStaffCanReadShipments(event) {
@@ -36,21 +45,17 @@ export async function assertStaffCanReadShipments(event) {
     return unauthorized('Staff authentication required.');
   }
 
+  const staffAuth = await requireAdmin(event, STAFF_READ_ROLES);
+  if (!staffAuth.errorResponse) {
+    return { ok: true, profile: staffAuth.profile };
+  }
+
   const vendorAuth = await authenticateVendor(event);
   if (!vendorAuth.error) {
     return forbidden('This resource is staff-only.');
   }
 
-  const staffAuth = await requireAdmin(event, STAFF_READ_ROLES);
-  if (staffAuth.errorResponse) {
-    return {
-      ok: false,
-      statusCode: staffAuth.errorResponse.statusCode,
-      body: staffAuth.errorResponse.body,
-    };
-  }
-
-  return { ok: true, profile: staffAuth.profile };
+  return staffAuthFailure(staffAuth);
 }
 
 /**
@@ -60,27 +65,23 @@ export async function assertStaffCanReadShipments(event) {
 export async function assertStaffCanCreateShipment(event) {
   const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
 
-  if (authHeader.startsWith('Bearer ')) {
-    const vendorAuth = await authenticateVendor(event);
-    if (!vendorAuth.error) {
-      return forbidden(
-        'Vendors cannot create courier shipments. Mark the order ready in your portal; JulineMart staff will create the shipment.',
-      );
-    }
+  if (!authHeader.startsWith('Bearer ')) {
+    return unauthorized('Staff authentication required to create courier shipments.');
+  }
 
-    const staffAuth = await requireAdmin(event, STAFF_WRITE_ROLES);
-    if (staffAuth.errorResponse) {
-      return {
-        ok: false,
-        statusCode: staffAuth.errorResponse.statusCode,
-        body: staffAuth.errorResponse.body,
-      };
-    }
-
+  const staffAuth = await requireAdmin(event, STAFF_WRITE_ROLES);
+  if (!staffAuth.errorResponse) {
     return { ok: true };
   }
 
-  return unauthorized('Staff authentication required to create courier shipments.');
+  const vendorAuth = await authenticateVendor(event);
+  if (!vendorAuth.error) {
+    return forbidden(
+      'Vendors cannot create courier shipments. Mark the order ready in your portal; JulineMart staff will create the shipment.',
+    );
+  }
+
+  return staffAuthFailure(staffAuth);
 }
 
 /**
@@ -130,7 +131,7 @@ export async function assertWaybillAccess(event, { subOrderId, returnShipmentId,
     };
   }
 
-  if (subOrder.vendor_id && subOrder.vendor_id !== vendorAuth.vendor.id) {
+  if (!subOrder.vendor_id || subOrder.vendor_id !== vendorAuth.vendor.id) {
     return forbidden('Forbidden');
   }
 

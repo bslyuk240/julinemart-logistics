@@ -109,17 +109,15 @@ export function useAdminShellEffects() {
   }, []);
 
   const canInstallApp = !isInstalled;
+  const hasInstallPrompt = installPromptEvent !== null;
 
   const handleInstallApp = async () => {
-    if (!installPromptEvent) {
-      window.alert('To install, open your browser menu and tap "Add to Home screen".');
-      return;
-    }
+    if (!installPromptEvent) return;
 
     await installPromptEvent.prompt();
     await installPromptEvent.userChoice;
     setInstallPromptEvent(null);
   };
 
-  return { canInstallApp, handleInstallApp, isInstalled };
+  return { canInstallApp, handleInstallApp, hasInstallPrompt, isInstalled };
 }

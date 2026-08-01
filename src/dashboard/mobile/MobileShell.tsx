@@ -6,7 +6,7 @@ import { NotificationsPanel } from '../components/NotificationsPanel';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
-import { useAdminShellEffects } from '../hooks/useAdminShellEffects';
+import { AdminInstallBanner } from './AdminInstallBanner';
 import { TabBar } from './TabBar';
 import { DeskOnlyNotice } from './DeskOnlyNotice';
 
@@ -81,7 +81,6 @@ function isMobileNativeRoute(pathname: string): boolean {
 export function MobileShell({ children }: MobileShellProps) {
   const { user, signOut } = useAuth();
   const { isDark } = useTheme();
-  useAdminShellEffects();
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -187,6 +186,8 @@ export function MobileShell({ children }: MobileShellProps) {
           )}
         </div>
       </header>
+
+      <AdminInstallBanner />
 
       <main
         className="admin-main-scroll min-h-0 flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-950"

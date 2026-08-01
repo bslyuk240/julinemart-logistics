@@ -94,13 +94,23 @@ export async function handler(event) {
     return `PWA: ${pwaUrl}`;
   })();
 
+  const supabaseUrlSet = envSet('SUPABASE_URL') || envSet('VITE_SUPABASE_URL');
+  const supabaseKeySet = envSet('SUPABASE_SERVICE_ROLE_KEY');
+  const supabaseDetail = (() => {
+    if (!supabaseUrlSet && !supabaseKeySet) return 'Missing URL and SUPABASE_SERVICE_ROLE_KEY';
+    if (!supabaseUrlSet) return 'Missing SUPABASE_URL or VITE_SUPABASE_URL';
+    if (!supabaseKeySet) return 'Missing SUPABASE_SERVICE_ROLE_KEY';
+    if (!envSet('SUPABASE_URL') && envSet('VITE_SUPABASE_URL')) return 'URL from VITE_SUPABASE_URL';
+    return null;
+  })();
+
   const checks = [
-    integrationCheck('supabase', 'Supabase', envSet('SUPABASE_URL') && envSet('SUPABASE_SERVICE_ROLE_KEY')),
+    integrationCheck('supabase', 'Supabase', supabaseUrlSet && supabaseKeySet, supabaseDetail),
     integrationCheck(
       'paystack',
       'Paystack',
       envSet('PAYSTACK_SECRET_KEY'),
-      envSet('PAYSTACK_PUBLIC_KEY') ? 'Public key set' : 'Missing PAYSTACK_PUBLIC_KEY',
+      envSet('PAYSTACK_PUBLIC_KEY') ? 'Public key set' : 'Public key optional here (storefront checkout)',
     ),
     integrationCheck(
       'fez',
@@ -129,8 +139,10 @@ export async function handler(event) {
     integrationCheck(
       'webhook_secret',
       'Shared webhook secret',
-      envSet('WEBHOOK_SECRET'),
-      'Used where signature validation applies',
+      true,
+      envSet('WEBHOOK_SECRET')
+        ? 'Configured for signature validation where applicable'
+        : 'Optional — active webhooks use dedicated secrets',
     ),
     integrationCheck(
       'cj',

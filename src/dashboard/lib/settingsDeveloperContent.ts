@@ -241,7 +241,7 @@ export const ENV_VAR_GROUPS: EnvVarGroup[] = [
     vars: [
       { key: 'PAYSTACK_SECRET_KEY', note: 'Paystack webhook signature', serverOnly: true },
       { key: 'PAYSTACK_PUBLIC_KEY', note: 'Client checkout (PWA)' },
-      { key: 'WEBHOOK_SECRET', note: 'Shared webhook HMAC where applicable', serverOnly: true },
+      { key: 'WEBHOOK_SECRET', note: 'Optional — unused by active functions; dedicated secrets per webhook', serverOnly: true },
       { key: 'ORDER_EMAIL_WEBHOOK_SECRET', note: 'Bearer token for notify-order-confirmation', serverOnly: true },
     ],
   },

@@ -40,7 +40,6 @@ export function scanCodeVariants(raw) {
   const upper = base.toUpperCase();
   if (upper !== base) variants.push(upper);
 
-  // Waybill numbers are uppercase; also try without accidental spaces around dashes.
   const compact = base.replace(/\s+/g, '');
   if (compact !== base) variants.push(compact, compact.toUpperCase());
 
@@ -67,15 +66,21 @@ const SUB_ORDER_SELECT = `
   )
 `;
 
-async function firstMatch(supabase, table, select, field, value, { ilike = false } = {}) {
+async function firstMatch(supabase, table, select, field, value, { ilike = false, hubIds = null } = {}) {
   let query = supabase.from(table).select(select).limit(1);
   query = ilike ? query.ilike(field, value) : query.eq(field, value);
+  if (hubIds?.length) query = query.in('hub_id', hubIds);
   const { data, error } = await query.maybeSingle();
   if (error) {
-    console.error(`scanLookup ${table}.${field}:`, error.message, { value });
+    console.error(`scanLookup ${table}.${field}:`, error.message, { value, hubIds });
     return null;
   }
   return data || null;
+}
+
+function hubMismatchForRow(row, hubIds) {
+  if (!row?.hub_id || !hubIds?.length) return false;
+  return !hubIds.includes(row.hub_id);
 }
 
 export async function findManualShipmentByScan(supabase, rawCode) {
@@ -100,27 +105,63 @@ export async function findManualShipmentByScan(supabase, rawCode) {
   return null;
 }
 
-export async function findSubOrderByScan(supabase, rawCode, allHubIds) {
+/**
+ * Resolve an order sub-shipment from a scanned label or waybill QR.
+ * Waybill numbers (JLO-WB-…) are globally unique — looked up without hub filter first.
+ * Tracking numbers try the selected hub first, then fall back to a global search.
+ */
+export async function findSubOrderByScan(supabase, rawCode, hubIds) {
   const variants = scanCodeVariants(rawCode);
-  if (!variants.length || !allHubIds?.length) return null;
+  if (!variants.length) return { row: null, hubMismatch: false };
 
+  // 1. Formal waybill QR — global unique waybill_number
   for (const ref of variants) {
-    for (const field of ['tracking_number', 'courier_waybill', 'waybill_number']) {
-      const { data, error } = await supabase
-        .from('sub_orders')
-        .select(SUB_ORDER_SELECT)
-        .eq(field, ref)
-        .in('hub_id', allHubIds)
-        .limit(1)
-        .maybeSingle();
-
-      if (error) {
-        console.error(`scanLookup sub_orders.${field}:`, error.message, { ref });
-        continue;
-      }
-      if (data) return data;
+    for (const ilike of [false, true]) {
+      const row = await firstMatch(supabase, 'sub_orders', SUB_ORDER_SELECT, 'waybill_number', ref, { ilike });
+      if (row) return { row, hubMismatch: hubMismatchForRow(row, hubIds) };
     }
   }
 
-  return null;
+  // 2. Shipping-label QR — prefer current hub, then anywhere
+  for (const ref of variants) {
+    for (const field of ['tracking_number', 'courier_waybill']) {
+      if (hubIds?.length) {
+        const row = await firstMatch(supabase, 'sub_orders', SUB_ORDER_SELECT, field, ref, { hubIds });
+        if (row) return { row, hubMismatch: false };
+      }
+
+      const row = await firstMatch(supabase, 'sub_orders', SUB_ORDER_SELECT, field, ref);
+      if (row) return { row, hubMismatch: hubMismatchForRow(row, hubIds) };
+    }
+  }
+
+  return { row: null, hubMismatch: false };
+}
+
+export async function resolveScanMatch(supabase, rawCode, hubIds) {
+  const code = normalizeScanCode(rawCode);
+  if (!code) return { code: '', match: null };
+
+  // Order waybills first — dispatch screen is order-centric; waybill numbers never overlap tables.
+  const { row: subOrder, hubMismatch: subHubMismatch } = await findSubOrderByScan(supabase, code, hubIds);
+  if (subOrder) {
+    return {
+      code,
+      match: { type: 'sub_order', data: subOrder, hubMismatch: subHubMismatch },
+    };
+  }
+
+  const manualShipment = await findManualShipmentByScan(supabase, code);
+  if (manualShipment) {
+    const hubMismatch = hubMismatchForRow(
+      { hub_id: manualShipment.sender_hub_id },
+      hubIds,
+    );
+    return {
+      code,
+      match: { type: 'manual_shipment', data: manualShipment, hubMismatch },
+    };
+  }
+
+  return { code, match: null };
 }

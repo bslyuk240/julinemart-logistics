@@ -1,10 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { assertStaffCanReadShipments } from './services/shipmentAccess.js';
-import {
-  findManualShipmentByScan,
-  findSubOrderByScan,
-  normalizeScanCode,
-} from './services/scanLookup.js';
+import { normalizeScanCode, resolveScanMatch } from './services/scanLookup.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -66,40 +62,13 @@ export async function handler(event) {
       };
     }
 
-    // Manual shipments first — formal waybill QR encodes waybill_number (JLO-WB-…).
-    const manualShipment = await findManualShipmentByScan(supabase, code);
-
-    let subOrder = null;
-    if (!manualShipment && hubId) {
-      const allHubIds = await hubIdsForDispatch(hubId);
-      subOrder = await findSubOrderByScan(supabase, code, allHubIds);
-    }
-
-    if (!subOrder && !manualShipment) {
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ success: true, code, match: null }),
-      };
-    }
-
-    let hubMismatch = false;
-    if (manualShipment && hubId) {
-      const allHubIds = await hubIdsForDispatch(hubId);
-      const senderHub = manualShipment.sender_hub_id;
-      hubMismatch = Boolean(senderHub && !allHubIds.includes(senderHub));
-    }
+    const hubIds = hubId ? await hubIdsForDispatch(hubId) : null;
+    const result = await resolveScanMatch(supabase, code, hubIds);
 
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({
-        success: true,
-        code,
-        match: subOrder
-          ? { type: 'sub_order', data: subOrder, hubMismatch: false }
-          : { type: 'manual_shipment', data: manualShipment, hubMismatch },
-      }),
+      body: JSON.stringify({ success: true, ...result }),
     };
   } catch (error) {
     console.error('scan-waybill error:', error);

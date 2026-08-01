@@ -520,6 +520,11 @@ export default function MobileDispatch() {
                   {scanResult.match.data.orders?.customer_name || '—'}
                 </div>
               </div>
+              {scanResult.match.hubMismatch && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  This order belongs to a different hub, but the scan is valid.
+                </p>
+              )}
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
                 <dt className="text-gray-500">Order</dt>
                 <dd className="font-medium text-gray-900">{orderLabelFromRow(scanResult.match.data)}</dd>

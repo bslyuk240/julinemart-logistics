@@ -539,7 +539,11 @@ export default function MobileDispatch() {
               </dl>
               <button
                 type="button"
-                onClick={() => openOrder(scanResult.match!.data.main_order_id)}
+                onClick={() => {
+                  if (scanResult.match?.type === 'sub_order') {
+                    openOrder(scanResult.match.data.main_order_id);
+                  }
+                }}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 py-3 text-sm font-semibold text-white"
               >
                 View order
@@ -573,7 +577,11 @@ export default function MobileDispatch() {
               </dl>
               <button
                 type="button"
-                onClick={() => navigate(`/admin/manual-shipments/${scanResult.match!.data.id}`)}
+                onClick={() => {
+                  if (scanResult.match?.type === 'manual_shipment') {
+                    navigate(`/admin/manual-shipments/${scanResult.match.data.id}`);
+                  }
+                }}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 py-3 text-sm font-semibold text-white"
               >
                 View manual shipment

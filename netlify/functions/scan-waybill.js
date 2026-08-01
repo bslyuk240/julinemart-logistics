@@ -1,9 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 import { assertStaffCanReadShipments } from './services/shipmentAccess.js';
+import {
+  findManualShipmentByScan,
+  findSubOrderByScan,
+  normalizeScanCode,
+} from './services/scanLookup.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '',
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.VITE_SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_KEY ||
+    '',
 );
 
 const headers = {
@@ -12,27 +20,6 @@ const headers = {
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Content-Type': 'application/json',
 };
-
-const SUB_ORDER_SELECT = `
-  id,
-  main_order_id,
-  hub_id,
-  tracking_number,
-  courier_waybill,
-  waybill_number,
-  metadata,
-  vendors ( store_name ),
-  orders:main_order_id (
-    woocommerce_order_id,
-    order_number,
-    customer_name,
-    delivery_city,
-    delivery_state
-  )
-`;
-
-const MANUAL_SELECT =
-  'id, shipment_code, recipient, sender, status, tracking_number, waybill_number, courier_waybill, sender_hub_id';
 
 async function hubIdsForDispatch(hubId) {
   const { data: subHubRows } = await supabase
@@ -43,48 +30,6 @@ async function hubIdsForDispatch(hubId) {
 
   const subHubIds = (subHubRows || []).map((h) => h.id);
   return [hubId, ...subHubIds];
-}
-
-async function findSubOrder(code, allHubIds) {
-  const ref = String(code || '').trim();
-  if (!ref) return null;
-
-  for (const field of ['tracking_number', 'courier_waybill', 'waybill_number']) {
-    const { data } = await supabase
-      .from('sub_orders')
-      .select(SUB_ORDER_SELECT)
-      .eq(field, ref)
-      .in('hub_id', allHubIds)
-      .maybeSingle();
-
-    if (data) return data;
-  }
-
-  return null;
-}
-
-async function findManualShipment(code) {
-  const ref = String(code || '').trim();
-  if (!ref) return null;
-
-  const selectors = [
-    () => supabase.from('manual_shipments').select(MANUAL_SELECT).eq('waybill_number', ref).maybeSingle(),
-    () => supabase.from('manual_shipments').select(MANUAL_SELECT).eq('tracking_number', ref).maybeSingle(),
-    () => supabase.from('manual_shipments').select(MANUAL_SELECT).eq('courier_waybill', ref).maybeSingle(),
-    () =>
-      supabase
-        .from('manual_shipments')
-        .select(MANUAL_SELECT)
-        .eq('shipment_code', ref.toUpperCase())
-        .maybeSingle(),
-  ];
-
-  for (const run of selectors) {
-    const { data } = await run();
-    if (data) return data;
-  }
-
-  return null;
 }
 
 export async function handler(event) {
@@ -110,7 +55,7 @@ export async function handler(event) {
       event.rawUrl ||
       `http://localhost${event.path}${event.queryStringParameters ? `?${new URLSearchParams(event.queryStringParameters).toString()}` : ''}`;
     const url = new URL(rawUrl);
-    const code = (url.searchParams.get('code') || '').trim();
+    const code = normalizeScanCode(url.searchParams.get('code') || '');
     const hubId = url.searchParams.get('hubId');
 
     if (!code) {
@@ -121,30 +66,28 @@ export async function handler(event) {
       };
     }
 
+    // Manual shipments first — formal waybill QR encodes waybill_number (JLO-WB-…).
+    const manualShipment = await findManualShipmentByScan(supabase, code);
+
     let subOrder = null;
-    let manualShipment = null;
-    let hubMismatch = false;
-
-    if (hubId) {
+    if (!manualShipment && hubId) {
       const allHubIds = await hubIdsForDispatch(hubId);
-      subOrder = await findSubOrder(code, allHubIds);
-    }
-
-    if (!subOrder) {
-      manualShipment = await findManualShipment(code);
-      if (manualShipment && hubId) {
-        const allHubIds = await hubIdsForDispatch(hubId);
-        const senderHub = manualShipment.sender_hub_id;
-        hubMismatch = Boolean(senderHub && !allHubIds.includes(senderHub));
-      }
+      subOrder = await findSubOrderByScan(supabase, code, allHubIds);
     }
 
     if (!subOrder && !manualShipment) {
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ success: true, match: null }),
+        body: JSON.stringify({ success: true, code, match: null }),
       };
+    }
+
+    let hubMismatch = false;
+    if (manualShipment && hubId) {
+      const allHubIds = await hubIdsForDispatch(hubId);
+      const senderHub = manualShipment.sender_hub_id;
+      hubMismatch = Boolean(senderHub && !allHubIds.includes(senderHub));
     }
 
     return {
@@ -152,6 +95,7 @@ export async function handler(event) {
       headers,
       body: JSON.stringify({
         success: true,
+        code,
         match: subOrder
           ? { type: 'sub_order', data: subOrder, hubMismatch: false }
           : { type: 'manual_shipment', data: manualShipment, hubMismatch },

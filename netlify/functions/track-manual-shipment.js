@@ -6,6 +6,7 @@
  */
 
 import { adminClient } from './services/global-sourcing-utils.js';
+import { findManualShipmentByScan, normalizeScanCode } from './services/scanLookup.js';
 
 const corsHeaders = {
   'Content-Type': 'application/json',
@@ -28,22 +29,8 @@ function phonesMatch(stored, provided) {
 }
 
 async function findManualShipment(trackingNumber) {
-  const ref = String(trackingNumber || '').trim();
-  if (!ref) return null;
-
-  const selectors = [
-    () => adminClient.from('manual_shipments').select('*').eq('waybill_number', ref).maybeSingle(),
-    () => adminClient.from('manual_shipments').select('*').eq('tracking_number', ref).maybeSingle(),
-    () => adminClient.from('manual_shipments').select('*').eq('courier_waybill', ref).maybeSingle(),
-    () => adminClient.from('manual_shipments').select('*').eq('shipment_code', ref.toUpperCase()).maybeSingle(),
-  ];
-
-  for (const run of selectors) {
-    const { data } = await run();
-    if (data) return data;
-  }
-
-  return null;
+  if (!adminClient) return null;
+  return findManualShipmentByScan(adminClient, trackingNumber);
 }
 
 export async function handler(event) {
@@ -53,12 +40,13 @@ export async function handler(event) {
   }
 
   const { trackingNumber, phone } = event.queryStringParameters || {};
+  const normalizedTracking = normalizeScanCode(trackingNumber || '');
 
   if (!adminClient) {
     return { statusCode: 503, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'Database not configured' }) };
   }
 
-  if (!trackingNumber || !phone) {
+  if (!normalizedTracking || !phone) {
     return {
       statusCode: 400,
       headers: corsHeaders,
@@ -66,7 +54,7 @@ export async function handler(event) {
     };
   }
 
-  const shipment = await findManualShipment(trackingNumber);
+  const shipment = await findManualShipment(normalizedTracking);
   if (!shipment) {
     return {
       statusCode: 200,

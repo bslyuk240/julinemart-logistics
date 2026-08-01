@@ -8,6 +8,7 @@ import { Scanner } from '../Scanner';
 import { SectionLabel } from '../components/MobileDetailParts';
 import { TABBAR_SPACE, functionsAuthHeader, functionsBase } from '../lib/functionsAuth';
 import { formatNaira } from '../lib/displayUtils';
+import { normalizeScanCode } from '../lib/scanCode';
 
 type Hub = { id: string; name: string; city?: string | null };
 
@@ -91,12 +92,21 @@ export default function MobileDispatch() {
   const [riderInfo, setRiderInfo] = useState({ name: '', phone: '', vehicle: '' });
   const [assigningRider, setAssigningRider] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [scanResult, setScanResult] = useState<{ code: string; match: ScanMatch | null; resolving?: boolean } | null>(
-    null,
-  );
+  const [scanResult, setScanResult] = useState<{
+    code: string;
+    match: ScanMatch | null;
+    resolving?: boolean;
+    lookupError?: string;
+  } | null>(null);
 
-  const handleScanDetected = async (code: string) => {
+  const handleScanDetected = async (rawCode: string) => {
     setScannerOpen(false);
+    const code = normalizeScanCode(rawCode);
+    if (!code) {
+      notification.error('Scan Failed', 'Could not read a tracking or waybill code from that scan.');
+      return;
+    }
+
     setScanResult({ code, match: null, resolving: true });
 
     try {
@@ -106,13 +116,24 @@ export default function MobileDispatch() {
       const res = await fetch(`${functionsBase}/scan-waybill?${params}`, {
         headers: await functionsAuthHeader(),
       });
-      const payload = await res.json();
+
+      const rawBody = await res.text();
+      let payload: { success?: boolean; match?: ScanMatch | null; error?: string; code?: string } | null = null;
+      try {
+        payload = rawBody ? JSON.parse(rawBody) : null;
+      } catch {
+        throw new Error(
+          res.status === 404
+            ? 'Scan lookup service is not available yet — try again after the latest deploy finishes.'
+            : `Scan lookup failed (${res.status}).`,
+        );
+      }
 
       if (!res.ok || !payload?.success) {
         throw new Error(payload?.error || 'Unable to look up scanned code');
       }
 
-      setScanResult({ code, match: payload.match || null });
+      setScanResult({ code: payload.code || code, match: payload.match || null });
     } catch (err) {
       const fallback =
         subOrders.find(
@@ -124,10 +145,12 @@ export default function MobileDispatch() {
 
       if (fallback) {
         setScanResult({ code, match: { type: 'sub_order', data: fallback } });
-      } else {
-        notification.error('Scan Failed', err instanceof Error ? err.message : 'Unable to look up scanned code');
-        setScanResult({ code, match: null });
+        return;
       }
+
+      const message = err instanceof Error ? err.message : 'Unable to look up scanned code';
+      notification.error('Scan Failed', message);
+      setScanResult({ code, match: null, lookupError: message });
     }
   };
 
@@ -555,7 +578,14 @@ export default function MobileDispatch() {
           ) : (
             <div className="py-4 text-center">
               <p className="text-xs text-gray-500">{scanResult.code}</p>
-              <p className="mt-2 text-sm text-gray-600">No shipment matches that code.</p>
+              <p className="mt-2 text-sm text-gray-600">
+                {scanResult.lookupError || 'No shipment matches that waybill or tracking code.'}
+              </p>
+              {!scanResult.lookupError && (
+                <p className="mt-2 text-xs text-gray-400">
+                  Manual waybills use JLO-WB-… codes; shipping labels use the courier tracking number.
+                </p>
+              )}
             </div>
           ))
         )}

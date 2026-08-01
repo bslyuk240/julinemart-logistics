@@ -2,7 +2,7 @@
  * GET /.netlify/functions/track-manual-shipment?trackingNumber=IK0Y...&phone=08064205290
  *
  * Public endpoint — verify recipient phone, return manual shipment + tracking events.
- * trackingNumber matches tracking_number, courier_waybill, or shipment_code (MSH-...).
+ * trackingNumber matches waybill_number, tracking_number, courier_waybill, or shipment_code (MSH-...).
  */
 
 import { adminClient } from './services/global-sourcing-utils.js';
@@ -32,6 +32,7 @@ async function findManualShipment(trackingNumber) {
   if (!ref) return null;
 
   const selectors = [
+    () => adminClient.from('manual_shipments').select('*').eq('waybill_number', ref).maybeSingle(),
     () => adminClient.from('manual_shipments').select('*').eq('tracking_number', ref).maybeSingle(),
     () => adminClient.from('manual_shipments').select('*').eq('courier_waybill', ref).maybeSingle(),
     () => adminClient.from('manual_shipments').select('*').eq('shipment_code', ref.toUpperCase()).maybeSingle(),

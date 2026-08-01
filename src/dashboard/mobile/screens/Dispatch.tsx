@@ -62,6 +62,21 @@ function orderLabelFromRow(row: SubOrderRow) {
   return `#${row.main_order_id.slice(0, 8)}`;
 }
 
+type ScanMatch =
+  | { type: 'sub_order'; data: SubOrderRow; hubMismatch?: boolean }
+  | {
+      type: 'manual_shipment';
+      data: {
+        id: string;
+        shipment_code: string;
+        recipient?: { name?: string; city?: string; state?: string } | null;
+        status: string;
+        tracking_number?: string | null;
+        waybill_number?: string | null;
+      };
+      hubMismatch?: boolean;
+    };
+
 export default function MobileDispatch() {
   const navigate = useNavigate();
   const notification = useNotification();
@@ -76,12 +91,44 @@ export default function MobileDispatch() {
   const [riderInfo, setRiderInfo] = useState({ name: '', phone: '', vehicle: '' });
   const [assigningRider, setAssigningRider] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [scanResult, setScanResult] = useState<{ code: string; match: SubOrderRow | null } | null>(null);
+  const [scanResult, setScanResult] = useState<{ code: string; match: ScanMatch | null; resolving?: boolean } | null>(
+    null,
+  );
 
-  const handleScanDetected = (code: string) => {
+  const handleScanDetected = async (code: string) => {
     setScannerOpen(false);
-    const match = subOrders.find((row) => row.tracking_number === code) || null;
-    setScanResult({ code, match });
+    setScanResult({ code, match: null, resolving: true });
+
+    try {
+      const params = new URLSearchParams({ code });
+      if (selectedHubId) params.set('hubId', selectedHubId);
+
+      const res = await fetch(`${functionsBase}/scan-waybill?${params}`, {
+        headers: await functionsAuthHeader(),
+      });
+      const payload = await res.json();
+
+      if (!res.ok || !payload?.success) {
+        throw new Error(payload?.error || 'Unable to look up scanned code');
+      }
+
+      setScanResult({ code, match: payload.match || null });
+    } catch (err) {
+      const fallback =
+        subOrders.find(
+          (row) =>
+            row.tracking_number === code ||
+            (row as SubOrderRow & { waybill_number?: string; courier_waybill?: string }).waybill_number === code ||
+            (row as SubOrderRow & { courier_waybill?: string }).courier_waybill === code,
+        ) || null;
+
+      if (fallback) {
+        setScanResult({ code, match: { type: 'sub_order', data: fallback } });
+      } else {
+        notification.error('Scan Failed', err instanceof Error ? err.message : 'Unable to look up scanned code');
+        setScanResult({ code, match: null });
+      }
+    }
   };
 
   const fezGroups = useMemo<OrderGroup[]>(() => {
@@ -435,40 +482,83 @@ export default function MobileDispatch() {
       {scannerOpen && <Scanner onDetect={handleScanDetected} onClose={() => setScannerOpen(false)} />}
 
       <Sheet open={!!scanResult} onClose={() => setScanResult(null)} ariaLabel="Scan result">
-        {scanResult &&
-          (scanResult.match ? (
+        {scanResult?.resolving ? (
+          <div className="flex items-center justify-center gap-2 py-8 text-sm text-gray-500">
+            <Loader className="h-4 w-4 animate-spin" />
+            Looking up waybill…
+          </div>
+        ) : (
+          scanResult &&
+          (scanResult.match?.type === 'sub_order' ? (
             <>
               <div>
                 <div className="text-xs text-gray-500">{scanResult.code}</div>
                 <div className="mt-0.5 text-lg font-bold tracking-tight text-gray-900">
-                  {scanResult.match.orders?.customer_name || '—'}
+                  {scanResult.match.data.orders?.customer_name || '—'}
                 </div>
               </div>
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
                 <dt className="text-gray-500">Order</dt>
-                <dd className="font-medium text-gray-900">{orderLabelFromRow(scanResult.match)}</dd>
+                <dd className="font-medium text-gray-900">{orderLabelFromRow(scanResult.match.data)}</dd>
                 <dt className="text-gray-500">Destination</dt>
                 <dd className="text-gray-900">
-                  {[scanResult.match.orders?.delivery_city, scanResult.match.orders?.delivery_state].filter(Boolean).join(', ') || '—'}
+                  {[scanResult.match.data.orders?.delivery_city, scanResult.match.data.orders?.delivery_state]
+                    .filter(Boolean)
+                    .join(', ') || '—'}
                 </dd>
                 <dt className="text-gray-500">Vendor</dt>
-                <dd className="text-gray-900">{scanResult.match.vendors?.store_name || '—'}</dd>
+                <dd className="text-gray-900">{scanResult.match.data.vendors?.store_name || '—'}</dd>
               </dl>
               <button
                 type="button"
-                onClick={() => openOrder(scanResult.match!.main_order_id)}
+                onClick={() => openOrder(scanResult.match!.data.main_order_id)}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 py-3 text-sm font-semibold text-white"
               >
                 View order
                 <ArrowRight className="h-4 w-4" />
               </button>
             </>
+          ) : scanResult.match?.type === 'manual_shipment' ? (
+            <>
+              <div>
+                <div className="text-xs text-gray-500">{scanResult.code}</div>
+                <div className="mt-0.5 text-lg font-bold tracking-tight text-gray-900">Manual shipment</div>
+              </div>
+              {scanResult.match.hubMismatch && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  This shipment belongs to a different hub, but the waybill is valid.
+                </p>
+              )}
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                <dt className="text-gray-500">Code</dt>
+                <dd className="font-medium text-gray-900">{scanResult.match.data.shipment_code}</dd>
+                <dt className="text-gray-500">Recipient</dt>
+                <dd className="text-gray-900">{scanResult.match.data.recipient?.name || '—'}</dd>
+                <dt className="text-gray-500">Destination</dt>
+                <dd className="text-gray-900">
+                  {[scanResult.match.data.recipient?.city, scanResult.match.data.recipient?.state]
+                    .filter(Boolean)
+                    .join(', ') || '—'}
+                </dd>
+                <dt className="text-gray-500">Status</dt>
+                <dd className="capitalize text-gray-900">{scanResult.match.data.status.replace(/_/g, ' ')}</dd>
+              </dl>
+              <button
+                type="button"
+                onClick={() => navigate(`/admin/manual-shipments/${scanResult.match!.data.id}`)}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 py-3 text-sm font-semibold text-white"
+              >
+                View manual shipment
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </>
           ) : (
             <div className="py-4 text-center">
               <p className="text-xs text-gray-500">{scanResult.code}</p>
-              <p className="mt-2 text-sm text-gray-600">No shipment at this hub matches that code.</p>
+              <p className="mt-2 text-sm text-gray-600">No shipment matches that code.</p>
             </div>
-          ))}
+          ))
+        )}
       </Sheet>
     </>
   );

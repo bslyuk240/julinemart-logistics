@@ -3,6 +3,7 @@
 // - PWA_BASE_URL
 // - NOTIFICATIONS_ADMIN_SECRET (used only for non-single audiences)
 import { createClient } from '@supabase/supabase-js';
+import { sendPushViaPwa } from './services/pushSendProxy.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE_KEY =
@@ -33,6 +34,8 @@ const ALLOWED_AUDIENCES = new Set([
 const BULK_AUDIENCES = new Set(['all_customers', 'all_vendors', 'all_staff', 'segment']);
 const ALLOWED_TYPES = new Set(['order_update', 'product', 'promotion', 'general']);
 
+const SCHEDULE_BUFFER_MS = 60_000;
+
 const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const jsonResponse = (statusCode, body) => ({
@@ -41,8 +44,6 @@ const jsonResponse = (statusCode, body) => ({
   body: JSON.stringify(body),
 });
 
-const sanitizeBaseUrl = (url) => (url || '').replace(/\/+$/, '');
-
 const parseBody = (rawBody) => {
   if (!rawBody) return {};
   try {
@@ -50,23 +51,6 @@ const parseBody = (rawBody) => {
   } catch {
     return null;
   }
-};
-
-const asFiniteNumber = (value) => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) {
-    return Number(value);
-  }
-  return null;
-};
-
-const extractMetric = (source, keys) => {
-  if (!isRecord(source)) return null;
-  for (const key of keys) {
-    const found = asFiniteNumber(source[key]);
-    if (found !== null) return found;
-  }
-  return null;
 };
 
 const createSupabaseClients = () => {
@@ -105,7 +89,7 @@ const authenticateRequest = async (event) => {
     return { error: jsonResponse(403, { success: false, error: 'User profile inactive or missing' }) };
   }
 
-  return { profile };
+  return { profile, adminClient: clients.adminClient };
 };
 
 const validatePayload = (payload) => {
@@ -165,21 +149,11 @@ const validatePayload = (payload) => {
     message,
     type,
     ...(isRecord(payload.data) ? { data: payload.data } : {}),
-    ...(scheduleAt ? { scheduleAt } : {}),
     ...(audience === 'single' ? { customerId } : {}),
     ...(audience === 'segment' ? { segment } : {}),
   };
 
-  return { requestPayload, audience };
-};
-
-const buildPwaHeaders = (audience) => {
-  const upstreamHeaders = { 'Content-Type': 'application/json' };
-  if (BULK_AUDIENCES.has(audience)) {
-    if (!NOTIFICATIONS_ADMIN_SECRET) return { error: 'NOTIFICATIONS_ADMIN_SECRET is not configured' };
-    upstreamHeaders['x-notifications-admin-secret'] = NOTIFICATIONS_ADMIN_SECRET;
-  }
-  return { upstreamHeaders };
+  return { requestPayload, audience, scheduleAt };
 };
 
 export async function handler(event) {
@@ -222,82 +196,42 @@ export async function handler(event) {
     return jsonResponse(403, { success: false, error: 'Insufficient permissions' });
   }
 
-  const headersResult = buildPwaHeaders(validated.audience);
-  if (headersResult.error) {
-    return jsonResponse(500, { success: false, error: headersResult.error });
-  }
+  const scheduledAtMs = validated.scheduleAt ? Date.parse(validated.scheduleAt) : NaN;
+  if (validated.scheduleAt && !Number.isNaN(scheduledAtMs) && scheduledAtMs > Date.now() + SCHEDULE_BUFFER_MS) {
+    const { data: queued, error: queueError } = await auth.adminClient
+      .from('scheduled_push_notifications')
+      .insert({
+        created_by: auth.profile.id,
+        schedule_at: validated.scheduleAt,
+        status: 'pending',
+        payload: validated.requestPayload,
+      })
+      .select('id, schedule_at')
+      .single();
 
-  const upstreamUrl = `${sanitizeBaseUrl(PWA_BASE_URL)}/api/notifications/send`;
-
-  try {
-    const upstreamResponse = await fetch(upstreamUrl, {
-      method: 'POST',
-      headers: headersResult.upstreamHeaders,
-      body: JSON.stringify(validated.requestPayload),
-    });
-
-    const raw = await upstreamResponse.text();
-    let upstreamBody = {};
-    try {
-      upstreamBody = raw ? JSON.parse(raw) : {};
-    } catch {
-      upstreamBody = { raw };
-    }
-
-    if (!upstreamResponse.ok) {
-      const upstreamMessage =
-        isRecord(upstreamBody) && typeof upstreamBody.message === 'string'
-          ? upstreamBody.message
-          : null;
-      return jsonResponse(upstreamResponse.status, {
+    if (queueError) {
+      return jsonResponse(500, {
         success: false,
-        error: upstreamMessage || 'PWA notification service returned an error',
-        upstream: upstreamBody,
-      });
-    }
-
-    const metricSource = isRecord(upstreamBody.meta)
-      ? upstreamBody.meta
-      : isRecord(upstreamBody.data)
-      ? upstreamBody.data
-      : upstreamBody;
-
-    // Upstream returned HTTP 200 but reported success: false (e.g. no devices matched)
-    if (isRecord(upstreamBody) && upstreamBody.success === false) {
-      return jsonResponse(200, {
-        success: false,
-        error:
-          typeof upstreamBody.message === 'string'
-            ? upstreamBody.message
-            : 'Notification service returned failure',
-        upstream: upstreamBody,
-        meta: {
-          audience: validated.audience,
-          sent: extractMetric(metricSource, ['sent', 'sentCount', 'successCount']),
-          failed: extractMetric(metricSource, ['failed', 'failedCount', 'errorCount']),
-          matchedTokensCount: extractMetric(metricSource, [
-            'matchedTokensCount',
-            'matched_tokens_count',
-            'matchedCount',
-          ]),
-        },
+        error: queueError.message || 'Could not queue scheduled notification',
       });
     }
 
     return jsonResponse(200, {
       success: true,
-      data: upstreamBody,
-      meta: {
-        audience: validated.audience,
-        sent: extractMetric(metricSource, ['sent', 'sentCount', 'successCount']),
-        failed: extractMetric(metricSource, ['failed', 'failedCount', 'errorCount']),
-        matchedTokensCount: extractMetric(metricSource, [
-          'matchedTokensCount',
-          'matched_tokens_count',
-          'matchedCount',
-        ]),
-      },
+      scheduled: true,
+      message: 'Push notification scheduled',
+      data: { id: queued.id, scheduleAt: queued.schedule_at },
     });
+  }
+
+  try {
+    const result = await sendPushViaPwa({
+      pwaBaseUrl: PWA_BASE_URL,
+      notificationsAdminSecret: NOTIFICATIONS_ADMIN_SECRET,
+      payload: validated.requestPayload,
+    });
+
+    return jsonResponse(result.statusCode, result.body);
   } catch (error) {
     return jsonResponse(500, {
       success: false,

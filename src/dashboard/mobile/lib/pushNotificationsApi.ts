@@ -131,17 +131,28 @@ export function getErrorMessage(payload: unknown) {
 }
 
 export function getCountText(payload: unknown) {
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null;
+  if (record?.scheduled === true) {
+    const data = record.data && typeof record.data === 'object' ? (record.data as Record<string, unknown>) : null;
+    const scheduleAt = data?.scheduleAt;
+    if (typeof scheduleAt === 'string') {
+      return `Scheduled for ${new Date(scheduleAt).toLocaleString()}`;
+    }
+    return 'Push notification scheduled.';
+  }
+
   const source =
-    payload && typeof payload === 'object'
-      ? ((payload as Record<string, unknown>).meta as Record<string, unknown>) ||
-        ((payload as Record<string, unknown>).data as Record<string, unknown>) ||
-        (payload as Record<string, unknown>)
+    record
+      ? (record.meta as Record<string, unknown>) ||
+        (record.data as Record<string, unknown>) ||
+        record
       : null;
   if (!source || typeof source !== 'object') return 'Notification sent successfully.';
   const sent = source.sent ?? source.sentCount ?? source.successCount;
   const failed = source.failed ?? source.failedCount ?? source.errorCount;
   const matched = source.matchedTokensCount ?? source.matched_tokens_count ?? source.matchedCount;
-  return `Sent: ${sent ?? 0}, Failed: ${failed ?? 0}, Matched: ${matched ?? 0}`;
+  const prefix = record?.partial === true ? 'Partially sent — ' : '';
+  return `${prefix}Sent: ${sent ?? 0}, Failed: ${failed ?? 0}, Matched: ${matched ?? 0}`;
 }
 
 function getProxyCandidates() {

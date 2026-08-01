@@ -391,7 +391,9 @@ function UserForm({ user, roles, onClose, onSave }: UserFormProps) {
       if (response.ok) {
         notification.success(
           user ? 'User Updated' : 'Invitation Sent',
-          user ? 'User saved successfully' : 'An invite email has been sent. The user will set their own password.'
+          user
+            ? 'User saved successfully'
+            : 'Invite queued via Supabase Auth. Check Email Logs for the attempt (delivery is handled by Supabase, not JLO SMTP).'
         );
         onSave();
       } else {
@@ -442,7 +444,7 @@ function UserForm({ user, roles, onClose, onSave }: UserFormProps) {
           {!user && (
             <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 text-sm text-blue-800">
               <span className="text-base leading-none mt-0.5">✉️</span>
-              <p>An invitation email will be sent to this address. The user will set their own password when they accept the invite.</p>
+              <p>An invitation email will be sent via Supabase Auth (not JLO SMTP). It appears in Email Logs as &quot;JLO staff invitation&quot;. The user sets their own password from the link.</p>
             </div>
           )}
 

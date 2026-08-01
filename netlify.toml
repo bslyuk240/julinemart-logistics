@@ -199,6 +199,10 @@
   timeout = 120
   schedule = "@weekly"
 
+[functions."process-scheduled-push"]
+  timeout = 120
+  schedule = "*/5 * * * *"
+
 [functions."vendor-returns"]
   timeout = 20
 

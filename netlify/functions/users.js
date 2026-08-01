@@ -32,6 +32,20 @@ const supabaseImplicit = SERVICE_ROLE_KEY
   : null;
 const allowedRoles = ['admin', 'agent', 'shop_manager', 'vendor', 'manager', 'viewer', 'social_media_manager'];
 
+async function logStaffAuthEmail(recipient, subject) {
+  if (!supabaseAdmin) return;
+  try {
+    await supabaseAdmin.from('email_logs').insert({
+      recipient,
+      subject,
+      status: 'sent',
+      sent_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.warn('Could not log staff auth email:', err);
+  }
+}
+
 const headers = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
@@ -262,6 +276,8 @@ export async function handler(event) {
         details: { email, role: finalRole, full_name: full_name || null },
       });
 
+      await logStaffAuthEmail(email, 'JLO staff invitation (Supabase Auth)');
+
       return {
         statusCode: 201,
         headers,
@@ -457,6 +473,8 @@ export async function handler(event) {
         resource_type: 'users',
         details: { email },
       });
+
+      await logStaffAuthEmail(email, 'JLO staff password reset (Supabase Auth)');
 
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }

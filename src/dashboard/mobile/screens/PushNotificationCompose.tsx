@@ -174,6 +174,8 @@ export default function MobilePushNotificationCompose() {
       }
       const bodyRecord = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
       const success = response.ok && bodyRecord.success !== false;
+      const scheduled = bodyRecord.scheduled === true;
+      const partial = bodyRecord.partial === true;
 
       const entry = addNotificationHistoryEntry({
         createdBy: user?.email || user?.id || 'unknown',
@@ -188,7 +190,13 @@ export default function MobilePushNotificationCompose() {
         return;
       }
 
-      notification.success('Push sent', getCountText(body));
+      if (scheduled) {
+        notification.success('Push scheduled', getCountText(body));
+      } else if (partial) {
+        notification.warning('Partially sent', getCountText(body));
+      } else {
+        notification.success('Push sent', getCountText(body));
+      }
       navigate(`/admin/notifications/${entry.id}`);
     } catch (error) {
       addNotificationHistoryEntry({

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronRight, Search } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { getFilteredSections } from '../lib/permissions';
+import { getMoreMenuSections } from '../lib/permissions';
 
 // Destination for the tab bar's "More" tab: every route the signed-in role
 // can reach, grouped the same way the desktop sidebar groups them, with a
@@ -12,7 +12,7 @@ export default function MoreMenu() {
   const [query, setQuery] = useState('');
 
   const sections = useMemo(() => {
-    const all = getFilteredSections(user).filter((section) => section.id !== 'overview');
+    const all = getMoreMenuSections(user);
     const q = query.trim().toLowerCase();
     if (!q) return all;
 

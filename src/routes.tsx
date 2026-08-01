@@ -133,12 +133,15 @@ function AdminShell({ children }: { children: ReactElement }) {
   return isMobile ? <MobileShell>{children}</MobileShell> : <DashboardLayout>{children}</DashboardLayout>;
 }
 
-// Role-aware landing: social_media_manager goes straight to Meta Ads
+// Role-aware landing for mobile-first roles
 function AdminLanding() {
   const { user } = useAuth();
   const isMobile = useIsMobile();
   if (user?.role === 'social_media_manager') {
-    return <Navigate to="/admin/meta-ads" replace />;
+    return <Navigate to="/admin/campaigns" replace />;
+  }
+  if (user?.role === 'shop_manager' && isMobile) {
+    return <Navigate to="/admin/products/moderation" replace />;
   }
   return isMobile ? <MobileHome /> : <DashboardHome />;
 }
@@ -444,7 +447,7 @@ const sharedRoutes = [
   {
     path: 'dispatch/hub',
     element: (
-      <ProtectedRoute allowedRoles={['admin', 'agent', 'viewer']}>
+      <ProtectedRoute allowedRoles={['admin', 'agent', 'manager', 'viewer']}>
         <DispatchRoute />
       </ProtectedRoute>
     ),

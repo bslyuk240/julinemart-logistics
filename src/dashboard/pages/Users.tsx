@@ -358,7 +358,7 @@ function UserForm({ user, roles, onClose, onSave }: UserFormProps) {
     {
       name: 'manager',
       display_name: 'Manager',
-      description: 'Ops + catalog + vendors (see docs); not hub dispatch or admin-only screens',
+      description: 'Ops + catalog + vendors + hub dispatch; not admin-only screens',
     },
     { name: 'agent', display_name: 'Agent', description: 'Orders, dispatch & support' },
     { name: 'viewer', display_name: 'Viewer (legacy)', description: 'Ops pages; no catalog write routes' },

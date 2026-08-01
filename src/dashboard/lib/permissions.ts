@@ -64,7 +64,7 @@ export const navigationSections: NavSection[] = [
     items: [
       { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent', 'manager', 'viewer'] },
       { name: 'Manual Shipments', href: '/admin/manual-shipments', icon: Send, roles: ['admin', 'agent', 'manager', 'viewer'] },
-      { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent', 'viewer'] },
+      { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent', 'manager', 'viewer'] },
       { name: 'Live Support', href: '/admin/support', icon: Headphones, roles: ['admin', 'agent', 'manager', 'viewer'] },
       { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent', 'manager', 'viewer'] },
     ],
@@ -166,24 +166,75 @@ export function getFilteredSections(user: User | null | undefined): NavSection[]
     .filter((section) => section.items.length > 0);
 }
 
-// The mobile tab bar's first slot. Points at the same route the desktop
-// logo/landing does — AdminLanding already redirects social_media_manager
-// to Meta Ads from here, so no per-role branching is needed in the tab itself.
+// Ops roles: Home points at the dashboard. Role-specific mobile bars override this.
 export const HOME_TAB: NavItem = {
   name: 'Home',
   href: '/admin/dashboard',
   icon: Home,
-  roles: ['admin', 'agent', 'shop_manager', 'manager', 'viewer', 'social_media_manager'],
+  roles: ['admin', 'agent', 'manager', 'viewer'],
 };
 
-// Fixed middle tabs matching the mobile design spec — Orders, Dispatch, Support.
-// Filtered per-role via canAccessNavItem; anything else lives under More.
+// Fixed middle tabs for ops roles — Orders, Dispatch, Support. Anything else → More.
 export const MOBILE_PRIMARY_TABS: NavItem[] = [
   { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent', 'manager', 'viewer'] },
-  { name: 'Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent', 'viewer'] },
+  { name: 'Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent', 'manager', 'viewer'] },
   { name: 'Support', href: '/admin/support', icon: Headphones, roles: ['admin', 'agent', 'manager', 'viewer'] },
+];
+
+// Shop manager: all four catalog screens in the tab bar (Home = moderation queue).
+export const SHOP_MANAGER_MOBILE_TABS: NavItem[] = [
+  { name: 'Home', href: '/admin/products/moderation', icon: Home, roles: ['shop_manager'] },
+  { name: 'Add', href: '/admin/products/upload', icon: Plus, roles: ['shop_manager'] },
+  { name: 'Reviews', href: '/admin/products/reviews', icon: Star, roles: ['shop_manager'] },
+  { name: 'Sourcing', href: '/admin/global-sourcing', icon: Search, roles: ['shop_manager'] },
+];
+
+// Social media manager: all three marketing screens in the tab bar (Home = campaigns).
+export const SOCIAL_MEDIA_MANAGER_MOBILE_TABS: NavItem[] = [
+  { name: 'Home', href: '/admin/campaigns', icon: Home, roles: ['social_media_manager'] },
+  { name: 'Meta Ads', href: '/admin/meta-ads', icon: TrendingUp, roles: ['social_media_manager'] },
+  { name: 'Google Ads', href: '/admin/google-ads', icon: Search, roles: ['social_media_manager'] },
 ];
 
 export function getMobileTabItems(user: User | null | undefined): NavItem[] {
   return MOBILE_PRIMARY_TABS.filter((item) => canAccessNavItem(item, user));
+}
+
+export type MobileTabBarConfig = {
+  tabs: NavItem[];
+  showMore: boolean;
+};
+
+export function getMobileTabBar(user: User | null | undefined): MobileTabBarConfig {
+  const role = user?.role;
+
+  if (role === 'shop_manager') {
+    return { tabs: SHOP_MANAGER_MOBILE_TABS, showMore: false };
+  }
+
+  if (role === 'social_media_manager') {
+    return { tabs: SOCIAL_MEDIA_MANAGER_MOBILE_TABS, showMore: false };
+  }
+
+  return {
+    tabs: [HOME_TAB, ...getMobileTabItems(user)],
+    showMore: true,
+  };
+}
+
+// More menu hides routes already pinned to the bottom tab bar.
+export function getMoreMenuSections(user: User | null | undefined): NavSection[] {
+  const { tabs, showMore } = getMobileTabBar(user);
+  if (!showMore) return [];
+
+  const tabHrefs = new Set(tabs.map((tab) => tab.href));
+  tabHrefs.add('/admin/dashboard');
+
+  return getFilteredSections(user)
+    .filter((section) => section.id !== 'overview')
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => !tabHrefs.has(item.href)),
+    }))
+    .filter((section) => section.items.length > 0);
 }

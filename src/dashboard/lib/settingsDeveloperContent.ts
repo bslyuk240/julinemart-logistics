@@ -66,7 +66,8 @@ export const API_ENDPOINT_GROUPS: ApiEndpointGroup[] = [
       { method: 'GET', path: '/api/orders/:id', description: 'Order details', auth: 'staff' },
       { method: 'POST', path: '/api/cancel-order', description: 'Cancel order', auth: 'staff' },
       { method: 'POST', path: '/api/verify-payment', description: 'Paystack payment verification', auth: 'public' },
-      { method: 'GET', path: '/api/track-order', description: 'Customer tracking lookup', auth: 'public' },
+      { method: 'GET', path: '/api/track-order', description: 'Customer order tracking lookup', auth: 'public' },
+      { method: 'GET', path: '/api/track-manual-shipment', description: 'Public manual shipment tracking (tracking # + recipient phone)', auth: 'public' },
       { method: 'GET', path: '/api/customer-orders', description: 'Customer order history', auth: 'public' },
     ],
   },
@@ -87,8 +88,8 @@ export const API_ENDPOINT_GROUPS: ApiEndpointGroup[] = [
     items: [
       { method: 'POST', path: '/api/fez-create-shipment', description: 'Create Fez shipment for sub-order', auth: 'staff' },
       { method: 'POST', path: '/api/fez-create-shipment-batch', description: 'Batch Fez dispatch (hub)', auth: 'staff' },
-      { method: 'GET', path: '/api/fez-fetch-tracking', description: 'Pull live Fez tracking', auth: 'staff' },
-      { method: 'POST', path: '/api/generate-label', description: 'Generate shipping label PDF', auth: 'staff' },
+      { method: 'GET', path: '/api/fez-fetch-tracking', description: 'Pull live Fez tracking (subOrderId or shipmentId)', auth: 'staff' },
+      { method: 'POST', path: '/api/generate-label', description: 'Generate shipping label (sub-order or manual shipment)', auth: 'staff' },
       { method: 'POST', path: '/api/generate-waybill', description: 'Generate waybill number', auth: 'staff' },
       { method: 'POST', path: '/api/assign-rider', description: 'Assign hub rider to sub-order', auth: 'staff' },
     ],
@@ -108,6 +109,7 @@ export const API_ENDPOINT_GROUPS: ApiEndpointGroup[] = [
     items: [
       { method: 'GET', path: '/api/manual-shipments', description: 'List manual shipments', auth: 'staff' },
       { method: 'POST', path: '/api/manual-shipments', description: 'Create manual shipment', auth: 'staff' },
+      { method: 'DELETE', path: '/api/manual-shipments/:id', description: 'Delete pending manual shipment', auth: 'staff' },
       { method: 'POST', path: '/api/manual-shipment-fez-dispatch', description: 'Dispatch manual shipment via Fez', auth: 'staff' },
       { method: 'POST', path: '/api/manual-shipment-assign-rider', description: 'Assign rider to manual shipment', auth: 'staff' },
     ],

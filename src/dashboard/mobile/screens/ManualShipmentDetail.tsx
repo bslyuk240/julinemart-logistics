@@ -8,14 +8,17 @@ import {
   ExternalLink,
   Loader,
   Package,
+  RefreshCw,
   Send,
+  Tag,
+  Trash2,
   Truck,
 } from 'lucide-react';
 import { useNotification } from '../../contexts/NotificationContext';
 import { ContactSection, DetailRow, SectionLabel } from '../components/MobileDetailParts';
 import { Sheet } from '../Sheet';
 import { TABBAR_SPACE, functionsAuthHeader, functionsBase } from '../lib/functionsAuth';
-import { openWaybillPrint } from '../../lib/waybillPrint';
+import { openLabelPrint, openWaybillPrint } from '../../lib/waybillPrint';
 import { formatNaira, statusLabel, statusStyle } from '../lib/displayUtils';
 
 interface Address {
@@ -24,6 +27,13 @@ interface Address {
   city: string;
   state: string;
   phone: string;
+}
+
+interface TrackingEvent {
+  status: string;
+  description: string;
+  location: string | null;
+  timestamp: string;
 }
 
 interface ManualShipment {
@@ -40,8 +50,18 @@ interface ManualShipment {
   delivery_person_name: string | null;
   delivery_person_phone: string | null;
   waybill_number: string | null;
+  last_tracking_update: string | null;
   metadata: { selected_lane?: 'fez' | 'local_rider' } | null;
   created_at: string;
+  tracking_events?: TrackingEvent[];
+}
+
+function isRealFezTrackingNumber(value?: string | null): boolean {
+  if (!value || typeof value !== 'string') return false;
+  const lower = value.toLowerCase();
+  if (['error', 'cannot', 'failed', 'invalid'].some((w) => lower.includes(w))) return false;
+  if (/^(FEZ|JLO|CR)(-\d+-[A-Z0-9]+|-[A-Z0-9]{6,10})$/i.test(value)) return false;
+  return value.length > 5 && value.length < 30 && /^[A-Za-z0-9]+$/.test(value.trim());
 }
 
 export default function MobileManualShipmentDetail() {
@@ -52,6 +72,8 @@ export default function MobileManualShipmentDetail() {
   const [shipment, setShipment] = useState<ManualShipment | null>(null);
   const [loading, setLoading] = useState(true);
   const [dispatching, setDispatching] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [fetchingTracking, setFetchingTracking] = useState(false);
   const [riderOpen, setRiderOpen] = useState(false);
   const [riderInfo, setRiderInfo] = useState({ name: '', phone: '', vehicle: '' });
 
@@ -144,6 +166,61 @@ export default function MobileManualShipmentDetail() {
     }
   };
 
+  const printLabel = async () => {
+    if (!id) return;
+    try {
+      await openLabelPrint({ shipmentId: id });
+    } catch (err) {
+      notification.error('Label failed', err instanceof Error ? err.message : 'Could not open label');
+    }
+  };
+
+  const fetchLiveTracking = async () => {
+    if (!id) return;
+    setFetchingTracking(true);
+    try {
+      const response = await fetch(
+        `${functionsBase}/fez-fetch-tracking?shipmentId=${encodeURIComponent(id)}`,
+        { headers: await functionsAuthHeader() },
+      );
+      const data = await response.json();
+      if (data.success) {
+        notification.success('Tracking updated', data.data.fez_status || data.data.status || 'Updated');
+        await fetchShipment();
+      } else {
+        notification.error('Tracking failed', data.error || data.message || 'Unable to fetch tracking');
+      }
+    } catch {
+      notification.error('Error', 'Failed to fetch live tracking');
+    } finally {
+      setFetchingTracking(false);
+    }
+  };
+
+  const deleteShipment = async () => {
+    if (!id || !shipment) return;
+    if (!window.confirm(`Delete ${shipment.shipment_code}? This cannot be undone.`)) return;
+
+    setDeleting(true);
+    try {
+      const response = await fetch(`${functionsBase}/manual-shipments/${id}`, {
+        method: 'DELETE',
+        headers: await functionsAuthHeader(),
+      });
+      const data = await response.json();
+      if (data.success) {
+        notification.success('Deleted', `${shipment.shipment_code} removed`);
+        navigate('/admin/manual-shipments');
+      } else {
+        notification.error('Delete failed', data.error || 'Unable to delete manual shipment');
+      }
+    } catch {
+      notification.error('Error', 'Failed to delete manual shipment');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex min-h-[200px] items-center justify-center">
@@ -157,6 +234,9 @@ export default function MobileManualShipmentDetail() {
   }
 
   const dispatched = !!(shipment.tracking_number || shipment.delivery_person_name);
+  const canDelete = !dispatched;
+  const fezTracking = isRealFezTrackingNumber(shipment.tracking_number) ? shipment.tracking_number : null;
+  const events = shipment.tracking_events || [];
   const laneLabel =
     shipment.metadata?.selected_lane === 'local_rider' || shipment.delivery_person_name ? 'Local rider' : 'Fez';
 
@@ -177,6 +257,17 @@ export default function MobileManualShipmentDetail() {
             {laneLabel} · {new Date(shipment.created_at).toLocaleDateString('en-NG', { month: 'short', day: 'numeric' })}
           </p>
         </div>
+        {canDelete && (
+          <button
+            type="button"
+            onClick={deleteShipment}
+            disabled={deleting}
+            aria-label="Delete manual shipment"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-red-200 text-red-600 disabled:opacity-50"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       <div className="flex-1 pb-4" style={{ paddingBottom: dispatched ? `calc(88px + ${TABBAR_SPACE})` : TABBAR_SPACE }}>
@@ -221,7 +312,53 @@ export default function MobileManualShipmentDetail() {
                   <ArrowRight className="h-4 w-4 text-gray-300" />
                 </a>
               )}
+              {fezTracking && (
+                <button
+                  type="button"
+                  disabled={fetchingTracking}
+                  onClick={fetchLiveTracking}
+                  className="flex w-full items-center gap-3 px-4 py-3.5 text-left active:bg-gray-50 disabled:opacity-50"
+                >
+                  {fetchingTracking ? (
+                    <Loader className="h-4 w-4 shrink-0 animate-spin text-primary-600" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 shrink-0 text-primary-600" />
+                  )}
+                  <span className="flex-1 text-sm font-medium text-primary-600">
+                    {fetchingTracking ? 'Updating…' : 'Update tracking'}
+                  </span>
+                </button>
+              )}
+              {shipment.last_tracking_update && (
+                <DetailRow
+                  label="Last update"
+                  value={new Date(shipment.last_tracking_update).toLocaleString('en-NG', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                />
+              )}
             </div>
+
+            {events.length > 0 && (
+              <>
+                <SectionLabel>Status history</SectionLabel>
+                <div className="mx-4 space-y-3 rounded-xl bg-white p-4">
+                  {[...events].reverse().map((event, idx) => (
+                    <div key={`${event.timestamp}-${idx}`} className="flex gap-3 text-sm">
+                      <div className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${idx === 0 ? 'bg-primary-600' : 'bg-gray-300'}`} />
+                      <div>
+                        <p className="font-medium capitalize text-gray-900">{event.status.replace(/_/g, ' ')}</p>
+                        {event.description && <p className="text-gray-600">{event.description}</p>}
+                        <p className="text-[11px] text-gray-400">{new Date(event.timestamp).toLocaleString()}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </>
         ) : (
           <>
@@ -284,14 +421,24 @@ export default function MobileManualShipmentDetail() {
 
       {dispatched && (
         <div className="fixed inset-x-0 z-20 border-t border-gray-100 bg-white px-4 py-3" style={{ bottom: TABBAR_SPACE }}>
-          <button
-            type="button"
-            onClick={printWaybill}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 py-3.5 text-sm font-semibold text-white"
-          >
-            <Download className="h-4 w-4" />
-            Download waybill
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={printLabel}
+              className="flex items-center justify-center gap-2 rounded-xl bg-gray-900 py-3.5 text-sm font-semibold text-white"
+            >
+              <Tag className="h-4 w-4" />
+              Print label
+            </button>
+            <button
+              type="button"
+              onClick={printWaybill}
+              className="flex items-center justify-center gap-2 rounded-xl bg-primary-600 py-3.5 text-sm font-semibold text-white"
+            >
+              <Download className="h-4 w-4" />
+              Waybill
+            </button>
+          </div>
         </div>
       )}
 

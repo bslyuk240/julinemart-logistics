@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { sendApiCourierStatusCustomerEmail } from '../../shared/riderAssignedEmail.js';
 import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
+import { insertTrackingEvent, mapFezStatus } from './services/fezTracking.js';
 import {
   buildOrderDeepLink,
   extractCustomerIdFromOrder,
@@ -27,27 +28,56 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
-// Map Fez status to JLO status (align with fez-fetch-tracking.js)
-function mapFezStatus(fezStatus) {
-  const statusMap = {
-    // Confirmed from live API responses
-    'Pending Pick-Up': 'pending_pickup',
-    'Assigned To A Rider': 'assigned',
-    // Expected progression (unconfirmed labels — update as Fez confirms)
-    'Picked-Up': 'picked_up',
-    'Dispatched': 'in_transit',
-    'Prepared for Delivery': 'in_transit',
-    'Out for Delivery': 'out_for_delivery',
-    'Delivery in Progress': 'out_for_delivery',
-    'Delivered': 'delivered',
-    'Cancelled': 'cancelled',
-    'Returned': 'returned',
-    'Return in Progress': 'returned',
-  };
+async function processManualShipmentWebhook(orderNo, orderStatus, statusDescription, eventDate, webhookData) {
+  const { data: byTracking } = await supabase
+    .from('manual_shipments')
+    .select('*')
+    .eq('tracking_number', orderNo)
+    .maybeSingle();
 
-  const mapped = statusMap[fezStatus];
-  if (!mapped) console.warn('⚠️ Unknown Fez status — add to map:', fezStatus);
-  return mapped || 'assigned';
+  let shipment = byTracking;
+  if (!shipment) {
+    const { data: byWaybill } = await supabase
+      .from('manual_shipments')
+      .select('*')
+      .eq('courier_waybill', orderNo)
+      .maybeSingle();
+    shipment = byWaybill;
+  }
+
+  if (!shipment) return false;
+
+  const jloStatus = mapFezStatus(orderStatus);
+  const previousStatus = shipment.status;
+
+  const { error: updateError } = await supabase
+    .from('manual_shipments')
+    .update({
+      status: jloStatus,
+      last_tracking_update: new Date().toISOString(),
+    })
+    .eq('id', shipment.id);
+
+  if (updateError) throw updateError;
+
+  await insertTrackingEvent(supabase, {
+    manual_shipment_id: shipment.id,
+    status: jloStatus,
+    description: statusDescription || orderStatus || `Status: ${jloStatus}`,
+    event_time: eventDate,
+    source: 'webhook',
+    source_reference: orderNo,
+    metadata: webhookData,
+  });
+
+  await supabase.from('activity_logs').insert({
+    user_id: 'fez_webhook',
+    action: 'manual_shipment_tracking_webhook',
+    description: `Fez webhook (manual): ${orderNo} → ${orderStatus}`,
+    metadata: { shipment_id: shipment.id, shipment_code: shipment.shipment_code, ...webhookData },
+  });
+
+  return { shipment, jloStatus, previousStatus };
 }
 
 exports.handler = async (event) => {
@@ -106,8 +136,32 @@ exports.handler = async (event) => {
     }
 
     if (!subOrders || subOrders.length === 0) {
-      console.log('Sub-order not found for tracking:', orderNo);
-      // Return 200 to acknowledge webhook even if order not found
+      console.log('Sub-order not found for tracking:', orderNo, '— checking manual shipments');
+      const manualResult = await processManualShipmentWebhook(
+        orderNo,
+        orderStatus,
+        statusDescription,
+        eventDate,
+        webhookData,
+      );
+
+      if (manualResult) {
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: true,
+            message: 'Manual shipment webhook processed',
+            data: {
+              orderNo,
+              shipment_code: manualResult.shipment.shipment_code,
+              status: manualResult.jloStatus,
+              updated: true,
+            },
+          }),
+        };
+      }
+
       return {
         statusCode: 200,
         headers,
@@ -138,14 +192,14 @@ exports.handler = async (event) => {
       throw updateError;
     }
 
-    // Save tracking event
-    await supabase.from('tracking_events').insert({
+    await insertTrackingEvent(supabase, {
       sub_order_id: subOrder.id,
       status: jloStatus,
-      location: statusDescription,
-      timestamp: eventDate,
-      description: statusDescription,
-      raw_data: webhookData,
+      description: statusDescription || orderStatus || `Status: ${jloStatus}`,
+      event_time: eventDate,
+      source: 'webhook',
+      source_reference: orderNo,
+      metadata: webhookData,
     });
 
     if (subOrder.orders?.id) {

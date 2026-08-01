@@ -54,7 +54,30 @@ export async function handler(event) {
         if (error || !data) {
           return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Manual shipment not found' }) };
         }
-        return { statusCode: 200, headers, body: JSON.stringify({ success: true, data }) };
+
+        const { data: events } = await supabase
+          .from('tracking_events')
+          .select('id, status, description, location_name, event_time, created_at, source')
+          .eq('manual_shipment_id', id)
+          .order('event_time', { ascending: true, nullsFirst: false });
+
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({
+            success: true,
+            data: {
+              ...data,
+              tracking_events: (events || []).map((e) => ({
+                status: e.status,
+                description: e.description,
+                location: e.location_name || null,
+                timestamp: e.event_time || e.created_at,
+                source: e.source,
+              })),
+            },
+          }),
+        };
       }
 
       const params = new URLSearchParams(event.queryStringParameters || {});
@@ -169,6 +192,65 @@ export async function handler(event) {
       }
 
       return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: shipment }) };
+    }
+
+    if (event.httpMethod === 'DELETE') {
+      if (!id) {
+        return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Shipment ID required' }) };
+      }
+
+      const access = await assertStaffCanCreateShipment(event);
+      if (!access.ok) {
+        return { statusCode: access.statusCode, headers, body: access.body };
+      }
+
+      const { data: existing, error: fetchError } = await supabase
+        .from('manual_shipments')
+        .select('id, shipment_code, status, tracking_number, delivery_person_name')
+        .eq('id', id)
+        .single();
+
+      if (fetchError || !existing) {
+        return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Manual shipment not found' }) };
+      }
+
+      if (existing.tracking_number || existing.delivery_person_name) {
+        return {
+          statusCode: 409,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'Cannot delete a dispatched manual shipment. Only pending shipments can be removed.',
+          }),
+        };
+      }
+
+      const { error: deleteError } = await supabase.from('manual_shipments').delete().eq('id', id);
+      if (deleteError) {
+        console.error('Manual shipment delete error:', deleteError);
+        return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: deleteError.message }) };
+      }
+
+      let deletedBy = null;
+      const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
+      if (authHeader.startsWith('Bearer ')) {
+        const { data: authData } = await supabase.auth.getUser(authHeader.slice('Bearer '.length));
+        if (authData?.user) deletedBy = authData.user.id;
+      }
+
+      try {
+        await supabase.from('activity_logs').insert({
+          user_id: deletedBy,
+          action: 'manual_shipment_deleted',
+          resource_type: 'manual_shipment',
+          resource_id: id,
+          details: { shipment_code: existing.shipment_code },
+        });
+      } catch (logErr) {
+        console.warn('Activity log failed:', logErr);
+      }
+
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, message: 'Manual shipment deleted' }) };
     }
 
     return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method not allowed' }) };

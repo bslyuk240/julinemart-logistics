@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { HashRouter as Router, Routes, Route } from 'react-router-dom';
 import { CustomerPortalLanding } from './pages/Landing';
 import { OrderTrackingPage } from './pages/Track';
+import { ManualShipmentTrackingPage } from './pages/TrackManualShipment';
 import { ShippingEstimatePage } from './pages/ShippingEstimate';
 import { CustomerContactPage } from './pages/Contact';
 import DevBanner, { useDevBannerHeight } from '../components/DevBanner';
@@ -31,6 +32,7 @@ function CustomerPortalApp() {
           <Routes>
             <Route path="/" element={<CustomerPortalLanding />} />
             <Route path="/track" element={<OrderTrackingPage />} />
+            <Route path="/track/shipment" element={<ManualShipmentTrackingPage />} />
             <Route path="/estimate" element={<ShippingEstimatePage />} />
             <Route path="/contact" element={<CustomerContactPage />} />
           </Routes>

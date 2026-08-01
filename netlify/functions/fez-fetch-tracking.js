@@ -1,14 +1,18 @@
 // Fez Delivery - Fetch Tracking Function
-// SAFE PRODUCTION VERSION (Live + Sandbox)
-// Netlify compatible – Pure JavaScript
+// Supports sub_orders (subOrderId) and manual_shipments (shipmentId).
 
 import { createClient } from '@supabase/supabase-js';
 import { sendApiCourierStatusCustomerEmail } from '../../shared/riderAssignedEmail.js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
+import {
+  fetchFezTracking,
+  insertTrackingEvent,
+  isValidFezTrackingNumber,
+  mapFezStatus,
+} from './services/fezTracking.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables');
@@ -18,119 +22,108 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Content-Type': 'application/json',
 };
 
-// --------------------------------------------------
-// RESOLVE ENVIRONMENT (order → courier → netlify)
-// --------------------------------------------------
-function resolveEnvironment(subOrder, courier) {
-  if (subOrder?.environment) return subOrder.environment;
-  if (courier?.api_config?.environment) return courier.api_config.environment;
+async function applySubOrderTracking(subOrderId, subOrder, trackingNumber, trackingData) {
+  const previousStatus = subOrder.status;
+  const jloStatus = mapFezStatus(trackingData.order.orderStatus);
+  const fezLabel = trackingData.order?.orderStatus || '';
+  const now = new Date().toISOString();
 
-  if (
-    process.env.CONTEXT === 'production' ||
-    process.env.NETLIFY_CONTEXT === 'production' ||
-    process.env.NODE_ENV === 'production'
-  ) {
-    return 'live';
+  await supabase
+    .from('sub_orders')
+    .update({ status: jloStatus, last_tracking_update: now })
+    .eq('id', subOrderId);
+
+  if (previousStatus !== jloStatus) {
+    await insertTrackingEvent(supabase, {
+      sub_order_id: subOrderId,
+      status: jloStatus,
+      description: fezLabel || `Status updated to ${jloStatus}`,
+      event_time: now,
+      source: 'api',
+      source_reference: trackingNumber,
+      metadata: { fez_status: fezLabel },
+    });
   }
 
-  return 'sandbox';
-}
+  if (previousStatus !== jloStatus && subOrder.main_order_id) {
+    try {
+      await refreshOverallOrderStatus(supabase, subOrder.main_order_id);
+    } catch (e) {
+      console.warn('refreshOverallOrderStatus (fez-fetch-tracking):', e?.message || e);
+    }
 
-// --------------------------------------------------
-// AUTHENTICATE WITH FEZ (env vars — matches fez-create-shipment)
-// --------------------------------------------------
-async function authenticateFez() {
-  const userId = process.env.FEZ_USER_ID;
-  const password = process.env.FEZ_PASSWORD || process.env.FEZ_API_KEY;
-  const baseUrl = process.env.FEZ_API_BASE_URL;
+    const { data: orderRow } = await supabase
+      .from('orders')
+      .select('id, order_number, customer_name, customer_email, delivery_city, delivery_state')
+      .eq('id', subOrder.main_order_id)
+      .maybeSingle();
 
-  if (!userId || !password || !baseUrl) {
-    throw new Error('Missing Fez API credentials (FEZ_USER_ID / FEZ_PASSWORD / FEZ_API_BASE_URL)');
+    if (orderRow?.customer_email) {
+      let courierDisplay = 'Fez Delivery';
+      if (subOrder.courier_id) {
+        const { data: cRow } = await supabase
+          .from('couriers')
+          .select('name')
+          .eq('id', subOrder.courier_id)
+          .maybeSingle();
+        if (cRow?.name) courierDisplay = cRow.name;
+      }
+      const fezTrackUrl =
+        subOrder.courier_tracking_url ||
+        `https://web.fezdelivery.co/track-delivery?tracking=${encodeURIComponent(String(trackingNumber))}`;
+      try {
+        await sendApiCourierStatusCustomerEmail(supabase, {
+          jloStatus,
+          orderId: orderRow.id,
+          orderNumber: orderRow.order_number ?? orderRow.id,
+          customer_name: orderRow.customer_name,
+          customer_email: orderRow.customer_email,
+          tracking_number: trackingNumber,
+          courier_tracking_url: fezTrackUrl,
+          courier_display_name: courierDisplay,
+          delivery_city: orderRow.delivery_city,
+          delivery_state: orderRow.delivery_state,
+          raw_status_hint: fezLabel,
+        });
+      } catch (mailErr) {
+        console.error('sendApiCourierStatusCustomerEmail (fez-fetch-tracking):', mailErr?.message || mailErr);
+      }
+    }
   }
 
-  console.log('🔐 Authenticating with Fez...', { userId, baseUrl });
+  return { jloStatus, fezLabel };
+}
 
-  const response = await fetch(`${baseUrl}/user/authenticate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userId, password }),
-  });
+async function applyManualShipmentTracking(shipmentId, shipment, trackingNumber, trackingData) {
+  const previousStatus = shipment.status;
+  const jloStatus = mapFezStatus(trackingData.order.orderStatus);
+  const fezLabel = trackingData.order?.orderStatus || '';
+  const now = new Date().toISOString();
 
-  const data = await response.json();
-  console.log('🔑 Fez auth response status:', data.status);
+  await supabase
+    .from('manual_shipments')
+    .update({ status: jloStatus, last_tracking_update: now })
+    .eq('id', shipmentId);
 
-  if (data.status !== 'Success') {
-    throw new Error(data.description || 'Fez authentication failed');
+  if (previousStatus !== jloStatus) {
+    await insertTrackingEvent(supabase, {
+      manual_shipment_id: shipmentId,
+      status: jloStatus,
+      description: fezLabel || `Status updated to ${jloStatus}`,
+      event_time: now,
+      source: 'api',
+      source_reference: trackingNumber,
+      metadata: { fez_status: fezLabel },
+    });
   }
 
-  return {
-    authToken: data.authDetails.authToken,
-    secretKey: data.orgDetails['secret-key'],
-    baseUrl,
-  };
+  return { jloStatus, fezLabel };
 }
 
-// --------------------------------------------------
-// FETCH TRACKING
-// --------------------------------------------------
-async function fetchFezTracking(authToken, secretKey, baseUrl, trackingNumber) {
-  const response = await fetch(`${baseUrl}/order/track/${trackingNumber}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${authToken}`,
-      'secret-key': secretKey,
-    },
-  });
-
-  const data = await response.json();
-
-  if (data.status !== 'Success') {
-    throw new Error(data.description || 'Order Not Found');
-  }
-
-  return {
-    order: data.order,
-    history: data.history,
-  };
-}
-
-// --------------------------------------------------
-// STATUS MAPPING
-// --------------------------------------------------
-function mapFezStatus(status) {
-  const map = {
-    // Confirmed from live API responses
-    'Pending Pick-Up': 'pending_pickup',
-    'Assigned To A Rider': 'assigned',
-    // Expected progression (unconfirmed labels — update as Fez confirms)
-    'Picked-Up': 'picked_up',
-    'Dispatched': 'in_transit',
-    'Prepared for Delivery': 'in_transit',
-    'Out for Delivery': 'out_for_delivery',
-    'Delivery in Progress': 'out_for_delivery',
-    'Delivered': 'delivered',
-    'Cancelled': 'cancelled',
-    'Returned': 'returned',
-    'Return in Progress': 'returned',
-  };
-
-  const mapped = map[status];
-  if (!mapped) console.warn('⚠️ Unknown Fez status — add to map:', status);
-  return mapped || 'assigned';
-}
-
-function isValidFezTrackingNumber(val) {
-  if (!val || typeof val !== 'string') return false;
-  return !/^[0-9a-f-]{36}$/i.test(val); // exclude UUIDs
-}
-
-// --------------------------------------------------
-// NETLIFY HANDLER
-// --------------------------------------------------
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
@@ -146,112 +139,94 @@ export async function handler(event) {
 
   try {
     const subOrderId = event.queryStringParameters?.subOrderId;
+    const shipmentId = event.queryStringParameters?.shipmentId;
 
-    if (!subOrderId) {
+    if (!subOrderId && !shipmentId) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ success: false, error: 'subOrderId required' }),
+        body: JSON.stringify({ success: false, error: 'subOrderId or shipmentId required' }),
       };
     }
 
-    const { data: subOrder, error } = await supabase
-      .from('sub_orders')
-      .select('*')
-      .eq('id', subOrderId)
-      .single();
+    if (subOrderId) {
+      const { data: subOrder, error } = await supabase
+        .from('sub_orders')
+        .select('*')
+        .eq('id', subOrderId)
+        .single();
 
-    if (error || !subOrder) {
+      if (error || !subOrder) {
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({ success: false, error: 'Sub-order not found' }),
+        };
+      }
+
+      const trackingNumber = subOrder.courier_waybill || subOrder.tracking_number;
+      if (!isValidFezTrackingNumber(trackingNumber)) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ success: false, error: 'No valid Fez tracking number' }),
+        };
+      }
+
+      const trackingData = await fetchFezTracking(supabase, trackingNumber);
+      const { jloStatus, fezLabel } = await applySubOrderTracking(
+        subOrderId,
+        subOrder,
+        trackingNumber,
+        trackingData,
+      );
+
       return {
-        statusCode: 404,
-        headers,
-        body: JSON.stringify({ success: false, error: 'Sub-order not found' }),
-      };
-    }
-
-    const trackingNumber =
-      subOrder.courier_waybill || subOrder.tracking_number;
-
-    if (!isValidFezTrackingNumber(trackingNumber)) {
-      return {
-        statusCode: 400,
+        statusCode: 200,
         headers,
         body: JSON.stringify({
-          success: false,
-          error: 'No valid Fez tracking number',
+          success: true,
+          data: {
+            status: jloStatus,
+            fez_status: fezLabel || trackingData.order.orderStatus,
+            tracking_number: trackingNumber,
+            history: trackingData.history,
+            last_update: new Date().toISOString(),
+          },
         }),
       };
     }
 
-    const { authToken, secretKey, baseUrl } =
-      await authenticateFez();
+    const { data: shipment, error: shipErr } = await supabase
+      .from('manual_shipments')
+      .select('*')
+      .eq('id', shipmentId)
+      .single();
 
-    const trackingData = await fetchFezTracking(
-      authToken,
-      secretKey,
-      baseUrl,
-      trackingNumber
-    );
-
-    const previousStatus = subOrder.status;
-    const jloStatus = mapFezStatus(trackingData.order.orderStatus);
-    const fezLabel = trackingData.order?.orderStatus || '';
-
-    await supabase
-      .from('sub_orders')
-      .update({
-        status: jloStatus,
-        last_tracking_update: new Date().toISOString(),
-      })
-      .eq('id', subOrderId);
-
-    if (previousStatus !== jloStatus && subOrder.main_order_id) {
-      try {
-        await refreshOverallOrderStatus(supabase, subOrder.main_order_id);
-      } catch (e) {
-        console.warn('refreshOverallOrderStatus (fez-fetch-tracking):', e?.message || e);
-      }
-
-      const { data: orderRow } = await supabase
-        .from('orders')
-        .select(
-          'id, order_number, customer_name, customer_email, delivery_city, delivery_state',
-        )
-        .eq('id', subOrder.main_order_id)
-        .maybeSingle();
-
-      if (orderRow?.customer_email) {
-        let courierDisplay = 'Fez Delivery';
-        if (subOrder.courier_id) {
-          const { data: cRow } = await supabase
-            .from('couriers')
-            .select('name')
-            .eq('id', subOrder.courier_id)
-            .maybeSingle();
-          if (cRow?.name) courierDisplay = cRow.name;
-        }
-        const fezTrackUrl =
-          subOrder.courier_tracking_url ||
-          `https://web.fezdelivery.co/track-delivery?tracking=${encodeURIComponent(String(trackingNumber))}`;
-        try {
-          await sendApiCourierStatusCustomerEmail(supabase, {
-            jloStatus,
-            orderId: orderRow.id,
-            orderNumber: orderRow.order_number ?? orderRow.id,
-            customer_name: orderRow.customer_name,
-            customer_email: orderRow.customer_email,
-            tracking_number: trackingNumber,
-            courier_tracking_url: fezTrackUrl,
-            courier_display_name: courierDisplay,
-            delivery_city: orderRow.delivery_city,
-            delivery_state: orderRow.delivery_state,
-            raw_status_hint: fezLabel,
-          });
-        } catch (mailErr) {
-          console.error('sendApiCourierStatusCustomerEmail (fez-fetch-tracking):', mailErr?.message || mailErr);
-        }
-      }
+    if (shipErr || !shipment) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ success: false, error: 'Manual shipment not found' }),
+      };
     }
+
+    const trackingNumber = shipment.courier_waybill || shipment.tracking_number;
+    if (!isValidFezTrackingNumber(trackingNumber)) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ success: false, error: 'No valid Fez tracking number' }),
+      };
+    }
+
+    const trackingData = await fetchFezTracking(supabase, trackingNumber);
+    const { jloStatus, fezLabel } = await applyManualShipmentTracking(
+      shipmentId,
+      shipment,
+      trackingNumber,
+      trackingData,
+    );
 
     return {
       statusCode: 200,
@@ -260,14 +235,15 @@ export async function handler(event) {
         success: true,
         data: {
           status: jloStatus,
-          fez_status: trackingData.order.orderStatus,
+          fez_status: fezLabel || trackingData.order.orderStatus,
           tracking_number: trackingNumber,
           history: trackingData.history,
+          last_update: new Date().toISOString(),
         },
       }),
     };
   } catch (err) {
-    console.error('❌ Fez tracking error:', err);
+    console.error('Fez tracking error:', err);
     return {
       statusCode: 500,
       headers,

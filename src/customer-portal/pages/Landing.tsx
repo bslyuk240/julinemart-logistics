@@ -9,16 +9,30 @@ const portalNavLinks = [
   { label: 'Contact', path: 'contact' },
 ];
 
+type TrackMode = 'order' | 'shipment';
+
 export function CustomerPortalLanding() {
   const navigate = useNavigate();
+  const [trackMode, setTrackMode] = useState<TrackMode>('order');
   const [orderNumber, setOrderNumber] = useState('');
   const [email, setEmail] = useState('');
+  const [trackingNumber, setTrackingNumber] = useState('');
+  const [phone, setPhone] = useState('');
   const [mobileNavSelection, setMobileNavSelection] = useState('');
 
   const handleTrackOrder = (e: React.FormEvent) => {
     e.preventDefault();
     if (orderNumber && email) {
       navigate(`track?order=${encodeURIComponent(orderNumber)}&email=${encodeURIComponent(email)}`);
+    }
+  };
+
+  const handleTrackShipment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (trackingNumber && phone) {
+      navigate(
+        `track/shipment?tracking=${encodeURIComponent(trackingNumber)}&phone=${encodeURIComponent(phone)}`,
+      );
     }
   };
 
@@ -74,16 +88,38 @@ export function CustomerPortalLanding() {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="text-center mb-12">
           <h2 className="text-4xl font-bold text-gray-900 mb-4">
-            Track Your Order in Real-Time
+            Track Your Order or Shipment
           </h2>
           <p className="text-xl text-gray-600">
-            Enter your order number and email to see live tracking updates
+            Enter your order details or shipment tracking number to see live updates
           </p>
         </div>
 
         {/* Tracking Form */}
         <div className="max-w-2xl mx-auto">
           <div className="bg-white rounded-2xl shadow-xl p-8">
+            <div className="flex rounded-lg bg-gray-100 p-1 mb-6">
+              <button
+                type="button"
+                onClick={() => setTrackMode('order')}
+                className={`flex-1 rounded-md py-2 text-sm font-semibold transition-colors ${
+                  trackMode === 'order' ? 'bg-white text-primary-700 shadow-sm' : 'text-gray-600'
+                }`}
+              >
+                Store Order
+              </button>
+              <button
+                type="button"
+                onClick={() => setTrackMode('shipment')}
+                className={`flex-1 rounded-md py-2 text-sm font-semibold transition-colors ${
+                  trackMode === 'shipment' ? 'bg-white text-primary-700 shadow-sm' : 'text-gray-600'
+                }`}
+              >
+                Manual Shipment
+              </button>
+            </div>
+
+            {trackMode === 'order' ? (
             <form onSubmit={handleTrackOrder} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -120,11 +156,54 @@ export function CustomerPortalLanding() {
                 <Search className="w-5 h-5" />
                 Track My Order
               </button>
-            </form>
 
-            <p className="text-sm text-gray-500 mt-4 text-center">
-              You'll find your order number in your confirmation email
-            </p>
+              <p className="text-sm text-gray-500 text-center">
+                You'll find your order number in your confirmation email
+              </p>
+            </form>
+            ) : (
+            <form onSubmit={handleTrackShipment} className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Tracking Number or Shipment Code
+                </label>
+                <input
+                  type="text"
+                  value={trackingNumber}
+                  onChange={(e) => setTrackingNumber(e.target.value)}
+                  placeholder="e.g., GWD026112514 or MSH-ABC123"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Recipient Phone Number
+                </label>
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="08012345678"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  required
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-primary-600 text-white py-4 rounded-lg font-semibold hover:bg-primary-700 transition-colors flex items-center justify-center gap-2"
+              >
+                <Search className="w-5 h-5" />
+                Track My Shipment
+              </button>
+
+              <p className="text-sm text-gray-500 text-center">
+                Use the Fez tracking number or MSH code from your waybill, plus the recipient phone
+              </p>
+            </form>
+            )}
           </div>
         </div>
       </section>

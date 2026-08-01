@@ -4,6 +4,7 @@
 import { createClient } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
 import { resolveSender } from './services/resolveSender.js';
+import { assertWaybillAccess } from './services/shipmentAccess.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
@@ -16,7 +17,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
 // Logo URLs - Replace with your actual logo URLs
@@ -28,6 +29,7 @@ async function generateLabelHTML(labelData) {
   const {
     tracking_number,
     order_number,
+    order_heading = 'Order #',
     sender_name,
     sender_address,
     sender_city,
@@ -78,6 +80,7 @@ async function generateLabelHTML(labelData) {
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Shipping Label - ${tracking_number}</title>
   <style>
     @page {
@@ -312,6 +315,24 @@ async function generateLabelHTML(labelData) {
         page-break-inside: avoid;
       }
     }
+
+    @media screen {
+      html, body { background: #f1f5f9; min-height: 100%; }
+      body {
+        width: 100%;
+        max-width: 24rem;
+        margin: 0 auto;
+        padding: 12px;
+        min-height: auto;
+      }
+      .tracking-number {
+        font-size: 20px;
+        letter-spacing: 1px;
+        word-break: break-all;
+      }
+      .addresses { flex-direction: column; }
+      .address-box:first-child { border-right: none; border-bottom: 2px dashed #cbd5e1; }
+    }
   </style>
 </head>
 <body>
@@ -331,7 +352,7 @@ async function generateLabelHTML(labelData) {
       ${laneBadge}
 
       <div class="order-info">
-        <div><strong>Order #${order_number}</strong></div>
+        <div><strong>${order_heading}${order_number}</strong></div>
         <div>${created_date}</div>
       </div>
     </div>
@@ -422,21 +443,95 @@ exports.handler = async (event) => {
   }
 
   try {
-    // Get sub-order ID from query or body
     let subOrderId;
+    let shipmentId;
     if (event.httpMethod === 'GET') {
       const params = new URLSearchParams(event.queryStringParameters || {});
       subOrderId = params.get('subOrderId');
+      shipmentId = params.get('shipmentId');
     } else {
       const body = JSON.parse(event.body || '{}');
       subOrderId = body.subOrderId;
+      shipmentId = body.shipmentId;
     }
 
-    if (!subOrderId) {
+    if (!subOrderId && !shipmentId) {
       return {
         statusCode: 400,
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ success: false, error: 'subOrderId required' }),
+        body: JSON.stringify({ success: false, error: 'subOrderId or shipmentId required' }),
+      };
+    }
+
+    const access = await assertWaybillAccess(event, { subOrderId, shipmentId });
+    if (!access.ok) {
+      return {
+        statusCode: access.statusCode,
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: access.body,
+      };
+    }
+
+    if (shipmentId) {
+      const { data: shipment, error: shipmentError } = await supabase
+        .from('manual_shipments')
+        .select('*')
+        .eq('id', shipmentId)
+        .single();
+
+      if (shipmentError || !shipment) {
+        return {
+          statusCode: 404,
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ success: false, error: 'Manual shipment not found' }),
+        };
+      }
+
+      if (!shipment.tracking_number) {
+        return {
+          statusCode: 400,
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            success: false,
+            error: 'No tracking number. Dispatch the shipment first.',
+          }),
+        };
+      }
+
+      const sender = shipment.sender || {};
+      const recipient = shipment.recipient || {};
+      const lane = shipment.metadata?.selected_lane === 'local_rider' || shipment.delivery_person_name
+        ? 'local_rider'
+        : 'fez';
+
+      const labelData = {
+        tracking_number: shipment.tracking_number,
+        order_number: shipment.shipment_code,
+        order_heading: 'Shipment ',
+        sender_name: sender.name || 'Sender',
+        sender_address: sender.address || '',
+        sender_city: `${sender.city || ''}${sender.state ? `, ${sender.state}` : ''}`.replace(/^,\s*|,\s*$/g, ''),
+        sender_phone: sender.phone || '',
+        recipient_name: recipient.name || 'Recipient',
+        recipient_address: recipient.address || '',
+        recipient_city: recipient.city || '',
+        recipient_state: recipient.state || '',
+        recipient_phone: recipient.phone || '',
+        items: String(shipment.item_description || 'Package').substring(0, 100),
+        weight: Number(shipment.item_weight || 1).toFixed(1),
+        created_date: new Date(shipment.created_at).toLocaleDateString('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        }),
+        lane,
+      };
+
+      const labelHTML = await generateLabelHTML(labelData);
+      return {
+        statusCode: 200,
+        headers: { ...headers, 'Content-Type': 'text/html' },
+        body: labelHTML,
       };
     }
 

@@ -2,34 +2,41 @@ import { supabase } from '../contexts/AuthContext';
 
 const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
-type WaybillParams = {
+type ShipmentDocParams = {
   subOrderId?: string;
   returnShipmentId?: string;
   shipmentId?: string;
 };
 
-const LOADING_HTML =
-  '<!DOCTYPE html><html><head><title>Waybill</title></head><body style="font-family:sans-serif;padding:2rem;text-align:center;color:#64748b"><p>Loading waybill…</p></body></html>';
+export type WaybillParams = ShipmentDocParams;
+export type LabelParams = Pick<ShipmentDocParams, 'subOrderId' | 'shipmentId'>;
 
-/** Full-screen in-app viewer when mobile browsers block window.open. */
-function showInPageWaybill(html: string): void {
-  const existing = document.getElementById('waybill-print-overlay');
+const LOADING_HTML =
+  '<!DOCTYPE html><html><head><title>Loading</title></head><body style="font-family:sans-serif;padding:2rem;text-align:center;color:#64748b"><p>Loading…</p></body></html>';
+
+function isMobilePreview(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.matchMedia('(max-width: 768px)').matches;
+}
+
+function showInPagePrintPreview(html: string, title: string, overlayId: string): void {
+  const existing = document.getElementById(overlayId);
   existing?.remove();
 
   const overlay = document.createElement('div');
-  overlay.id = 'waybill-print-overlay';
+  overlay.id = overlayId;
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
-  overlay.setAttribute('aria-label', 'Waybill preview');
-  overlay.className = 'fixed inset-0 z-[200] flex flex-col bg-white';
+  overlay.setAttribute('aria-label', `${title} preview`);
+  overlay.className = 'fixed inset-0 z-[200] flex flex-col bg-slate-100';
 
   const toolbar = document.createElement('div');
   toolbar.className =
-    'flex shrink-0 items-center justify-between gap-2 border-b border-gray-200 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]';
+    'flex shrink-0 items-center justify-between gap-2 border-b border-gray-200 bg-white px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]';
 
-  const title = document.createElement('p');
-  title.className = 'text-sm font-semibold text-gray-900';
-  title.textContent = 'Waybill';
+  const titleEl = document.createElement('p');
+  titleEl.className = 'text-sm font-semibold text-gray-900';
+  titleEl.textContent = title;
 
   const actions = document.createElement('div');
   actions.className = 'flex items-center gap-2';
@@ -41,12 +48,16 @@ function showInPageWaybill(html: string): void {
 
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
-  closeBtn.className = 'rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700';
+  closeBtn.className = 'rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700';
   closeBtn.textContent = 'Close';
 
+  const frameWrap = document.createElement('div');
+  frameWrap.className = 'min-h-0 flex-1 overflow-auto px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]';
+
   const iframe = document.createElement('iframe');
-  iframe.title = 'Waybill document';
-  iframe.className = 'min-h-0 flex-1 w-full border-0';
+  iframe.title = `${title} document`;
+  iframe.className = 'mx-auto block w-full max-w-lg rounded-xl border border-gray-200 bg-white shadow-sm';
+  iframe.style.minHeight = 'calc(100dvh - 8rem)';
   iframe.srcdoc = html;
 
   const prevOverflow = document.body.style.overflow;
@@ -68,8 +79,9 @@ function showInPageWaybill(html: string): void {
   closeBtn.addEventListener('click', close);
 
   actions.append(printBtn, closeBtn);
-  toolbar.append(title, actions);
-  overlay.append(toolbar, iframe);
+  toolbar.append(titleEl, actions);
+  frameWrap.append(iframe);
+  overlay.append(toolbar, frameWrap);
   document.body.appendChild(overlay);
 }
 
@@ -93,10 +105,15 @@ function writeHtmlToWindow(win: Window, html: string, autoPrint = false): void {
   }
 }
 
-/** Fetch an authenticated waybill HTML page and open it for printing. */
-export async function openWaybillPrint(params: WaybillParams, accessToken?: string | null): Promise<void> {
-  // Must open synchronously on the user click — async fetch first breaks mobile pop-up rules.
-  const popup = window.open('about:blank', '_blank');
+async function openShippingDocument(
+  endpoint: 'generate-waybill' | 'generate-label',
+  params: ShipmentDocParams,
+  title: string,
+  overlayId: string,
+  accessToken?: string | null,
+): Promise<void> {
+  const mobile = isMobilePreview();
+  const popup = mobile ? null : window.open('about:blank', '_blank');
   if (popup) {
     writeHtmlToWindow(popup, LOADING_HTML);
   }
@@ -110,21 +127,21 @@ export async function openWaybillPrint(params: WaybillParams, accessToken?: stri
   }
   if (!token) {
     popup?.close();
-    throw new Error('Sign in required to print waybills.');
+    throw new Error(`Sign in required to print ${title.toLowerCase()}s.`);
   }
 
-  const qs = new URLSearchParams({ print: 'true' });
+  const qs = new URLSearchParams({ print: mobile ? 'false' : 'true' });
   if (params.subOrderId) qs.set('subOrderId', params.subOrderId);
   if (params.returnShipmentId) qs.set('returnShipmentId', params.returnShipmentId);
   if (params.shipmentId) qs.set('shipmentId', params.shipmentId);
 
-  const res = await fetch(`${functionsBase}/generate-waybill?${qs.toString()}`, {
+  const res = await fetch(`${functionsBase}/${endpoint}?${qs.toString()}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
   if (!res.ok) {
     popup?.close();
-    let message = 'Could not generate waybill.';
+    let message = `Could not generate ${title.toLowerCase()}.`;
     try {
       const json = await res.json();
       message = json.error || json.message || message;
@@ -141,5 +158,15 @@ export async function openWaybillPrint(params: WaybillParams, accessToken?: stri
     return;
   }
 
-  showInPageWaybill(html);
+  showInPagePrintPreview(html, title, overlayId);
+}
+
+/** Fetch an authenticated waybill HTML page and open it for printing. */
+export async function openWaybillPrint(params: WaybillParams, accessToken?: string | null): Promise<void> {
+  return openShippingDocument('generate-waybill', params, 'Waybill', 'waybill-print-overlay', accessToken);
+}
+
+/** Fetch an authenticated shipping label and open it for printing. */
+export async function openLabelPrint(params: LabelParams, accessToken?: string | null): Promise<void> {
+  return openShippingDocument('generate-label', params, 'Shipping label', 'label-print-overlay', accessToken);
 }

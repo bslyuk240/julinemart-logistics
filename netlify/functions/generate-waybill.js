@@ -384,10 +384,12 @@ async function generateWaybillHTML(waybillData) {
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Waybill - ${waybill_number}</title>
   <style>
     @page { size: A5; margin: 12mm; }
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
     body {
       font-family: 'Segoe UI', Arial, sans-serif;
       color: #0f172a;
@@ -499,6 +501,30 @@ async function generateWaybillHTML(waybillData) {
 
     @media print {
       body { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    }
+
+    /* On-screen preview (mobile admin / in-app viewer) */
+    @media screen {
+      html, body { background: #f1f5f9; min-height: 100%; }
+      body {
+        max-width: 36rem;
+        margin: 0 auto;
+        padding: 12px 14px 24px;
+        overflow-x: hidden;
+      }
+      .header { flex-wrap: wrap; gap: 8px; }
+      .doc-title { text-align: left; width: 100%; }
+      .waybill-number-block { flex-wrap: wrap; gap: 10px; }
+      .waybill-number-value { font-size: 17px; word-break: break-word; }
+      .addresses { flex-direction: column; }
+      .lane-block {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+      }
+      .items { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .signature-row { flex-direction: column; gap: 12px; }
+      .footer { font-size: 9px; }
     }
   </style>
 </head>

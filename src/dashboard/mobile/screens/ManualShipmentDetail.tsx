@@ -20,6 +20,7 @@ import { Sheet } from '../Sheet';
 import { TABBAR_SPACE, functionsAuthHeader, functionsBase } from '../lib/functionsAuth';
 import { openLabelPrint, openWaybillPrint } from '../../lib/waybillPrint';
 import { formatNaira, statusLabel, statusStyle } from '../lib/displayUtils';
+import { ShipmentTrackingEvents } from '../../../shared/ShipmentTrackingEvents';
 
 interface Address {
   name: string;
@@ -343,23 +344,13 @@ export default function MobileManualShipmentDetail() {
               )}
             </div>
 
-            {events.length > 0 && (
-              <>
-                <SectionLabel>Status history</SectionLabel>
-                <div className="mx-4 space-y-3 rounded-xl bg-white p-4">
-                  {[...events].reverse().map((event, idx) => (
-                    <div key={`${event.timestamp}-${idx}`} className="flex gap-3 text-sm">
-                      <div className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${idx === 0 ? 'bg-primary-600' : 'bg-gray-300'}`} />
-                      <div>
-                        <p className="font-medium capitalize text-gray-900">{event.status.replace(/_/g, ' ')}</p>
-                        {event.description && <p className="text-gray-600">{event.description}</p>}
-                        <p className="text-[11px] text-gray-400">{new Date(event.timestamp).toLocaleString()}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
+            <div className="mx-4 mt-3">
+              <ShipmentTrackingEvents
+                events={events}
+                title="Tracking updates"
+                emptyMessage="No events yet. Tap Update tracking or wait for courier updates."
+              />
+            </div>
           </>
         ) : (
           <>

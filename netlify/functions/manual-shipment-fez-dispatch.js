@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import { authenticateFez } from './services/fezAuth.js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { notifyManualShipmentCourierStatus } from './services/manualShipmentNotify.js';
+import { insertTrackingEvent } from './services/fezTracking.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -207,6 +208,19 @@ exports.handler = async (event) => {
       });
     } catch (logErr) {
       console.warn('Activity log failed:', logErr);
+    }
+
+    try {
+      await insertTrackingEvent(supabase, {
+        manual_shipment_id: shipment_id,
+        status: 'assigned',
+        description: 'Dispatched to Fez — shipping booked',
+        event_time: new Date().toISOString(),
+        source: 'manual',
+        source_reference: fezTracking,
+      });
+    } catch (eventErr) {
+      console.warn('Initial manual shipment tracking event failed:', eventErr?.message || eventErr);
     }
 
     try {

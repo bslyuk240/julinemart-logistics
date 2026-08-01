@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useNotification } from '../contexts/NotificationContext';
 import { supabase } from '../contexts/AuthContext';
 import { openLabelPrint, openWaybillPrint } from '../lib/waybillPrint';
+import { ShipmentTrackingEvents } from '../../shared/ShipmentTrackingEvents';
 
 const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
@@ -373,25 +374,12 @@ export function ManualShipmentDetailPage() {
             </button>
           </div>
 
-          {events.length > 0 && (
-            <div className="pt-4 border-t mt-4">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Status History</h3>
-              <div className="space-y-3">
-                {[...events].reverse().map((event, idx) => (
-                  <div key={`${event.timestamp}-${idx}`} className="flex gap-3 text-sm">
-                    <div className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${idx === 0 ? 'bg-primary-600' : 'bg-gray-300'}`} />
-                    <div>
-                      <p className="font-medium text-gray-900">{event.status.replace(/_/g, ' ')}</p>
-                      {event.description && <p className="text-gray-600">{event.description}</p>}
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {new Date(event.timestamp).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          <ShipmentTrackingEvents
+            events={events}
+            title="Status history"
+            emptyMessage="No tracking events yet. Use Update Tracking after dispatch, or wait for Fez webhook updates."
+            className="border border-gray-100"
+          />
         </div>
       )}
 

@@ -141,9 +141,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
             <BrandLogo size={32} className="lg:hidden" />
 
-            <div className="flex-1 flex justify-end items-center gap-3 sm:gap-4">
-              <ThemeToggle />
-              <NotificationsPanel />
+            <div className="flex-1 flex justify-end items-center gap-2 sm:gap-3">
+              <div className="flex items-center">
+                <ThemeToggle />
+                <NotificationsPanel />
+              </div>
               
               {/* User Menu */}
               <div className="relative">

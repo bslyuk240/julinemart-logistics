@@ -6,6 +6,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { notifyManualShipmentRiderAssigned } from './services/manualShipmentNotify.js';
+import { insertTrackingEvent } from './services/fezTracking.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -138,6 +139,19 @@ exports.handler = async (event) => {
       });
     } catch (logErr) {
       console.warn('Activity log failed:', logErr);
+    }
+
+    try {
+      await insertTrackingEvent(supabase, {
+        manual_shipment_id: shipment_id,
+        status: 'assigned',
+        description: `Local rider assigned — ${rider_name}`,
+        event_time: new Date().toISOString(),
+        source: 'manual',
+        source_reference: nextTrackingNumber,
+      });
+    } catch (eventErr) {
+      console.warn('Initial manual shipment tracking event failed:', eventErr?.message || eventErr);
     }
 
     try {

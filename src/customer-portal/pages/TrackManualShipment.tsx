@@ -1,27 +1,20 @@
-import { useCallback, useEffect, useState, type ComponentType, type SVGProps } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Package,
-  MapPin,
-  Truck,
-  CheckCircle,
-  Clock,
   ArrowLeft,
-  Phone,
-  Home,
-  AlertCircle,
+  ArrowRight,
+  Copy,
   ExternalLink,
+  Loader,
+  MapPin,
+  Package,
+  Phone,
+  RefreshCw,
+  Truck,
 } from 'lucide-react';
-import { BrandLogo } from '../../shared/BrandLogo';
+import { ShipmentTrackingEvents } from '../../shared/ShipmentTrackingEvents';
 
 const JLO_BASE = '';
-
-interface TrackingEvent {
-  status: string;
-  location: string | null;
-  description: string;
-  timestamp: string;
-}
 
 interface ManualShipmentTrack {
   id: string;
@@ -30,42 +23,60 @@ interface ManualShipmentTrack {
   tracking_number: string | null;
   courier_tracking_url: string | null;
   waybill_number: string | null;
-  sender: { name: string; address: string; city: string; state: string; phone?: string };
+  sender: { name: string; city: string; state: string };
   recipient: { name: string; address: string; city: string; state: string; phone: string };
   item_description: string;
   item_weight: number;
-  item_value: number;
   delivery_person_name: string | null;
   delivery_person_phone: string | null;
   last_tracking_update: string | null;
   created_at: string;
   couriers: { name: string; code: string } | null;
-  tracking_events: TrackingEvent[];
+  tracking_events: Array<{
+    status: string;
+    description: string;
+    location: string | null;
+    timestamp: string;
+  }>;
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  pending: 'Pending',
-  assigned: 'Rider Assigned',
-  pending_pickup: 'Awaiting Pickup',
-  picked_up: 'Picked Up',
-  in_transit: 'In Transit',
-  out_for_delivery: 'Out for Delivery',
-  delivered: 'Delivered',
-  returned: 'Returned',
-  cancelled: 'Cancelled',
+const STATUS_STYLES: Record<string, string> = {
+  pending: 'bg-yellow-100 text-yellow-800',
+  assigned: 'bg-blue-100 text-blue-800',
+  pending_pickup: 'bg-indigo-100 text-indigo-800',
+  picked_up: 'bg-indigo-100 text-indigo-800',
+  in_transit: 'bg-purple-100 text-purple-800',
+  out_for_delivery: 'bg-orange-100 text-orange-800',
+  delivered: 'bg-green-100 text-green-800',
+  cancelled: 'bg-red-100 text-red-800',
+  returned: 'bg-gray-100 text-gray-800',
 };
+
+function statusPillClass(status: string): string {
+  return STATUS_STYLES[status] ?? 'bg-gray-100 text-gray-800';
+}
+
+function statusPillLabel(status: string): string {
+  return status.replace(/_/g, ' ');
+}
 
 export function ManualShipmentTrackingPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [shipment, setShipment] = useState<ManualShipmentTrack | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const trackingNumber = searchParams.get('tracking');
   const phone = searchParams.get('phone');
 
-  const fetchShipment = useCallback(async () => {
+  const fetchShipment = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    setError('');
+
     try {
       const qs = new URLSearchParams({
         trackingNumber: trackingNumber ?? '',
@@ -77,12 +88,15 @@ export function ManualShipmentTrackingPage() {
       if (data.success) {
         setShipment(data.data);
       } else {
+        setShipment(null);
         setError(data.error || 'Shipment not found');
       }
     } catch {
+      setShipment(null);
       setError('Failed to fetch shipment information');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [trackingNumber, phone]);
 
@@ -95,53 +109,28 @@ export function ManualShipmentTrackingPage() {
     }
   }, [trackingNumber, phone, fetchShipment]);
 
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      pending: 'bg-yellow-100 text-yellow-800 border-yellow-300',
-      assigned: 'bg-blue-100 text-blue-800 border-blue-300',
-      pending_pickup: 'bg-indigo-100 text-indigo-800 border-indigo-300',
-      picked_up: 'bg-indigo-100 text-indigo-800 border-indigo-300',
-      in_transit: 'bg-purple-100 text-purple-800 border-purple-300',
-      out_for_delivery: 'bg-orange-100 text-orange-800 border-orange-300',
-      delivered: 'bg-green-100 text-green-800 border-green-300',
-      cancelled: 'bg-red-100 text-red-800 border-red-300',
-      returned: 'bg-gray-100 text-gray-800 border-gray-300',
-    };
-    return colors[status] || 'bg-gray-100 text-gray-800 border-gray-300';
-  };
-
-  const getStatusIcon = (status: string) => {
-    const icons: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
-      pending: Clock,
-      assigned: Package,
-      pending_pickup: Clock,
-      picked_up: Package,
-      in_transit: Truck,
-      out_for_delivery: Truck,
-      delivered: CheckCircle,
-      cancelled: AlertCircle,
-      returned: AlertCircle,
-    };
-    const Icon = icons[status] || Clock;
-    return <Icon className="w-5 h-5" />;
-  };
-
-  const getCourierTrackingUrl = (): string | null => {
-    if (!shipment?.tracking_number) return null;
-    if (shipment.courier_tracking_url) return shipment.courier_tracking_url;
-    const code = shipment.couriers?.code?.toLowerCase();
-    if (code === 'fez' || code === 'fez_delivery' || shipment.tracking_number) {
-      return `https://web.fezdelivery.co/track-delivery?tracking=${shipment.tracking_number}`;
+  const copyTracking = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard unavailable
     }
-    return null;
   };
+
+  const courierTrackUrl =
+    shipment?.courier_tracking_url ||
+    (shipment?.tracking_number
+      ? `https://web.fezdelivery.co/track-delivery?tracking=${encodeURIComponent(shipment.tracking_number)}`
+      : null);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="flex min-h-[100dvh] items-center justify-center bg-gray-50">
         <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mb-4" />
-          <p className="text-gray-600">Loading your shipment...</p>
+          <Loader className="mx-auto mb-3 h-8 w-8 animate-spin text-primary-600" />
+          <p className="text-sm text-gray-600">Loading shipment…</p>
         </div>
       </div>
     );
@@ -149,179 +138,168 @@ export function ManualShipmentTrackingPage() {
 
   if (error || !shipment) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8 text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mb-4">
-            <AlertCircle className="w-8 h-8 text-red-600" />
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Shipment Not Found</h2>
-          <p className="text-gray-600 mb-6">{error || 'We could not find a shipment matching that information.'}</p>
-          <button
-            onClick={() => navigate('/')}
-            className="btn-primary flex items-center justify-center mx-auto"
-          >
-            <ArrowLeft className="w-5 h-5 mr-2" />
-            Try Again
+      <div className="flex min-h-[100dvh] flex-col bg-gray-50">
+        <header className="sticky top-0 z-10 border-b border-gray-100 bg-white px-4 py-3">
+          <button type="button" onClick={() => navigate('/')} className="flex items-center gap-2 text-sm text-gray-600">
+            <ArrowLeft className="h-5 w-5" />
+            Back
           </button>
+        </header>
+        <div className="flex flex-1 items-center justify-center p-6">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-sm">
+            <p className="text-lg font-semibold text-gray-900">Shipment not found</p>
+            <p className="mt-2 text-sm text-gray-600">{error || 'Check your tracking number and phone.'}</p>
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="mt-5 w-full rounded-xl bg-primary-600 py-3.5 text-sm font-semibold text-white"
+            >
+              Try again
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  const trackingUrl = getCourierTrackingUrl();
   const events = shipment.tracking_events || [];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <BrandLogo withText size={28} textClassName="text-2xl font-bold text-primary-600" />
-            <button
-              onClick={() => navigate('/')}
-              className="text-gray-600 hover:text-primary-600 flex items-center gap-2"
-            >
-              <ArrowLeft className="w-5 h-5" />
-              Track Another
-            </button>
-          </div>
+    <div className="flex min-h-[100dvh] flex-col bg-gray-50">
+      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-gray-100 bg-white/95 px-4 py-3 backdrop-blur">
+        <button type="button" onClick={() => navigate('/')} aria-label="Back" className="shrink-0 text-gray-500">
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-gray-900">{shipment.shipment_code}</p>
+          <p className="truncate text-[11px] text-gray-400">Manual shipment</p>
         </div>
+        <button
+          type="button"
+          onClick={() => fetchShipment(true)}
+          disabled={refreshing}
+          aria-label="Refresh tracking"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-gray-200 text-gray-600 disabled:opacity-50"
+        >
+          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+        </button>
       </header>
 
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <div className="flex items-start justify-between mb-4 gap-4">
-            <div>
-              <h2 className="text-3xl font-bold text-gray-900 mb-2">{shipment.shipment_code}</h2>
-              <p className="text-gray-600">
-                Created{' '}
-                {new Date(shipment.created_at).toLocaleDateString('en-US', {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                })}
-              </p>
-            </div>
-            <span
-              className={`px-4 py-2 rounded-full text-sm font-medium border-2 flex items-center gap-2 shrink-0 ${getStatusColor(shipment.status)}`}
-            >
-              {getStatusIcon(shipment.status)}
-              {(STATUS_LABELS[shipment.status] || shipment.status.replace(/_/g, ' ')).toUpperCase()}
+      <main className="flex-1 pb-8">
+        <section className="border-b border-gray-100 bg-white px-4 py-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase ${statusPillClass(shipment.status)}`}>
+              {statusPillLabel(shipment.status)}
             </span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t">
-            <div>
-              <h3 className="text-sm font-medium text-gray-500 mb-2 flex items-center gap-2">
-                <Home className="w-4 h-4" />
-                Delivery To
-              </h3>
-              <p className="font-semibold text-gray-900">{shipment.recipient.name}</p>
-              <p className="text-sm text-gray-600">{shipment.recipient.address}</p>
-              <p className="text-sm text-gray-600">
-                {shipment.recipient.city}, {shipment.recipient.state}
-              </p>
-              <p className="text-sm text-gray-600 flex items-center gap-1 mt-1">
-                <Phone className="w-3 h-3" />
-                {shipment.recipient.phone}
-              </p>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium text-gray-500 mb-2 flex items-center gap-2">
-                <Package className="w-4 h-4" />
-                Package
-              </h3>
-              <p className="text-gray-900">{shipment.item_description}</p>
-              <p className="text-sm text-gray-600 mt-1">
-                {shipment.item_weight}kg
-                {shipment.couriers?.name ? ` · ${shipment.couriers.name}` : ''}
-              </p>
-              {shipment.delivery_person_name && (
-                <p className="text-sm text-gray-600 mt-2">
-                  Rider: {shipment.delivery_person_name}
-                  {shipment.delivery_person_phone ? ` (${shipment.delivery_person_phone})` : ''}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <div className="bg-gray-50 rounded-lg p-4 mb-6">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">Tracking Number</p>
-                <p className="text-xl font-mono font-bold text-gray-900">
-                  {shipment.tracking_number || 'Not assigned yet'}
-                </p>
-              </div>
-              {trackingUrl && (
-                <a
-                  href={trackingUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-secondary text-sm flex items-center gap-2"
-                >
-                  Track on Courier Site
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-              )}
-            </div>
-            {shipment.last_tracking_update && (
-              <p className="text-sm text-gray-500 mt-2">
-                Last updated: {new Date(shipment.last_tracking_update).toLocaleString()}
-              </p>
+            {shipment.couriers?.name && (
+              <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-medium text-gray-600">
+                {shipment.couriers.name}
+              </span>
             )}
           </div>
+          <p className="mt-3 text-xl font-bold text-gray-900">{shipment.recipient.name}</p>
+          <p className="mt-1 text-sm text-gray-600">{shipment.recipient.address}</p>
+          <p className="text-sm text-gray-500">
+            {shipment.recipient.city}, {shipment.recipient.state}
+          </p>
+          <div className="mt-4 flex items-center gap-2 text-xs text-gray-500">
+            <span className="rounded-full bg-gray-100 px-2 py-1 font-medium">{shipment.sender.city || 'Origin'}</span>
+            <ArrowRight className="h-3 w-3 text-gray-300" />
+            <span className="rounded-full bg-primary-50 px-2 py-1 font-medium text-primary-700">{shipment.recipient.city}</span>
+          </div>
+        </section>
 
-          {events.length > 0 ? (
-            <div className="relative">
-              <h5 className="font-semibold text-gray-900 mb-4">Tracking Updates</h5>
-              <div className="space-y-4">
-                {[...events].reverse().map((event, eventIndex) => {
-                  const isLatest = eventIndex === 0;
-                  return (
-                    <div key={eventIndex} className="flex gap-4">
-                      <div className="flex flex-col items-center">
-                        <div className={`w-3 h-3 rounded-full ${isLatest ? 'bg-primary-600' : 'bg-gray-300'}`} />
-                        {eventIndex !== events.length - 1 && <div className="w-0.5 h-full bg-gray-200 my-1" />}
-                      </div>
-                      <div className="flex-1 pb-4">
-                        <div className="flex items-start justify-between mb-1 gap-2">
-                          <h6 className={`font-semibold ${isLatest ? 'text-primary-600' : 'text-gray-900'}`}>
-                            {STATUS_LABELS[event.status] || event.status.replace(/_/g, ' ')}
-                          </h6>
-                          <span className="text-xs text-gray-400 shrink-0">
-                            {new Date(event.timestamp).toLocaleString('en-GB', {
-                              day: 'numeric',
-                              month: 'short',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
-                        </div>
-                        {event.description && <p className="text-sm text-gray-600">{event.description}</p>}
-                        {event.location && (
-                          <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                            <MapPin className="w-3 h-3" />
-                            {event.location}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+        <section className="mx-4 mt-4 rounded-2xl bg-white p-4 shadow-sm">
+          <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Tracking number</p>
+          <div className="mt-1 flex items-center justify-between gap-3">
+            <p className="font-mono text-lg font-bold text-gray-900 break-all">
+              {shipment.tracking_number || 'Not assigned yet'}
+            </p>
+            {shipment.tracking_number && (
+              <button
+                type="button"
+                onClick={() => copyTracking(shipment.tracking_number!)}
+                aria-label="Copy tracking number"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-200 text-gray-500"
+              >
+                <Copy className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          {copied && <p className="mt-1 text-xs text-green-600">Copied</p>}
+          {shipment.last_tracking_update && (
+            <p className="mt-2 text-xs text-gray-400">
+              Last updated {new Date(shipment.last_tracking_update).toLocaleString('en-NG', { dateStyle: 'medium', timeStyle: 'short' })}
+            </p>
+          )}
+          {courierTrackUrl && (
+            <a
+              href={courierTrackUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-primary-200 bg-primary-50 py-3.5 text-sm font-semibold text-primary-700"
+            >
+              <ExternalLink className="h-4 w-4" />
+              Track on courier site
+            </a>
+          )}
+        </section>
+
+        <section className="mx-4 mt-4">
+          <ShipmentTrackingEvents
+            events={events}
+            title="Tracking updates"
+            emptyMessage="Your shipment is booked. Updates will show here as the courier moves the package."
+          />
+        </section>
+
+        <section className="mx-4 mt-4 space-y-3">
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <div className="flex gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-orange-50">
+                <Package className="h-4 w-4 text-orange-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Package</p>
+                <p className="mt-0.5 text-sm font-medium text-gray-900">{shipment.item_description}</p>
+                <p className="mt-0.5 text-xs text-gray-500">{shipment.item_weight} kg</p>
               </div>
             </div>
-          ) : (
-            <div className="text-center py-8 text-gray-500">
-              <Clock className="w-12 h-12 mx-auto mb-2 text-gray-400" />
-              <p>Tracking updates will appear here once your shipment is in transit</p>
+          </div>
+
+          {shipment.delivery_person_name && (
+            <div className="rounded-2xl bg-white p-4 shadow-sm">
+              <div className="flex gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50">
+                  <Truck className="h-4 w-4 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Rider</p>
+                  <p className="mt-0.5 text-sm font-medium text-gray-900">{shipment.delivery_person_name}</p>
+                  {shipment.delivery_person_phone && (
+                    <a href={`tel:${shipment.delivery_person_phone}`} className="mt-1 flex items-center gap-1 text-sm text-primary-600">
+                      <Phone className="h-3.5 w-3.5" />
+                      {shipment.delivery_person_phone}
+                    </a>
+                  )}
+                </div>
+              </div>
             </div>
           )}
-        </div>
-      </div>
+
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <div className="flex gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100">
+                <MapPin className="h-4 w-4 text-gray-600" />
+              </div>
+              <div>
+                <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Delivery phone</p>
+                <p className="mt-0.5 text-sm text-gray-900">{shipment.recipient.phone}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
     </div>
   );
 }

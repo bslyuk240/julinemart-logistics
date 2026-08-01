@@ -117,9 +117,10 @@ export function MobileShell({ children }: MobileShellProps) {
 
         <div className="flex-1" />
 
-        <ThemeToggle compact />
-
-        <NotificationsPanel />
+        <div className="flex shrink-0 items-center">
+          <ThemeToggle />
+          <NotificationsPanel />
+        </div>
 
         <div className="relative">
           <button

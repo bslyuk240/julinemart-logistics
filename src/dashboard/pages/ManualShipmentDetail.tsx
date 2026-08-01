@@ -81,7 +81,7 @@ export function ManualShipmentDetailPage() {
         notification.success('Dispatched via Fez', `Tracking: ${data.data.tracking_number}`);
         fetchShipment();
       } else {
-        notification.error('Dispatch Failed', data.error || 'Unable to dispatch via Fez');
+        notification.error('Dispatch Failed', data.message || data.error || 'Unable to dispatch via Fez');
       }
     } catch (error) {
       console.error('Fez dispatch error:', error);

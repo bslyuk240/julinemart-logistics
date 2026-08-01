@@ -2,6 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { sendTransactionalEmail } from './services/emailNotifications.js';
+import { authenticateFez } from './services/fezAuth.js';
 
 const adminClient = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -29,34 +30,8 @@ function isValidFezOrderNumber(value) {
   return value.length < 50 && /^[A-Za-z0-9_-]+$/.test(value.trim());
 }
 
-async function authenticateFez() {
-  // Try DB-configured credentials first
-  const { data: courier } = await adminClient
-    .from('couriers')
-    .select('api_user_id, api_password, api_base_url, environment')
-    .eq('code', 'fez')
-    .eq('api_enabled', true)
-    .maybeSingle();
-
-  const baseUrl = courier?.api_base_url || process.env.FEZ_API_BASE_URL;
-  const userId = courier?.api_user_id || process.env.FEZ_USER_ID;
-  const password = courier?.api_password || process.env.FEZ_PASSWORD || process.env.FEZ_API_KEY;
-
-  if (!baseUrl || !userId || !password) throw new Error('Fez API credentials not configured');
-
-  const res = await fetch(`${baseUrl}/user/authenticate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userId, password }),
-  });
-  const data = await res.json();
-  if (data.status !== 'Success') throw new Error(data.description || 'Fez authentication failed');
-
-  return {
-    authToken: data.authDetails.authToken,
-    secretKey: data.orgDetails['secret-key'],
-    baseUrl,
-  };
+async function authenticateFezForReturn() {
+  return authenticateFez(adminClient);
 }
 
 async function createFezShipment(auth, payload) {
@@ -213,7 +188,7 @@ export async function handler(event) {
     }
 
     // Authenticate with Fez once for all shipments
-    const auth = await authenticateFez();
+    const auth = await authenticateFezForReturn();
 
     const createdShipments = [];
     const shipmentErrors = [];

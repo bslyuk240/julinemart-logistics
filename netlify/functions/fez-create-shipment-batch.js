@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
+import { authenticateFez } from './services/fezAuth.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -26,42 +27,8 @@ function extractOrderCode(value) {
   return m && isValidFezOrderNumber(m[1]) ? m[1] : null;
 }
 
-async function authenticateFez() {
-  const isProduction =
-    process.env.CONTEXT === 'production' ||
-    process.env.NETLIFY_CONTEXT === 'production' ||
-    process.env.NODE_ENV === 'production';
-  const environment = isProduction ? 'production' : 'sandbox';
-
-  const { data: courier } = await supabase
-    .from('couriers')
-    .select('api_user_id, api_password, api_base_url')
-    .eq('code', 'fez')
-    .eq('api_enabled', true)
-    .eq('environment', environment)
-    .single();
-
-  const userId = courier?.api_user_id || process.env.FEZ_USER_ID;
-  const apiKey = courier?.api_password || process.env.FEZ_PASSWORD || process.env.FEZ_API_KEY;
-  const baseUrl = courier?.api_base_url || process.env.FEZ_API_BASE_URL;
-
-  if (!userId || !apiKey || !baseUrl) {
-    throw new Error(`Missing Fez API credentials for ${environment}`);
-  }
-
-  const res = await fetch(`${baseUrl}/user/authenticate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userId, password: apiKey }),
-  });
-  const data = await res.json();
-  if (data.status !== 'Success') throw new Error(data.description || 'Fez auth failed');
-
-  return {
-    authToken: data.authDetails.authToken,
-    secretKey: data.orgDetails['secret-key'],
-    baseUrl,
-  };
+async function authenticateFezBatch() {
+  return authenticateFez(supabase);
 }
 
 async function callFezApi(authToken, secretKey, baseUrl, shipmentData) {
@@ -221,7 +188,7 @@ export async function handler(event) {
     }
 
     // ── Authenticate with Fez once ────────────────────────────────────────────
-    const { authToken, secretKey, baseUrl } = await authenticateFez();
+    const { authToken, secretKey, baseUrl } = await authenticateFezBatch();
 
     // ── Dispatch one Fez shipment per group ───────────────────────────────────
     for (const group of groups.values()) {

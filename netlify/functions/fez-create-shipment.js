@@ -7,6 +7,7 @@ import { sendVendorShipmentReadyEmail } from '../../shared/vendorFulfillment.js'
 import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { resolveSender } from './services/resolveSender.js';
+import { authenticateFez } from './services/fezAuth.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -27,70 +28,8 @@ function generateShortUniqueId(subOrderId) {
   return `JLO-${shortId}-${timestamp}`.toUpperCase();
 }
 
-async function authenticateFez() {
-  // Determine environment based on Netlify context
-  const isProduction = process.env.CONTEXT === 'production' || 
-                       process.env.NETLIFY_CONTEXT === 'production' ||
-                       process.env.NODE_ENV === 'production';
-  const environment = isProduction ? 'production' : 'sandbox';
-  
-  console.log(`📍 Environment detected: ${environment}`);
-  console.log("🔍 Fetching Fez credentials from database...");
-
-  // Fetch credentials from database based on environment
-  const { data: courier, error: dbError } = await supabase
-    .from('couriers')
-    .select('api_user_id, api_password, api_base_url')
-    .eq('code', 'fez')
-    .eq('api_enabled', true)
-    .eq('environment', environment)  // ENVIRONMENT-BASED LOOKUP
-    .single();
-
-  let FEZ_USER_ID, FEZ_API_KEY, FEZ_API_BASE_URL;
-
-  if (courier && !dbError) {
-    // Use database credentials (preferred)
-    FEZ_USER_ID = courier.api_user_id;
-    FEZ_API_KEY = courier.api_password;
-    FEZ_API_BASE_URL = courier.api_base_url;
-    console.log("✅ Using credentials from database");
-    console.log("   Environment:", environment);
-    console.log("   User ID:", FEZ_USER_ID);
-  } else {
-    // Fallback to environment variables
-    FEZ_USER_ID = process.env.FEZ_USER_ID;
-    FEZ_API_KEY = process.env.FEZ_PASSWORD || process.env.FEZ_API_KEY;
-    FEZ_API_BASE_URL = process.env.FEZ_API_BASE_URL;
-    console.log("⚠️ Fallback to environment variables");
-  }
-
-  if (!FEZ_USER_ID || !FEZ_API_KEY || !FEZ_API_BASE_URL) {
-    throw new Error(`Missing Fez API credentials for ${environment} environment`);
-  }
-
-  console.log("🔐 Authenticating with Fez...");
-  
-  const res = await fetch(`${FEZ_API_BASE_URL}/user/authenticate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      user_id: FEZ_USER_ID,
-      password: FEZ_API_KEY
-    })
-  });
-
-  const data = await res.json();
-  console.log("FEZ AUTH RESPONSE:", JSON.stringify(data, null, 2));
-
-  if (data.status !== "Success") {
-    throw new Error(data.description || "Fez authentication failed");
-  }
-
-  return {
-    authToken: data.authDetails.authToken,
-    secretKey: data.orgDetails["secret-key"],
-    baseUrl: FEZ_API_BASE_URL
-  };
+async function authenticateFezForShipment() {
+  return authenticateFez(supabase);
 }
 
 /**
@@ -384,7 +323,7 @@ exports.handler = async (event) => {
         console.log(`\n=== FEZ API ATTEMPT ${attempt} ===`);
         
         // Get fresh authentication for each attempt
-        const { authToken, secretKey, baseUrl } = await authenticateFez();
+        const { authToken, secretKey, baseUrl } = await authenticateFezForShipment();
         
         // Small delay before retry
         if (attempt > 1) {

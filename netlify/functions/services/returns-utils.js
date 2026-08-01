@@ -6,6 +6,7 @@
 import fetch from "node-fetch";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
+import { authenticateFez as sharedAuthenticateFez } from "./fezAuth.js";
 
 // -----------------------------------------
 // SUPABASE SETUP
@@ -243,68 +244,11 @@ export async function fetchHubFromDatabase(hubId) {
 // -----------------------------------------
 
 async function fezAuth() {
-  // First try to get credentials from database
-  const { data: courier, error } = await supabase
-    .from('couriers')
-    .select('api_user_id, api_password, api_base_url')
-    .eq('code', 'fez')  // Note: lowercase 'fez' to match your schema
-    .eq('api_enabled', true)
-    .single();
-
-  let userId, password, baseUrl;
-
-  if (courier && !error) {
-    // Use database credentials (preferred)
-    userId = courier.api_user_id;
-    password = courier.api_password;
-    baseUrl = courier.api_base_url || FEZ_BASE;
-    console.log("✅ Using credentials from database");
-    console.log("Database User ID:", userId);
-  } else {
-    // Fallback to environment variables
-    userId = FEZ_USER_ID;
-    password = FEZ_API_KEY;
-    baseUrl = FEZ_BASE;
-    console.log("⚠️ Using credentials from environment variables (database fetch failed)");
-    if (error) console.log("Database error:", error.message);
-  }
-
-  if (!baseUrl || !userId || !password) {
-    throw new Error("Missing Fez API credentials (check database or env vars)");
-  }
-
-  console.log("Authenticating with Fez for returns...");
-  console.log("FEZ_BASE:", baseUrl);
-  console.log("FEZ_USER_ID:", userId);
-  
-  const res = await fetch(`${baseUrl}/user/authenticate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      user_id: userId,
-      password: password,
-    }),
-  });
-
-  const data = await res.json();
-  console.log("FEZ RETURN AUTH RESPONSE:", JSON.stringify(data, null, 2));
-
-  if (data.status !== "Success") {
-    throw new Error(data.description || "Fez auth failed");
-  }
-
-  // Validate auth response structure
-  if (!data.authDetails || !data.authDetails.authToken) {
-    throw new Error("Invalid auth response: missing authToken");
-  }
-  
-  if (!data.orgDetails || !data.orgDetails["secret-key"]) {
-    throw new Error("Invalid auth response: missing secret-key");
-  }
-
+  const auth = await sharedAuthenticateFez(supabase);
   return {
-    token: data.authDetails.authToken,
-    secret: data.orgDetails["secret-key"],
+    token: auth.authToken,
+    secret: auth.secretKey,
+    baseUrl: auth.baseUrl,
   };
 }
 
@@ -313,7 +257,7 @@ async function fezAuth() {
 // -----------------------------------------
 
 export async function createFezReturnPickup({ returnCode, customer, hub }) {
-  const { token, secret } = await fezAuth();
+  const { token, secret, baseUrl } = await fezAuth();
 
   const uniqueId = `JLO-RETURN-${returnCode}`;
 
@@ -344,7 +288,7 @@ export async function createFezReturnPickup({ returnCode, customer, hub }) {
 
   console.log("FEZ RETURN PAYLOAD:", JSON.stringify(payload, null, 2));
 
-  const res = await fetch(`${FEZ_BASE}/order`, {
+  const res = await fetch(`${baseUrl}/order`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

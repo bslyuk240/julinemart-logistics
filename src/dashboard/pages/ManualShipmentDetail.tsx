@@ -18,6 +18,7 @@ interface Address {
   city: string;
   state: string;
   phone: string;
+  email?: string;
 }
 
 interface TrackingEvent {
@@ -282,6 +283,9 @@ export function ManualShipmentDetailPage() {
           <p className="text-sm text-gray-600">{shipment.recipient?.address}</p>
           <p className="text-sm text-gray-600">{shipment.recipient?.city}{shipment.recipient?.city ? ', ' : ''}{shipment.recipient?.state}</p>
           <p className="text-sm text-gray-600 mt-1">{shipment.recipient?.phone}</p>
+          {shipment.recipient?.email && (
+            <p className="text-sm text-gray-600 mt-1">{shipment.recipient.email}</p>
+          )}
         </div>
       </div>
 

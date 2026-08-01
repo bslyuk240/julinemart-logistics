@@ -27,6 +27,7 @@ interface Address {
   city: string;
   state: string;
   phone: string;
+  email?: string;
 }
 
 interface TrackingEvent {
@@ -407,7 +408,11 @@ export default function MobileManualShipmentDetail() {
         <ContactSection
           title="Recipient"
           name={shipment.recipient.name}
-          lines={[shipment.recipient.address, `${shipment.recipient.city}, ${shipment.recipient.state}`]}
+          lines={[
+            shipment.recipient.address,
+            `${shipment.recipient.city}, ${shipment.recipient.state}`,
+            ...(shipment.recipient.email ? [shipment.recipient.email] : []),
+          ]}
           phone={shipment.recipient.phone}
         />
 

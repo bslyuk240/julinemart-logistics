@@ -8,6 +8,7 @@ import { ReturnConfirmationPage } from './customer-portal/pages/returns/ReturnCo
 import { ReturnMethodPage } from './customer-portal/pages/returns/ReturnMethod';
 import { ShippingEstimatePage } from './customer-portal/pages/ShippingEstimate';
 import { OrderTrackingPage } from './customer-portal/pages/Track';
+import { ManualShipmentTrackingPage } from './customer-portal/pages/TrackManualShipment';
 
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { DashboardLayout } from './dashboard/components/DashboardLayout';
@@ -548,6 +549,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
 const customerRoutes = [
   { path: '/', element: <CustomerPortalLanding /> },
   { path: '/track', element: <OrderTrackingPage /> },
+  { path: '/track/shipment', element: <ManualShipmentTrackingPage /> },
   { path: '/estimate', element: <ShippingEstimatePage /> },
   { path: '/order/:id', element: <OrderTrackingPage /> },
   { path: '/contact', element: <CustomerContactPage /> },

@@ -10,6 +10,7 @@ import {
   isValidFezTrackingNumber,
   mapFezStatus,
 } from './services/fezTracking.js';
+import { notifyManualShipmentCourierStatus } from './services/manualShipmentNotify.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
@@ -119,6 +120,16 @@ async function applyManualShipmentTracking(shipmentId, shipment, trackingNumber,
       source_reference: trackingNumber,
       metadata: { fez_status: fezLabel },
     });
+
+    try {
+      await notifyManualShipmentCourierStatus(supabase, shipment, {
+        jloStatus,
+        tracking_number: trackingNumber,
+        raw_status_hint: fezLabel,
+      });
+    } catch (mailErr) {
+      console.error('notifyManualShipmentCourierStatus (fez-fetch-tracking):', mailErr?.message || mailErr);
+    }
   }
 
   return { jloStatus, fezLabel };

@@ -20,7 +20,7 @@ export default function MobileCreateManualShipment() {
   const [senderMode, setSenderMode] = useState<'hub' | 'manual'>('hub');
   const [senderHubId, setSenderHubId] = useState('');
   const [sender, setSender] = useState({ name: '', address: '', city: '', state: 'Lagos', phone: '' });
-  const [recipient, setRecipient] = useState({ name: '', address: '', city: '', state: 'Lagos', phone: '' });
+  const [recipient, setRecipient] = useState({ name: '', address: '', city: '', state: 'Lagos', phone: '', email: '' });
   const [itemDescription, setItemDescription] = useState('');
   const [itemWeight, setItemWeight] = useState(1);
   const [itemValue, setItemValue] = useState(0);
@@ -140,6 +140,7 @@ export default function MobileCreateManualShipment() {
         <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Recipient</p>
         <input className={inputClass} placeholder="Full name *" value={recipient.name} onChange={(e) => setRecipient({ ...recipient, name: e.target.value })} style={{ fontSize: '16px' }} />
         <input className={inputClass} placeholder="Phone *" value={recipient.phone} onChange={(e) => setRecipient({ ...recipient, phone: e.target.value })} style={{ fontSize: '16px' }} />
+        <input className={inputClass} type="email" placeholder="Email (optional — tracking updates)" value={recipient.email} onChange={(e) => setRecipient({ ...recipient, email: e.target.value })} style={{ fontSize: '16px' }} />
         <input className={inputClass} placeholder="Delivery address *" value={recipient.address} onChange={(e) => setRecipient({ ...recipient, address: e.target.value })} style={{ fontSize: '16px' }} />
         <div className="grid grid-cols-2 gap-2">
           <input className={inputClass} placeholder="City" value={recipient.city} onChange={(e) => setRecipient({ ...recipient, city: e.target.value })} style={{ fontSize: '16px' }} />

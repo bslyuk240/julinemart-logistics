@@ -5,6 +5,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
+import { notifyManualShipmentRiderAssigned } from './services/manualShipmentNotify.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -73,7 +74,7 @@ exports.handler = async (event) => {
 
     const { data: existingShipment, error: existingError } = await supabase
       .from('manual_shipments')
-      .select('id, tracking_number, metadata, waybill_number')
+      .select('*')
       .eq('id', shipment_id)
       .single();
 
@@ -137,6 +138,16 @@ exports.handler = async (event) => {
       });
     } catch (logErr) {
       console.warn('Activity log failed:', logErr);
+    }
+
+    try {
+      await notifyManualShipmentRiderAssigned(supabase, updatedShipment, {
+        rider_name,
+        rider_phone,
+        rider_vehicle: rider_vehicle || null,
+      });
+    } catch (mailErr) {
+      console.error('manual shipment rider email:', mailErr?.message || mailErr);
     }
 
     return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: updatedShipment }) };

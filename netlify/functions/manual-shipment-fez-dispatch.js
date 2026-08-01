@@ -8,6 +8,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { authenticateFez } from './services/fezAuth.js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
+import { notifyManualShipmentCourierStatus } from './services/manualShipmentNotify.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -127,7 +128,7 @@ exports.handler = async (event) => {
       recipientState: recipient.state || 'Lagos',
       recipientName: recipient.name || 'Recipient',
       recipientPhone: recipient.phone || '',
-      recipientEmail: '',
+      recipientEmail: (recipient.email && String(recipient.email).trim()) || '',
       pickUpAddress: sender.address || '',
       pickUpState: sender.state || 'Lagos',
       uniqueID: generateShortUniqueId(shipment_id),
@@ -206,6 +207,17 @@ exports.handler = async (event) => {
       });
     } catch (logErr) {
       console.warn('Activity log failed:', logErr);
+    }
+
+    try {
+      await notifyManualShipmentCourierStatus(supabase, { ...shipment, ...updated }, {
+        jloStatus: 'assigned',
+        tracking_number: fezTracking,
+        courier_tracking_url: trackingUrl,
+        raw_status_hint: 'Shipping booked',
+      });
+    } catch (mailErr) {
+      console.error('manual shipment dispatch email:', mailErr?.message || mailErr);
     }
 
     return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: updated }) };

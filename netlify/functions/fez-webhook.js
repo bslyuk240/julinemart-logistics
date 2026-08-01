@@ -6,6 +6,7 @@ import { sendApiCourierStatusCustomerEmail } from '../../shared/riderAssignedEma
 import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
 import { insertTrackingEvent, mapFezStatus } from './services/fezTracking.js';
+import { notifyManualShipmentCourierStatus } from './services/manualShipmentNotify.js';
 import {
   buildOrderDeepLink,
   extractCustomerIdFromOrder,
@@ -76,6 +77,18 @@ async function processManualShipmentWebhook(orderNo, orderStatus, statusDescript
     description: `Fez webhook (manual): ${orderNo} → ${orderStatus}`,
     metadata: { shipment_id: shipment.id, shipment_code: shipment.shipment_code, ...webhookData },
   });
+
+  if (previousStatus !== jloStatus) {
+    try {
+      await notifyManualShipmentCourierStatus(supabase, shipment, {
+        jloStatus,
+        tracking_number: orderNo,
+        raw_status_hint: orderStatus || statusDescription,
+      });
+    } catch (mailErr) {
+      console.error('notifyManualShipmentCourierStatus (fez-webhook):', mailErr?.message || mailErr);
+    }
+  }
 
   return { shipment, jloStatus, previousStatus };
 }

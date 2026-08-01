@@ -69,6 +69,7 @@ export async function sendLocalRiderAssignedEmail(supabase, params) {
   const {
     orderId,
     orderNumber,
+    shipmentCode,
     customer_name,
     customer_email,
     tracking_number,
@@ -77,13 +78,17 @@ export async function sendLocalRiderAssignedEmail(supabase, params) {
     rider_vehicle,
     delivery_city,
     delivery_state,
+    portalUrl,
+    suppressMissingEmailLog,
   } = params;
 
   const to = (customer_email && String(customer_email).trim()) || '';
-  const subject = `Order #${orderNumber} — Local rider assigned`;
+  const ref = resolveEmailReference({ orderNumber, shipmentCode });
+  const subject = `${ref.subjectRef} — Local rider assigned`;
 
   try {
     if (!to) {
+      if (suppressMissingEmailLog) return;
       await logOrderEmail(supabase, {
         orderId,
         recipient: '(no customer email)',
@@ -100,22 +105,26 @@ export async function sendLocalRiderAssignedEmail(supabase, params) {
       return;
     }
 
-    const trackBase = customerTrackUrl();
+    const trackLink = resolvePortalUrl({ portalUrl });
     const area =
       [delivery_city, delivery_state].filter(Boolean).join(', ') || 'your delivery address';
     const vehicleLine = rider_vehicle
       ? `<p style="margin:8px 0 0;font-size:14px;color:#555">Vehicle: ${escapeHtml(rider_vehicle)}</p>`
       : '';
+    const intro =
+      ref.entityNoun === 'shipment'
+        ? 'A local delivery rider has been assigned to your shipment. Use your <strong>tracking number</strong> with JulineMart if you need help from support.'
+        : 'A local delivery rider has been assigned to your order. Use your <strong>tracking number</strong> with JulineMart if you need help from support.';
 
     const html = `
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
   <div style="background:#6b21a8;color:#fff;padding:28px;text-align:center">
     <h1 style="margin:0;font-size:22px">Your rider is assigned 🚚</h1>
-    <p style="margin:10px 0 0;opacity:.9;font-size:15px">Order #${escapeHtml(String(orderNumber))}</p>
+    <p style="margin:10px 0 0;opacity:.9;font-size:15px">${ref.headerRef}</p>
   </div>
   <div style="padding:28px;background:#fff;color:#333">
     <p style="margin:0 0 16px">Hi ${escapeHtml(customer_name || 'there')},</p>
-    <p style="margin:0 0 16px;line-height:1.5">A local delivery rider has been assigned to your order. Use your <strong>tracking number</strong> with JulineMart if you need help from support.</p>
+    <p style="margin:0 0 16px;line-height:1.5">${intro}</p>
     <div style="padding:18px;background:#f3f4f6;border-radius:10px;margin:18px 0;border:1px solid #e5e7eb">
       <p style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#6b7280">Tracking number</p>
       <p style="margin:0;font-size:20px;font-weight:700;color:#6b21a8;word-break:break-all">${escapeHtml(String(tracking_number || '—'))}</p>
@@ -127,7 +136,7 @@ export async function sendLocalRiderAssignedEmail(supabase, params) {
       ${vehicleLine}
     </div>
     <p style="margin:0 0 8px;font-size:14px;color:#555"><strong>Delivery area:</strong> ${escapeHtml(area)}</p>
-    <p style="margin:20px 0 0;font-size:14px;line-height:1.5">Track updates in your account: <a href="${trackBase}" style="color:#6b21a8">${trackBase.replace(/^https?:\/\//, '')}</a></p>
+    <p style="margin:20px 0 0;font-size:14px;line-height:1.5">Track updates: <a href="${trackLink}" style="color:#6b21a8">${trackLink.replace(/^https?:\/\//, '')}</a></p>
   </div>
   <div style="background:#f3f4f6;padding:14px;text-align:center;font-size:12px;color:#666">JulineMart</div>
 </div>`;
@@ -286,6 +295,27 @@ function encodeTel(phone) {
   return String(phone || '').replace(/[^\d+]/g, '');
 }
 
+function resolveEmailReference(p) {
+  if (p.shipmentCode) {
+    const code = String(p.shipmentCode);
+    return {
+      subjectRef: `Shipment ${code}`,
+      headerRef: `Shipment ${escapeHtml(code)}`,
+      entityNoun: 'shipment',
+    };
+  }
+  const orderNum = String(p.orderNumber ?? '');
+  return {
+    subjectRef: `Order #${orderNum}`,
+    headerRef: `Order #${escapeHtml(orderNum)}`,
+    entityNoun: 'order',
+  };
+}
+
+function resolvePortalUrl(p) {
+  return (p.portalUrl && String(p.portalUrl).trim()) || customerTrackUrl();
+}
+
 /** Sub-order statuses we notify customers about for API / Fez couriers */
 const API_COURIER_EMAILED_STATUSES = new Set([
   'assigned',
@@ -342,12 +372,13 @@ export async function sendApiCourierStatusCustomerEmail(supabase, p) {
   if (!jlo || !API_COURIER_EMAILED_STATUSES.has(jlo)) return;
 
   const to = (p.customer_email && String(p.customer_email).trim()) || '';
-  const orderNum = String(p.orderNumber ?? '');
+  const ref = resolveEmailReference(p);
   const subjectSuffix = API_STATUS_SUBJECT[jlo] || 'Delivery update';
-  const subject = `Order #${orderNum} — ${subjectSuffix}`;
+  const subject = `${ref.subjectRef} — ${subjectSuffix}`;
 
   try {
     if (!to) {
+      if (p.suppressMissingEmailLog) return;
       await logOrderEmail(supabase, {
         orderId: p.orderId,
         recipient: '(no customer email)',
@@ -364,7 +395,7 @@ export async function sendApiCourierStatusCustomerEmail(supabase, p) {
       return;
     }
 
-    const trackBase = customerTrackUrl();
+    const trackLink = resolvePortalUrl(p);
     const courierName = (p.courier_display_name && String(p.courier_display_name).trim()) || 'Your courier';
     const area =
       [p.delivery_city, p.delivery_state].filter(Boolean).join(', ') || 'your delivery address';
@@ -392,23 +423,28 @@ export async function sendApiCourierStatusCustomerEmail(supabase, p) {
       : '';
 
     const bodyByStatus = {
-      assigned: `Your order has been handed to <strong>${escapeHtml(courierName)}</strong>. Use the tracking number below or the link to follow your package.`,
+      assigned: p.shipmentCode
+        ? `Your shipment has been handed to <strong>${escapeHtml(courierName)}</strong>. Use the tracking number below or the link to follow your package.`
+        : `Your order has been handed to <strong>${escapeHtml(courierName)}</strong>. Use the tracking number below or the link to follow your package.`,
       pending_pickup: `Your package is scheduled for pickup by <strong>${escapeHtml(courierName)}</strong>.`,
       picked_up: `<strong>${escapeHtml(courierName)}</strong> has collected your package.`,
       in_transit: `Your package is <strong>in transit</strong> with ${escapeHtml(courierName)}.`,
       out_for_delivery: `Your package is <strong>out for delivery</strong> with ${escapeHtml(courierName)}.`,
-      delivered: `Your order has been <strong>delivered</strong>. We hope you enjoy your purchase!`,
+      delivered: p.shipmentCode
+        ? `Your shipment has been <strong>delivered</strong>.`
+        : `Your order has been <strong>delivered</strong>. We hope you enjoy your purchase!`,
       cancelled: `Your shipment with ${escapeHtml(courierName)} was <strong>cancelled</strong>. Contact JulineMart support if you need help.`,
       returned: `There is a <strong>return</strong> update on your shipment with ${escapeHtml(courierName)}. Check your order page for details.`,
     };
 
     const lead = bodyByStatus[jlo] || `Your delivery status was updated (${escapeHtml(jlo)}).`;
+    const portalLabel = p.shipmentCode ? 'Track your shipment' : 'Your JulineMart order hub';
 
     const html = `
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
   <div style="background:#6b21a8;color:#fff;padding:28px;text-align:center">
     <h1 style="margin:0;font-size:22px">${headline}</h1>
-    <p style="margin:10px 0 0;opacity:.9;font-size:15px">Order #${escapeHtml(orderNum)}</p>
+    <p style="margin:10px 0 0;opacity:.9;font-size:15px">${ref.headerRef}</p>
     <p style="margin:8px 0 0;font-size:13px;opacity:.85">${escapeHtml(courierName)}</p>
   </div>
   <div style="padding:28px;background:#fff;color:#333">
@@ -418,7 +454,7 @@ export async function sendApiCourierStatusCustomerEmail(supabase, p) {
     ${courierTrackLink}
     ${hintLine}
     <p style="margin:20px 0 0;font-size:14px;color:#555"><strong>Delivery area:</strong> ${escapeHtml(area)}</p>
-    <p style="margin:18px 0 0;font-size:14px;line-height:1.5">Your JulineMart order hub: <a href="${trackBase}" style="color:#6b21a8">${trackBase.replace(/^https?:\/\//, '')}</a></p>
+    <p style="margin:18px 0 0;font-size:14px;line-height:1.5">${portalLabel}: <a href="${trackLink}" style="color:#6b21a8">${trackLink.replace(/^https?:\/\//, '')}</a></p>
   </div>
   <div style="background:#f3f4f6;padding:14px;text-align:center;font-size:12px;color:#666">JulineMart</div>
 </div>`;

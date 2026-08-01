@@ -25,6 +25,13 @@ function generateShipmentCode() {
   return code;
 }
 
+function normalizeOptionalEmail(value) {
+  const email = String(value || '').trim().toLowerCase();
+  if (!email) return null;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  return email;
+}
+
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
@@ -110,6 +117,15 @@ export async function handler(event) {
         return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'item_description is required' }) };
       }
 
+      const recipientEmail = normalizeOptionalEmail(recipient.email);
+      if (recipient.email && !recipientEmail) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ success: false, error: 'recipient.email is invalid' }),
+        };
+      }
+
       let sender = null;
       let senderHubId = null;
 
@@ -165,6 +181,7 @@ export async function handler(event) {
             city: recipient.city || '',
             state: recipient.state,
             phone: recipient.phone,
+            ...(recipientEmail ? { email: recipientEmail } : {}),
           },
           item_description: body.item_description,
           item_weight: body.item_weight ? Number(body.item_weight) : 1,

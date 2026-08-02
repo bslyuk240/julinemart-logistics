@@ -232,8 +232,20 @@ export function NotificationsNewPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({ audience: emailAudience, subject: emailSubject.trim(), body: emailBody.trim() }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to send');
+      const raw = await res.text();
+      let data: Record<string, unknown> = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        throw new Error(raw?.slice(0, 200) || `Email broadcast failed (${res.status})`);
+      }
+      if (!res.ok || data.success === false) {
+        throw new Error(
+          (typeof data.error === 'string' && data.error) ||
+            (typeof data.message === 'string' && data.message) ||
+            'Failed to send',
+        );
+      }
 
       const entry = addNotificationHistoryEntry({
         createdBy: user?.email || user?.id || 'unknown',
@@ -242,14 +254,27 @@ export function NotificationsNewPage() {
           title: emailSubject.trim(),
           message: emailBody.trim(),
           type: 'general',
-          data: { channel: 'email', emailAudience, sent: data.sent, failed: data.failed, total: data.total },
+          data: {
+            channel: 'email',
+            emailAudience,
+            sent: data.sent,
+            failed: data.failed,
+            total: data.total,
+          },
         },
         response: data,
         success: true,
         statusCode: res.status,
       });
 
-      notification.success('Email sent', `Sent: ${data.sent}, Failed: ${data.failed}, Total: ${data.total}`);
+      const sent = Number(data.sent ?? 0);
+      const failed = Number(data.failed ?? 0);
+      const total = Number(data.total ?? 0);
+      if (data.partial) {
+        notification.warning('Partially sent', `Sent: ${sent}, Failed: ${failed}, Total: ${total}`);
+      } else {
+        notification.success('Email sent', `Sent: ${sent}, Failed: ${failed}, Total: ${total}`);
+      }
       navigate(`/admin/notifications/${entry.id}`);
     } catch (err) {
       addNotificationHistoryEntry({

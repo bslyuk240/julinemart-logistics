@@ -9,12 +9,10 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-import nodemailer from 'nodemailer';
-import { decryptEmailConfigSecrets } from '../../shared/emailSecretsCrypto.js';
-import { buildCustomSmtpTransportOptions } from '../../shared/smtpTransport.js';
+import { getTransport } from './services/emailNotifications.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
 const adminClient = createClient(supabaseUrl, serviceKey);
 
 const cors = {
@@ -23,49 +21,15 @@ const cors = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-// ── Transport (mirrors emailNotifications.js logic) ───────────────────────────
+const SEND_CONCURRENCY = 8;
 
-function buildEnvTransport() {
-  const provider = (process.env.EMAIL_PROVIDER || 'gmail').toLowerCase();
-  if (provider === 'sendgrid') {
-    return { host: 'smtp.sendgrid.net', port: 587, auth: { user: 'apikey', pass: process.env.SENDGRID_API_KEY } };
-  }
-  if (provider === 'smtp') {
-    const host = process.env.SMTP_HOST;
-    const port = parseInt(process.env.SMTP_PORT || '587', 10);
-    return { host, port, secure: process.env.SMTP_SECURE === 'true' || port === 465, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD }, ...(host ? { tls: { minVersion: 'TLSv1.2', servername: host } } : {}) };
-  }
-  return { service: 'gmail', auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASSWORD } };
+function json(statusCode, body) {
+  return {
+    statusCode,
+    headers: { ...cors, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
 }
-
-async function getTransport() {
-  try {
-    const { data: rawCfg } = await adminClient.from('email_config').select('*').single();
-    if (rawCfg) {
-      if (rawCfg.email_enabled === false) return null;
-      if (process.env.EMAIL_PROVIDER) {
-        const from = rawCfg.email_from || process.env.EMAIL_FROM || process.env.EMAIL_USER || '';
-        return { transport: nodemailer.createTransport(buildEnvTransport()), from };
-      }
-      const cfg = decryptEmailConfigSecrets(rawCfg);
-      let transportConfig;
-      switch (cfg.provider) {
-        case 'gmail': transportConfig = { service: 'gmail', auth: { user: cfg.gmail_user, pass: cfg.gmail_password } }; break;
-        case 'sendgrid': transportConfig = { host: 'smtp.sendgrid.net', port: 587, auth: { user: 'apikey', pass: cfg.sendgrid_api_key } }; break;
-        case 'smtp': transportConfig = buildCustomSmtpTransportOptions(cfg); break;
-        default: transportConfig = buildEnvTransport();
-      }
-      const from = cfg.email_from || cfg.gmail_user || cfg.smtp_user || process.env.EMAIL_FROM || process.env.EMAIL_USER || '';
-      return { transport: nodemailer.createTransport(transportConfig), from };
-    }
-  } catch (_e) { /* fall through */ }
-  if (process.env.EMAIL_ENABLED === 'false') return null;
-  const from = process.env.EMAIL_FROM || process.env.EMAIL_USER || '';
-  if (!from) return null;
-  return { transport: nodemailer.createTransport(buildEnvTransport()), from };
-}
-
-// ── HTML wrapper for broadcast emails ────────────────────────────────────────
 
 function buildHtml(subject, body, from) {
   const escaped = body
@@ -98,99 +62,173 @@ function buildHtml(subject, body, from) {
 </html>`;
 }
 
-// ── Handler ───────────────────────────────────────────────────────────────────
-
-export const handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: cors, body: '' };
-  if (event.httpMethod !== 'POST') return { statusCode: 405, headers: cors, body: 'Method Not Allowed' };
-
-  // Auth — admin or manager only
-  const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
-  if (!authHeader.startsWith('Bearer ')) return { statusCode: 401, headers: cors, body: JSON.stringify({ error: 'Unauthorized' }) };
-
-  const anonClient = createClient(supabaseUrl, process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '', {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const { data: { user }, error: authErr } = await anonClient.auth.getUser();
-  if (authErr || !user) return { statusCode: 401, headers: cors, body: JSON.stringify({ error: 'Invalid token' }) };
-
-  const { data: profile } = await adminClient.from('users').select('role').eq('id', user.id).single();
-  if (!profile || !['admin', 'manager'].includes(profile.role)) {
-    return { statusCode: 403, headers: cors, body: JSON.stringify({ error: 'Forbidden' }) };
-  }
-
-  let body;
-  try { body = JSON.parse(event.body || '{}'); } catch {
-    return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'Invalid JSON' }) };
-  }
-
-  const { audience, subject, body: emailBody } = body;
-  if (!audience || !subject?.trim() || !emailBody?.trim()) {
-    return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'audience, subject, and body are required' }) };
-  }
-  if (!['customers', 'vendors', 'both'].includes(audience)) {
-    return { statusCode: 400, headers: cors, body: JSON.stringify({ error: 'audience must be customers | vendors | both' }) };
-  }
-
-  // Gather recipient emails
-  const emails = new Set();
-
-  if (audience === 'customers' || audience === 'both') {
-    const { data: customers } = await adminClient.rpc('get_storefront_customers');
-    for (const c of customers || []) { if (c.email) emails.add(c.email); }
-  }
-
-  if (audience === 'vendors' || audience === 'both') {
-    const { data: vendors } = await adminClient
-      .from('vendors')
-      .select('email')
-      .eq('is_active', true);
-    for (const v of vendors || []) { if (v.email) emails.add(v.email); }
-  }
-
-  if (emails.size === 0) {
-    return { statusCode: 200, headers: { ...cors, 'Content-Type': 'application/json' }, body: JSON.stringify({ success: true, sent: 0, failed: 0, message: 'No recipients found' }) };
-  }
-
-  // Get transport
-  const tx = await getTransport();
-  if (!tx) {
-    return { statusCode: 503, headers: cors, body: JSON.stringify({ error: 'Email is not configured or disabled' }) };
-  }
-
-  const html = buildHtml(subject.trim(), emailBody.trim(), tx.from);
-  let sent = 0, failed = 0;
-
-  for (const email of emails) {
-    let status = 'sent', errorMessage = null;
-    try {
-      await tx.transport.sendMail({
-        from: tx.from,
-        to: email,
-        subject: subject.trim(),
-        text: emailBody.trim(),
-        html,
-      });
-      sent++;
-    } catch (err) {
-      console.error(`[broadcast-email] Failed to send to ${email}:`, err?.message);
-      status = 'failed';
-      errorMessage = err?.message || 'Unknown error';
-      failed++;
-    }
-    // Log every attempt to email_logs
+async function logEmailAttempt({ recipient, subject, status, errorMessage }) {
+  try {
     await adminClient.from('email_logs').insert({
-      recipient: email,
-      subject: subject.trim(),
+      recipient,
+      subject,
       status,
       error_message: errorMessage,
       sent_at: new Date().toISOString(),
-    }).catch((e) => console.warn('[broadcast-email] email_logs insert failed:', e?.message));
+    });
+  } catch (e) {
+    console.warn('[broadcast-email] email_logs insert failed:', e?.message);
+  }
+}
+
+async function sendOneRecipient(tx, email, subject, textBody, html) {
+  try {
+    await tx.transport.sendMail({
+      from: tx.from,
+      to: email,
+      subject,
+      text: textBody,
+      html,
+    });
+    await logEmailAttempt({ recipient: email, subject, status: 'sent', errorMessage: null });
+    return { ok: true };
+  } catch (err) {
+    const errorMessage = err?.message || 'Unknown error';
+    console.error(`[broadcast-email] Failed to send to ${email}:`, errorMessage);
+    await logEmailAttempt({ recipient: email, subject, status: 'failed', errorMessage });
+    return { ok: false, error: errorMessage };
+  }
+}
+
+async function sendInBatches(tx, emails, subject, textBody, html) {
+  const list = [...emails];
+  let sent = 0;
+  let failed = 0;
+  const errors = [];
+
+  for (let i = 0; i < list.length; i += SEND_CONCURRENCY) {
+    const batch = list.slice(i, i + SEND_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map((email) => sendOneRecipient(tx, email, subject, textBody, html)),
+    );
+    for (const result of results) {
+      if (result.ok) sent += 1;
+      else {
+        failed += 1;
+        if (errors.length < 5 && result.error) errors.push(result.error);
+      }
+    }
   }
 
-  return {
-    statusCode: 200,
-    headers: { ...cors, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ success: true, sent, failed, total: emails.size }),
-  };
+  return { sent, failed, errors };
+}
+
+export const handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: cors, body: '' };
+  if (event.httpMethod !== 'POST') return json(405, { success: false, error: 'Method Not Allowed' });
+
+  try {
+    const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return json(401, { success: false, error: 'Unauthorized' });
+    }
+
+    const anonClient = createClient(
+      supabaseUrl,
+      process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '',
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const {
+      data: { user },
+      error: authErr,
+    } = await anonClient.auth.getUser();
+    if (authErr || !user) return json(401, { success: false, error: 'Invalid token' });
+
+    const { data: profile } = await adminClient.from('users').select('role').eq('id', user.id).single();
+    if (!profile || !['admin', 'manager'].includes(profile.role)) {
+      return json(403, { success: false, error: 'Forbidden — admin or manager only' });
+    }
+
+    let body;
+    try {
+      body = JSON.parse(event.body || '{}');
+    } catch {
+      return json(400, { success: false, error: 'Invalid JSON' });
+    }
+
+    const { audience, subject, body: emailBody } = body;
+    if (!audience || !subject?.trim() || !emailBody?.trim()) {
+      return json(400, { success: false, error: 'audience, subject, and body are required' });
+    }
+    if (!['customers', 'vendors', 'both'].includes(audience)) {
+      return json(400, { success: false, error: 'audience must be customers | vendors | both' });
+    }
+
+    const emails = new Set();
+
+    if (audience === 'customers' || audience === 'both') {
+      const { data: customers, error: customerErr } = await adminClient.rpc('get_storefront_customers');
+      if (customerErr) {
+        console.error('[broadcast-email] get_storefront_customers failed:', customerErr.message);
+        return json(500, { success: false, error: 'Could not load customer recipients' });
+      }
+      for (const c of customers || []) {
+        if (c.email) emails.add(String(c.email).trim().toLowerCase());
+      }
+    }
+
+    if (audience === 'vendors' || audience === 'both') {
+      const { data: vendors, error: vendorErr } = await adminClient
+        .from('vendors')
+        .select('email')
+        .eq('is_active', true);
+      if (vendorErr) {
+        console.error('[broadcast-email] vendors query failed:', vendorErr.message);
+        return json(500, { success: false, error: 'Could not load vendor recipients' });
+      }
+      for (const v of vendors || []) {
+        if (v.email) emails.add(String(v.email).trim().toLowerCase());
+      }
+    }
+
+    if (emails.size === 0) {
+      return json(200, {
+        success: true,
+        sent: 0,
+        failed: 0,
+        total: 0,
+        message: 'No recipients found',
+      });
+    }
+
+    const tx = await getTransport();
+    if (!tx) {
+      return json(503, {
+        success: false,
+        error: 'Email is not configured or disabled. Check Settings → Email.',
+      });
+    }
+
+    const subjectTrimmed = subject.trim();
+    const bodyTrimmed = emailBody.trim();
+    const html = buildHtml(subjectTrimmed, bodyTrimmed, tx.from);
+
+    const { sent, failed, errors } = await sendInBatches(tx, emails, subjectTrimmed, bodyTrimmed, html);
+
+    return json(200, {
+      success: failed === 0,
+      partial: sent > 0 && failed > 0,
+      sent,
+      failed,
+      total: emails.size,
+      message:
+        failed === 0
+          ? 'Broadcast sent'
+          : sent > 0
+            ? 'Broadcast partially sent'
+            : 'Broadcast failed for all recipients',
+      errors: errors.length ? errors : undefined,
+    });
+  } catch (err) {
+    console.error('[broadcast-email] Unhandled error:', err);
+    return json(500, {
+      success: false,
+      error: err instanceof Error ? err.message : 'Broadcast email failed',
+    });
+  }
 };

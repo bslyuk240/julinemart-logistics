@@ -126,6 +126,8 @@ async function getTransport() {
   return { transport: nodemailer.createTransport(buildEnvTransport()), from };
 }
 
+export { getTransport };
+
 // ── Template rendering ────────────────────────────────────────────────────────
 
 function render(template, data) {

@@ -250,11 +250,21 @@ export async function sendBroadcastEmail(
         },
         body: JSON.stringify(params),
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to send email');
+      const raw = await res.text();
+      let data: Record<string, unknown> = {};
+      try {
+        data = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      } catch {
+        throw new Error(raw?.slice(0, 200) || `Email broadcast failed (${res.status})`);
       }
-      return data as { success: boolean; sent: number; failed: number; total: number };
+      if (!res.ok || data.success === false) {
+        throw new Error(
+          (typeof data.error === 'string' && data.error) ||
+            (typeof data.message === 'string' && data.message) ||
+            'Failed to send email',
+        );
+      }
+      return data as { success: boolean; sent: number; failed: number; total: number; partial?: boolean };
     } catch (e) {
       lastError = e instanceof Error ? e : new Error('Failed to send email');
     }

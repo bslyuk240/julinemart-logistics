@@ -203,6 +203,9 @@
   timeout = 120
   schedule = "*/5 * * * *"
 
+[functions."broadcast-email"]
+  timeout = 120
+
 [functions."vendor-returns"]
   timeout = 20
 

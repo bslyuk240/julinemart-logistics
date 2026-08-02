@@ -241,7 +241,11 @@ export default function MobilePushNotificationCompose() {
         statusCode: 200,
       });
 
-      notification.success('Email sent', `Sent: ${data.sent}, Failed: ${data.failed}, Total: ${data.total}`);
+      if (data.partial) {
+        notification.warning('Partially sent', `Sent: ${data.sent}, Failed: ${data.failed}, Total: ${data.total}`);
+      } else {
+        notification.success('Email sent', `Sent: ${data.sent}, Failed: ${data.failed}, Total: ${data.total}`);
+      }
       navigate(`/admin/notifications/${entry.id}`);
     } catch (err) {
       addNotificationHistoryEntry({

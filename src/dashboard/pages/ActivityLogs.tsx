@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Activity, Search, Shield, Globe, Store, RefreshCw, ChevronRight, ChevronDown } from 'lucide-react';
+import { Activity, Search, Shield, Globe, Store, RefreshCw, ChevronRight, ChevronDown, AlertTriangle } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
 
-type Source = 'all' | 'jlo' | 'storefront' | 'vendor_portal';
+type Source = 'all' | 'jlo' | 'storefront' | 'vendor_portal' | 'errors';
 
 interface ActivityLog {
   id: string;
@@ -24,6 +24,7 @@ const SOURCE_TABS: { key: Source; label: string; icon: any }[] = [
   { key: 'jlo',           label: 'JLO Staff',     icon: Shield },
   { key: 'storefront',    label: 'Customers',     icon: Globe },
   { key: 'vendor_portal', label: 'Vendors',       icon: Store },
+  { key: 'errors',        label: 'Errors',        icon: AlertTriangle },
 ];
 
 const SOURCE_BADGE: Record<string, string> = {
@@ -60,6 +61,7 @@ const ACTION_LABELS: Record<string, string> = {
   PRODUCT_DELETED: 'Product deleted',
   PRODUCT_MODERATED: 'Product moderated',
   PRODUCT_PUBLISHED: 'Product published',
+  CLIENT_ERROR: 'Client error',
   courier_shipment_created: 'Shipment created',
   tracking_updated: 'Tracking updated',
   return_shipment_created: 'Return created',
@@ -82,6 +84,7 @@ const ACTION_COLOR: Record<string, string> = {
   VENDOR_APPLICATION_APPROVED: 'bg-green-50 text-green-700',
   VENDOR_APPLICATION_REJECTED: 'bg-red-50 text-red-700',
   WITHDRAWAL_REJECTED: 'bg-red-50 text-red-700',
+  CLIENT_ERROR: 'bg-rose-100 text-rose-700',
 };
 
 const ROLE_BADGE: Record<string, string> = {
@@ -106,6 +109,7 @@ const ACTION_FILTERS = [
   { value: 'WITHDRAWAL_REQUESTED', label: 'Withdrawal requested' },
   { value: 'WITHDRAWAL_PAID', label: 'Withdrawal paid' },
   { value: 'PRODUCT_PUBLISHED', label: 'Product published' },
+  { value: 'CLIENT_ERROR', label: 'Client error' },
   { value: 'courier_shipment_created', label: 'Shipment created' },
 ];
 
@@ -165,8 +169,14 @@ export function ActivityLogsPage() {
     setLoading(true);
     try {
       let url = `${apiBase}/api/activity-logs?limit=500&exclude_whatsapp=true`;
-      if (actionFilter !== 'all') url += '&action=' + actionFilter;
-      if (sourceTab !== 'all') url += '&source=' + sourceTab;
+      if (sourceTab === 'errors') {
+        // Errors span every source (jlo/storefront/vendor_portal), so filter by
+        // action instead of source here.
+        url += '&action=CLIENT_ERROR';
+      } else {
+        if (actionFilter !== 'all') url += '&action=' + actionFilter;
+        if (sourceTab !== 'all') url += '&source=' + sourceTab;
+      }
 
       const headers: Record<string, string> = {};
       if (session?.access_token) headers['Authorization'] = 'Bearer ' + session.access_token;
@@ -247,22 +257,26 @@ export function ActivityLogsPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setAuthOnly(v => !v)}
-            className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
-              authOnly ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-500 border-gray-300 hover:text-gray-700'
-            }`}
-          >
-            Auth only
-          </button>
-          <select
-            value={actionFilter}
-            onChange={e => setActionFilter(e.target.value)}
-            className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
-          >
-            {ACTION_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-          </select>
+          {sourceTab !== 'errors' && (
+            <>
+              <button
+                type="button"
+                onClick={() => setAuthOnly(v => !v)}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
+                  authOnly ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-500 border-gray-300 hover:text-gray-700'
+                }`}
+              >
+                Auth only
+              </button>
+              <select
+                value={actionFilter}
+                onChange={e => setActionFilter(e.target.value)}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+              >
+                {ACTION_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </select>
+            </>
+          )}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input

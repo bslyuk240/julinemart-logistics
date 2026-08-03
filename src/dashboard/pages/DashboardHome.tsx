@@ -1,5 +1,5 @@
 import { MapPin, Package, TrendingUp, Truck } from 'lucide-react';
-import { MessageSquare, Tag, Users, Smartphone } from 'lucide-react';
+import { Tag, Users, Smartphone } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { callSupabaseFunction, callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
 import { supabase } from '../contexts/AuthContext';
@@ -35,14 +35,6 @@ interface InfluencerSummary {
   name: string;
   email: string | null;
   coupon_code: string;
-}
-
-interface WhatsAppChatSummary {
-  id: string;
-  customer_phone: string;
-  customer_name: string | null;
-  last_message_at: string;
-  last_message_preview: string | null;
 }
 
 interface ShippingDiscountSummary {
@@ -84,18 +76,16 @@ export function DashboardHome() {
   const [loading, setLoading] = useState(true);
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [activeInfluencers, setActiveInfluencers] = useState<InfluencerSummary[]>([]);
-  const [recentChats, setRecentChats] = useState<WhatsAppChatSummary[]>([]);
   const [activeDiscounts, setActiveDiscounts] = useState<ShippingDiscountSummary[]>([]);
   const [ordersByZone, setOrdersByZone] = useState<ZoneOrderCount[]>([]);
   const [pwaStats, setPwaStats] = useState<PwaStats | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
-      const [statsData, ordersData, influencersData, chatsResponse, discountsResponse, pwaEventsResponse] = await Promise.all([
+      const [statsData, ordersData, influencersData, discountsResponse, pwaEventsResponse] = await Promise.all([
         callSupabaseFunction('stats', { method: 'GET' }),
         callSupabaseFunctionWithQuery('orders', { limit: '200', offset: '0' }, { method: 'GET' }),
         callSupabaseFunctionWithQuery('influencers', { status: 'active' }, { method: 'GET' }),
-        fetch('/.netlify/functions/whatsapp-chats?limit=5'),
         supabase
           .from('shipping_discounts')
           .select('id, name, type, discount_value, is_active')
@@ -145,13 +135,6 @@ export function DashboardHome() {
         setActiveInfluencers(influencersData);
       } else {
         setActiveInfluencers([]);
-      }
-
-      const chatsPayload = await chatsResponse.json().catch(() => ({}));
-      if (chatsPayload?.success && Array.isArray(chatsPayload.data)) {
-        setRecentChats(chatsPayload.data);
-      } else {
-        setRecentChats([]);
       }
 
       if (discountsResponse?.data && Array.isArray(discountsResponse.data)) {
@@ -317,34 +300,6 @@ export function DashboardHome() {
                   </div>
                 ))}
                 <p className="text-xs text-gray-500">Total: {activeInfluencers.length}</p>
-              </div>
-            )}
-          </div>
-
-          <div className="card">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Recent WhatsApp</h2>
-              <MessageSquare className="w-5 h-5 text-green-600" />
-            </div>
-            {recentChats.length === 0 ? (
-              <p className="text-sm text-gray-500">No recent chats.</p>
-            ) : (
-              <div className="space-y-2">
-                {recentChats.map((chat) => (
-                  <div key={chat.id} className="border-b border-gray-100 pb-2">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-gray-800 truncate max-w-[120px]">
-                        {chat.customer_name || chat.customer_phone}
-                      </p>
-                      <span className="text-xs text-gray-500 shrink-0">
-                        {new Date(chat.last_message_at).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500 truncate">
-                      {chat.last_message_preview || 'No message yet'}
-                    </p>
-                  </div>
-                ))}
               </div>
             )}
           </div>

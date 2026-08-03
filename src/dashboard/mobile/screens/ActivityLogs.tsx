@@ -30,6 +30,7 @@ const SOURCE_TABS: { key: ActivitySource; label: string }[] = [
   { key: 'jlo', label: 'Staff' },
   { key: 'storefront', label: 'Customers' },
   { key: 'vendor_portal', label: 'Vendors' },
+  { key: 'errors', label: 'Errors' },
 ];
 
 const ACTION_FILTERS = [
@@ -43,6 +44,7 @@ const ACTION_FILTERS = [
   { value: 'UPDATE', label: 'Record updated' },
   { value: 'DELETE', label: 'Record deleted' },
   { value: 'WITHDRAWAL_PAID', label: 'Withdrawal paid' },
+  { value: 'CLIENT_ERROR', label: 'Client error' },
   { value: 'courier_shipment_created', label: 'Shipment created' },
 ];
 
@@ -172,6 +174,7 @@ export default function MobileActivityLogs() {
       jlo: logs.filter((l) => l.source === 'jlo').length,
       storefront: logs.filter((l) => l.source === 'storefront').length,
       vendor_portal: logs.filter((l) => l.source === 'vendor_portal').length,
+      errors: logs.filter((l) => l.action === 'CLIENT_ERROR').length,
     };
     return counts;
   }, [logs]);
@@ -235,30 +238,32 @@ export default function MobileActivityLogs() {
               })}
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setFiltersOpen(true)}
-                className={`flex items-center gap-1.5 rounded-full border px-3 py-2 text-[11px] font-medium ${
-                  filtersActive
-                    ? 'border-primary-600 bg-primary-50 text-primary-700'
-                    : 'border-gray-200 bg-white text-gray-600'
-                }`}
-              >
-                <Filter className="h-3.5 w-3.5" />
-                Filters
-                {filtersActive && <span className="h-1.5 w-1.5 rounded-full bg-primary-600" />}
-              </button>
-              <button
-                type="button"
-                onClick={() => setAuthOnly((v) => !v)}
-                className={`rounded-full border px-3 py-2 text-[11px] font-medium ${
-                  authOnly ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-200 bg-white text-gray-600'
-                }`}
-              >
-                Auth events
-              </button>
-            </div>
+            {sourceTab !== 'errors' && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen(true)}
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-2 text-[11px] font-medium ${
+                    filtersActive
+                      ? 'border-primary-600 bg-primary-50 text-primary-700'
+                      : 'border-gray-200 bg-white text-gray-600'
+                  }`}
+                >
+                  <Filter className="h-3.5 w-3.5" />
+                  Filters
+                  {filtersActive && <span className="h-1.5 w-1.5 rounded-full bg-primary-600" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuthOnly((v) => !v)}
+                  className={`rounded-full border px-3 py-2 text-[11px] font-medium ${
+                    authOnly ? 'border-primary-600 bg-primary-600 text-white' : 'border-gray-200 bg-white text-gray-600'
+                  }`}
+                >
+                  Auth events
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Inbox-style list */}

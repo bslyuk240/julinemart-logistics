@@ -110,7 +110,7 @@ export const STATUS_COLOR: Record<string, string> = {
 
 // ─── Activity logs ────────────────────────────────────────────────────────────
 
-export type ActivitySource = 'all' | 'jlo' | 'storefront' | 'vendor_portal';
+export type ActivitySource = 'all' | 'jlo' | 'storefront' | 'vendor_portal' | 'errors';
 
 export interface ActivityLogRow {
   id: string;
@@ -160,6 +160,7 @@ export const ACTION_LABELS: Record<string, string> = {
   PRODUCT_DELETED: 'Product deleted',
   PRODUCT_MODERATED: 'Product moderated',
   PRODUCT_PUBLISHED: 'Product published',
+  CLIENT_ERROR: 'Client error',
   courier_shipment_created: 'Shipment created',
   tracking_updated: 'Tracking updated',
   return_shipment_created: 'Return created',
@@ -182,6 +183,7 @@ export const ACTION_COLOR: Record<string, string> = {
   VENDOR_APPLICATION_APPROVED: 'bg-green-50 text-green-700',
   VENDOR_APPLICATION_REJECTED: 'bg-red-50 text-red-700',
   WITHDRAWAL_REJECTED: 'bg-red-50 text-red-700',
+  CLIENT_ERROR: 'bg-rose-100 text-rose-700',
 };
 
 export const AUTH_ACTIONS = new Set(['LOGIN', 'LOGOUT', 'SIGNUP', 'PASSWORD_RESET_SENT', 'PASSWORD_CHANGED']);
@@ -216,8 +218,14 @@ export async function fetchActivityLogs(params: {
   const qs = new URLSearchParams();
   qs.set('limit', String(params.limit ?? 500));
   qs.set('exclude_whatsapp', 'true');
-  if (params.action && params.action !== 'all') qs.set('action', params.action);
-  if (params.source && params.source !== 'all') qs.set('source', params.source);
+  if (params.source === 'errors') {
+    // Errors span every source (jlo/storefront/vendor_portal), so filter by
+    // action instead of source here.
+    qs.set('action', 'CLIENT_ERROR');
+  } else {
+    if (params.action && params.action !== 'all') qs.set('action', params.action);
+    if (params.source && params.source !== 'all') qs.set('source', params.source);
+  }
 
   const path = `/activity-logs?${qs.toString()}`;
   let lastError: Error | null = null;

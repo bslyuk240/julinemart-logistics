@@ -31,6 +31,7 @@ import {
   vendorSkuCode,
   orderedSelectedCategoryIds,
 } from '../lib/productSku';
+import { uploadProductImageFile } from '../lib/productImageUpload';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -268,18 +269,12 @@ export default function ProductUpload() {
 
   // ── Image upload to Supabase Storage ─────────────────────────────────────────
   const uploadImageFile = async (file: File): Promise<string | null> => {
-    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-    const path = `products/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
-    const { error } = await supabase.storage.from('product-images').upload(path, file, {
-      cacheControl: '31536000',
-      upsert: false,
-    });
+    const { url, error } = await uploadProductImageFile(supabase, file);
     if (error) {
-      notification.error('Upload failed', error.message);
+      notification.error('Upload failed', error);
       return null;
     }
-    const { data } = supabase.storage.from('product-images').getPublicUrl(path);
-    return data.publicUrl;
+    return url;
   };
 
   const handleProductImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {

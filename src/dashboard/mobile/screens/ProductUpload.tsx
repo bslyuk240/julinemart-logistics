@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Camera, ChevronLeft, ChevronRight, Loader, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, Camera, ChevronLeft, ChevronRight, ImagePlus, Loader, Sparkles, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
@@ -16,6 +16,7 @@ import {
   ProductUploadForm,
   emptyProductUploadForm,
 } from '../lib/productUploadForm';
+import { PRODUCT_IMAGE_ACCEPT, uploadProductImageFile } from '../../lib/productImageUpload';
 
 interface VendorOption { id: string; store_name: string; store_slug: string; hub_id?: string }
 interface HubOption { id: string; name: string; code: string; is_sub_hub?: boolean; parent_hub_name?: string }
@@ -61,7 +62,8 @@ export default function MobileProductUpload() {
   const [tagSheetOpen, setTagSheetOpen] = useState(false);
   const [tagFilter, setTagFilter] = useState('');
   const slugEditedManually = useRef(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   const authHeaders = useCallback(
     (): Record<string, string> => ({
@@ -167,11 +169,9 @@ export default function MobileProductUpload() {
     patch({ tag_ids: form.tag_ids.includes(id) ? form.tag_ids.filter((t) => t !== id) : [...form.tag_ids, id] });
 
   const uploadImageFile = async (file: File) => {
-    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
-    const path = `products/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
-    const { error } = await supabase.storage.from('product-images').upload(path, file, { cacheControl: '31536000', upsert: false });
-    if (error) { notification.error('Upload failed', error.message); return null; }
-    return supabase.storage.from('product-images').getPublicUrl(path).data.publicUrl;
+    const { url, error } = await uploadProductImageFile(supabase, file);
+    if (error) { notification.error('Upload failed', error); return null; }
+    return url;
   };
 
   const addImageUrl = (url: string) => {
@@ -475,12 +475,21 @@ export default function MobileProductUpload() {
                   {img.is_thumbnail && <span className="absolute bottom-1 left-1 rounded bg-primary-600 px-1.5 py-0.5 text-[9px] font-bold text-white">Main</span>}
                 </div>
               ))}
-              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploadingImage} className="flex aspect-square flex-col items-center justify-center gap-1 rounded-xl bg-white ring-1 ring-dashed ring-gray-200 text-gray-400">
+              <button type="button" onClick={() => galleryInputRef.current?.click()} disabled={uploadingImage} className="flex aspect-square flex-col items-center justify-center gap-1 rounded-xl bg-white ring-1 ring-dashed ring-gray-200 text-gray-400">
+                <ImagePlus className="h-5 w-5" />
+                <span className="text-[10px]">{uploadingImage ? '…' : 'Gallery'}</span>
+              </button>
+              <button type="button" onClick={() => cameraInputRef.current?.click()} disabled={uploadingImage} className="flex aspect-square flex-col items-center justify-center gap-1 rounded-xl bg-white ring-1 ring-dashed ring-gray-200 text-gray-400">
                 <Camera className="h-5 w-5" />
                 <span className="text-[10px]">{uploadingImage ? '…' : 'Camera'}</span>
               </button>
             </div>
-            <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={async (e) => {
+            <input ref={galleryInputRef} type="file" accept={PRODUCT_IMAGE_ACCEPT} className="hidden" onChange={async (e) => {
+              const file = e.target.files?.[0]; e.target.value = ''; if (!file) return;
+              setUploadingImage(true); const url = await uploadImageFile(file); setUploadingImage(false);
+              if (url) addImageUrl(url);
+            }} />
+            <input ref={cameraInputRef} type="file" accept={PRODUCT_IMAGE_ACCEPT} capture="environment" className="hidden" onChange={async (e) => {
               const file = e.target.files?.[0]; e.target.value = ''; if (!file) return;
               setUploadingImage(true); const url = await uploadImageFile(file); setUploadingImage(false);
               if (url) addImageUrl(url);

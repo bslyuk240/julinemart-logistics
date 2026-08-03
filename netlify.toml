@@ -177,6 +177,12 @@
 [functions."catalog-homepage"]
   timeout = 10
 
+[functions."customer-journey-analytics"]
+  timeout = 20
+
+[functions."customer-journey-drilldown"]
+  timeout = 20
+
 [functions."create-order"]
   timeout = 30
 
@@ -192,6 +198,9 @@
 [functions."verify-payment"]
   timeout = 15
 
+[functions."unsubscribe"]
+  timeout = 10
+
 [functions."fx-price-sync"]
   timeout = 26
 
@@ -202,6 +211,14 @@
 [functions."process-scheduled-push"]
   timeout = 120
   schedule = "*/5 * * * *"
+
+[functions."process-abandoned-checkout-reminders"]
+  timeout = 60
+  schedule = "*/15 * * * *"
+
+[functions."process-product-winback-reminders"]
+  timeout = 60
+  schedule = "0 * * * *"
 
 [functions."broadcast-email"]
   timeout = 120

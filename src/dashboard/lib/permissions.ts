@@ -29,6 +29,7 @@ import {
   Tag,
   FolderTree,
   Send,
+  GitBranch,
 } from 'lucide-react';
 import type { User } from '../contexts/AuthContext';
 
@@ -134,6 +135,7 @@ export const navigationSections: NavSection[] = [
     label: 'Insights',
     items: [
       { name: 'Analytics', href: '/admin/analytics', icon: BarChart3, roles: ['admin'] },
+      { name: 'Customer Journey', href: '/admin/customer-journey', icon: GitBranch, roles: ['admin', 'manager'] },
       { name: 'PWA Monitoring', href: '/admin/pwa-monitoring', icon: Activity, roles: ['admin'] },
       { name: 'Activity Logs', href: '/admin/activity-logs', icon: Activity, roles: ['admin'] },
     ],

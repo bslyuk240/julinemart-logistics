@@ -81,6 +81,7 @@ import { CouriersPage } from './dashboard/pages/Couriers';
 import { CourierSettingsPage } from './dashboard/pages/CourierSettings';
 import { CreateOrderPage } from './dashboard/pages/CreateOrder';
 import { CreateManualShipmentPage } from './dashboard/pages/CreateManualShipment';
+import { CustomerJourneyPage } from './dashboard/pages/CustomerJourney';
 import { ManualShipmentsPage } from './dashboard/pages/ManualShipments';
 import { ManualShipmentDetailPage } from './dashboard/pages/ManualShipmentDetail';
 import { DashboardHome } from './dashboard/pages/DashboardHome';
@@ -288,6 +289,11 @@ function UsersRoute() {
 function AnalyticsRoute() {
   const isMobile = useIsMobile();
   return isMobile ? <MobileAnalytics /> : <AnalyticsPage />;
+}
+
+// Desktop-only for v1 — no mobile screen yet.
+function CustomerJourneyRoute() {
+  return <CustomerJourneyPage />;
 }
 
 function ActivityLogsRoute() {
@@ -514,6 +520,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'hubs', element: <HubsRoute /> },
   { path: 'couriers', element: <CouriersRoute /> },
   { path: 'analytics', element: <AnalyticsRoute /> },
+  { path: 'customer-journey', element: <CustomerJourneyRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'users', element: <UsersRoute /> },
   { path: 'customers', element: <CustomersRoute /> },
   { path: 'discounts', element: <ShippingDiscountsRoute /> },

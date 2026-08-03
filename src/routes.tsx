@@ -82,6 +82,7 @@ import { CourierSettingsPage } from './dashboard/pages/CourierSettings';
 import { CreateOrderPage } from './dashboard/pages/CreateOrder';
 import { CreateManualShipmentPage } from './dashboard/pages/CreateManualShipment';
 import { CustomerJourneyPage } from './dashboard/pages/CustomerJourney';
+import MobileCustomerJourney from './dashboard/mobile/screens/CustomerJourney';
 import { ManualShipmentsPage } from './dashboard/pages/ManualShipments';
 import { ManualShipmentDetailPage } from './dashboard/pages/ManualShipmentDetail';
 import { DashboardHome } from './dashboard/pages/DashboardHome';
@@ -291,9 +292,9 @@ function AnalyticsRoute() {
   return isMobile ? <MobileAnalytics /> : <AnalyticsPage />;
 }
 
-// Desktop-only for v1 — no mobile screen yet.
 function CustomerJourneyRoute() {
-  return <CustomerJourneyPage />;
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileCustomerJourney /> : <CustomerJourneyPage />;
 }
 
 function ActivityLogsRoute() {

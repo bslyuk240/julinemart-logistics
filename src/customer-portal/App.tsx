@@ -1,12 +1,17 @@
 import { useEffect } from 'react';
-import { HashRouter as Router, Routes, Route } from 'react-router-dom';
-import { CustomerPortalLanding } from './pages/Landing';
-import { OrderTrackingPage } from './pages/Track';
-import { ManualShipmentTrackingPage } from './pages/TrackManualShipment';
-import { ShippingEstimatePage } from './pages/ShippingEstimate';
-import { CustomerContactPage } from './pages/Contact';
+import { HashRouter as Router, Route, Routes } from 'react-router-dom';
 import DevBanner, { useDevBannerHeight } from '../components/DevBanner';
 import { logActivity } from './lib/logActivity';
+import {
+  CustomerContactRoute,
+  CustomerEstimateRoute,
+  CustomerLandingRoute,
+  CustomerManualShipmentTrackRoute,
+  CustomerReturnConfirmationRoute,
+  CustomerReturnMethodRoute,
+  CustomerStandaloneLayout,
+  CustomerTrackRoute,
+} from './mobile/routes';
 
 function CustomerPortalApp() {
   const isDevMode = process.env.NODE_ENV !== 'production';
@@ -30,11 +35,15 @@ function CustomerPortalApp() {
       <div style={contentStyle}>
         <Router>
           <Routes>
-            <Route path="/" element={<CustomerPortalLanding />} />
-            <Route path="/track" element={<OrderTrackingPage />} />
-            <Route path="/track/shipment" element={<ManualShipmentTrackingPage />} />
-            <Route path="/estimate" element={<ShippingEstimatePage />} />
-            <Route path="/contact" element={<CustomerContactPage />} />
+            <Route element={<CustomerStandaloneLayout />}>
+              <Route index element={<CustomerLandingRoute />} />
+              <Route path="track" element={<CustomerTrackRoute />} />
+              <Route path="track/shipment" element={<CustomerManualShipmentTrackRoute />} />
+              <Route path="estimate" element={<CustomerEstimateRoute />} />
+              <Route path="contact" element={<CustomerContactRoute />} />
+              <Route path="return/:id/method" element={<CustomerReturnMethodRoute />} />
+              <Route path="return/:id/confirmation" element={<CustomerReturnConfirmationRoute />} />
+            </Route>
           </Routes>
         </Router>
       </div>

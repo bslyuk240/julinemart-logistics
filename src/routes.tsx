@@ -2,13 +2,16 @@ import type { ReactElement } from 'react';
 import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from './dashboard/contexts/AuthContext';
 
-import { CustomerContactPage } from './customer-portal/pages/Contact';
-import { CustomerPortalLanding } from './customer-portal/pages/Landing';
-import { ReturnConfirmationPage } from './customer-portal/pages/returns/ReturnConfirmation';
-import { ReturnMethodPage } from './customer-portal/pages/returns/ReturnMethod';
-import { ShippingEstimatePage } from './customer-portal/pages/ShippingEstimate';
-import { OrderTrackingPage } from './customer-portal/pages/Track';
-import { ManualShipmentTrackingPage } from './customer-portal/pages/TrackManualShipment';
+import {
+  CustomerContactRoute,
+  CustomerEstimateRoute,
+  CustomerLandingRoute,
+  CustomerManualShipmentTrackRoute,
+  CustomerPortalLayout,
+  CustomerReturnConfirmationRoute,
+  CustomerReturnMethodRoute,
+  CustomerTrackRoute,
+} from './customer-portal/mobile/routes';
 
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { DashboardLayout } from './dashboard/components/DashboardLayout';
@@ -557,29 +560,27 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'pwa-monitoring', element: <PWAMonitoringRoute /> },
 ];
 
-const customerRoutes = [
-  { path: '/', element: <CustomerPortalLanding /> },
-  { path: '/track', element: <OrderTrackingPage /> },
-  { path: '/track/shipment', element: <ManualShipmentTrackingPage /> },
-  { path: '/estimate', element: <ShippingEstimatePage /> },
-  { path: '/order/:id', element: <OrderTrackingPage /> },
-  { path: '/contact', element: <CustomerContactPage /> },
-  { path: '/return/:id/method', element: <ReturnMethodPage /> },
-  { path: '/return/:id/confirmation', element: <ReturnConfirmationPage /> },
+const customerChildRoutes = [
+  { index: true, element: <CustomerLandingRoute /> },
+  { path: 'track', element: <CustomerTrackRoute /> },
+  { path: 'track/shipment', element: <CustomerManualShipmentTrackRoute /> },
+  { path: 'estimate', element: <CustomerEstimateRoute /> },
+  { path: 'order/:id', element: <CustomerTrackRoute /> },
+  { path: 'contact', element: <CustomerContactRoute /> },
+  { path: 'return/:id/method', element: <CustomerReturnMethodRoute /> },
+  { path: 'return/:id/confirmation', element: <CustomerReturnConfirmationRoute /> },
 ];
-
-const formatCustomerPath = (routePath: string) =>
-  routePath === '/' ? '/customer' : `/customer${routePath}`;
 
 export const router = createBrowserRouter([
   {
     path: '/',
     element: <Navigate to="/customer" replace />,
   },
-  ...customerRoutes.map((route) => ({
-    path: formatCustomerPath(route.path),
-    element: route.element,
-  })),
+  {
+    path: '/customer',
+    element: <CustomerPortalLayout />,
+    children: customerChildRoutes,
+  },
   {
     path: '/login',
     element: <LoginPage />,

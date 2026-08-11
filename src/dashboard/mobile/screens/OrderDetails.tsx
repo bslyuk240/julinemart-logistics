@@ -16,7 +16,7 @@ import {
 import { useNotification } from '../../contexts/NotificationContext';
 import { supabase } from '../../contexts/AuthContext';
 import { buildSupabaseFunctionUrl } from '../../utils/supabaseFunctions';
-import { openWaybillPrint } from '../../lib/waybillPrint';
+import { openLabelPrint, openWaybillPrint } from '../../lib/waybillPrint';
 import { ContactSection, DetailRow, SectionLabel } from '../components/MobileDetailParts';
 import { Sheet } from '../Sheet';
 import { TABBAR_SPACE } from '../lib/functionsAuth';
@@ -302,8 +302,12 @@ export default function MobileOrderDetails() {
     }
   };
 
-  const printLabel = (subOrderId: Identifier) => {
-    window.open(`${functionsBase}/generate-label?subOrderId=${subOrderId}&print=true`, '_blank');
+  const printLabel = async (subOrderId: Identifier) => {
+    try {
+      await openLabelPrint({ subOrderId: String(subOrderId) });
+    } catch (err) {
+      notification.error('Label failed', err instanceof Error ? err.message : 'Could not open label');
+    }
   };
 
   const printWaybill = async (subOrderId: Identifier) => {

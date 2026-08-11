@@ -91,9 +91,31 @@ export default function Orders() {
     finally { setDispatching(false); }
   };
 
-  const printLabel = () => {
+  const printLabel = async () => {
     if (!selected?.id) return;
-    window.open(`${JLO_API}/.netlify/functions/generate-label?subOrderId=${selected.id}&print=true`, '_blank');
+    const popup = window.open('about:blank', '_blank');
+    try {
+      const { data: { session } } = await (await import('../lib/supabase')).supabase.auth.getSession();
+      const token = session?.access_token || '';
+      const res = await fetch(`${JLO_API}/.netlify/functions/generate-label?subOrderId=${selected.id}&print=true`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        popup?.close();
+        const json = await res.json().catch(() => null);
+        setError(json?.error || 'Could not generate label');
+        return;
+      }
+      const html = await res.text();
+      if (popup) {
+        popup.document.open();
+        popup.document.write(html);
+        popup.document.close();
+      }
+    } catch (e: any) {
+      popup?.close();
+      setError(e.message || 'Could not generate label');
+    }
   };
 
   const downloadWaybill = async () => {

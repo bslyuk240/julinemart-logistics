@@ -18,7 +18,7 @@ import {
 import { useNotification } from '../contexts/NotificationContext';
 import { supabase } from '../contexts/AuthContext';
 import { buildSupabaseFunctionUrl } from '../utils/supabaseFunctions';
-import { openWaybillPrint } from '../lib/waybillPrint';
+import { openLabelPrint, openWaybillPrint } from '../lib/waybillPrint';
 import { TrackingTimeline, trackingVariantForShipment } from '../../shared/TrackingTimeline';
 
 type Identifier = string | number;
@@ -555,11 +555,12 @@ export function OrderDetailsPage() {
     window.open(labelUrl, '_blank');
   };
 
-  // FIXED: Changed from ${apiBase}/.netlify/functions/ to ${functionsBase}/
-  const printLabel = (subOrderId: Identifier) => {
-    // Open the generate-label function in a new window with print=true
-    const labelUrl = `${functionsBase}/generate-label?subOrderId=${subOrderId}&print=true`;
-    window.open(labelUrl, '_blank');
+  const printLabel = async (subOrderId: Identifier) => {
+    try {
+      await openLabelPrint({ subOrderId: String(subOrderId) });
+    } catch (err) {
+      notification.error('Label failed', err instanceof Error ? err.message : 'Could not open label');
+    }
   };
 
   const printWaybill = async (subOrderId: Identifier) => {

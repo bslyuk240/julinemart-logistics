@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BellRing, ChevronRight, Clock, Loader, Plus, Smartphone, Trash2 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { PullToRefresh } from '../PullToRefresh';
 import { SettingsGroup, StatusPill } from '../components/SettingsParts';
@@ -19,15 +20,22 @@ import {
 
 export default function MobilePushNotifications() {
   const navigate = useNavigate();
+  const { session } = useAuth();
   const notification = useNotification();
   const [entries, setEntries] = useState<NotificationHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback((quiet = false) => {
+  const load = useCallback(async (quiet = false) => {
+    if (!session?.access_token) return;
     if (!quiet) setLoading(true);
-    setEntries(loadNotificationHistory());
-    setLoading(false);
-  }, []);
+    try {
+      setEntries(await loadNotificationHistory(session.access_token));
+    } catch (err) {
+      notification.error('Load failed', err instanceof Error ? err.message : 'Could not load history');
+    } finally {
+      setLoading(false);
+    }
+  }, [session?.access_token, notification]);
 
   useEffect(() => {
     load();
@@ -36,10 +44,15 @@ export default function MobilePushNotifications() {
   const sentCount = useMemo(() => entries.filter((e) => e.success).length, [entries]);
   const failedCount = useMemo(() => entries.filter((e) => !e.success).length, [entries]);
 
-  const handleDelete = (entryId: string) => {
+  const handleDelete = async (entryId: string) => {
+    if (!session?.access_token) return;
     if (!window.confirm('Delete this notification record?')) return;
-    removeNotificationHistoryEntry(entryId);
-    load(true);
+    const ok = await removeNotificationHistoryEntry(session.access_token, entryId);
+    if (!ok) {
+      notification.error('Delete failed', 'Could not delete this record');
+      return;
+    }
+    await load(true);
     notification.success('Deleted', 'History entry removed');
   };
 
@@ -68,7 +81,7 @@ export default function MobilePushNotifications() {
             <Loader className="h-8 w-8 animate-spin text-primary-600" />
           </div>
         ) : (
-          <PullToRefresh onRefresh={async () => { load(true); }}>
+          <PullToRefresh onRefresh={async () => { await load(true); }}>
             <div className="space-y-5">
               <SettingsGroup title="Overview">
                 <div className="flex items-start gap-3 px-4 py-3.5">

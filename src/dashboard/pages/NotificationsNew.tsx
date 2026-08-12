@@ -4,7 +4,6 @@ import { Bell, CalendarClock, ChevronDown, ChevronUp, Loader2, Mail, Send, Spark
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 import {
-  addNotificationHistoryEntry,
   NotificationAudience,
   NotificationPayload,
   NotificationType,
@@ -182,7 +181,7 @@ const sendViaNotificationProxy = async (accessToken: string, payload: Notificati
 
 export function NotificationsNewPage() {
   const navigate = useNavigate();
-  const { session, user } = useAuth();
+  const { session } = useAuth();
   const notification = useNotification();
 
   const [channel, setChannel] = useState<Channel>('push');
@@ -247,26 +246,6 @@ export function NotificationsNewPage() {
         );
       }
 
-      const entry = addNotificationHistoryEntry({
-        createdBy: user?.email || user?.id || 'unknown',
-        request: {
-          audience: emailAudience === 'vendors' ? 'all_vendors' : 'all_customers',
-          title: emailSubject.trim(),
-          message: emailBody.trim(),
-          type: 'general',
-          data: {
-            channel: 'email',
-            emailAudience,
-            sent: data.sent,
-            failed: data.failed,
-            total: data.total,
-          },
-        },
-        response: data,
-        success: true,
-        statusCode: res.status,
-      });
-
       const sent = Number(data.sent ?? 0);
       const failed = Number(data.failed ?? 0);
       const total = Number(data.total ?? 0);
@@ -275,21 +254,12 @@ export function NotificationsNewPage() {
       } else {
         notification.success('Email sent', `Sent: ${sent}, Failed: ${failed}, Total: ${total}`);
       }
-      navigate(`/admin/notifications/${entry.id}`);
+      if (typeof data.historyId === 'string') {
+        navigate(`/admin/notifications/${data.historyId}`);
+      } else {
+        navigate('/admin/notifications');
+      }
     } catch (err) {
-      addNotificationHistoryEntry({
-        createdBy: user?.email || user?.id || 'unknown',
-        request: {
-          audience: emailAudience === 'vendors' ? 'all_vendors' : 'all_customers',
-          title: emailSubject.trim(),
-          message: emailBody.trim(),
-          type: 'general',
-          data: { channel: 'email', emailAudience },
-        },
-        response: { error: err instanceof Error ? err.message : 'Unknown error' },
-        success: false,
-        statusCode: 500,
-      });
       notification.error('Send failed', err instanceof Error ? err.message : 'Unexpected error');
     } finally {
       setEmailSending(false);
@@ -410,14 +380,6 @@ export function NotificationsNewPage() {
       const scheduled = bodyRecord.scheduled === true;
       const partial = bodyRecord.partial === true;
 
-      const entry = addNotificationHistoryEntry({
-        createdBy: user?.email || user?.id || 'unknown',
-        request: payload,
-        response: body,
-        success,
-        statusCode: response.status,
-      });
-
       if (!success) {
         notification.error('Send failed', getErrorMessage(body));
         return;
@@ -425,20 +387,18 @@ export function NotificationsNewPage() {
 
       if (scheduled) {
         notification.success('Push scheduled', getCountText(body));
-      } else if (partial) {
+        navigate('/admin/notifications');
+        return;
+      }
+
+      if (partial) {
         notification.warning('Partially sent', getCountText(body));
       } else {
         notification.success('Push sent', getCountText(body));
       }
-      navigate(`/admin/notifications/${entry.id}`);
+      const historyId = typeof bodyRecord.historyId === 'string' ? bodyRecord.historyId : null;
+      navigate(historyId ? `/admin/notifications/${historyId}` : '/admin/notifications');
     } catch (error) {
-      addNotificationHistoryEntry({
-        createdBy: user?.email || user?.id || 'unknown',
-        request: payload,
-        response: { error: error instanceof Error ? error.message : 'Unknown error' },
-        success: false,
-        statusCode: 500,
-      });
       notification.error('Send failed', error instanceof Error ? error.message : 'Unexpected error');
     } finally {
       setSending(false);

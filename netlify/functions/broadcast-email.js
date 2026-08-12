@@ -10,6 +10,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { getTransport } from './services/emailNotifications.js';
+import { logNotificationHistory, EMAIL_HISTORY_ACTION } from './services/notificationHistory.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
@@ -210,7 +211,7 @@ export const handler = async (event) => {
 
     const { sent, failed, errors } = await sendInBatches(tx, emails, subjectTrimmed, bodyTrimmed, html);
 
-    return json(200, {
+    const responseBody = {
       success: failed === 0,
       partial: sent > 0 && failed > 0,
       sent,
@@ -223,7 +224,26 @@ export const handler = async (event) => {
             ? 'Broadcast partially sent'
             : 'Broadcast failed for all recipients',
       errors: errors.length ? errors : undefined,
+    };
+
+    const historyId = await logNotificationHistory(adminClient, {
+      action: EMAIL_HISTORY_ACTION,
+      userId: user.id,
+      actorEmail: user.email,
+      request: {
+        audience: audience === 'vendors' ? 'all_vendors' : 'all_customers',
+        title: subjectTrimmed,
+        message: bodyTrimmed,
+        type: 'general',
+        data: { channel: 'email', emailAudience: audience, sent, failed, total: emails.size },
+      },
+      response: responseBody,
+      success: responseBody.success,
+      statusCode: 200,
+      meta: { sent, failed, matchedTokensCount: emails.size },
     });
+
+    return json(200, { ...responseBody, historyId });
   } catch (err) {
     console.error('[broadcast-email] Unhandled error:', err);
     return json(500, {

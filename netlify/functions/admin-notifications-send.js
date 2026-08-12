@@ -4,6 +4,7 @@
 // - NOTIFICATIONS_ADMIN_SECRET (used only for non-single audiences)
 import { createClient } from '@supabase/supabase-js';
 import { sendPushViaPwa } from './services/pushSendProxy.js';
+import { logNotificationHistory } from './services/notificationHistory.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE_KEY =
@@ -231,7 +232,17 @@ export async function handler(event) {
       payload: validated.requestPayload,
     });
 
-    return jsonResponse(result.statusCode, result.body);
+    const historyId = await logNotificationHistory(auth.adminClient, {
+      userId: auth.profile.id,
+      actorEmail: auth.profile.email,
+      request: validated.requestPayload,
+      response: result.body,
+      success: !!result.body?.success,
+      statusCode: result.statusCode,
+      meta: result.body?.meta,
+    });
+
+    return jsonResponse(result.statusCode, { ...result.body, historyId });
   } catch (error) {
     return jsonResponse(500, {
       success: false,

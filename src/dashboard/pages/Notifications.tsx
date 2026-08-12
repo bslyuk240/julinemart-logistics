@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BellRing, ChevronRight, Clock, Plus, Smartphone, Trash2 } from 'lucide-react';
+import { BellRing, ChevronRight, Clock, Loader2, Plus, Smartphone, Trash2 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { useNotification } from '../contexts/NotificationContext';
 import {
   loadNotificationHistory,
   NotificationHistoryEntry,
@@ -26,17 +28,37 @@ const formatDate = (value: string) =>
 
 export function NotificationsPage() {
   const navigate = useNavigate();
+  const { session } = useAuth();
+  const notification = useNotification();
   const [entries, setEntries] = useState<NotificationHistoryEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = async () => {
+    if (!session?.access_token) return;
+    try {
+      setEntries(await loadNotificationHistory(session.access_token));
+    } catch (err) {
+      notification.error('Load failed', err instanceof Error ? err.message : 'Could not load history');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    setEntries(loadNotificationHistory());
-  }, []);
+    setLoading(true);
+    refresh();
+  }, [session?.access_token]);
 
-  const handleDelete = (entryId: string) => {
+  const handleDelete = async (entryId: string) => {
+    if (!session?.access_token) return;
     const shouldDelete = window.confirm('Delete this notification history record?');
     if (!shouldDelete) return;
-    removeNotificationHistoryEntry(entryId);
-    setEntries(loadNotificationHistory());
+    const ok = await removeNotificationHistoryEntry(session.access_token, entryId);
+    if (!ok) {
+      notification.error('Delete failed', 'Could not delete this record');
+      return;
+    }
+    await refresh();
   };
 
   return (
@@ -64,7 +86,11 @@ export function NotificationsPage() {
         </div>
       </div>
 
-      {entries.length === 0 ? (
+      {loading ? (
+        <div className="card flex justify-center py-14">
+          <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
+        </div>
+      ) : entries.length === 0 ? (
         <div className="card py-14 text-center">
           <BellRing className="mx-auto mb-3 h-12 w-12 text-gray-300" />
           <p className="text-lg font-medium text-gray-800">No history yet</p>

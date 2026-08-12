@@ -264,7 +264,7 @@ export async function sendBroadcastEmail(
             'Failed to send email',
         );
       }
-      return data as { success: boolean; sent: number; failed: number; total: number; partial?: boolean };
+      return data as { success: boolean; sent: number; failed: number; total: number; partial?: boolean; historyId?: string };
     } catch (e) {
       lastError = e instanceof Error ? e : new Error('Failed to send email');
     }

@@ -1,5 +1,6 @@
 // Netlify Function: /api/activity-logs
 import { createClient } from '@supabase/supabase-js';
+import { NOTIFICATION_HISTORY_ACTIONS } from './services/notificationHistory.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY =
@@ -16,7 +17,8 @@ const supabaseAuth = createClient(SUPABASE_URL || '', ANON_KEY || SERVICE_KEY ||
 const headers = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Methods': 'GET, DELETE, OPTIONS'
 };
 
 export async function handler(event) {
@@ -49,9 +51,34 @@ export async function handler(event) {
     }
 
     const params = event.queryStringParameters || {};
+
+    if (event.httpMethod === 'DELETE') {
+      const id = params.id;
+      if (!id) {
+        return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'id is required' }) };
+      }
+      // Restrict deletion to notification-history rows — this endpoint must not
+      // become a way to erase the general audit trail.
+      const { error: deleteError, count } = await supabase
+        .from('activity_logs')
+        .delete({ count: 'exact' })
+        .eq('id', id)
+        .in('action', NOTIFICATION_HISTORY_ACTIONS);
+      if (deleteError) throw deleteError;
+      if (!count) {
+        return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Not found' }) };
+      }
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
+    }
+
+    if (event.httpMethod !== 'GET') {
+      return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
+    }
+
     const parsedLimit = Number(params.limit ?? 200);
     const limit = Math.min(Number.isNaN(parsedLimit) ? 200 : parsedLimit, 500);
     const action = params.action;
+    const actionIn = params.action_in ? params.action_in.split(',').map((s) => s.trim()).filter(Boolean) : null;
     const source = params.source;
     const excludeWhatsapp = params.exclude_whatsapp !== 'false';
 
@@ -74,7 +101,8 @@ export async function handler(event) {
           .not('action', 'ilike', 'whatsapp%')
           .or('resource_type.is.null,resource_type.not.ilike.whatsapp%');
       }
-      if (action && action !== 'all') query = query.eq('action', action);
+      if (actionIn && actionIn.length) query = query.in('action', actionIn);
+      else if (action && action !== 'all') query = query.eq('action', action);
       if (includeSourceFilter && source && source !== 'all') query = query.eq('source', source);
       return query;
     };

@@ -1,6 +1,8 @@
-import { useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { findNotificationHistoryEntry } from '../../utils/notificationsHistory';
+import { Loader } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import { findNotificationHistoryEntry, NotificationHistoryEntry } from '../../utils/notificationsHistory';
 import { SectionCard, SettingsRow, SettingsSubpage, StatusPill } from '../components/SettingsParts';
 import {
   formatNotificationDate,
@@ -11,14 +13,34 @@ import {
 
 export default function MobilePushNotificationDetail() {
   const navigate = useNavigate();
+  const { session } = useAuth();
   const { id = '' } = useParams();
-  const entry = useMemo(() => findNotificationHistoryEntry(id), [id]);
+  const [entry, setEntry] = useState<NotificationHistoryEntry | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!session?.access_token) return;
+    setLoading(true);
+    findNotificationHistoryEntry(session.access_token, id)
+      .then(setEntry)
+      .finally(() => setLoading(false));
+  }, [session?.access_token, id]);
+
+  if (loading) {
+    return (
+      <SettingsSubpage title="Loading" subtitle="" backTo="/admin/notifications">
+        <div className="flex justify-center py-14">
+          <Loader className="h-8 w-8 animate-spin text-primary-600" />
+        </div>
+      </SettingsSubpage>
+    );
+  }
 
   if (!entry) {
     return (
       <SettingsSubpage title="Not found" subtitle="History entry missing" backTo="/admin/notifications">
         <div className="rounded-2xl bg-white px-4 py-10 text-center ring-1 ring-gray-100">
-          <p className="text-sm text-gray-600">This record may have been cleared from local storage.</p>
+          <p className="text-sm text-gray-600">This record may have been deleted, or you may not have access to it.</p>
           <button
             type="button"
             onClick={() => navigate('/admin/notifications')}

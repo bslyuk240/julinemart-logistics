@@ -1,6 +1,7 @@
 // Netlify scheduled function: process due rows in scheduled_push_notifications.
 import { createClient } from '@supabase/supabase-js';
 import { sendPushViaPwa } from './services/pushSendProxy.js';
+import { logNotificationHistory } from './services/notificationHistory.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE_KEY =
@@ -31,7 +32,7 @@ export async function handler() {
 
   const { data: dueRows, error: fetchError } = await supabase
     .from('scheduled_push_notifications')
-    .select('id, payload')
+    .select('id, payload, created_by')
     .eq('status', 'pending')
     .lte('schedule_at', now)
     .order('schedule_at', { ascending: true })
@@ -44,6 +45,13 @@ export async function handler() {
 
   if (!dueRows?.length) {
     return { statusCode: 200, body: JSON.stringify({ processed: 0 }) };
+  }
+
+  const creatorIds = [...new Set(dueRows.map((r) => r.created_by).filter(Boolean))];
+  let creatorEmailById = {};
+  if (creatorIds.length) {
+    const { data: creators } = await supabase.from('users').select('id, email').in('id', creatorIds);
+    creatorEmailById = Object.fromEntries((creators || []).map((u) => [u.id, u.email]));
   }
 
   let processed = 0;
@@ -81,16 +89,36 @@ export async function handler() {
       } else {
         processed += 1;
       }
+
+      await logNotificationHistory(supabase, {
+        userId: row.created_by,
+        actorEmail: creatorEmailById[row.created_by],
+        request: row.payload,
+        response: result.body,
+        success: !!result.ok,
+        statusCode: result.statusCode,
+        meta: result.body?.meta,
+      });
     } catch (error) {
       console.error('process-scheduled-push: send failed', row.id, error);
+      const errorResult = { error: error instanceof Error ? error.message : 'Send failed' };
       await supabase
         .from('scheduled_push_notifications')
         .update({
           status: 'failed',
-          result: { error: error instanceof Error ? error.message : 'Send failed' },
+          result: errorResult,
           processed_at: new Date().toISOString(),
         })
         .eq('id', row.id);
+
+      await logNotificationHistory(supabase, {
+        userId: row.created_by,
+        actorEmail: creatorEmailById[row.created_by],
+        request: row.payload,
+        response: errorResult,
+        success: false,
+        statusCode: 500,
+      });
     }
   }
 

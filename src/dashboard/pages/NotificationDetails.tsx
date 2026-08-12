@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Clock } from 'lucide-react';
-import { findNotificationHistoryEntry } from '../utils/notificationsHistory';
+import { ArrowLeft, Clock, Loader2 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { findNotificationHistoryEntry, NotificationHistoryEntry } from '../utils/notificationsHistory';
 
 const formatDate = (value: string) =>
   new Date(value).toLocaleString('en-US', {
@@ -14,8 +15,26 @@ const formatDate = (value: string) =>
 
 export function NotificationDetailsPage() {
   const navigate = useNavigate();
+  const { session } = useAuth();
   const { id = '' } = useParams();
-  const entry = useMemo(() => findNotificationHistoryEntry(id), [id]);
+  const [entry, setEntry] = useState<NotificationHistoryEntry | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!session?.access_token) return;
+    setLoading(true);
+    findNotificationHistoryEntry(session.access_token, id)
+      .then(setEntry)
+      .finally(() => setLoading(false));
+  }, [session?.access_token, id]);
+
+  if (loading) {
+    return (
+      <div className="card flex justify-center py-14">
+        <Loader2 className="h-8 w-8 animate-spin text-primary-600" />
+      </div>
+    );
+  }
 
   if (!entry) {
     return (
@@ -27,7 +46,7 @@ export function NotificationDetailsPage() {
         <div className="card">
           <h1 className="text-2xl font-bold text-gray-900">Notification not found</h1>
           <p className="mt-2 text-gray-600">
-            This history item is missing. It may have been cleared from local storage.
+            This history item is missing. It may have been deleted, or you may not have access to it.
           </p>
         </div>
       </div>

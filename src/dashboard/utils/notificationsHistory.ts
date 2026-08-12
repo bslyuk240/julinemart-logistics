@@ -1,3 +1,8 @@
+// Push/email send history, backed by the shared activity_logs table (via
+// /api/activity-logs) so every device and browser sees the same records.
+// The server writes these rows at send time (admin-notifications-send,
+// process-scheduled-push, broadcast-email) — this module only reads/deletes.
+
 export type NotificationAudience =
   | 'single'
   | 'all_customers'
@@ -35,107 +40,59 @@ export interface NotificationHistoryEntry {
   matchedTokensCount: number | null;
 }
 
-const STORAGE_KEY = 'jm_admin_push_history_v1';
-const MAX_ENTRIES = 100;
+const HISTORY_ACTIONS = ['PUSH_NOTIFICATION_SENT', 'EMAIL_BROADCAST_SENT'];
+const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const toNumberOrNull = (value: unknown) => {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) {
-    return Number(value);
-  }
   return null;
 };
 
-const extractCount = (source: Record<string, unknown> | null, keys: string[]) => {
-  if (!source) return null;
-  for (const key of keys) {
-    const value = toNumberOrNull(source[key]);
-    if (value !== null) return value;
-  }
-  return null;
-};
+const mapRow = (row: unknown): NotificationHistoryEntry | null => {
+  if (!isRecord(row) || typeof row.id !== 'string' || typeof row.created_at !== 'string') return null;
+  const details = isRecord(row.details) ? row.details : {};
+  if (!isRecord(details.request)) return null;
 
-const safeJsonParse = (raw: string | null) => {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const getEntryId = () => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-};
-
-export const loadNotificationHistory = (): NotificationHistoryEntry[] => {
-  if (typeof window === 'undefined') return [];
-  const parsed = safeJsonParse(window.localStorage.getItem(STORAGE_KEY));
-  return parsed.filter((entry): entry is NotificationHistoryEntry => {
-    if (!isRecord(entry)) return false;
-    return (
-      typeof entry.id === 'string' &&
-      typeof entry.createdAt === 'string' &&
-      typeof entry.createdBy === 'string' &&
-      isRecord(entry.request) &&
-      typeof entry.success === 'boolean' &&
-      typeof entry.statusCode === 'number'
-    );
-  });
-};
-
-const saveNotificationHistory = (entries: NotificationHistoryEntry[]) => {
-  if (typeof window === 'undefined') return;
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_ENTRIES)));
-};
-
-export const addNotificationHistoryEntry = (input: {
-  createdBy: string;
-  request: NotificationPayload;
-  response: unknown;
-  success: boolean;
-  statusCode: number;
-}) => {
-  const responseRecord = isRecord(input.response) ? input.response : null;
-  const meta = responseRecord && isRecord(responseRecord.meta) ? responseRecord.meta : null;
-  const data = responseRecord && isRecord(responseRecord.data) ? responseRecord.data : null;
-  const source = meta || data || responseRecord;
-
-  const entry: NotificationHistoryEntry = {
-    id: getEntryId(),
-    createdAt: new Date().toISOString(),
-    createdBy: input.createdBy,
-    request: input.request,
-    response: input.response,
-    success: input.success,
-    statusCode: input.statusCode,
-    sent: extractCount(source, ['sent', 'sentCount', 'successCount']),
-    failed: extractCount(source, ['failed', 'failedCount', 'errorCount']),
-    matchedTokensCount: extractCount(source, [
-      'matchedTokensCount',
-      'matched_tokens_count',
-      'matchedCount',
-    ]),
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    createdBy: typeof row.actor_email === 'string' && row.actor_email ? row.actor_email : 'unknown',
+    request: details.request as unknown as NotificationPayload,
+    response: details.response,
+    success: details.success === true,
+    statusCode: toNumberOrNull(details.statusCode) ?? 0,
+    sent: toNumberOrNull(details.sent),
+    failed: toNumberOrNull(details.failed),
+    matchedTokensCount: toNumberOrNull(details.matchedTokensCount),
   };
-
-  const next = [entry, ...loadNotificationHistory()];
-  saveNotificationHistory(next);
-  return entry;
 };
 
-export const findNotificationHistoryEntry = (id: string) =>
-  loadNotificationHistory().find((entry) => entry.id === id) || null;
+export const loadNotificationHistory = async (accessToken: string): Promise<NotificationHistoryEntry[]> => {
+  const res = await fetch(
+    `${apiBase}/api/activity-logs?action_in=${HISTORY_ACTIONS.join(',')}&limit=100`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) throw new Error(`Could not load notification history (${res.status})`);
+  const json = await res.json();
+  const rows: unknown[] = Array.isArray(json?.data) ? json.data : [];
+  return rows.map(mapRow).filter((entry): entry is NotificationHistoryEntry => entry !== null);
+};
 
-export const removeNotificationHistoryEntry = (id: string) => {
-  const current = loadNotificationHistory();
-  const next = current.filter((entry) => entry.id !== id);
-  saveNotificationHistory(next);
-  return next.length !== current.length;
+export const findNotificationHistoryEntry = async (
+  accessToken: string,
+  id: string,
+): Promise<NotificationHistoryEntry | null> => {
+  const entries = await loadNotificationHistory(accessToken);
+  return entries.find((entry) => entry.id === id) || null;
+};
+
+export const removeNotificationHistoryEntry = async (accessToken: string, id: string): Promise<boolean> => {
+  const res = await fetch(`${apiBase}/api/activity-logs?id=${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  return res.ok;
 };

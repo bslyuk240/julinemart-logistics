@@ -512,10 +512,14 @@ export default function ProductUpload() {
   useEffect(() => {
     if (!editId) return;
     const load = async () => {
-      const res = await fetch(`${functionsBase}/catalog-product?id=${editId}`);
-      const json = await res.json();
-      if (!json.success || !json.data) return;
-      const p = json.data;
+      try {
+        const res = await fetch(`${functionsBase}/catalog-product?id=${editId}`);
+        const json = await res.json();
+        if (!json.success || !json.data) {
+          notification.error('Load failed', json.error || 'Could not load product');
+          return;
+        }
+        const p = json.data;
 
       setForm({
         name: p.name || '',
@@ -579,6 +583,9 @@ export default function ProductUpload() {
       }
 
       slugEditedManually.current = true;
+      } catch (err: unknown) {
+        notification.error('Load failed', err instanceof Error ? err.message : 'Could not load product');
+      }
     };
     load();
   }, [editId, functionsBase]);

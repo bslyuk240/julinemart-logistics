@@ -104,7 +104,10 @@ export default function MobileProductUpload() {
       try {
         const res = await fetch(`${functionsBase}/catalog-product?id=${editId}`);
         const json = await res.json();
-        if (!json.success || !json.data) return;
+        if (!json.success || !json.data) {
+          notification.error('Load failed', json.error || 'Could not load product');
+          return;
+        }
         const p = json.data;
         setForm({
           name: p.name || '', slug: p.slug || '',
@@ -152,6 +155,8 @@ export default function MobileProductUpload() {
           setVariations(realignVariationRowsOnLoad(rows, attrsForEditor));
         }
         slugEditedManually.current = true;
+      } catch (err: unknown) {
+        notification.error('Load failed', err instanceof Error ? err.message : 'Could not load product');
       } finally {
         setLoadingProduct(false);
       }

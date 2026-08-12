@@ -86,5 +86,10 @@
   "directories": {
     "doc": "docs",
     "test": "tests"
+  },
+  "overrides": {
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "9.0.9"
+    }
   }
 }

@@ -124,6 +124,7 @@ import { VendorsPage } from './dashboard/pages/Vendors';
 import SellerVerificationsPage from './dashboard/pages/SellerVerifications';
 import VendorCampaignApprovalsPage from './dashboard/pages/VendorCampaignApprovals';
 import GiftFulfilmentCentresPage from './dashboard/pages/GiftFulfilmentCentres';
+import GiftBoxesPage from './dashboard/pages/GiftBoxes';
 import VendorDetail from './dashboard/pages/VendorDetail';
 import VendorWithdrawals from './dashboard/pages/VendorWithdrawals';
 import VendorDebits from './dashboard/pages/VendorDebits';
@@ -330,6 +331,10 @@ function VendorCampaignApprovalsRoute() {
 
 function GiftFulfilmentCentresRoute() {
   return <GiftFulfilmentCentresPage />;
+}
+
+function GiftBoxesRoute() {
+  return <GiftBoxesPage />;
 }
 
 function VendorDetailRoute() {
@@ -569,6 +574,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'seller-verifications', element: <SellerVerificationsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-campaign-approvals', element: <VendorCampaignApprovalsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'gift-fulfilment-centres', element: <GiftFulfilmentCentresRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'gift-boxes', element: <GiftBoxesRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendors/:id', element: <VendorDetailRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-withdrawals', element: <VendorWithdrawalsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-debits', element: <VendorDebitsRoute />, allowedRoles: ['admin', 'manager'] },

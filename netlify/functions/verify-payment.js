@@ -108,6 +108,28 @@ export async function handler(event) {
   // Notify customer, staff, and vendors only when this call actually confirmed payment.
   if (updatedOrder?.id) {
     try {
+      const { data: giftRow } = await adminClient
+        .from('gift_orders')
+        .select('id, gift_status')
+        .eq('order_id', updatedOrder.id)
+        .maybeSingle();
+
+      if (giftRow && ['new', 'paid'].includes(giftRow.gift_status)) {
+        await adminClient
+          .from('gift_orders')
+          .update({ gift_status: 'paid', updated_at: new Date().toISOString() })
+          .eq('id', giftRow.id);
+        await adminClient.from('gift_order_events').insert({
+          gift_order_id: giftRow.id,
+          status: 'paid',
+          note: 'Payment confirmed',
+        });
+      }
+    } catch (giftPayErr) {
+      console.warn('verify-payment: gift order status update', giftPayErr?.message || giftPayErr);
+    }
+
+    try {
       await notifyOnPaidOrder(adminClient, updatedOrder.id, updatedOrder.order_number);
     } catch (e) {
       console.warn('verify-payment: paid order notify', e?.message || e);

@@ -246,6 +246,20 @@ export async function handler(event) {
       return jsonResponse(500, { error: 'Failed to save gift details', detail: giftErr.message });
     }
 
+    const { data: giftOrderRow } = await adminClient
+      .from('gift_orders')
+      .select('id')
+      .eq('order_id', orderId)
+      .maybeSingle();
+
+    if (giftOrderRow?.id) {
+      await adminClient.from('gift_order_events').insert({
+        gift_order_id: giftOrderRow.id,
+        status: 'new',
+        note: 'Gift order created',
+      });
+    }
+
     const { data: insertedItems, error: oiErr } = await adminClient
       .from('order_items')
       .insert(

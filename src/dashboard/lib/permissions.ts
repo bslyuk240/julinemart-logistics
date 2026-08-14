@@ -30,6 +30,7 @@ import {
   FolderTree,
   Send,
   GitBranch,
+  Shield,
 } from 'lucide-react';
 import type { User } from '../contexts/AuthContext';
 
@@ -88,6 +89,7 @@ export const navigationSections: NavSection[] = [
     label: 'Vendors',
     items: [
       { name: 'Vendors', href: '/admin/vendors', icon: Store, roles: ['admin', 'manager'] },
+      { name: 'Seller Verifications', href: '/admin/seller-verifications', icon: Shield, roles: ['admin', 'manager'] },
       { name: 'Vendor Payouts', href: '/admin/vendor-withdrawals', icon: Wallet, roles: ['admin', 'manager'] },
       { name: 'Vendor Debits', href: '/admin/vendor-debits', icon: AlertCircle, roles: ['admin', 'manager'] },
       { name: 'Vendor Locations', href: '/admin/vendor-locations', icon: MapPin, roles: ['admin', 'manager'] },
@@ -98,6 +100,7 @@ export const navigationSections: NavSection[] = [
     label: 'Marketing',
     items: [
       { name: 'Campaigns', href: '/admin/campaigns', icon: Megaphone, roles: ['admin', 'manager', 'social_media_manager'] },
+      { name: 'Vendor campaigns', href: '/admin/vendor-campaign-approvals', icon: Megaphone, roles: ['admin', 'manager'] },
       { name: 'Vouchers', href: '/admin/vouchers', icon: Ticket, roles: ['admin'] },
       { name: 'Shipping Discounts', href: '/admin/discounts', icon: Percent, roles: ['admin'] },
       { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },

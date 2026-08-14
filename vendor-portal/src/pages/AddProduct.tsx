@@ -17,6 +17,7 @@ interface ImageRow {
   alt: string;
   position: number;
   is_thumbnail: boolean;
+  photo_source?: 'manufacturer' | 'seller_actual';
 }
 
 interface VarAttr {
@@ -67,6 +68,8 @@ interface FormState {
   stock_status: 'instock' | 'outofstock' | 'onbackorder';
   is_virtual: boolean;
   ships_from_abroad: boolean;
+  warranty_type: 'none' | 'manufacturer' | 'seller' | 'extended';
+  warranty_months: string;
   seo_title: string;
   seo_description: string;
   weight: string;
@@ -177,6 +180,8 @@ const INITIAL_FORM: FormState = {
   stock_status: 'instock',
   is_virtual: false,
   ships_from_abroad: false,
+  warranty_type: 'none',
+  warranty_months: '',
   seo_title: '',
   seo_description: '',
   weight: '',
@@ -224,6 +229,7 @@ export default function AddProduct() {
   const [loading, setLoading] = useState(isEdit);
   const [skuGenBusy, setSkuGenBusy] = useState(false);
   const [aiDrafting, setAiDrafting] = useState(false);
+  const [sellerActualPhotos, setSellerActualPhotos] = useState(false);
   const [urlInput, setUrlInput] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const varFileRefs = useRef<Record<number, HTMLInputElement | null>>({});
@@ -278,6 +284,10 @@ export default function AddProduct() {
           stock_status: (prod.stock_status || 'instock') as 'instock' | 'outofstock' | 'onbackorder',
           is_virtual: prod.is_virtual || false,
           ships_from_abroad: prod.ships_from_abroad || false,
+          warranty_type: (['manufacturer', 'seller', 'extended'].includes(prod.warranty_type)
+            ? prod.warranty_type
+            : 'none') as FormState['warranty_type'],
+          warranty_months: prod.warranty_months != null ? String(prod.warranty_months) : '',
           seo_title: prod.seo_title || '',
           seo_description: prod.seo_description || '',
           weight: prod.weight != null ? String(prod.weight) : '',
@@ -286,13 +296,19 @@ export default function AddProduct() {
           height: prod.height != null ? String(prod.height) : '',
           category_ids: (catRes.data || []).map((r: { category_id: string }) => r.category_id),
           tag_ids: (tagRes.data || []).map((r: { tag_id: string }) => r.tag_id),
-          images: (imgRes.data || []).map((img: ImageRow) => ({
+          images: (imgRes.data || []).map((img: ImageRow & { photo_source?: string }) => ({
             src: img.src,
             alt: img.alt || '',
             position: img.position,
             is_thumbnail: img.is_thumbnail,
+            photo_source: img.photo_source === 'seller_actual' ? 'seller_actual' : 'manufacturer',
           })),
         });
+
+        const loadedImages = imgRes.data || [];
+        if (loadedImages.some((img: { photo_source?: string }) => img.photo_source === 'seller_actual')) {
+          setSellerActualPhotos(true);
+        }
 
         if (attrRes.data?.length) {
           setVarAttrs(attrRes.data.map((a: {
@@ -585,9 +601,17 @@ export default function AddProduct() {
         stock_status: form.stock_status,
         is_virtual: form.is_virtual,
         ships_from_abroad: form.ships_from_abroad,
+        warranty_type: form.warranty_type,
+        warranty_months:
+          form.warranty_type !== 'none' && form.warranty_months.trim()
+            ? Number(form.warranty_months)
+            : null,
         seo_title: form.seo_title,
         seo_description: form.seo_description,
-        images: form.images,
+        images: form.images.map((img) => ({
+          ...img,
+          photo_source: sellerActualPhotos ? 'seller_actual' : 'manufacturer',
+        })),
         category_ids: form.category_ids,
         tag_ids: form.tag_ids,
         weight: toNullableDim(form.weight),
@@ -1220,6 +1244,18 @@ export default function AddProduct() {
           <div className="card space-y-3">
             <h2 className="font-semibold text-gray-900">Product Images</h2>
 
+            <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={sellerActualPhotos}
+                onChange={(e) => setSellerActualPhotos(e.target.checked)}
+                className="mt-0.5 accent-amber-600"
+              />
+              <span className="text-sm text-amber-900">
+                These are my actual product photos (not manufacturer images). Shoppers will see a &quot;Seller photo&quot; badge on JulineMart.
+              </span>
+            </label>
+
             {form.images.length > 0 && (
               <div className="grid grid-cols-3 gap-2">
                 {form.images.map((img, idx) => (
@@ -1438,6 +1474,41 @@ export default function AddProduct() {
                 <p className="text-xs text-gray-400">Product is sourced internationally</p>
               </div>
             </label>
+          </div>
+
+          <div className="card space-y-3">
+            <h3 className="text-sm font-semibold text-gray-900">Warranty (optional)</h3>
+            <p className="text-xs text-gray-500">
+              Shown on your product page and in the customer purchase archive after delivery.
+            </p>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Warranty type</label>
+              <select
+                className="input w-full"
+                value={form.warranty_type}
+                onChange={(e) =>
+                  setField('warranty_type', e.target.value as FormState['warranty_type'])
+                }
+              >
+                <option value="none">No warranty</option>
+                <option value="manufacturer">Manufacturer warranty</option>
+                <option value="seller">Seller warranty</option>
+                <option value="extended">Extended warranty</option>
+              </select>
+            </div>
+            {form.warranty_type !== 'none' && (
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Duration (months)</label>
+                <input
+                  type="number"
+                  min={1}
+                  className="input w-full"
+                  value={form.warranty_months}
+                  onChange={(e) => setField('warranty_months', e.target.value)}
+                  placeholder="e.g. 12"
+                />
+              </div>
+            )}
           </div>
 
           {/* Submit buttons (desktop) */}

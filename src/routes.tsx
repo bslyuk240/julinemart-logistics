@@ -49,6 +49,7 @@ import MobileTags from './dashboard/mobile/screens/Tags';
 import MobileCategories from './dashboard/mobile/screens/Categories';
 import MobileHomepageContent from './dashboard/mobile/screens/HomepageContent';
 import MobileVendors from './dashboard/mobile/screens/Vendors';
+import MobileSellerVerifications from './dashboard/mobile/screens/SellerVerifications';
 import MobileVendorDetail from './dashboard/mobile/screens/VendorDetail';
 import MobileVendorWithdrawals from './dashboard/mobile/screens/VendorWithdrawals';
 import MobileVendorDebits from './dashboard/mobile/screens/VendorDebits';
@@ -120,6 +121,8 @@ import { VouchersPage } from './dashboard/pages/Vouchers';
 import { CampaignsPage } from './dashboard/pages/Campaigns';
 import { CustomersPage } from './dashboard/pages/Customers';
 import { VendorsPage } from './dashboard/pages/Vendors';
+import SellerVerificationsPage from './dashboard/pages/SellerVerifications';
+import VendorCampaignApprovalsPage from './dashboard/pages/VendorCampaignApprovals';
 import VendorDetail from './dashboard/pages/VendorDetail';
 import VendorWithdrawals from './dashboard/pages/VendorWithdrawals';
 import VendorDebits from './dashboard/pages/VendorDebits';
@@ -313,6 +316,15 @@ function PWAMonitoringRoute() {
 function VendorsRoute() {
   const isMobile = useIsMobile();
   return isMobile ? <MobileVendors /> : <VendorsPage />;
+}
+
+function SellerVerificationsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileSellerVerifications /> : <SellerVerificationsPage />;
+}
+
+function VendorCampaignApprovalsRoute() {
+  return <VendorCampaignApprovalsPage />;
 }
 
 function VendorDetailRoute() {
@@ -549,6 +561,8 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'vouchers', element: <VouchersRoute /> },
   { path: 'campaigns', element: <CampaignsRoute />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
   { path: 'vendors', element: <VendorsRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'seller-verifications', element: <SellerVerificationsRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'vendor-campaign-approvals', element: <VendorCampaignApprovalsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendors/:id', element: <VendorDetailRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-withdrawals', element: <VendorWithdrawalsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-debits', element: <VendorDebitsRoute />, allowedRoles: ['admin', 'manager'] },

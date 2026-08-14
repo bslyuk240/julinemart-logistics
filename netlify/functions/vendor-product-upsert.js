@@ -114,6 +114,18 @@ export async function handler(event) {
       seo_description: seo_description || null,
       updated_at: new Date().toISOString(),
     };
+    const rawWarrantyType = body.warranty_type;
+    const rawWarrantyMonths = body.warranty_months;
+    if ('warranty_type' in body) {
+      const wt = rawWarrantyType === null || rawWarrantyType === '' ? null : String(rawWarrantyType);
+      productData.warranty_type =
+        wt && ['none', 'manufacturer', 'seller', 'extended'].includes(wt) ? wt : 'none';
+    }
+    if ('warranty_months' in body) {
+      const wm = optionalNonNegNumber(rawWarrantyMonths);
+      productData.warranty_months = wm && wm > 0 ? Math.round(wm) : null;
+    }
+    if (productData.warranty_type === 'none') productData.warranty_months = null;
     if ('weight' in body) productData.weight = optionalNonNegNumber(weight);
     if ('length' in body) productData.length = optionalNonNegNumber(packLength);
     if ('width' in body) productData.width = optionalNonNegNumber(width);
@@ -144,7 +156,14 @@ export async function handler(event) {
         await adminClient.from('product_images').delete().eq('product_id', pid);
         if (images.length > 0) {
           await adminClient.from('product_images').insert(
-            images.map((img, i) => ({ product_id: pid, src: img.src, alt: img.alt || '', position: img.position ?? i, is_thumbnail: img.is_thumbnail ?? i === 0 }))
+            images.map((img, i) => ({
+              product_id: pid,
+              src: img.src,
+              alt: img.alt || '',
+              position: img.position ?? i,
+              is_thumbnail: img.is_thumbnail ?? i === 0,
+              photo_source: img.photo_source === 'seller_actual' ? 'seller_actual' : 'manufacturer',
+            }))
           );
         }
       })(),

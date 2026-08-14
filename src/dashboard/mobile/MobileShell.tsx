@@ -41,6 +41,7 @@ const MOBILE_NATIVE_PATHS = new Set([
   '/admin/activity-logs',
   '/admin/pwa-monitoring',
   '/admin/vendors',
+  '/admin/seller-verifications',
   '/admin/vendor-withdrawals',
   '/admin/vendor-debits',
   '/admin/vendor-locations',

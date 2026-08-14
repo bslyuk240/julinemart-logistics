@@ -125,13 +125,21 @@ export default function Products() {
                     </span>
                   </div>
                   {p.id && (
-                    <button
-                      onClick={() => navigate(`/products/edit/${p.id}`)}
-                      className="mt-2 w-full flex items-center justify-center gap-1.5 text-[11px] font-medium text-primary-600 hover:text-primary-700 border border-primary-200 hover:border-primary-400 rounded-lg py-1.5 transition-colors"
-                    >
-                      <Pencil className="w-3 h-3" />
-                      Edit
-                    </button>
+                    <div className="mt-2 flex flex-col gap-1.5">
+                      <button
+                        onClick={() => navigate(`/products/edit/${p.id}`)}
+                        className="w-full flex items-center justify-center gap-1.5 text-[11px] font-medium text-primary-600 hover:text-primary-700 border border-primary-200 hover:border-primary-400 rounded-lg py-1.5 transition-colors"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => navigate(`/products/edit/${p.id}/customise`)}
+                        className="w-full flex items-center justify-center gap-1.5 text-[11px] font-medium text-gray-600 hover:text-primary-700 border border-gray-200 hover:border-primary-300 rounded-lg py-1.5 transition-colors"
+                      >
+                        Customise
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>

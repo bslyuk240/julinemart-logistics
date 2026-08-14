@@ -208,6 +208,10 @@
   timeout = 120
   schedule = "@weekly"
 
+[functions."compute-seller-metrics-scheduled"]
+  timeout = 120
+  schedule = "0 2 * * *"
+
 [functions."process-scheduled-push"]
   timeout = 120
   schedule = "*/5 * * * *"

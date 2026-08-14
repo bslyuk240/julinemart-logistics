@@ -48,9 +48,10 @@ export async function handler(event) {
          is_virtual, is_downloadable, ships_from_abroad, sold_individually,
          average_rating, rating_count, reviews_allowed,
          sourcing_meta, seo_title, seo_description, created_at, updated_at,
+         warranty_type, warranty_months,
          vendors!vendor_id ( id, store_name, store_slug, woocommerce_vendor_id, phone, city, state ),
          hubs!hub_id ( id, name, code, city, state ),
-         product_images ( id, src, alt, position, is_thumbnail, variation_id ),
+         product_images ( id, src, alt, position, is_thumbnail, variation_id, photo_source ),
          product_category_map ( categories ( id, name, slug, parent_id ) ),
          product_tag_map ( tags ( id, name, slug ) ),
          product_attribute_map (
@@ -88,12 +89,24 @@ export async function handler(event) {
     if (error) return jsonResponse(500, { success: false, error: error.message });
     if (!data) return jsonResponse(404, { success: false, error: 'Product not found' });
 
+    let customisationSchema = null;
+    if (data.id) {
+      const { data: schemaRow } = await adminClient
+        .from('product_customisation_schemas')
+        .select(
+          'id, product_id, vendor_id, pilot_vertical, requires_approval, production_days_min, production_days_max, fields'
+        )
+        .eq('product_id', data.id)
+        .maybeSingle();
+      if (schemaRow?.fields?.length) customisationSchema = schemaRow;
+    }
+
     return {
       statusCode: 200,
       headers: { ...headers, 'Cache-Control': CACHE_CONTROL },
       body: JSON.stringify({
         success: true,
-        data: normalizeProductDetail(data),
+        data: normalizeProductDetail(data, customisationSchema),
       }),
     };
   } catch (error) {
@@ -206,7 +219,7 @@ function sortVariationsForDetail(variations, attributes) {
   });
 }
 
-function normalizeProductDetail(p) {
+function normalizeProductDetail(p, customisationSchema = null) {
   const allImages = (p.product_images || []).sort((a, b) => a.position - b.position);
   const productImages = allImages.filter((img) => !img.variation_id);
 
@@ -243,6 +256,7 @@ function normalizeProductDetail(p) {
     tags: (p.product_tag_map || []).map((r) => r.tags).filter(Boolean),
     attributes,
     variations,
+    customisation_schema: customisationSchema,
     // Remove raw relation keys
     vendors: undefined,
     hubs: undefined,

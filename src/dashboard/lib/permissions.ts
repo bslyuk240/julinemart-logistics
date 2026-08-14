@@ -31,6 +31,7 @@ import {
   Send,
   GitBranch,
   Shield,
+  Gift,
 } from 'lucide-react';
 import type { User } from '../contexts/AuthContext';
 
@@ -106,6 +107,13 @@ export const navigationSections: NavSection[] = [
       { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },
       { name: 'Meta Ads', href: '/admin/meta-ads', icon: TrendingUp, roles: ['admin', 'manager', 'social_media_manager'] },
       { name: 'Google Ads', href: '/admin/google-ads', icon: Search, roles: ['admin', 'manager', 'social_media_manager'] },
+    ],
+  },
+  {
+    id: 'gifts',
+    label: 'Gifts',
+    items: [
+      { name: 'Gift Hubs & Pool', href: '/admin/gift-fulfilment-centres', icon: Gift, roles: ['admin', 'manager'] },
     ],
   },
   {

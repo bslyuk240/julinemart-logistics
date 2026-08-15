@@ -3,6 +3,7 @@ import {
   ChevronRight,
   DollarSign,
   Loader,
+  Pencil,
   Plus,
   Trash2,
 } from 'lucide-react';
@@ -344,18 +345,21 @@ export default function MobileShippingRates() {
               </div>
             </div>
 
-            <button type="button" onClick={() => openEdit(selected)} className="w-full rounded-2xl bg-primary-600 py-3.5 text-sm font-semibold text-white">
-              Edit rate
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDelete(selected)}
-              disabled={deleting}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-50 py-3.5 text-sm font-semibold text-red-700 ring-1 ring-red-100 disabled:opacity-60"
-            >
-              <Trash2 className="h-4 w-4" />
-              {deleting ? 'Deleting…' : 'Delete rate'}
-            </button>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => openEdit(selected)} className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-primary-600 py-3 text-sm font-semibold text-white">
+                <Pencil className="h-4 w-4" />
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(selected)}
+                disabled={deleting}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-red-50 py-3 text-sm font-semibold text-red-700 ring-1 ring-red-100 disabled:opacity-60"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
           </div>
         )}
       </Sheet>

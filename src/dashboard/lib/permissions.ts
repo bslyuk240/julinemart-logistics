@@ -118,6 +118,7 @@ export const navigationSections: NavSection[] = [
       { name: 'Gift Hubs & Pool', href: '/admin/gift-fulfilment-centres', icon: Gift, roles: ['admin', 'manager'] },
       { name: 'Gift Boxes', href: '/admin/gift-boxes', icon: Gift, roles: ['admin', 'manager'] },
       { name: 'Gift Ops', href: '/admin/gift-ops', icon: Package, roles: ['admin', 'manager', 'staff'] },
+      { name: 'Gift Box Reviews', href: '/admin/gift-box-reviews', icon: Star, roles: ['admin', 'manager', 'staff'] },
     ],
   },
   {

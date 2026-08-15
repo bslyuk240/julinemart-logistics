@@ -10,6 +10,10 @@ import {
   computeCustomerGiftTotal,
   loadGiftCommercialSettings,
 } from './services/gift-commercial.js';
+import {
+  customerFacingLeadDays,
+  maxLeadTimeForGiftLines,
+} from './services/gift-delivery-schedule.js';
 import { randomUUID } from 'crypto';
 import {
   loadProductCustomisationSchema,
@@ -105,9 +109,18 @@ async function loadSession(sessionToken) {
   }
 
   const totals = await computeSessionTotals(session, items || [], packaging);
+  const settings = await loadGiftCommercialSettings(adminClient, session.gift_fulfilment_centre_id);
+  const byoLead = Math.max(0, Number(settings.byo_lead_time_days ?? 1));
+  const itemMaxLead = await maxLeadTimeForGiftLines(
+    adminClient,
+    items || [],
+    session.gift_fulfilment_centre_id
+  );
 
   return {
     session,
+    byo_lead_time_days: byoLead,
+    lead_time_days: customerFacingLeadDays(Math.max(itemMaxLead, byoLead)),
     items: (items || []).map((row) => {
       const isSourced = row.line_source === 'jlo_sourced';
       const images = (row.products?.product_images || []).sort(

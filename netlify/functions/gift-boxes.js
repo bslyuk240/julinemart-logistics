@@ -6,9 +6,13 @@
  */
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
 import { checkRateLimit } from './services/rate-limit.js';
+import {
+  customerFacingLeadDays,
+  maxLeadTimeForGiftLines,
+} from './services/gift-delivery-schedule.js';
 
 const BOX_SELECT =
-  'id, slug, sku, name, description, image_url, gallery_urls, list_price, recipient_types, occasion_types, sort_order, gift_fulfilment_centre_id';
+  'id, slug, sku, name, description, image_url, gallery_urls, list_price, recipient_types, occasion_types, sort_order, gift_fulfilment_centre_id, average_rating, rating_count';
 
 async function resolveGfc(qs) {
   const code = (qs.gfc || qs.code || '').trim().toLowerCase();
@@ -39,11 +43,11 @@ async function poolProductIdsForGfc(gfcId) {
   return new Set((poolRows || []).map((r) => r.product_id));
 }
 
-async function boxWithItems(box, poolProductIds) {
+async function boxWithItems(box, poolProductIds, gfcId) {
   const { data: items, error } = await adminClient
     .from('gift_box_items')
     .select(`
-      id, quantity, sort_order,
+      id, quantity, sort_order, variation_id, pool_sourced_item_id,
       products!inner ( id, name, gift_eligible, status,
         product_images ( src, alt, position, is_thumbnail )
       )
@@ -53,25 +57,35 @@ async function boxWithItems(box, poolProductIds) {
 
   if (error) throw error;
 
-  const contents = (items || [])
-    .filter(
-      (row) =>
-        row.products?.gift_eligible &&
-        row.products?.status === 'published' &&
-        poolProductIds.has(row.products.id)
-    )
-    .map((row) => {
-      const images = (row.products.product_images || []).sort(
-        (a, b) => (a.position ?? 0) - (b.position ?? 0)
-      );
-      const thumb = images.find((i) => i.is_thumbnail) || images[0];
-      return {
-        product_id: row.products.id,
-        name: row.products.name,
-        quantity: row.quantity,
-        image: thumb?.src || null,
-      };
-    });
+  const eligible = (items || []).filter(
+    (row) =>
+      row.products?.gift_eligible &&
+      row.products?.status === 'published' &&
+      poolProductIds.has(row.products.id)
+  );
+
+  const contents = eligible.map((row) => {
+    const images = (row.products.product_images || []).sort(
+      (a, b) => (a.position ?? 0) - (b.position ?? 0)
+    );
+    const thumb = images.find((i) => i.is_thumbnail) || images[0];
+    return {
+      product_id: row.products.id,
+      name: row.products.name,
+      quantity: row.quantity,
+      image: thumb?.src || null,
+    };
+  });
+
+  const maxLead = await maxLeadTimeForGiftLines(
+    adminClient,
+    eligible.map((row) => ({
+      product_id: row.products.id,
+      variation_id: row.variation_id,
+      pool_sourced_item_id: row.pool_sourced_item_id,
+    })),
+    gfcId
+  );
 
   return {
     id: box.id,
@@ -84,7 +98,10 @@ async function boxWithItems(box, poolProductIds) {
     list_price: Number(box.list_price),
     recipient_types: box.recipient_types || [],
     occasion_types: box.occasion_types || [],
+    average_rating: Number(box.average_rating || 0),
+    rating_count: Number(box.rating_count || 0),
     item_count: contents.reduce((s, i) => s + i.quantity, 0),
+    lead_time_days: customerFacingLeadDays(maxLead),
     contents,
   };
 }
@@ -124,7 +141,7 @@ export async function handler(event) {
       if (error) return jsonResponse(500, { success: false, error: error.message });
       if (!box) return jsonResponse(404, { success: false, error: 'Gift box not found' });
 
-      const detail = await boxWithItems(box, poolProductIds);
+      const detail = await boxWithItems(box, poolProductIds, gfc.id);
       if (detail.item_count === 0) {
         return jsonResponse(404, { success: false, error: 'Gift box not available at this hub' });
       }
@@ -170,7 +187,7 @@ export async function handler(event) {
       filtered = filtered.filter((box) => Number(box.list_price) >= budgetMin);
     }
 
-    const list = (await Promise.all(filtered.map((box) => boxWithItems(box, poolProductIds)))).filter(
+    const list = (await Promise.all(filtered.map((box) => boxWithItems(box, poolProductIds, gfc.id)))).filter(
       (box) => box.item_count > 0
     );
 

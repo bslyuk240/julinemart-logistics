@@ -8,6 +8,7 @@
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
 import { checkRateLimit } from './services/rate-limit.js';
 import { resolveBoxItemLines, resolveBuilderItemLines } from './services/gift-order-resolve.js';
+import { loadGiftCommercialSettings } from './services/gift-commercial.js';
 import {
   computeEarliestDeliveryDate,
   loadGfcSchedulingContext,
@@ -95,7 +96,11 @@ export async function handler(event) {
 
     const gfc = await loadGfcSchedulingContext(adminClient, gfcRow.id);
     const resolved = await resolveLines(body, gfcRow.id);
-    const maxLead = await maxLeadTimeForGiftLines(adminClient, resolved.lines || [], gfcRow.id);
+    let maxLead = await maxLeadTimeForGiftLines(adminClient, resolved.lines || [], gfcRow.id);
+    if (body.builder_session_token) {
+      const settings = await loadGiftCommercialSettings(adminClient, gfcRow.id);
+      maxLead = Math.max(maxLead, Number(settings.byo_lead_time_days ?? 1));
+    }
     const earliest = computeEarliestDeliveryDate({ gfc, maxLeadTimeDays: maxLead });
     const latest = new Date(earliest.getTime());
     latest.setUTCDate(latest.getUTCDate() + 90);

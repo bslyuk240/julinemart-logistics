@@ -5,7 +5,15 @@ import { useNotification } from '../../contexts/NotificationContext';
 import { PullToRefresh } from '../PullToRefresh';
 import { Sheet } from '../Sheet';
 import { TABBAR_SPACE, functionsBase } from '../lib/functionsAuth';
-import { formatNaira } from '../lib/displayUtils';
+
+const inlineNumCls =
+  'w-full rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm text-gray-900 outline-none focus:border-primary-500 focus:bg-white';
+
+function commitNonNeg(raw: string, previous: number, onCommit: (n: number) => void) {
+  const n = Number(raw);
+  const next = Number.isFinite(n) ? Math.max(0, n) : previous;
+  if (next !== previous) onCommit(next);
+}
 
 type GiftHub = {
   id: string;
@@ -52,6 +60,7 @@ type CommercialSettings = {
   packaging_markup: number;
   profit_margin_percent: number;
   profit_margin_fixed: number;
+  byo_lead_time_days: number;
 };
 
 type SearchProduct = {
@@ -124,6 +133,7 @@ export default function MobileGiftFulfilmentCentres() {
     packaging_markup: 500,
     profit_margin_percent: 15,
     profit_margin_fixed: 0,
+    byo_lead_time_days: 1,
   });
   const [commercialSaving, setCommercialSaving] = useState(false);
 
@@ -209,6 +219,7 @@ export default function MobileGiftFulfilmentCentres() {
           packaging_markup: Number(json.data.packaging_markup ?? 500),
           profit_margin_percent: Number(json.data.profit_margin_percent ?? 15),
           profit_margin_fixed: Number(json.data.profit_margin_fixed ?? 0),
+          byo_lead_time_days: Number(json.data.byo_lead_time_days ?? 1),
         });
       }
     } catch (err) {
@@ -439,6 +450,52 @@ export default function MobileGiftFulfilmentCentres() {
     }
   };
 
+  const patchPoolRow = async (
+    row: PoolRow,
+    patch: { available_qty?: number; gift_program_cost?: number | null; lead_time_days?: number },
+  ) => {
+    const headers = authHeaders();
+    if (!headers) return;
+    setPool((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...patch } : r)));
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-pool?id=${encodeURIComponent(row.id)}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(patch),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Update failed');
+      if (json.data) setPool((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...json.data } : r)));
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Update failed');
+      await loadPool();
+    }
+  };
+
+  const patchSourcedRow = async (
+    row: SourcedItem,
+    patch: { available_qty?: number; gift_program_cost?: number; lead_time_days?: number },
+  ) => {
+    const headers = authHeaders();
+    if (!headers) return;
+    setSourcedItems((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...patch } : r)));
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-pool-sourced?id=${encodeURIComponent(row.id)}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(patch),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Update failed');
+      if (json.data) {
+        setSourcedItems((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...json.data } : r)));
+      }
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Update failed');
+      await loadSourced();
+    }
+  };
+
   const saveCommercial = async () => {
     const headers = authHeaders();
     if (!headers || !selectedHubId) return;
@@ -653,7 +710,7 @@ export default function MobileGiftFulfilmentCentres() {
 
               <div className="rounded-2xl bg-white p-3.5 ring-1 ring-gray-100 space-y-3">
                 <p className="text-sm font-semibold text-gray-900">BYO pricing (margin stack)</p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <Field label="Packaging ₦">
                     <input
                       type="number"
@@ -694,7 +751,24 @@ export default function MobileGiftFulfilmentCentres() {
                       className={inputCls}
                     />
                   </Field>
+                  <Field label="BYO lead days">
+                    <input
+                      type="number"
+                      min={0}
+                      value={commercial.byo_lead_time_days}
+                      onChange={(e) =>
+                        setCommercial({
+                          ...commercial,
+                          byo_lead_time_days: Math.max(0, Math.round(Number(e.target.value) || 0)),
+                        })
+                      }
+                      className={inputCls}
+                    />
+                  </Field>
                 </div>
+                <p className="text-xs text-gray-500">
+                  BYO lead is the usual wait for Build Your Own. Longer pool items add extra days.
+                </p>
                 <button
                   type="button"
                   disabled={commercialSaving}
@@ -738,11 +812,60 @@ export default function MobileGiftFulfilmentCentres() {
                         <p className="font-medium text-sm text-gray-900 truncate">
                           {row.products?.name || row.product_id}
                         </p>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          Qty {row.available_qty}
-                          {row.gift_program_cost != null ? ` · ${formatNaira(Number(row.gift_program_cost))}` : ''}
-                          {row.lead_time_days ? ` · ${row.lead_time_days}d lead` : ''}
-                        </p>
+                        <div className="mt-2 grid grid-cols-3 gap-2">
+                          <label className="block">
+                            <span className="text-[10px] text-gray-500">Qty</span>
+                            <input
+                              className={inlineNumCls}
+                              type="number"
+                              min={0}
+                              inputMode="numeric"
+                              defaultValue={row.available_qty}
+                              key={`${row.id}-qty-${row.available_qty}`}
+                              onBlur={(e) =>
+                                commitNonNeg(e.target.value, row.available_qty, (n) =>
+                                  patchPoolRow(row, { available_qty: n }),
+                                )
+                              }
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="text-[10px] text-gray-500">Cost ₦</span>
+                            <input
+                              className={inlineNumCls}
+                              type="number"
+                              min={0}
+                              inputMode="numeric"
+                              defaultValue={row.gift_program_cost ?? ''}
+                              key={`${row.id}-cost-${row.gift_program_cost ?? 'blank'}`}
+                              onBlur={(e) => {
+                                const raw = e.target.value.trim();
+                                const next = raw === '' ? null : Number(raw);
+                                if (next === row.gift_program_cost) return;
+                                if (next != null && !Number.isFinite(next)) return;
+                                void patchPoolRow(row, {
+                                  gift_program_cost: next == null ? null : Math.max(0, next),
+                                });
+                              }}
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="text-[10px] text-gray-500">Lead d</span>
+                            <input
+                              className={inlineNumCls}
+                              type="number"
+                              min={0}
+                              inputMode="numeric"
+                              defaultValue={row.lead_time_days}
+                              key={`${row.id}-lead-${row.lead_time_days}`}
+                              onBlur={(e) =>
+                                commitNonNeg(e.target.value, row.lead_time_days, (n) =>
+                                  patchPoolRow(row, { lead_time_days: n }),
+                                )
+                              }
+                            />
+                          </label>
+                        </div>
                         <label className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-gray-600">
                           <input
                             type="checkbox"
@@ -799,10 +922,56 @@ export default function MobileGiftFulfilmentCentres() {
                           {row.name}
                           {row.sku && <span className="text-gray-400"> ({row.sku})</span>}
                         </p>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          Qty {row.available_qty} · {formatNaira(Number(row.gift_program_cost))}
-                          {row.lead_time_days ? ` · ${row.lead_time_days}d lead` : ''}
-                        </p>
+                        <div className="mt-2 grid grid-cols-3 gap-2">
+                          <label className="block">
+                            <span className="text-[10px] text-gray-500">Qty</span>
+                            <input
+                              className={inlineNumCls}
+                              type="number"
+                              min={0}
+                              inputMode="numeric"
+                              defaultValue={row.available_qty}
+                              key={`${row.id}-qty-${row.available_qty}`}
+                              onBlur={(e) =>
+                                commitNonNeg(e.target.value, row.available_qty, (n) =>
+                                  patchSourcedRow(row, { available_qty: n }),
+                                )
+                              }
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="text-[10px] text-gray-500">Cost ₦</span>
+                            <input
+                              className={inlineNumCls}
+                              type="number"
+                              min={0}
+                              inputMode="numeric"
+                              defaultValue={row.gift_program_cost}
+                              key={`${row.id}-cost-${row.gift_program_cost}`}
+                              onBlur={(e) =>
+                                commitNonNeg(e.target.value, Number(row.gift_program_cost), (n) =>
+                                  patchSourcedRow(row, { gift_program_cost: n }),
+                                )
+                              }
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="text-[10px] text-gray-500">Lead d</span>
+                            <input
+                              className={inlineNumCls}
+                              type="number"
+                              min={0}
+                              inputMode="numeric"
+                              defaultValue={row.lead_time_days}
+                              key={`${row.id}-lead-${row.lead_time_days}`}
+                              onBlur={(e) =>
+                                commitNonNeg(e.target.value, row.lead_time_days, (n) =>
+                                  patchSourcedRow(row, { lead_time_days: n }),
+                                )
+                              }
+                            />
+                          </label>
+                        </div>
                       </div>
                       <button
                         type="button"

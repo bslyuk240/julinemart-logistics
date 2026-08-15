@@ -14,7 +14,7 @@ export async function loadGiftCommercialSettings(adminClient, gfcId) {
   if (gfcId) {
     const { data } = await adminClient
       .from('gift_commercial_settings')
-      .select('packaging_markup, profit_margin_percent, profit_margin_fixed')
+      .select('packaging_markup, profit_margin_percent, profit_margin_fixed, byo_lead_time_days')
       .eq('gift_fulfilment_centre_id', gfcId)
       .eq('active', true)
       .maybeSingle();
@@ -23,7 +23,7 @@ export async function loadGiftCommercialSettings(adminClient, gfcId) {
 
   const { data: fallback } = await adminClient
     .from('gift_commercial_settings')
-    .select('packaging_markup, profit_margin_percent, profit_margin_fixed')
+    .select('packaging_markup, profit_margin_percent, profit_margin_fixed, byo_lead_time_days')
     .eq('active', true)
     .limit(1)
     .maybeSingle();
@@ -33,6 +33,7 @@ export async function loadGiftCommercialSettings(adminClient, gfcId) {
       packaging_markup: 500,
       profit_margin_percent: 15,
       profit_margin_fixed: 0,
+      byo_lead_time_days: 1,
     }
   );
 }

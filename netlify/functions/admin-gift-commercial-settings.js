@@ -7,7 +7,7 @@
 import { requireAdmin, adminClient, jsonResponse, headers } from './services/global-sourcing-utils.js';
 
 const SELECT =
-  'id, gift_fulfilment_centre_id, packaging_markup, profit_margin_percent, profit_margin_fixed, active';
+  'id, gift_fulfilment_centre_id, packaging_markup, profit_margin_percent, profit_margin_fixed, byo_lead_time_days, active';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
@@ -34,6 +34,7 @@ export async function handler(event) {
         packaging_markup: 500,
         profit_margin_percent: 15,
         profit_margin_fixed: 0,
+        byo_lead_time_days: 1,
         active: true,
       },
     });
@@ -52,6 +53,7 @@ export async function handler(event) {
       packaging_markup: Math.max(0, Number(body.packaging_markup ?? 500)),
       profit_margin_percent: Math.max(0, Number(body.profit_margin_percent ?? 15)),
       profit_margin_fixed: Math.max(0, Number(body.profit_margin_fixed ?? 0)),
+      byo_lead_time_days: Math.max(0, Math.round(Number(body.byo_lead_time_days ?? 1))),
       active: body.active !== false,
       updated_at: new Date().toISOString(),
     };

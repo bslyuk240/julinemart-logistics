@@ -59,13 +59,20 @@ function hubCutoffPassed(cutoffTime) {
   return nowMins >= cutoffMins;
 }
 
+export const GIFT_PACK_BUFFER_DAYS = 1;
+
+/** Customer-facing wait (item lead + packing). */
+export function customerFacingLeadDays(maxLeadTimeDays, packBufferDays = GIFT_PACK_BUFFER_DAYS) {
+  return Math.max(0, Number(maxLeadTimeDays || 0)) + packBufferDays;
+}
+
 /**
  * Compute earliest deliverable date from max component lead time + packaging buffer.
  */
 export function computeEarliestDeliveryDate({
   gfc,
   maxLeadTimeDays = 0,
-  packBufferDays = 1,
+  packBufferDays = GIFT_PACK_BUFFER_DAYS,
 }) {
   const today = todayInLagos();
   let minDaysOut = Math.max(0, Number(maxLeadTimeDays || 0)) + packBufferDays;

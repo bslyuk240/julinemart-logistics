@@ -55,13 +55,23 @@ async function logGiftOrderPlaced({
   }
 }
 
-async function validateGiftScheduleFields(adminClient, gfcId, lines, requested_delivery_date, occasion_date) {
+async function validateGiftScheduleFields(
+  adminClient,
+  gfcId,
+  lines,
+  requested_delivery_date,
+  occasion_date,
+  extraLeadFloor = 0
+) {
   if (!requested_delivery_date?.trim()) {
     return { error: 'requested_delivery_date is required' };
   }
 
   const gfc = await loadGfcSchedulingContext(adminClient, gfcId);
-  const maxLead = await maxLeadTimeForGiftLines(adminClient, lines, gfcId);
+  const maxLead = Math.max(
+    await maxLeadTimeForGiftLines(adminClient, lines, gfcId),
+    Number(extraLeadFloor || 0)
+  );
   const delivery = validateRequestedDeliveryDate({
     gfc,
     requestedDate: requested_delivery_date.trim(),
@@ -171,17 +181,18 @@ async function createCustomBuildOrder(params) {
 
   const { lines, componentCostTotal, vendorSettlementSubtotal, vendorOrderItems } = resolved;
 
+  const commercialSettings = await loadGiftCommercialSettings(adminClient, gfc.id);
   const schedule = await validateGiftScheduleFields(
     adminClient,
     gfc.id,
     lines,
     requested_delivery_date,
-    occasion_date
+    occasion_date,
+    Number(commercialSettings.byo_lead_time_days ?? 1)
   );
   if (schedule.error) return jsonResponse(400, { error: schedule.error });
 
   const packaging = session.gift_packaging_types;
-  const commercialSettings = await loadGiftCommercialSettings(adminClient, gfc.id);
   const packagingFee = Number(packaging.price);
   const shippingFee = Math.max(0, Number(shipping_fee) || 0);
 

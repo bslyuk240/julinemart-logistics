@@ -72,6 +72,7 @@ type CommercialSettings = {
   packaging_markup: number;
   profit_margin_percent: number;
   profit_margin_fixed: number;
+  byo_lead_time_days: number;
 };
 
 const emptySourcedForm = {
@@ -121,6 +122,7 @@ export default function GiftFulfilmentCentresPage() {
     packaging_markup: 500,
     profit_margin_percent: 15,
     profit_margin_fixed: 0,
+    byo_lead_time_days: 1,
   });
   const [commercialSaving, setCommercialSaving] = useState(false);
 
@@ -206,6 +208,7 @@ export default function GiftFulfilmentCentresPage() {
           packaging_markup: Number(json.data.packaging_markup ?? 500),
           profit_margin_percent: Number(json.data.profit_margin_percent ?? 15),
           profit_margin_fixed: Number(json.data.profit_margin_fixed ?? 0),
+          byo_lead_time_days: Number(json.data.byo_lead_time_days ?? 1),
         });
       }
     } catch (err) {
@@ -682,7 +685,7 @@ export default function GiftFulfilmentCentresPage() {
             <p className="text-sm text-gray-600">
               Applied when customers build their own box, and as the suggested stack for ready-made boxes (item prices + this markup). Ready-made still saves a customer list price you can set from the box page.
             </p>
-            <div className="grid sm:grid-cols-3 gap-3">
+            <div className="grid sm:grid-cols-4 gap-3">
               <div>
                 <label className="text-xs text-gray-500 block mb-1">Packaging markup ₦</label>
                 <input
@@ -726,7 +729,26 @@ export default function GiftFulfilmentCentresPage() {
                   }
                 />
               </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">BYO expected lead days</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  value={commercial.byo_lead_time_days}
+                  onChange={(e) =>
+                    setCommercial({
+                      ...commercial,
+                      byo_lead_time_days: Math.max(0, Math.round(Number(e.target.value) || 0)),
+                    })
+                  }
+                />
+              </div>
             </div>
+            <p className="text-xs text-gray-500">
+              BYO lead is the usual wait customers see when building a box. Pool items with a longer
+              lead add extra days. Ready-made boxes use the items in that box instead.
+            </p>
             <button
               type="button"
               className="btn-primary btn-sm"
@@ -869,11 +891,51 @@ export default function GiftFulfilmentCentresPage() {
                           {row.name}
                           {row.sku && <span className="ml-1 text-gray-400">({row.sku})</span>}
                         </td>
-                        <td className="py-2 pr-4">{row.available_qty}</td>
                         <td className="py-2 pr-4">
-                          ₦{Number(row.gift_program_cost).toLocaleString()}
+                          <input
+                            className={inlineNumCls}
+                            type="number"
+                            min={0}
+                            defaultValue={row.available_qty}
+                            key={`${row.id}-qty-${row.available_qty}`}
+                            onBlur={(e) =>
+                              commitNonNeg(e.target.value, row.available_qty, (n) =>
+                                patchSourcedRow(row, { available_qty: n }),
+                              )
+                            }
+                            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                          />
                         </td>
-                        <td className="py-2 pr-4">{row.lead_time_days}</td>
+                        <td className="py-2 pr-4">
+                          <input
+                            className={inlineNumCls}
+                            type="number"
+                            min={0}
+                            defaultValue={row.gift_program_cost}
+                            key={`${row.id}-cost-${row.gift_program_cost}`}
+                            onBlur={(e) =>
+                              commitNonNeg(e.target.value, Number(row.gift_program_cost), (n) =>
+                                patchSourcedRow(row, { gift_program_cost: n }),
+                              )
+                            }
+                            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                          />
+                        </td>
+                        <td className="py-2 pr-4">
+                          <input
+                            className={`${inlineNumCls} w-16`}
+                            type="number"
+                            min={0}
+                            defaultValue={row.lead_time_days}
+                            key={`${row.id}-lead-${row.lead_time_days}`}
+                            onBlur={(e) =>
+                              commitNonNeg(e.target.value, row.lead_time_days, (n) =>
+                                patchSourcedRow(row, { lead_time_days: n }),
+                              )
+                            }
+                            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                          />
+                        </td>
                         <td className="py-2 text-right">
                           <button
                             type="button"

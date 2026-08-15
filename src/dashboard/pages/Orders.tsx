@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Plus, Search, Filter, Download, Eye } from 'lucide-react';
+import { Package, Plus, Search, Download, Eye } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
 
@@ -188,44 +188,16 @@ export function OrdersPage() {
             <>
               <h3 className="text-xl font-semibold text-gray-900 mb-2">No Orders Yet</h3>
               <p className="text-gray-600 mb-6 max-w-md mx-auto">
-                Get started by creating your first order manually, or connect your WooCommerce store to automatically sync orders.
+                Get started by creating your first order.
               </p>
-              
-              <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                <button
-                  onClick={() => navigate('/admin/orders/create')}
-                  className="btn-primary flex items-center justify-center"
-                >
-                  <Plus className="w-5 h-5 mr-2" />
-                  Create First Order
-                </button>
-                
-                <button
-                  onClick={() => navigate('/admin/settings')}
-                  className="btn-secondary flex items-center justify-center"
-                >
-                  <Filter className="w-5 h-5 mr-2" />
-                  Setup WooCommerce
-                </button>
-              </div>
 
-              <div className="mt-8 pt-8 border-t border-gray-200">
-                <p className="text-sm text-gray-600 mb-4">Quick Start Options:</p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto">
-                  <div className="p-4 bg-blue-50 rounded-lg text-left">
-                    <h4 className="font-semibold text-blue-900 mb-2">1. Manual Entry</h4>
-                    <p className="text-sm text-blue-800">Create orders directly in the dashboard for immediate processing</p>
-                  </div>
-                  <div className="p-4 bg-green-50 rounded-lg text-left">
-                    <h4 className="font-semibold text-green-900 mb-2">2. WooCommerce Sync</h4>
-                    <p className="text-sm text-green-800">Connect your store to automatically import orders via webhook</p>
-                  </div>
-                  <div className="p-4 bg-purple-50 rounded-lg text-left">
-                    <h4 className="font-semibold text-purple-900 mb-2">3. API Integration</h4>
-                    <p className="text-sm text-purple-800">Use our REST API to integrate with any e-commerce platform</p>
-                  </div>
-                </div>
-              </div>
+              <button
+                onClick={() => navigate('/admin/orders/create')}
+                className="btn-primary inline-flex items-center justify-center"
+              >
+                <Plus className="w-5 h-5 mr-2" />
+                Create First Order
+              </button>
             </>
           ) : (
             <>

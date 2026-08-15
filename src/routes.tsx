@@ -129,6 +129,7 @@ import VendorCampaignApprovalsPage from './dashboard/pages/VendorCampaignApprova
 import GiftFulfilmentCentresPage from './dashboard/pages/GiftFulfilmentCentres';
 import GiftBoxesPage from './dashboard/pages/GiftBoxes';
 import GiftOpsPage from './dashboard/pages/GiftOps';
+import CustomOrdersPage from './dashboard/pages/CustomOrders';
 import VendorDetail from './dashboard/pages/VendorDetail';
 import VendorWithdrawals from './dashboard/pages/VendorWithdrawals';
 import VendorDebits from './dashboard/pages/VendorDebits';
@@ -587,6 +588,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'gift-fulfilment-centres', element: <GiftFulfilmentCentresRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'gift-boxes', element: <GiftBoxesRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'gift-ops', element: <GiftOpsRoute />, allowedRoles: ['admin', 'manager', 'staff'] },
+  { path: 'custom-orders', element: <CustomOrdersPage />, allowedRoles: ['admin', 'manager', 'staff'] },
   { path: 'vendors/:id', element: <VendorDetailRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-withdrawals', element: <VendorWithdrawalsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-debits', element: <VendorDebitsRoute />, allowedRoles: ['admin', 'manager'] },

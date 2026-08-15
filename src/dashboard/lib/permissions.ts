@@ -32,6 +32,7 @@ import {
   GitBranch,
   Shield,
   Gift,
+  Sparkles,
 } from 'lucide-react';
 import type { User } from '../contexts/AuthContext';
 
@@ -66,6 +67,7 @@ export const navigationSections: NavSection[] = [
     label: 'Operations',
     items: [
       { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent', 'manager', 'viewer'] },
+      { name: 'Custom Orders', href: '/admin/custom-orders', icon: Sparkles, roles: ['admin', 'manager', 'staff'] },
       { name: 'Manual Shipments', href: '/admin/manual-shipments', icon: Send, roles: ['admin', 'agent', 'manager', 'viewer'] },
       { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent', 'manager', 'viewer'] },
       { name: 'Live Support', href: '/admin/support', icon: Headphones, roles: ['admin', 'agent', 'manager', 'viewer'] },

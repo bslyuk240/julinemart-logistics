@@ -4,6 +4,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { authenticateCustomer } from './services/customerAuth.js';
+import { recordAudit, requestMeta } from './services/auditLog.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
@@ -34,7 +35,7 @@ export async function handler(event) {
     return { statusCode: 200, headers: corsHeaders, body: '' };
   }
 
-  const { email, error: authError } = await authenticateCustomer(event);
+  const { email, userId, error: authError } = await authenticateCustomer(event);
   if (authError) {
     return {
       statusCode: 401,
@@ -169,6 +170,17 @@ export async function handler(event) {
           body: JSON.stringify({ success: false, error: error.message }),
         };
       }
+
+      await recordAudit({
+        action: 'CUSTOM_ORDER_PROOF_APPROVED',
+        resource_type: 'custom_order_specs',
+        resource_id: specId,
+        user_id: userId,
+        actor_email: email,
+        source: 'storefront',
+        details: { order_id: spec.order_id },
+        ...requestMeta(event),
+      });
 
       return {
         statusCode: 200,

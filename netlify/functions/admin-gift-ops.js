@@ -6,6 +6,7 @@
  * PATCH /api/admin-gift-ops?id=<gift_order_uuid>
  */
 import { requireAdmin, adminClient, jsonResponse, headers } from './services/global-sourcing-utils.js';
+import { recordStaffAudit } from './services/auditLog.js';
 
 const TAB_STATUSES = {
   new: ['new', 'paid'],
@@ -78,7 +79,7 @@ export async function handler(event) {
 
   const qs = event.queryStringParameters || {};
   const giftOrderId = qs.id;
-  const actorEmail = auth.user?.email || null;
+  const actorEmail = auth.authUser?.email || auth.profile?.email || null;
 
   if (event.httpMethod === 'GET') {
     if (giftOrderId) {
@@ -164,6 +165,17 @@ export async function handler(event) {
     if (updErr) return jsonResponse(500, { success: false, error: updErr.message });
 
     await recordEvent(giftOrderId, newStatus, eventNote, actorEmail);
+    await recordStaffAudit(event, auth.authUser, {
+      action: 'GIFT_OPS_STATUS',
+      resource_type: 'gift_orders',
+      resource_id: giftOrderId,
+      details: {
+        ops_action: action,
+        from: existing.gift_status,
+        to: newStatus,
+        order_id: existing.order_id,
+      },
+    });
 
     if (newStatus === 'delivered' && existing.order_id) {
       await adminClient

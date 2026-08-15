@@ -13,6 +13,7 @@ import { resolveBoxItemLines, resolveBuilderItemLines } from './services/gift-or
 import { insertGiftCommercialOrder } from './services/gift-order-insert.js';
 import {
   validateGiftCampaignVoucher,
+  resolveGiftVoucherContext,
   recordGiftVoucherRedemption,
 } from './services/gift-voucher.js';
 import {
@@ -21,6 +22,38 @@ import {
   validateOccasionDate,
   validateRequestedDeliveryDate,
 } from './services/gift-delivery-schedule.js';
+
+async function logGiftOrderPlaced({
+  orderId,
+  orderNumber,
+  orderKind,
+  boxSku,
+  totalAmount,
+  voucherCode,
+  customerEmail,
+  customerName,
+}) {
+  try {
+    await adminClient.from('activity_logs').insert({
+      user_id: null,
+      actor_email: customerEmail,
+      action: 'GIFT_ORDER_PLACED',
+      resource_type: 'gift_orders',
+      resource_id: orderId,
+      details: {
+        order_number: orderNumber,
+        order_kind: orderKind,
+        box_sku: boxSku || null,
+        total_amount: totalAmount,
+        voucher_code: voucherCode || null,
+        customer_name: customerName,
+      },
+      source: 'storefront',
+    });
+  } catch (activityError) {
+    console.warn('[create-gift-order] activity log failed:', activityError?.message || activityError);
+  }
+}
 
 async function validateGiftScheduleFields(adminClient, gfcId, lines, requested_delivery_date, occasion_date) {
   if (!requested_delivery_date?.trim()) {
@@ -51,18 +84,18 @@ function generateRef() {
   return `JLO-GFT-${ts}-${rand}`;
 }
 
-async function resolvePlatformDiscount({ customerSubtotal, customerEmail, lines, voucher_code }) {
+async function resolvePlatformDiscount({ customerEmail, voucher_code, giftContextParams }) {
   if (voucher_code?.trim()) {
+    const giftContext = await resolveGiftVoucherContext(adminClient, giftContextParams);
     const result = await validateGiftCampaignVoucher(adminClient, {
       code: voucher_code.trim(),
       customerEmail: customerEmail.trim(),
-      customerSubtotal,
-      lines,
+      giftContext,
     });
-    return { platformDiscount: result.discountAmount, voucher: result.voucher };
+    return { platformDiscount: result.discountAmount, voucher: result.voucher, giftContext };
   }
 
-  return { platformDiscount: 0, voucher: null };
+  return { platformDiscount: 0, voucher: null, giftContext: null };
 }
 
 async function createCustomBuildOrder(params) {
@@ -159,17 +192,23 @@ async function createCustomBuildOrder(params) {
     discountAmount: 0,
   });
 
-  let platformDiscount;
-  let voucherRow = null;
-  try {
-    const discountResult = await resolvePlatformDiscount({
-      customerSubtotal: pricing.customerSubtotal,
-      customerEmail: customer_email,
-      lines,
-      voucher_code,
-    });
-    platformDiscount = discountResult.platformDiscount;
-    voucherRow = discountResult.voucher;
+    let platformDiscount;
+    let voucherRow = null;
+    let giftVoucherContext = null;
+    try {
+      const discountResult = await resolvePlatformDiscount({
+        customerEmail: customer_email,
+        voucher_code,
+        giftContextParams: {
+          builder_session_token,
+          gfc_code,
+          gfc_id,
+          occasion,
+        },
+      });
+      platformDiscount = discountResult.platformDiscount;
+      voucherRow = discountResult.voucher;
+      giftVoucherContext = discountResult.giftContext;
   } catch (voucherErr) {
     return jsonResponse(400, { error: voucherErr.message });
   }
@@ -233,6 +272,7 @@ async function createCustomBuildOrder(params) {
           occasion: occasion?.trim() || null,
           requested_delivery_date: schedule.requested_delivery_date,
           occasion_date: schedule.occasion_date,
+          box_sku: giftVoucherContext?.boxSku || null,
         },
       },
       packingChecklistMeta: {
@@ -272,6 +312,7 @@ async function createCustomBuildOrder(params) {
         discountAmount: platformDiscount,
         vendorSettlementSubtotal,
         orderKind: 'gift_custom',
+        giftBoxSku: giftVoucherContext?.boxSku || null,
       });
     } catch (redeemErr) {
       console.error('[create-gift-order] voucher redemption failed:', redeemErr?.message);
@@ -282,6 +323,17 @@ async function createCustomBuildOrder(params) {
     .from('gift_builder_sessions')
     .update({ status: 'converted', updated_at: new Date().toISOString() })
     .eq('id', session.id);
+
+  await logGiftOrderPlaced({
+    orderId: orderResult.orderId,
+    orderNumber: orderResult.orderNumber,
+    orderKind: 'gift_custom',
+    boxSku: giftVoucherContext?.boxSku || null,
+    totalAmount,
+    voucherCode: voucherRow?.code || null,
+    customerEmail: customer_email.trim().toLowerCase(),
+    customerName: customer_name.trim(),
+  });
 
   return jsonResponse(201, {
     success: true,
@@ -402,7 +454,7 @@ export async function handler(event) {
 
     let boxQuery = adminClient
       .from('gift_boxes')
-      .select('id, name, slug, list_price, gift_fulfilment_centre_id, active')
+      .select('id, name, slug, sku, list_price, gift_fulfilment_centre_id, active, recipient_types, occasion_types')
       .eq('gift_fulfilment_centre_id', gfc.id)
       .eq('active', true);
 
@@ -457,15 +509,21 @@ export async function handler(event) {
 
     let platformDiscount;
     let voucherRow = null;
+    let giftVoucherContext = null;
     try {
       const discountResult = await resolvePlatformDiscount({
-        customerSubtotal: pricing.customerSubtotal,
         customerEmail: customer_email,
-        lines,
         voucher_code,
+        giftContextParams: {
+          gift_box_id: box.id,
+          gfc_code,
+          gfc_id,
+          occasion,
+        },
       });
       platformDiscount = discountResult.platformDiscount;
       voucherRow = discountResult.voucher;
+      giftVoucherContext = discountResult.giftContext;
     } catch (voucherErr) {
       return jsonResponse(400, { error: voucherErr.message });
     }
@@ -536,6 +594,7 @@ export async function handler(event) {
             occasion: occasion?.trim() || null,
             requested_delivery_date: schedule.requested_delivery_date,
             occasion_date: schedule.occasion_date,
+            box_sku: box.sku || giftVoucherContext?.boxSku || null,
           },
         },
         packingChecklistMeta: {
@@ -574,11 +633,23 @@ export async function handler(event) {
           discountAmount: platformDiscount,
           vendorSettlementSubtotal,
           orderKind: 'gift_ready_made',
+          giftBoxSku: giftVoucherContext?.boxSku || box.sku || null,
         });
       } catch (redeemErr) {
         console.error('[create-gift-order] voucher redemption failed:', redeemErr?.message);
       }
     }
+
+    await logGiftOrderPlaced({
+      orderId: orderResult.orderId,
+      orderNumber: orderResult.orderNumber,
+      orderKind: 'gift_ready_made',
+      boxSku: giftVoucherContext?.boxSku || box.sku || null,
+      totalAmount,
+      voucherCode: voucherRow?.code || null,
+      customerEmail: customer_email.trim().toLowerCase(),
+      customerName: customer_name.trim(),
+    });
 
     return jsonResponse(201, {
       success: true,

@@ -9,13 +9,21 @@
  * DELETE /api/admin-gift-boxes?id=<uuid>  — permanent delete (no gift orders)
  */
 import { requireAdmin, adminClient, jsonResponse, headers } from './services/global-sourcing-utils.js';
+import { recordStaffAudit } from './services/auditLog.js';
+import {
+  buildGiftBoxSkuPrefixFromTags,
+  computeNextGiftBoxSku,
+} from './services/gift-box-sku.js';
+import { catalogUnitPrice } from './services/gift-commercial.js';
 
 const BOX_SELECT =
-  'id, gift_fulfilment_centre_id, slug, name, description, image_url, gallery_urls, list_price, active, recipient_types, occasion_types, sort_order, created_at, updated_at';
+  'id, gift_fulfilment_centre_id, slug, sku, name, description, image_url, gallery_urls, list_price, active, recipient_types, occasion_types, sort_order, created_at, updated_at';
 
 const ITEM_SELECT = `
   id, gift_box_id, product_id, variation_id, quantity, component_cost, sort_order, vendor_payout_status,
-  products ( id, name, sku, gift_eligible, status )
+  line_source, pool_sourced_item_id,
+  products ( id, name, sku, gift_eligible, status, regular_price, sale_price ),
+  gift_pool_sourced_items ( id, name, sku, gift_program_cost )
 `;
 
 function normalizeGalleryUrls(value) {
@@ -29,6 +37,15 @@ function slugify(text) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
+}
+
+async function resolveBoxSku(body, slug) {
+  if (body.sku?.trim()) return String(body.sku).trim().toUpperCase();
+  const prefix = buildGiftBoxSkuPrefixFromTags(
+    Array.isArray(body.occasion_types) ? body.occasion_types : [],
+    Array.isArray(body.recipient_types) ? body.recipient_types : []
+  );
+  return computeNextGiftBoxSku(adminClient, prefix, []);
 }
 
 async function loadBoxWithItems(boxId) {
@@ -82,6 +99,12 @@ export async function handler(event) {
       .select(BOX_SELECT)
       .single();
     if (error) return jsonResponse(500, { success: false, error: error.message });
+    await recordStaffAudit(event, auth.authUser, {
+      action: 'GIFT_BOX_DEACTIVATED',
+      resource_type: 'gift_boxes',
+      resource_id: boxId,
+      details: { name: data?.name, sku: data?.sku },
+    });
     return jsonResponse(200, { success: true, data });
   }
 
@@ -101,8 +124,19 @@ export async function handler(event) {
       });
     }
 
+    const { data: doomed } = await adminClient
+      .from('gift_boxes')
+      .select('id, name, sku')
+      .eq('id', boxId)
+      .maybeSingle();
     const { error } = await adminClient.from('gift_boxes').delete().eq('id', boxId);
     if (error) return jsonResponse(500, { success: false, error: error.message });
+    await recordStaffAudit(event, auth.authUser, {
+      action: 'GIFT_BOX_DELETED',
+      resource_type: 'gift_boxes',
+      resource_id: boxId,
+      details: { name: doomed?.name, sku: doomed?.sku },
+    });
     return jsonResponse(200, { success: true });
   }
 
@@ -131,6 +165,9 @@ export async function handler(event) {
     if (body.occasion_types !== undefined) {
       patch.occasion_types = Array.isArray(body.occasion_types) ? body.occasion_types : [];
     }
+    if (body.sku != null) {
+      patch.sku = String(body.sku).trim().toUpperCase();
+    }
 
     const { data, error } = await adminClient
       .from('gift_boxes')
@@ -145,6 +182,19 @@ export async function handler(event) {
       }
       return jsonResponse(500, { success: false, error: error.message });
     }
+    await recordStaffAudit(event, auth.authUser, {
+      action: 'GIFT_BOX_UPDATED',
+      resource_type: 'gift_boxes',
+      resource_id: boxId,
+      details: {
+        name: data?.name,
+        sku: data?.sku,
+        occasion_types: data?.occasion_types,
+        recipient_types: data?.recipient_types,
+        list_price: data?.list_price,
+        sku_changed: body.sku != null,
+      },
+    });
     return jsonResponse(200, { success: true, data });
   }
 
@@ -163,6 +213,12 @@ export async function handler(event) {
       if (!itemId) return jsonResponse(400, { success: false, error: 'item_id required' });
       const { error } = await adminClient.from('gift_box_items').delete().eq('id', itemId);
       if (error) return jsonResponse(500, { success: false, error: error.message });
+      await recordStaffAudit(event, auth.authUser, {
+        action: 'GIFT_BOX_ITEM_REMOVED',
+        resource_type: 'gift_box_items',
+        resource_id: itemId,
+        details: { item_id: itemId },
+      });
       return jsonResponse(200, { success: true });
     }
 
@@ -199,29 +255,89 @@ export async function handler(event) {
         .single();
 
       if (error) return jsonResponse(500, { success: false, error: error.message });
+      await recordStaffAudit(event, auth.authUser, {
+        action: 'GIFT_BOX_ITEM_UPDATED',
+        resource_type: 'gift_box_items',
+        resource_id: itemId,
+        details: { gift_box_id: data?.gift_box_id, patch },
+      });
       return jsonResponse(200, { success: true, data });
     }
 
     if (action === 'add_item') {
       const giftBoxId = body.gift_box_id;
       const productId = body.product_id;
-      if (!giftBoxId || !productId) {
-        return jsonResponse(400, { success: false, error: 'gift_box_id and product_id required' });
+      const sourcedId = body.pool_sourced_item_id;
+      if (!giftBoxId || (!productId && !sourcedId)) {
+        return jsonResponse(400, { success: false, error: 'gift_box_id and product_id or pool_sourced_item_id required' });
       }
 
-      const row = {
-        gift_box_id: giftBoxId,
-        product_id: productId,
-        variation_id: body.variation_id || null,
-        quantity: Math.max(1, Number(body.quantity || 1)),
-        component_cost:
-          body.component_cost != null && body.component_cost !== ''
-            ? Number(body.component_cost)
-            : null,
-        sort_order: Number(body.sort_order || 0),
-        vendor_payout_status:
-          body.vendor_payout_status === 'pre_settled' ? 'pre_settled' : 'pending',
-      };
+      const { data: parentBox } = await adminClient
+        .from('gift_boxes')
+        .select('id, gift_fulfilment_centre_id')
+        .eq('id', giftBoxId)
+        .maybeSingle();
+      if (!parentBox) return jsonResponse(404, { success: false, error: 'Box not found' });
+
+      const explicitCost =
+        body.component_cost != null && body.component_cost !== ''
+          ? Number(body.component_cost)
+          : null;
+
+      let row;
+      if (sourcedId) {
+        const { data: sourced } = await adminClient
+          .from('gift_pool_sourced_items')
+          .select('id, gift_program_cost, name')
+          .eq('id', sourcedId)
+          .eq('gift_fulfilment_centre_id', parentBox.gift_fulfilment_centre_id)
+          .maybeSingle();
+        if (!sourced) return jsonResponse(404, { success: false, error: 'Sourced pool item not found' });
+        row = {
+          gift_box_id: giftBoxId,
+          product_id: null,
+          pool_sourced_item_id: sourcedId,
+          line_source: 'jlo_sourced',
+          variation_id: null,
+          quantity: Math.max(1, Number(body.quantity || 1)),
+          component_cost: explicitCost != null ? explicitCost : Number(sourced.gift_program_cost || 0),
+          sort_order: Number(body.sort_order || 0),
+          vendor_payout_status: 'not_applicable',
+        };
+      } else {
+        let componentCost = explicitCost;
+        if (componentCost == null) {
+          const { data: pool } = await adminClient
+            .from('gift_pool_inventory')
+            .select('gift_program_cost')
+            .eq('gift_fulfilment_centre_id', parentBox.gift_fulfilment_centre_id)
+            .eq('product_id', productId)
+            .maybeSingle();
+          if (pool?.gift_program_cost != null) {
+            componentCost = Number(pool.gift_program_cost);
+          } else {
+            const { data: product } = await adminClient
+              .from('products')
+              .select('regular_price, sale_price')
+              .eq('id', productId)
+              .maybeSingle();
+            const catalog = catalogUnitPrice(product, null);
+            componentCost = catalog > 0 ? catalog : null;
+          }
+        }
+        row = {
+          gift_box_id: giftBoxId,
+          product_id: productId,
+          variation_id: body.variation_id || null,
+          pool_sourced_item_id: null,
+          line_source: 'vendor_catalog',
+          quantity: Math.max(1, Number(body.quantity || 1)),
+          component_cost: componentCost,
+          sort_order: Number(body.sort_order || 0),
+          vendor_payout_status:
+            body.vendor_payout_status === 'pre_settled' ? 'pre_settled' : 'pending',
+        };
+      }
 
       const { data, error } = await adminClient
         .from('gift_box_items')
@@ -235,6 +351,12 @@ export async function handler(event) {
         }
         return jsonResponse(500, { success: false, error: error.message });
       }
+      await recordStaffAudit(event, auth.authUser, {
+        action: 'GIFT_BOX_ITEM_ADDED',
+        resource_type: 'gift_box_items',
+        resource_id: data?.id,
+        details: { gift_box_id: giftBoxId, product_id: productId },
+      });
       return jsonResponse(201, { success: true, data });
     }
 
@@ -250,17 +372,25 @@ export async function handler(event) {
       });
     }
 
+    const occasionTypes = Array.isArray(body.occasion_types) ? body.occasion_types : [];
+    const recipientTypes = Array.isArray(body.recipient_types) ? body.recipient_types : [];
+    const sku = await resolveBoxSku(
+      { ...body, occasion_types: occasionTypes, recipient_types: recipientTypes },
+      slug
+    );
+
     const row = {
       gift_fulfilment_centre_id: gfcId,
       name,
       slug,
+      sku,
       description: body.description ? String(body.description).trim() : null,
       image_url: body.image_url ? String(body.image_url).trim() : null,
       gallery_urls: normalizeGalleryUrls(body.gallery_urls),
       list_price: listPrice,
       active: body.active !== false,
-      recipient_types: Array.isArray(body.recipient_types) ? body.recipient_types : [],
-      occasion_types: Array.isArray(body.occasion_types) ? body.occasion_types : [],
+      recipient_types: recipientTypes,
+      occasion_types: occasionTypes,
       sort_order: Number(body.sort_order || 0),
     };
 
@@ -272,6 +402,12 @@ export async function handler(event) {
       }
       return jsonResponse(500, { success: false, error: error.message });
     }
+    await recordStaffAudit(event, auth.authUser, {
+      action: 'GIFT_BOX_CREATED',
+      resource_type: 'gift_boxes',
+      resource_id: data?.id,
+      details: { name, slug, sku, list_price: listPrice, occasion_types: occasionTypes, recipient_types: recipientTypes },
+    });
     return jsonResponse(201, { success: true, data });
   }
 

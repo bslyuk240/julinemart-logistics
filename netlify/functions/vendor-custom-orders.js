@@ -5,6 +5,7 @@
  */
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateVendor, getAdminClient } from './services/vendorAuth.js';
+import { recordAudit, requestMeta } from './services/auditLog.js';
 
 const STATUS_FLOW = new Set([
   'submitted',
@@ -24,7 +25,7 @@ export async function handler(event) {
   const origin = event.headers?.origin || event.headers?.Origin || '';
   if (event.httpMethod === 'OPTIONS') return preflightResponse(origin);
 
-  const { vendor, error } = await authenticateVendor(event);
+  const { vendor, userId, error } = await authenticateVendor(event);
   if (error) {
     return {
       statusCode: 401,
@@ -170,6 +171,22 @@ export async function handler(event) {
       };
     }
 
+    await recordAudit({
+      action: patch.status === 'proof_sent' ? 'CUSTOM_ORDER_PROOF_SENT' : 'CUSTOM_ORDER_STATUS_UPDATED',
+      resource_type: 'custom_order_specs',
+      resource_id: specId,
+      user_id: userId,
+      actor_email: vendor.email,
+      source: 'vendor_portal',
+      details: {
+        from: spec.status,
+        to: data?.status,
+        has_proof: Boolean(patch.approved_proof_url),
+        store_name: vendor.store_name,
+      },
+      ...requestMeta(event),
+    });
+
     return {
       statusCode: 200,
       headers: corsHeaders(origin),
@@ -205,6 +222,17 @@ export async function handler(event) {
         body: JSON.stringify({ success: false, error: msgErr.message }),
       };
     }
+
+    await recordAudit({
+      action: 'CUSTOM_ORDER_MESSAGE_SENT',
+      resource_type: 'custom_order_specs',
+      resource_id: specId,
+      user_id: userId,
+      actor_email: vendor.email,
+      source: 'vendor_portal',
+      details: { store_name: vendor.store_name },
+      ...requestMeta(event),
+    });
 
     return {
       statusCode: 200,

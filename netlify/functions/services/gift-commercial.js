@@ -82,9 +82,10 @@ export function computeCustomerGiftTotal({
   };
 }
 
-export function resolveUnitCost({ componentCost, giftProgramCost, productCostPrice }) {
+export function resolveUnitCost({ componentCost, giftProgramCost, productCostPrice, catalogPrice }) {
   if (componentCost != null && componentCost !== '') return Number(componentCost);
   if (giftProgramCost != null && giftProgramCost !== '') return Number(giftProgramCost);
+  if (catalogPrice != null && catalogPrice !== '') return Number(catalogPrice);
   return Number(productCostPrice || 0);
 }
 

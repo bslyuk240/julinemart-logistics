@@ -5,6 +5,7 @@
  */
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateVendor, getAdminClient } from './services/vendorAuth.js';
+import { recordAudit, requestMeta } from './services/auditLog.js';
 import { sanitizeFieldDefinitions } from './services/custom-order-utils.js';
 
 const ALLOWED_VERTICALS = new Set(['bakers', 'printers', 'tailors']);
@@ -22,7 +23,7 @@ export async function handler(event) {
     };
   }
 
-  const { vendor, error } = await authenticateVendor(event);
+  const { vendor, userId, error } = await authenticateVendor(event);
   if (error) {
     return {
       statusCode: 401,
@@ -80,6 +81,16 @@ export async function handler(event) {
 
   if (method === 'DELETE') {
     await adminClient.from('product_customisation_schemas').delete().eq('product_id', productId);
+    await recordAudit({
+      action: 'CUSTOMISATION_SCHEMA_DELETED',
+      resource_type: 'product_customisation_schemas',
+      resource_id: productId,
+      user_id: userId,
+      actor_email: vendor.email,
+      source: 'vendor_portal',
+      details: { product_id: productId, product_name: product.name },
+      ...requestMeta(event),
+    });
     return {
       statusCode: 200,
       headers: corsHeaders(origin),
@@ -101,6 +112,16 @@ export async function handler(event) {
   const fields = sanitizeFieldDefinitions(body.fields);
   if (fields.length === 0) {
     await adminClient.from('product_customisation_schemas').delete().eq('product_id', productId);
+    await recordAudit({
+      action: 'CUSTOMISATION_SCHEMA_DELETED',
+      resource_type: 'product_customisation_schemas',
+      resource_id: productId,
+      user_id: userId,
+      actor_email: vendor.email,
+      source: 'vendor_portal',
+      details: { product_id: productId, product_name: product.name, reason: 'no_fields' },
+      ...requestMeta(event),
+    });
     return {
       statusCode: 200,
       headers: corsHeaders(origin),
@@ -135,6 +156,22 @@ export async function handler(event) {
       body: JSON.stringify({ success: false, error: upsertErr.message }),
     };
   }
+
+  await recordAudit({
+    action: 'CUSTOMISATION_SCHEMA_SAVED',
+    resource_type: 'product_customisation_schemas',
+    resource_id: data?.id,
+    user_id: userId,
+    actor_email: vendor.email,
+    source: 'vendor_portal',
+    details: {
+      product_id: productId,
+      product_name: product.name,
+      field_count: fields.length,
+      pilot_vertical: pilotVertical,
+    },
+    ...requestMeta(event),
+  });
 
   return {
     statusCode: 200,

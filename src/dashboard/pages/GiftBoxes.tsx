@@ -18,8 +18,13 @@ import { GIFT_OCCASION_TAGS, GIFT_RECIPIENT_TAGS } from '../lib/giftDiscoveryTag
 import {
   filterPoolPickerItems,
   giftBoxSlugPreview,
+  buildGiftBoxSkuPrefix,
   normalizePoolPickerItems,
+  normalizeSourcedPickerItems,
+  computeGiftCustomerPrice,
+  catalogDisplayPrice,
   type PoolPickerProduct,
+  type GiftCommercialSettings,
 } from '../lib/giftBoxHelpers';
 import GiftBoxImageFields from '../components/GiftBoxImageFields';
 
@@ -43,6 +48,7 @@ type GiftHub = { id: string; name: string; code: string; is_default: boolean };
 type GiftBox = {
   id: string;
   slug: string;
+  sku?: string;
   name: string;
   description?: string | null;
   image_url?: string | null;
@@ -57,11 +63,21 @@ type GiftBox = {
 
 type BoxItem = {
   id: string;
-  product_id: string;
+  product_id: string | null;
+  pool_sourced_item_id?: string | null;
+  line_source?: string;
   quantity: number;
   component_cost: number | null;
   vendor_payout_status?: string;
-  products?: { id: string; name: string; sku?: string; gift_eligible?: boolean } | null;
+  products?: {
+    id: string;
+    name: string;
+    sku?: string;
+    gift_eligible?: boolean;
+    regular_price?: number | null;
+    sale_price?: number | null;
+  } | null;
+  gift_pool_sourced_items?: { id: string; name: string; sku?: string | null; gift_program_cost?: number } | null;
 };
 
 type PoolProduct = PoolPickerProduct;
@@ -69,6 +85,7 @@ type PoolProduct = PoolPickerProduct;
 const emptyBoxForm = {
   name: '',
   slug: '',
+  sku: '',
   description: '',
   image_url: '',
   gallery_urls: [] as string[],
@@ -78,6 +95,20 @@ const emptyBoxForm = {
   occasion_types: [] as string[],
   recipient_types: [] as string[],
 };
+
+function boxItemUnitCost(item: BoxItem): number {
+  if (item.component_cost != null && Number.isFinite(Number(item.component_cost))) {
+    return Number(item.component_cost);
+  }
+  if (item.gift_pool_sourced_items?.gift_program_cost != null) {
+    return Number(item.gift_pool_sourced_items.gift_program_cost);
+  }
+  return catalogDisplayPrice(item.products) || 0;
+}
+
+function boxItemName(item: BoxItem): string {
+  return item.gift_pool_sourced_items?.name || item.products?.name || item.product_id || 'Item';
+}
 
 export default function GiftBoxesPage() {
   const { session } = useAuth();
@@ -98,7 +129,14 @@ export default function GiftBoxesPage() {
   const [showOptionalFields, setShowOptionalFields] = useState(false);
   const [addQty, setAddQty] = useState('1');
   const [addCost, setAddCost] = useState('');
+  const [skuGenBusy, setSkuGenBusy] = useState(false);
   const [addPreSettled, setAddPreSettled] = useState(false);
+  const [commercial, setCommercial] = useState<GiftCommercialSettings>({
+    packaging_markup: 500,
+    profit_margin_percent: 15,
+    profit_margin_fixed: 0,
+  });
+  const [priceApplyBusy, setPriceApplyBusy] = useState(false);
 
   const authHeaders = useCallback(() => {
     if (!session?.access_token) return null;
@@ -177,13 +215,26 @@ export default function GiftBoxesPage() {
     if (!headers || !selectedHubId) return;
     setPoolLoading(true);
     try {
-      const res = await fetch(
-        `${functionsBase}/admin-gift-pool?gfc_id=${encodeURIComponent(selectedHubId)}`,
-        { headers },
-      );
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to load pool');
-      setPoolCatalog(normalizePoolPickerItems(json.data || []));
+      const [poolRes, sourcedRes, commercialRes] = await Promise.all([
+        fetch(`${functionsBase}/admin-gift-pool?gfc_id=${encodeURIComponent(selectedHubId)}`, { headers }),
+        fetch(`${functionsBase}/admin-gift-pool-sourced?gfc_id=${encodeURIComponent(selectedHubId)}`, { headers }),
+        fetch(`${functionsBase}/admin-gift-commercial-settings?gfc_id=${encodeURIComponent(selectedHubId)}`, { headers }),
+      ]);
+      const poolJson = await poolRes.json();
+      if (!poolRes.ok) throw new Error(poolJson.error || 'Failed to load pool');
+      const sourcedJson = sourcedRes.ok ? await sourcedRes.json() : { data: [] };
+      const commercialJson = commercialRes.ok ? await commercialRes.json() : { data: null };
+      setPoolCatalog([
+        ...normalizePoolPickerItems(poolJson.data || []),
+        ...normalizeSourcedPickerItems(sourcedJson.data || []),
+      ]);
+      if (commercialJson.data) {
+        setCommercial({
+          packaging_markup: Number(commercialJson.data.packaging_markup ?? 500),
+          profit_margin_percent: Number(commercialJson.data.profit_margin_percent ?? 15),
+          profit_margin_fixed: Number(commercialJson.data.profit_margin_fixed ?? 0),
+        });
+      }
     } catch (err) {
       notification.error(err instanceof Error ? err.message : 'Failed to load pool');
       setPoolCatalog([]);
@@ -196,14 +247,51 @@ export default function GiftBoxesPage() {
     if (selectedHubId) loadPoolCatalog();
   }, [selectedHubId, loadPoolCatalog]);
 
-  const boxProductIds = useMemo(() => boxItems.map((i) => i.product_id), [boxItems]);
+  const boxPickerKeys = useMemo(
+    () =>
+      boxItems
+        .map((i) => i.pool_sourced_item_id || i.product_id)
+        .filter((id): id is string => Boolean(id)),
+    [boxItems],
+  );
 
   const poolResults = useMemo(
-    () => filterPoolPickerItems(poolCatalog, poolSearch, boxProductIds),
-    [poolCatalog, poolSearch, boxProductIds],
+    () => filterPoolPickerItems(poolCatalog, poolSearch, boxPickerKeys),
+    [poolCatalog, poolSearch, boxPickerKeys],
   );
 
   const slugPreview = giftBoxSlugPreview(boxForm.name);
+  const skuPrefixPreview = buildGiftBoxSkuPrefix(boxForm.occasion_types, boxForm.recipient_types);
+
+  const handleGenerateBoxSku = async () => {
+    const headers = authHeaders();
+    if (!headers) return;
+    setSkuGenBusy(true);
+    try {
+      const prefix = buildGiftBoxSkuPrefix(boxForm.occasion_types, boxForm.recipient_types);
+      const extra = boxForm.sku.trim() ? [boxForm.sku.trim()] : [];
+      const res = await fetch(`${functionsBase}/product-sku-next`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ prefix, extra_skus: extra }),
+      });
+      const raw = await res.text();
+      let json: { success?: boolean; error?: string; data?: { next_sku?: string } };
+      try {
+        json = JSON.parse(raw);
+      } catch {
+        throw new Error(raw.slice(0, 120) || 'Could not generate SKU');
+      }
+      if (!res.ok || !json.success) throw new Error(json.error || 'Could not generate SKU');
+      const nextSku = json.data?.next_sku;
+      if (!nextSku) throw new Error('Server did not return a SKU');
+      setBoxForm({ ...boxForm, sku: nextSku });
+    } catch (err) {
+      notification.error('Generate SKU', err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setSkuGenBusy(false);
+    }
+  };
 
   const saveBox = async () => {
     const headers = authHeaders();
@@ -220,6 +308,7 @@ export default function GiftBoxesPage() {
       const payload = {
         ...boxForm,
         slug: editingBox ? boxForm.slug : slugPreview,
+        sku: boxForm.sku.trim() ? boxForm.sku.trim().toUpperCase() : undefined,
         list_price: Number(boxForm.list_price),
         sort_order: Number(boxForm.sort_order) || 0,
         gift_fulfilment_centre_id: selectedHubId,
@@ -255,6 +344,7 @@ export default function GiftBoxesPage() {
         : product.gift_program_cost != null
           ? Number(product.gift_program_cost)
           : null;
+    const isSourced = product.line_source === 'jlo_sourced';
     try {
       const res = await fetch(`${functionsBase}/admin-gift-boxes`, {
         method: 'POST',
@@ -262,7 +352,8 @@ export default function GiftBoxesPage() {
         body: JSON.stringify({
           action: 'add_item',
           gift_box_id: selectedBoxId,
-          product_id: product.id,
+          product_id: isSourced ? undefined : product.id,
+          pool_sourced_item_id: isSourced ? product.id : undefined,
           quantity: qty,
           component_cost: cost,
           vendor_payout_status: addPreSettled ? 'pre_settled' : 'pending',
@@ -380,10 +471,29 @@ export default function GiftBoxesPage() {
   };
 
   const selectedBox = boxes.find((b) => b.id === selectedBoxId) || null;
-  const componentTotal = boxItems.reduce(
-    (s, i) => s + (Number(i.component_cost || 0) * i.quantity),
-    0
-  );
+  const componentTotal = boxItems.reduce((s, i) => s + boxItemUnitCost(i) * i.quantity, 0);
+  const suggestedListPrice = computeGiftCustomerPrice(componentTotal, commercial);
+
+  const applySuggestedPrice = async () => {
+    const headers = authHeaders();
+    if (!headers || !selectedBox) return;
+    setPriceApplyBusy(true);
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-boxes?id=${encodeURIComponent(selectedBox.id)}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ list_price: suggestedListPrice }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Could not set customer price');
+      notification.success('Customer price set', `₦${suggestedListPrice.toLocaleString()} from items + hub markup`);
+      await loadBoxes();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Could not set customer price');
+    } finally {
+      setPriceApplyBusy(false);
+    }
+  };
 
   const hasItems = boxItems.length > 0;
   const hasTags =
@@ -467,15 +577,41 @@ export default function GiftBoxesPage() {
               )}
             </label>
 
+            <label className="block md:col-span-2">
+              <span className="text-xs font-medium text-gray-600">SKU</span>
+              <div className="mt-1 flex gap-2">
+                <input
+                  className="min-w-0 flex-1 border rounded-lg px-3 py-2 text-sm font-mono uppercase"
+                  placeholder={`${skuPrefixPreview}001`}
+                  value={boxForm.sku}
+                  onChange={(e) => setBoxForm({ ...boxForm, sku: e.target.value.toUpperCase() })}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleGenerateBoxSku()}
+                  disabled={skuGenBusy}
+                  className="shrink-0 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {skuGenBusy ? 'Working…' : 'Generate SKU'}
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Unique gift box ID (format GBX-occasion-recipient-###). Pick occasion/recipient tags first, then generate. Vouchers use this to match promos.
+              </p>
+            </label>
+
             <label className="block">
               <span className="text-xs font-medium text-gray-600">Customer price (₦) *</span>
               <input
                 className="mt-1 border rounded-lg px-3 py-2 text-sm w-full"
-                placeholder="15000"
+                placeholder="After items + markup"
                 inputMode="numeric"
                 value={boxForm.list_price}
                 onChange={(e) => setBoxForm({ ...boxForm, list_price: e.target.value })}
               />
+              <p className="mt-1 text-xs text-gray-500">
+                What the customer pays. After you add items, use “Set customer price from items + markup” on the box — same hub packaging markup and profit % as BYO.
+              </p>
             </label>
           </div>
 
@@ -605,7 +741,7 @@ export default function GiftBoxesPage() {
                     <div>
                       <p className="font-medium text-sm">{box.name}</p>
                       <p className="text-xs text-gray-500">
-                        /{box.slug} · ₦{Number(box.list_price).toLocaleString()}
+                        /{box.slug} · {box.sku ? `${box.sku} · ` : ''}₦{Number(box.list_price).toLocaleString()}
                         {!box.active && <span className="ml-2 text-red-600">Inactive</span>}
                       </p>
                     </div>
@@ -618,6 +754,7 @@ export default function GiftBoxesPage() {
                         setBoxForm({
                           name: box.name,
                           slug: box.slug,
+                          sku: box.sku || '',
                           description: box.description || '',
                           image_url: box.image_url || '',
                           gallery_urls: box.gallery_urls || [],
@@ -654,6 +791,7 @@ export default function GiftBoxesPage() {
                   setBoxForm({
                     name: selectedBox.name,
                     slug: selectedBox.slug,
+                    sku: selectedBox.sku || '',
                     description: selectedBox.description || '',
                     image_url: selectedBox.image_url || '',
                     gallery_urls: selectedBox.gallery_urls || [],
@@ -727,12 +865,66 @@ export default function GiftBoxesPage() {
               </div>
 
               <div>
+                <p className="text-sm font-medium text-gray-900 mb-2">What&apos;s in this box</p>
+                {boxItems.length > 0 && (
+                  <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-3 text-sm space-y-1.5">
+                    {boxItems.map((item) => (
+                      <div key={`price-${item.id}`} className="flex justify-between gap-2 text-gray-700">
+                        <span className="min-w-0 truncate">
+                          {boxItemName(item)} × {item.quantity}
+                          {item.line_source === 'jlo_sourced' ? (
+                            <span className="ml-1 text-[10px] uppercase text-gray-400">sourced</span>
+                          ) : null}
+                        </span>
+                        <span className="shrink-0 font-medium">
+                          ₦{(boxItemUnitCost(item) * item.quantity).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between border-t border-gray-200 pt-1.5 font-medium text-gray-900">
+                      <span>Item total</span>
+                      <span>₦{componentTotal.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-600">
+                      <span>Packaging markup (hub)</span>
+                      <span>₦{Number(commercial.packaging_markup).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-600">
+                      <span>
+                        Profit {Number(commercial.profit_margin_percent)}% + ₦
+                        {Number(commercial.profit_margin_fixed).toLocaleString()}
+                      </span>
+                      <span>₦{(suggestedListPrice - componentTotal).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-gray-200 pt-1.5 font-semibold text-gray-900">
+                      <span>Suggested customer price</span>
+                      <span>₦{suggestedListPrice.toLocaleString()}</span>
+                    </div>
+                    <p className="text-[11px] text-gray-500">
+                      Markup comes from this hub&apos;s BYO commercial settings. Change it under Gift Fulfilment
+                      Centres → Pool.
+                    </p>
+                    <button
+                      type="button"
+                      className="btn-primary btn-sm mt-1"
+                      disabled={priceApplyBusy}
+                      onClick={() => void applySuggestedPrice()}
+                    >
+                      {priceApplyBusy ? 'Saving…' : `Set customer price to ₦${suggestedListPrice.toLocaleString()}`}
+                    </button>
+                    {Number(selectedBox.list_price) !== suggestedListPrice && (
+                      <p className="text-xs text-amber-800">
+                        Current list price is ₦{Number(selectedBox.list_price).toLocaleString()} (not using the
+                        suggested stack yet).
+                      </p>
+                    )}
+                  </div>
+                )}
                 <p className="text-xs text-gray-600 mb-3">
-                  List ₦{Number(selectedBox.list_price).toLocaleString()} · component cost ₦
+                  List ₦{Number(selectedBox.list_price).toLocaleString()} · item cost ₦
                   {componentTotal.toLocaleString()} · margin ₦
                   {(Number(selectedBox.list_price) - componentTotal).toLocaleString()}
                 </p>
-                <p className="text-sm font-medium text-gray-900 mb-2">What&apos;s in this box</p>
               {itemsLoading ? (
                 <p className="text-sm text-gray-500">Loading items…</p>
               ) : boxItems.length === 0 ? (
@@ -744,21 +936,25 @@ export default function GiftBoxesPage() {
                   {boxItems.map((item) => (
                     <li key={item.id} className="flex items-center justify-between gap-2 border rounded-lg px-3 py-2 text-sm">
                       <div>
-                        <p className="font-medium">{item.products?.name || item.product_id}</p>
+                        <p className="font-medium">{boxItemName(item)}</p>
                         <p className="text-xs text-gray-500">
-                          Qty {item.quantity}
-                          {item.component_cost != null ? ` · cost ₦${Number(item.component_cost).toLocaleString()}` : ''}
+                          Qty {item.quantity} · ₦{boxItemUnitCost(item).toLocaleString()} each
+                          {item.line_source === 'jlo_sourced' ? ' · sourced' : ''}
                           {item.vendor_payout_status === 'pre_settled' ? ' · pre-paid stock' : ''}
                         </p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <label className="inline-flex items-center gap-1 text-xs text-gray-600">
+                          {item.line_source !== 'jlo_sourced' && (
+                            <>
                           <input
                             type="checkbox"
                             checked={item.vendor_payout_status === 'pre_settled'}
                             onChange={() => toggleItemPayout(item)}
                           />
                           Pre-paid
+                            </>
+                          )}
                         </label>
                         <button type="button" className="text-red-500" onClick={() => removeItem(item.id)}>
                           <Trash2 className="w-4 h-4" />
@@ -793,10 +989,10 @@ export default function GiftBoxesPage() {
                     value={addQty}
                     onChange={(e) => setAddQty(e.target.value)}
                   />
-                  <span className="ml-2">Override cost ₦ (optional)</span>
+                  <span className="ml-2">Override ₦ (optional)</span>
                   <input
                     className="border rounded-lg px-2 py-1 flex-1 text-sm text-gray-900"
-                    placeholder="Uses pool cost if blank"
+                    placeholder="Blank = catalog / sourced price"
                     value={addCost}
                     onChange={(e) => setAddCost(e.target.value)}
                   />
@@ -840,9 +1036,10 @@ export default function GiftBoxesPage() {
                           <p className="font-medium truncate">{p.name}</p>
                           <p className="text-xs text-gray-500">
                             {p.sku ? `SKU ${p.sku}` : 'No SKU'}
+                            {p.line_source === 'jlo_sourced' ? ' · sourced' : ''}
                             {p.available_qty != null ? ` · ${p.available_qty} in pool` : ''}
                             {p.gift_program_cost != null
-                              ? ` · cost ₦${Number(p.gift_program_cost).toLocaleString()}`
+                              ? ` · ₦${Number(p.gift_program_cost).toLocaleString()}`
                               : ''}
                           </p>
                         </div>

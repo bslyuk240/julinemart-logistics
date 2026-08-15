@@ -5,6 +5,15 @@ import { useNotification } from '../contexts/NotificationContext';
 
 const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
+const inlineNumCls =
+  'w-[5.75rem] border border-gray-200 rounded-md px-2 py-1 text-sm text-gray-900 focus:border-primary-500 focus:outline-none';
+
+function commitNonNeg(raw: string, previous: number, onCommit: (n: number) => void) {
+  const n = Number(raw);
+  const next = Number.isFinite(n) ? Math.max(0, n) : previous;
+  if (next !== previous) onCommit(next);
+}
+
 type GiftHub = {
   id: string;
   name: string;
@@ -33,6 +42,8 @@ type PoolRow = {
     sku?: string;
     gift_eligible?: boolean;
     gift_category?: string | null;
+    regular_price?: number | null;
+    sale_price?: number | null;
   } | null;
 };
 
@@ -42,6 +53,8 @@ type SearchProduct = {
   sku?: string;
   gift_eligible?: boolean;
   in_pool?: boolean;
+  regular_price?: number | null;
+  sale_price?: number | null;
 };
 
 type SourcedItem = {
@@ -459,6 +472,54 @@ export default function GiftFulfilmentCentresPage() {
     }
   };
 
+  const patchPoolRow = async (
+    row: PoolRow,
+    patch: { available_qty?: number; gift_program_cost?: number | null; lead_time_days?: number },
+  ) => {
+    const headers = authHeaders();
+    if (!headers) return;
+    setPool((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...patch } : r)));
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-pool?id=${encodeURIComponent(row.id)}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(patch),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Update failed');
+      if (json.data) {
+        setPool((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...json.data } : r)));
+      }
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Update failed');
+      loadPool();
+    }
+  };
+
+  const patchSourcedRow = async (
+    row: SourcedItem,
+    patch: { available_qty?: number; gift_program_cost?: number; lead_time_days?: number },
+  ) => {
+    const headers = authHeaders();
+    if (!headers) return;
+    setSourcedItems((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...patch } : r)));
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-pool-sourced?id=${encodeURIComponent(row.id)}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify(patch),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Update failed');
+      if (json.data) {
+        setSourcedItems((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...json.data } : r)));
+      }
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Update failed');
+      loadSourced();
+    }
+  };
+
   const selectedHub = hubs.find((h) => h.id === selectedHubId);
 
   return (
@@ -619,7 +680,7 @@ export default function GiftFulfilmentCentresPage() {
           <div className="card mb-6 space-y-3">
             <h2 className="font-semibold">Customer pricing (BYO margin stack)</h2>
             <p className="text-sm text-gray-600">
-              Applied when customers build their own box. Ready-made boxes use admin list price.
+              Applied when customers build their own box, and as the suggested stack for ready-made boxes (item prices + this markup). Ready-made still saves a customer list price you can set from the box page.
             </p>
             <div className="grid sm:grid-cols-3 gap-3">
               <div>
@@ -689,7 +750,7 @@ export default function GiftFulfilmentCentresPage() {
                 onKeyDown={(e) => e.key === 'Enter' && runSearch()}
               />
               <input className="input w-24" placeholder="Qty" value={assignQty} onChange={(e) => setAssignQty(e.target.value)} />
-              <input className="input w-32" placeholder="Program ₦" value={assignCost} onChange={(e) => setAssignCost(e.target.value)} />
+              <input className="input w-32" placeholder="Catalog price if blank" value={assignCost} onChange={(e) => setAssignCost(e.target.value)} />
               <input className="input w-24" placeholder="Lead days" value={assignLead} onChange={(e) => setAssignLead(e.target.value)} />
               <label className="flex items-center gap-2 text-sm whitespace-nowrap">
                 <input
@@ -701,12 +762,20 @@ export default function GiftFulfilmentCentresPage() {
               </label>
               <button type="button" className="btn-primary" onClick={runSearch}>Search</button>
             </div>
+            <p className="text-xs text-gray-500">
+              Leave Program ₦ blank to use the vendor catalog price (sale price if set, otherwise regular). Override only if the gift programme cost differs.
+            </p>
             {searchResults.length > 0 && (
               <ul className="divide-y border rounded-lg max-h-64 overflow-y-auto">
                 {searchResults.map((p) => (
                   <li key={p.id} className="flex items-center justify-between px-3 py-2 text-sm">
                     <span>
                       {p.name} {p.sku && <span className="text-gray-400">({p.sku})</span>}
+                      {(p.sale_price || p.regular_price) != null && (
+                        <span className="ml-2 text-gray-500">
+                          ₦{Number(p.sale_price || p.regular_price).toLocaleString()}
+                        </span>
+                      )}
                       {p.in_pool && <span className="ml-2 text-green-600 text-xs">In pool</span>}
                     </span>
                     {!p.in_pool && (
@@ -823,9 +892,12 @@ export default function GiftFulfilmentCentresPage() {
           </div>
 
           <div className="card">
-            <h2 className="font-semibold flex items-center gap-2 mb-4">
+            <h2 className="font-semibold flex items-center gap-2 mb-1">
               <Package className="w-4 h-4" /> Pool inventory ({pool.length})
             </h2>
+            <p className="text-xs text-gray-500 mb-4">
+              Edit qty, program cost, and lead days in the row — changes save when you leave the field.
+            </p>
             {poolLoading ? (
               <p className="text-gray-500 text-sm">Loading…</p>
             ) : pool.length === 0 ? (
@@ -852,11 +924,61 @@ export default function GiftFulfilmentCentresPage() {
                             <span className="ml-1 text-xs text-primary-600">eligible</span>
                           )}
                         </td>
-                        <td className="py-2 pr-4">{row.available_qty}</td>
                         <td className="py-2 pr-4">
-                          {row.gift_program_cost != null ? `₦${Number(row.gift_program_cost).toLocaleString()}` : '—'}
+                          <input
+                            className={inlineNumCls}
+                            type="number"
+                            min={0}
+                            defaultValue={row.available_qty}
+                            key={`${row.id}-qty-${row.available_qty}`}
+                            onBlur={(e) =>
+                              commitNonNeg(e.target.value, row.available_qty, (n) =>
+                                patchPoolRow(row, { available_qty: n }),
+                              )
+                            }
+                            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                          />
                         </td>
-                        <td className="py-2 pr-4">{row.lead_time_days}</td>
+                        <td className="py-2 pr-4">
+                          <input
+                            className={inlineNumCls}
+                            type="number"
+                            min={0}
+                            placeholder={
+                              row.products?.sale_price || row.products?.regular_price
+                                ? String(Number(row.products.sale_price || row.products.regular_price))
+                                : 'Catalog'
+                            }
+                            defaultValue={row.gift_program_cost ?? ''}
+                            key={`${row.id}-cost-${row.gift_program_cost ?? 'blank'}`}
+                            onBlur={(e) => {
+                              const raw = e.target.value.trim();
+                              const next = raw === '' ? null : Number(raw);
+                              const current = row.gift_program_cost;
+                              if (next === current) return;
+                              if (next != null && !Number.isFinite(next)) return;
+                              void patchPoolRow(row, {
+                                gift_program_cost: next == null ? null : Math.max(0, next),
+                              });
+                            }}
+                            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                          />
+                        </td>
+                        <td className="py-2 pr-4">
+                          <input
+                            className={`${inlineNumCls} w-16`}
+                            type="number"
+                            min={0}
+                            defaultValue={row.lead_time_days}
+                            key={`${row.id}-lead-${row.lead_time_days}`}
+                            onBlur={(e) =>
+                              commitNonNeg(e.target.value, row.lead_time_days, (n) =>
+                                patchPoolRow(row, { lead_time_days: n }),
+                              )
+                            }
+                            onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                          />
+                        </td>
                         <td className="py-2 pr-4">
                           <label className="inline-flex items-center gap-1.5 text-xs">
                             <input

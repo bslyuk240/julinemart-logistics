@@ -8,7 +8,7 @@ import { headers, jsonResponse, adminClient } from './services/global-sourcing-u
 import { checkRateLimit } from './services/rate-limit.js';
 
 const BOX_SELECT =
-  'id, slug, name, description, image_url, gallery_urls, list_price, recipient_types, occasion_types, sort_order, gift_fulfilment_centre_id';
+  'id, slug, sku, name, description, image_url, gallery_urls, list_price, recipient_types, occasion_types, sort_order, gift_fulfilment_centre_id';
 
 async function resolveGfc(qs) {
   const code = (qs.gfc || qs.code || '').trim().toLowerCase();
@@ -76,6 +76,7 @@ async function boxWithItems(box, poolProductIds) {
   return {
     id: box.id,
     slug: box.slug,
+    sku: box.sku,
     name: box.name,
     description: box.description,
     image_url: box.image_url,

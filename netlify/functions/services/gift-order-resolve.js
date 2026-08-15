@@ -44,6 +44,7 @@ export async function resolveVendorCatalogLine(adminClient, item, gfcId, poolMap
     componentCost: item.component_cost,
     giftProgramCost: pool.gift_program_cost,
     productCostPrice: variation?.cost_price ?? product.cost_price,
+    catalogPrice: catalogUnitPrice(product, variation),
   });
 
   const settlementUnit = catalogUnitPrice(product, variation);

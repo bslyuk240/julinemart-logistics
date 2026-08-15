@@ -164,6 +164,26 @@ export const ACTION_LABELS: Record<string, string> = {
   courier_shipment_created: 'Shipment created',
   tracking_updated: 'Tracking updated',
   return_shipment_created: 'Return created',
+  GIFT_BOX_CREATED: 'Gift box created',
+  GIFT_BOX_UPDATED: 'Gift box updated',
+  GIFT_BOX_DEACTIVATED: 'Gift box deactivated',
+  GIFT_BOX_DELETED: 'Gift box deleted',
+  GIFT_BOX_SKU_GENERATED: 'Gift box SKU generated',
+  GIFT_BOX_ITEM_ADDED: 'Gift box item added',
+  GIFT_BOX_ITEM_UPDATED: 'Gift box item updated',
+  GIFT_BOX_ITEM_REMOVED: 'Gift box item removed',
+  GIFT_OPS_STATUS: 'Gift ops status',
+  GIFT_ORDER_PLACED: 'Gift order placed',
+  VOUCHER_CREATED: 'Voucher created',
+  VOUCHER_UPDATED: 'Voucher updated',
+  VOUCHER_DELETED: 'Voucher deleted',
+  VOUCHER_CANCELLED: 'Voucher cancelled',
+  CUSTOMISATION_SCHEMA_SAVED: 'Customisation schema saved',
+  CUSTOMISATION_SCHEMA_DELETED: 'Customisation schema deleted',
+  CUSTOM_ORDER_STATUS_UPDATED: 'Custom order status updated',
+  CUSTOM_ORDER_PROOF_SENT: 'Custom order proof sent',
+  CUSTOM_ORDER_PROOF_APPROVED: 'Custom order proof approved',
+  CUSTOM_ORDER_MESSAGE_SENT: 'Custom order message sent',
 };
 
 export const ACTION_COLOR: Record<string, string> = {
@@ -184,6 +204,13 @@ export const ACTION_COLOR: Record<string, string> = {
   VENDOR_APPLICATION_REJECTED: 'bg-red-50 text-red-700',
   WITHDRAWAL_REJECTED: 'bg-red-50 text-red-700',
   CLIENT_ERROR: 'bg-rose-100 text-rose-700',
+  GIFT_BOX_CREATED: 'bg-green-50 text-green-700',
+  GIFT_BOX_SKU_GENERATED: 'bg-indigo-50 text-indigo-700',
+  GIFT_ORDER_PLACED: 'bg-green-50 text-green-700',
+  VOUCHER_CREATED: 'bg-green-50 text-green-700',
+  VOUCHER_DELETED: 'bg-red-50 text-red-700',
+  CUSTOMISATION_SCHEMA_SAVED: 'bg-blue-50 text-blue-700',
+  CUSTOM_ORDER_PROOF_APPROVED: 'bg-green-50 text-green-700',
 };
 
 export const AUTH_ACTIONS = new Set(['LOGIN', 'LOGOUT', 'SIGNUP', 'PASSWORD_RESET_SENT', 'PASSWORD_CHANGED']);

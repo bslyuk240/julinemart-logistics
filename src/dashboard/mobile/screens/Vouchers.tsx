@@ -6,6 +6,7 @@ import { PullToRefresh } from '../PullToRefresh';
 import { Sheet } from '../Sheet';
 import { TABBAR_SPACE } from '../lib/functionsAuth';
 import { formatNaira } from '../lib/displayUtils';
+import { logActivity } from '../../lib/logActivity';
 
 interface CampaignVoucher {
   id: string;
@@ -162,9 +163,21 @@ export default function MobileVouchers() {
       if (editingId) {
         const { error } = await supabase.from('campaign_vouchers').update(payload).eq('id', editingId);
         if (error) throw error;
+        void logActivity({
+          action: 'VOUCHER_UPDATED',
+          resource_type: 'campaign_vouchers',
+          resource_id: editingId,
+          details: { code: payload.code },
+        });
       } else {
-        const { error } = await supabase.from('campaign_vouchers').insert(payload);
+        const { data: created, error } = await supabase.from('campaign_vouchers').insert(payload).select('id').single();
         if (error) throw error;
+        void logActivity({
+          action: 'VOUCHER_CREATED',
+          resource_type: 'campaign_vouchers',
+          resource_id: created?.id,
+          details: { code: payload.code },
+        });
       }
       notification.success('Saved', 'Voucher saved');
       setFormOpen(false);
@@ -181,12 +194,22 @@ export default function MobileVouchers() {
   const cancelVoucher = async (id: string) => {
     if (!isAdmin || !window.confirm('Cancel this voucher?')) return;
     await supabase.from('campaign_vouchers').update({ status: 'cancelled' }).eq('id', id);
+    void logActivity({
+      action: 'VOUCHER_CANCELLED',
+      resource_type: 'campaign_vouchers',
+      resource_id: id,
+    });
     load();
   };
 
   const remove = async (id: string) => {
     if (!isAdmin || !window.confirm('Delete voucher and redemptions?')) return;
     await supabase.from('campaign_vouchers').delete().eq('id', id);
+    void logActivity({
+      action: 'VOUCHER_DELETED',
+      resource_type: 'campaign_vouchers',
+      resource_id: id,
+    });
     setDetailOpen(false);
     load();
   };

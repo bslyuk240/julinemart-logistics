@@ -978,7 +978,12 @@ export default function MobileGiftFulfilmentCentres() {
               <input value={assignQty} onChange={(e) => setAssignQty(e.target.value)} className={inputCls} />
             </Field>
             <Field label="Program ₦">
-              <input value={assignCost} onChange={(e) => setAssignCost(e.target.value)} className={inputCls} />
+              <input
+                value={assignCost}
+                onChange={(e) => setAssignCost(e.target.value)}
+                placeholder="Blank = catalog"
+                className={inputCls}
+              />
             </Field>
             <Field label="Lead days">
               <input value={assignLead} onChange={(e) => setAssignLead(e.target.value)} className={inputCls} />

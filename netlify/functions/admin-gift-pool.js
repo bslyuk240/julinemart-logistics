@@ -7,6 +7,7 @@
  * PUT  /api/admin-gift-pool?id=<pool_row_uuid>
  */
 import { requireAdmin, adminClient, jsonResponse, headers } from './services/global-sourcing-utils.js';
+import { catalogUnitPrice } from './services/gift-commercial.js';
 
 const POOL_SELECT = `
   id, gift_fulfilment_centre_id, product_id, variation_id,
@@ -160,15 +161,26 @@ export async function handler(event) {
       return jsonResponse(400, { success: false, error: 'gfc_id and product_id required' });
     }
 
+    let programCost =
+      body.gift_program_cost != null && body.gift_program_cost !== ''
+        ? Number(body.gift_program_cost)
+        : null;
+    if (programCost == null || !Number.isFinite(programCost)) {
+      const { data: product } = await adminClient
+        .from('products')
+        .select('regular_price, sale_price')
+        .eq('id', productId)
+        .maybeSingle();
+      const catalog = catalogUnitPrice(product, null);
+      programCost = catalog > 0 ? catalog : null;
+    }
+
     const row = {
       gift_fulfilment_centre_id: gfcId,
       product_id: productId,
       variation_id: body.variation_id || null,
       available_qty: Math.max(0, Number(body.available_qty ?? 0)),
-      gift_program_cost:
-        body.gift_program_cost != null && body.gift_program_cost !== ''
-          ? Number(body.gift_program_cost)
-          : null,
+      gift_program_cost: programCost,
       lead_time_days: Math.max(0, Number(body.lead_time_days ?? 0)),
       active: body.active !== false,
       vendor_pre_settled: Boolean(body.vendor_pre_settled),

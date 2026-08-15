@@ -6,16 +6,22 @@
  * POST   /api/admin-gift-boxes  { action?: 'add_item'|'remove_item', ... }
  * PUT    /api/admin-gift-boxes?id=<uuid>
  * PATCH  /api/admin-gift-boxes?id=<uuid>  — deactivate
+ * DELETE /api/admin-gift-boxes?id=<uuid>  — permanent delete (no gift orders)
  */
 import { requireAdmin, adminClient, jsonResponse, headers } from './services/global-sourcing-utils.js';
 
 const BOX_SELECT =
-  'id, gift_fulfilment_centre_id, slug, name, description, image_url, list_price, active, recipient_types, occasion_types, sort_order, created_at, updated_at';
+  'id, gift_fulfilment_centre_id, slug, name, description, image_url, gallery_urls, list_price, active, recipient_types, occasion_types, sort_order, created_at, updated_at';
 
 const ITEM_SELECT = `
-  id, gift_box_id, product_id, variation_id, quantity, component_cost, sort_order,
+  id, gift_box_id, product_id, variation_id, quantity, component_cost, sort_order, vendor_payout_status,
   products ( id, name, sku, gift_eligible, status )
 `;
+
+function normalizeGalleryUrls(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((u) => String(u || '').trim()).filter(Boolean);
+}
 
 function slugify(text) {
   return String(text || '')
@@ -79,6 +85,27 @@ export async function handler(event) {
     return jsonResponse(200, { success: true, data });
   }
 
+  if (event.httpMethod === 'DELETE') {
+    if (!boxId) return jsonResponse(400, { success: false, error: 'id required' });
+
+    const { count, error: countErr } = await adminClient
+      .from('gift_orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('gift_box_id', boxId);
+
+    if (countErr) return jsonResponse(500, { success: false, error: countErr.message });
+    if (count && count > 0) {
+      return jsonResponse(409, {
+        success: false,
+        error: 'Box has gift orders — deactivate instead of deleting',
+      });
+    }
+
+    const { error } = await adminClient.from('gift_boxes').delete().eq('id', boxId);
+    if (error) return jsonResponse(500, { success: false, error: error.message });
+    return jsonResponse(200, { success: true });
+  }
+
   if (event.httpMethod === 'PUT') {
     if (!boxId) return jsonResponse(400, { success: false, error: 'id required' });
 
@@ -94,6 +121,7 @@ export async function handler(event) {
     if (body.slug != null) patch.slug = slugify(body.slug);
     if (body.description !== undefined) patch.description = body.description ? String(body.description).trim() : null;
     if (body.image_url !== undefined) patch.image_url = body.image_url ? String(body.image_url).trim() : null;
+    if (body.gallery_urls !== undefined) patch.gallery_urls = normalizeGalleryUrls(body.gallery_urls);
     if (body.list_price != null) patch.list_price = Math.max(0, Number(body.list_price));
     if (body.active !== undefined) patch.active = Boolean(body.active);
     if (body.sort_order != null) patch.sort_order = Number(body.sort_order);
@@ -138,6 +166,42 @@ export async function handler(event) {
       return jsonResponse(200, { success: true });
     }
 
+    if (action === 'update_item') {
+      const itemId = body.item_id;
+      if (!itemId) return jsonResponse(400, { success: false, error: 'item_id required' });
+
+      const patch = {};
+      if (body.quantity != null) patch.quantity = Math.max(1, Number(body.quantity));
+      if (body.component_cost !== undefined) {
+        patch.component_cost =
+          body.component_cost === null || body.component_cost === ''
+            ? null
+            : Number(body.component_cost);
+      }
+      if (body.vendor_payout_status != null) {
+        const allowed = ['pending', 'pre_settled', 'paid', 'not_applicable'];
+        const status = String(body.vendor_payout_status);
+        if (!allowed.includes(status)) {
+          return jsonResponse(400, { success: false, error: 'Invalid vendor_payout_status' });
+        }
+        patch.vendor_payout_status = status;
+      }
+
+      if (!Object.keys(patch).length) {
+        return jsonResponse(400, { success: false, error: 'Nothing to update' });
+      }
+
+      const { data, error } = await adminClient
+        .from('gift_box_items')
+        .update(patch)
+        .eq('id', itemId)
+        .select(ITEM_SELECT)
+        .single();
+
+      if (error) return jsonResponse(500, { success: false, error: error.message });
+      return jsonResponse(200, { success: true, data });
+    }
+
     if (action === 'add_item') {
       const giftBoxId = body.gift_box_id;
       const productId = body.product_id;
@@ -155,6 +219,8 @@ export async function handler(event) {
             ? Number(body.component_cost)
             : null,
         sort_order: Number(body.sort_order || 0),
+        vendor_payout_status:
+          body.vendor_payout_status === 'pre_settled' ? 'pre_settled' : 'pending',
       };
 
       const { data, error } = await adminClient
@@ -190,6 +256,7 @@ export async function handler(event) {
       slug,
       description: body.description ? String(body.description).trim() : null,
       image_url: body.image_url ? String(body.image_url).trim() : null,
+      gallery_urls: normalizeGalleryUrls(body.gallery_urls),
       list_price: listPrice,
       active: body.active !== false,
       recipient_types: Array.isArray(body.recipient_types) ? body.recipient_types : [],

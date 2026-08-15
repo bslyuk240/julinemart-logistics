@@ -6,7 +6,15 @@
  */
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
 import { checkRateLimit } from './services/rate-limit.js';
+import {
+  computeCustomerGiftTotal,
+  loadGiftCommercialSettings,
+} from './services/gift-commercial.js';
 import { randomUUID } from 'crypto';
+import {
+  loadProductCustomisationSchema,
+  validateGiftCustomisationSpec,
+} from './services/gift-customisation.js';
 
 const SESSION_SELECT = `
   id, session_token, gift_fulfilment_centre_id, gift_packaging_type_id,
@@ -33,6 +41,28 @@ async function loadPackagingOptions() {
   return data || [];
 }
 
+async function computeSessionTotals(session, rawItems, packaging) {
+  const componentCostTotal = (rawItems || []).reduce(
+    (s, i) => s + Number(i.component_cost || 0) * Number(i.quantity || 0),
+    0
+  );
+  const packagingFee = Number(packaging?.price || 0);
+  const settings = await loadGiftCommercialSettings(adminClient, session.gift_fulfilment_centre_id);
+  const pricing = computeCustomerGiftTotal({
+    componentCostTotal,
+    packagingFee,
+    settings,
+  });
+  const itemCount = (rawItems || []).reduce((s, i) => s + Number(i.quantity || 0), 0);
+
+  return {
+    items_subtotal: Math.max(pricing.customerSubtotal - packagingFee, 0),
+    packaging_fee: packagingFee,
+    grand_total: pricing.customerSubtotal,
+    item_count: itemCount,
+  };
+}
+
 async function loadSession(sessionToken) {
   const { data: session, error } = await adminClient
     .from('gift_builder_sessions')
@@ -54,10 +84,12 @@ async function loadSession(sessionToken) {
   const { data: items } = await adminClient
     .from('gift_builder_items')
     .select(`
-      id, product_id, variation_id, quantity, unit_price, component_cost,
+      id, product_id, variation_id, quantity, component_cost, line_source, pool_sourced_item_id,
+      customisation_spec,
       products ( id, name, slug, gift_category,
         product_images ( src, position, is_thumbnail )
-      )
+      ),
+      gift_pool_sourced_items ( id, name, gift_category, image_url )
     `)
     .eq('gift_builder_session_id', session.id)
     .order('created_at');
@@ -72,16 +104,12 @@ async function loadSession(sessionToken) {
     packaging = pkg;
   }
 
-  const itemsSubtotal = (items || []).reduce(
-    (s, i) => s + Number(i.unit_price) * i.quantity,
-    0
-  );
-  const packagingFee = Number(packaging?.price || 0);
-  const itemCount = (items || []).reduce((s, i) => s + i.quantity, 0);
+  const totals = await computeSessionTotals(session, items || [], packaging);
 
   return {
     session,
     items: (items || []).map((row) => {
+      const isSourced = row.line_source === 'jlo_sourced';
       const images = (row.products?.product_images || []).sort(
         (a, b) => (a.position ?? 0) - (b.position ?? 0)
       );
@@ -89,22 +117,21 @@ async function loadSession(sessionToken) {
       return {
         id: row.id,
         product_id: row.product_id,
+        pool_sourced_item_id: row.pool_sourced_item_id,
+        line_source: row.line_source || 'vendor_catalog',
         variation_id: row.variation_id,
         quantity: row.quantity,
-        unit_price: Number(row.unit_price),
-        line_total: Number(row.unit_price) * row.quantity,
-        name: row.products?.name,
-        gift_category: row.products?.gift_category,
-        image: thumb?.src || null,
+        name: isSourced ? row.gift_pool_sourced_items?.name : row.products?.name,
+        gift_category: isSourced
+          ? row.gift_pool_sourced_items?.gift_category
+          : row.products?.gift_category,
+        image: isSourced ? row.gift_pool_sourced_items?.image_url || null : thumb?.src || null,
+        customisation_spec: row.customisation_spec || null,
+        customisation_summary: row.customisation_spec?.summary_lines || null,
       };
     }),
     packaging,
-    totals: {
-      items_subtotal: itemsSubtotal,
-      packaging_fee: packagingFee,
-      grand_total: itemsSubtotal + packagingFee,
-      item_count: itemCount,
-    },
+    totals,
   };
 }
 
@@ -141,7 +168,7 @@ async function validatePoolItem(gfcId, productId, variationId, quantity) {
   if (!pool?.products?.gift_eligible || pool.products.gift_box_compatible === false) {
     return { error: 'Product is not available for gift boxes' };
   }
-  if (!['publish', 'published'].includes(pool.products.status)) {
+  if (pool.products.status !== 'published') {
     return { error: 'Product is not available' };
   }
   if (!pool || pool.available_qty < quantity) {
@@ -152,7 +179,28 @@ async function validatePoolItem(gfcId, productId, variationId, quantity) {
   const componentCost =
     pool.gift_program_cost != null ? Number(pool.gift_program_cost) : null;
 
-  return { pool, unitPrice, componentCost };
+  return { pool, componentCost, catalogUnitPrice: unitPrice };
+}
+
+async function validateSourcedPoolItem(gfcId, sourcedId, quantity) {
+  const { data: sourced, error } = await adminClient
+    .from('gift_pool_sourced_items')
+    .select('id, name, available_qty, gift_program_cost, active')
+    .eq('id', sourcedId)
+    .eq('gift_fulfilment_centre_id', gfcId)
+    .eq('active', true)
+    .maybeSingle();
+
+  if (error) return { error: error.message };
+  if (!sourced) return { error: 'Sourced item is not available for gift boxes' };
+  if (sourced.available_qty < quantity) {
+    return { error: 'Insufficient pool stock for this item' };
+  }
+
+  return {
+    sourced,
+    componentCost: Number(sourced.gift_program_cost || 0),
+  };
 }
 
 export async function handler(event) {
@@ -288,29 +336,17 @@ export async function handler(event) {
 
     if (action === 'add_item') {
       const productId = body.product_id;
+      const sourcedId = body.pool_sourced_item_id;
       const quantity = Math.max(1, Number(body.quantity || 1));
-      if (!productId) return jsonResponse(400, { success: false, error: 'product_id required' });
 
-      let existingQuery = adminClient
-        .from('gift_builder_items')
-        .select('id, quantity')
-        .eq('gift_builder_session_id', session.id)
-        .eq('product_id', productId);
-      if (body.variation_id) existingQuery = existingQuery.eq('variation_id', body.variation_id);
-      else existingQuery = existingQuery.is('variation_id', null);
-      const { data: existingItem } = await existingQuery.maybeSingle();
+      if (!productId && !sourcedId) {
+        return jsonResponse(400, { success: false, error: 'product_id or pool_sourced_item_id required' });
+      }
 
-      const finalQty = existingItem ? existingItem.quantity + quantity : quantity;
-
-      const validatedFinal = await validatePoolItem(
-        session.gift_fulfilment_centre_id,
-        productId,
-        body.variation_id || null,
-        finalQty
-      );
-      if (validatedFinal.error) return jsonResponse(400, { success: false, error: validatedFinal.error });
-
+      let existingItem = null;
+      let validatedFinal;
       let maxItems = 12;
+
       if (session.gift_packaging_type_id) {
         const { data: pkg } = await adminClient
           .from('gift_packaging_types')
@@ -319,6 +355,107 @@ export async function handler(event) {
           .maybeSingle();
         maxItems = pkg?.max_items || maxItems;
       }
+
+      if (sourcedId) {
+        const { data: existing } = await adminClient
+          .from('gift_builder_items')
+          .select('id, quantity')
+          .eq('gift_builder_session_id', session.id)
+          .eq('line_source', 'jlo_sourced')
+          .eq('pool_sourced_item_id', sourcedId)
+          .maybeSingle();
+        existingItem = existing;
+
+        const finalQty = existingItem ? existingItem.quantity + quantity : quantity;
+        validatedFinal = await validateSourcedPoolItem(
+          session.gift_fulfilment_centre_id,
+          sourcedId,
+          finalQty
+        );
+        if (validatedFinal.error) {
+          return jsonResponse(400, { success: false, error: validatedFinal.error });
+        }
+
+        const current = await loadSession(sessionToken);
+        const newCount = current.totals.item_count - (existingItem?.quantity || 0) + finalQty;
+        if (newCount > maxItems) {
+          return jsonResponse(400, {
+            success: false,
+            error: `Box tier allows up to ${maxItems} items`,
+          });
+        }
+
+        if (existingItem) {
+          const { error: updErr } = await adminClient
+            .from('gift_builder_items')
+            .update({
+              quantity: finalQty,
+              unit_price: 0,
+              component_cost: validatedFinal.componentCost,
+            })
+            .eq('id', existingItem.id);
+          if (updErr) return jsonResponse(500, { success: false, error: updErr.message });
+        } else {
+          const { error: insErr } = await adminClient.from('gift_builder_items').insert({
+            gift_builder_session_id: session.id,
+            line_source: 'jlo_sourced',
+            pool_sourced_item_id: sourcedId,
+            product_id: null,
+            variation_id: null,
+            quantity: finalQty,
+            unit_price: 0,
+            component_cost: validatedFinal.componentCost,
+          });
+          if (insErr) return jsonResponse(500, { success: false, error: insErr.message });
+        }
+
+        const payload = await loadSession(sessionToken);
+        const packaging_options = await loadPackagingOptions();
+        return jsonResponse(200, { success: true, data: { ...payload, packaging_options } });
+      }
+
+      if (!productId) return jsonResponse(400, { success: false, error: 'product_id required' });
+
+      const productSchema = await loadProductCustomisationSchema(adminClient, productId);
+      const isCustomisable = Boolean(productSchema?.fields?.length);
+
+      let customisationSpec = null;
+      if (isCustomisable) {
+        const validated = await validateGiftCustomisationSpec(
+          adminClient,
+          productId,
+          body.customisation_spec
+        );
+        if (validated.error) {
+          return jsonResponse(400, { success: false, error: validated.error });
+        }
+        customisationSpec = validated.spec;
+      } else if (body.customisation_spec) {
+        return jsonResponse(400, { success: false, error: 'This product does not support customisation' });
+      }
+
+      existingItem = null;
+      if (!isCustomisable) {
+        let existingQuery = adminClient
+          .from('gift_builder_items')
+          .select('id, quantity')
+          .eq('gift_builder_session_id', session.id)
+          .eq('product_id', productId);
+        if (body.variation_id) existingQuery = existingQuery.eq('variation_id', body.variation_id);
+        else existingQuery = existingQuery.is('variation_id', null);
+        const { data } = await existingQuery.maybeSingle();
+        existingItem = data;
+      }
+
+      const finalQty = existingItem ? existingItem.quantity + quantity : quantity;
+
+      validatedFinal = await validatePoolItem(
+        session.gift_fulfilment_centre_id,
+        productId,
+        body.variation_id || null,
+        finalQty
+      );
+      if (validatedFinal.error) return jsonResponse(400, { success: false, error: validatedFinal.error });
 
       const current = await loadSession(sessionToken);
       const newCount = current.totals.item_count - (existingItem?.quantity || 0) + finalQty;
@@ -330,20 +467,43 @@ export async function handler(event) {
       }
 
       if (current.session.budget_max != null) {
-        const withoutLine = current.totals.items_subtotal - (existingItem ? Number(existingItem.quantity) * validatedFinal.unitPrice : 0);
-        const projected = withoutLine + validatedFinal.unitPrice * finalQty + current.totals.packaging_fee;
+        const { data: costRows } = await adminClient
+          .from('gift_builder_items')
+          .select('id, quantity, component_cost')
+          .eq('gift_builder_session_id', session.id);
+        const withoutCost = (costRows || [])
+          .filter((i) => i.id !== existingItem?.id)
+          .reduce((s, i) => s + Number(i.component_cost || 0) * i.quantity, 0);
+        const lineCost =
+          validatedFinal.componentCost != null
+            ? Number(validatedFinal.componentCost) + Number(customisationSpec?.price_adjustment || 0)
+            : validatedFinal.catalogUnitPrice;
+        const projectedCost = withoutCost + lineCost * finalQty;
+        const packagingFee = Number(current.packaging?.price || 0);
+        const settings = await loadGiftCommercialSettings(
+          adminClient,
+          session.gift_fulfilment_centre_id
+        );
+        const projected = computeCustomerGiftTotal({
+          componentCostTotal: projectedCost,
+          packagingFee,
+          settings,
+        }).customerSubtotal;
         if (projected > Number(current.session.budget_max)) {
           return jsonResponse(400, { success: false, error: 'Would exceed your budget' });
         }
       }
+
+      const unitComponentCost =
+        Number(validatedFinal.componentCost || 0) + Number(customisationSpec?.price_adjustment || 0);
 
       if (existingItem) {
         const { error: updErr } = await adminClient
           .from('gift_builder_items')
           .update({
             quantity: finalQty,
-            unit_price: validatedFinal.unitPrice,
-            component_cost: validatedFinal.componentCost,
+            unit_price: 0,
+            component_cost: unitComponentCost,
           })
           .eq('id', existingItem.id);
         if (updErr) return jsonResponse(500, { success: false, error: updErr.message });
@@ -354,8 +514,9 @@ export async function handler(event) {
           product_id: productId,
           variation_id: body.variation_id || null,
           quantity: finalQty,
-          unit_price: validatedFinal.unitPrice,
-          component_cost: validatedFinal.componentCost,
+          unit_price: 0,
+          component_cost: unitComponentCost,
+          customisation_spec: customisationSpec,
         });
         if (insErr) return jsonResponse(500, { success: false, error: insErr.message });
       }

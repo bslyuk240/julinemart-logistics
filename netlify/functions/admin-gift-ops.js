@@ -19,6 +19,7 @@ const GIFT_SELECT = `
   recipient_name, recipient_phone, recipient_email,
   recipient_address, recipient_city, recipient_state, recipient_zone,
   gift_message, sender_visible, occasion,
+  requested_delivery_date, occasion_date,
   component_cost_total, gift_status,
   pack_photo_url, qc_notes, packed_at, dispatched_at, completed_at,
   created_at, updated_at,

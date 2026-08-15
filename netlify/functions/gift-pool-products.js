@@ -6,6 +6,7 @@
  */
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
 import { checkRateLimit } from './services/rate-limit.js';
+import { loadCustomisationFlags } from './services/gift-customisation.js';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
@@ -48,7 +49,7 @@ export async function handler(event) {
       .select(`
         id, available_qty, gift_program_cost, lead_time_days,
         products!inner (
-          id, name, slug, sku, regular_price, sale_price, status,
+          id, name, slug, sku, status,
           gift_eligible, gift_category, gift_recipient_types, gift_occasion_types, gift_box_compatible,
           product_images ( src, alt, position, is_thumbnail )
         )
@@ -59,9 +60,9 @@ export async function handler(event) {
 
     if (poolErr) return jsonResponse(500, { success: false, error: poolErr.message });
 
-    const products = (poolRows || [])
+    const catalogProducts = (poolRows || [])
       .filter((row) => row.products?.gift_eligible && row.products?.gift_box_compatible !== false)
-      .filter((row) => ['publish', 'published'].includes(row.products?.status))
+      .filter((row) => row.products?.status === 'published')
       .map((row) => {
         const p = row.products;
         const images = (p.product_images || []).sort(
@@ -69,21 +70,57 @@ export async function handler(event) {
         );
         const thumb = images.find((i) => i.is_thumbnail) || images[0];
         return {
+          item_type: 'vendor_catalog',
           pool_id: row.id,
           product_id: p.id,
           name: p.name,
           slug: p.slug,
           sku: p.sku,
-          price: Number(p.sale_price || p.regular_price || 0),
           gift_category: p.gift_category,
           gift_recipient_types: p.gift_recipient_types || [],
           gift_occasion_types: p.gift_occasion_types || [],
           available_qty: row.available_qty,
-          gift_program_cost: row.gift_program_cost,
           lead_time_days: row.lead_time_days,
           image: thumb?.src || null,
         };
       });
+
+    const customisationMap = await loadCustomisationFlags(
+      adminClient,
+      catalogProducts.map((p) => p.product_id)
+    );
+    for (const product of catalogProducts) {
+      const schemaId = customisationMap.get(product.product_id);
+      if (schemaId) {
+        product.customisable = true;
+        product.customisation_schema_id = schemaId;
+      }
+    }
+
+    const { data: sourcedRows, error: sourcedErr } = await adminClient
+      .from('gift_pool_sourced_items')
+      .select('id, name, sku, gift_category, available_qty, lead_time_days, image_url')
+      .eq('gift_fulfilment_centre_id', gfc.id)
+      .eq('active', true)
+      .gt('available_qty', 0);
+
+    if (sourcedErr) return jsonResponse(500, { success: false, error: sourcedErr.message });
+
+    const sourcedProducts = (sourcedRows || []).map((row) => ({
+      item_type: 'jlo_sourced',
+      pool_id: row.id,
+      sourced_id: row.id,
+      name: row.name,
+      sku: row.sku,
+      gift_category: row.gift_category,
+      gift_recipient_types: [],
+      gift_occasion_types: [],
+      available_qty: row.available_qty,
+      lead_time_days: row.lead_time_days,
+      image: row.image_url || null,
+    }));
+
+    const products = [...catalogProducts, ...sourcedProducts];
 
     return {
       statusCode: 200,

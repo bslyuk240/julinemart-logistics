@@ -8,7 +8,7 @@ import { headers, jsonResponse, adminClient } from './services/global-sourcing-u
 import { checkRateLimit } from './services/rate-limit.js';
 
 const BOX_SELECT =
-  'id, slug, name, description, image_url, list_price, recipient_types, occasion_types, sort_order, gift_fulfilment_centre_id';
+  'id, slug, name, description, image_url, gallery_urls, list_price, recipient_types, occasion_types, sort_order, gift_fulfilment_centre_id';
 
 async function resolveGfc(qs) {
   const code = (qs.gfc || qs.code || '').trim().toLowerCase();
@@ -28,7 +28,18 @@ async function resolveGfc(qs) {
   return data;
 }
 
-async function boxWithItems(box) {
+async function poolProductIdsForGfc(gfcId) {
+  const { data: poolRows, error } = await adminClient
+    .from('gift_pool_inventory')
+    .select('product_id')
+    .eq('gift_fulfilment_centre_id', gfcId)
+    .eq('active', true)
+    .gt('available_qty', 0);
+  if (error) throw error;
+  return new Set((poolRows || []).map((r) => r.product_id));
+}
+
+async function boxWithItems(box, poolProductIds) {
   const { data: items, error } = await adminClient
     .from('gift_box_items')
     .select(`
@@ -43,7 +54,12 @@ async function boxWithItems(box) {
   if (error) throw error;
 
   const contents = (items || [])
-    .filter((row) => row.products?.gift_eligible && ['publish', 'published'].includes(row.products?.status))
+    .filter(
+      (row) =>
+        row.products?.gift_eligible &&
+        row.products?.status === 'published' &&
+        poolProductIds.has(row.products.id)
+    )
     .map((row) => {
       const images = (row.products.product_images || []).sort(
         (a, b) => (a.position ?? 0) - (b.position ?? 0)
@@ -63,6 +79,7 @@ async function boxWithItems(box) {
     name: box.name,
     description: box.description,
     image_url: box.image_url,
+    gallery_urls: Array.isArray(box.gallery_urls) ? box.gallery_urls : [],
     list_price: Number(box.list_price),
     recipient_types: box.recipient_types || [],
     occasion_types: box.occasion_types || [],
@@ -92,6 +109,8 @@ export async function handler(event) {
     const gfc = await resolveGfc(qs);
     if (!gfc) return jsonResponse(404, { success: false, error: 'Gift fulfilment centre not found' });
 
+    const poolProductIds = await poolProductIdsForGfc(gfc.id);
+
     if (slug) {
       const { data: box, error } = await adminClient
         .from('gift_boxes')
@@ -104,7 +123,10 @@ export async function handler(event) {
       if (error) return jsonResponse(500, { success: false, error: error.message });
       if (!box) return jsonResponse(404, { success: false, error: 'Gift box not found' });
 
-      const detail = await boxWithItems(box);
+      const detail = await boxWithItems(box, poolProductIds);
+      if (detail.item_count === 0) {
+        return jsonResponse(404, { success: false, error: 'Gift box not available at this hub' });
+      }
       return jsonResponse(200, {
         success: true,
         data: detail,
@@ -122,7 +144,34 @@ export async function handler(event) {
 
     if (error) return jsonResponse(500, { success: false, error: error.message });
 
-    const list = await Promise.all((boxes || []).map(boxWithItems));
+    let filtered = boxes || [];
+    const occasion = (qs.occasion || '').trim().toLowerCase();
+    const recipient = (qs.recipient || '').trim().toLowerCase();
+    const budgetMax = qs.budget_max != null && qs.budget_max !== '' ? Number(qs.budget_max) : null;
+    const budgetMin = qs.budget_min != null && qs.budget_min !== '' ? Number(qs.budget_min) : null;
+
+    if (occasion) {
+      filtered = filtered.filter((box) => {
+        const tags = box.occasion_types || [];
+        return tags.length === 0 || tags.includes(occasion);
+      });
+    }
+    if (recipient) {
+      filtered = filtered.filter((box) => {
+        const tags = box.recipient_types || [];
+        return tags.length === 0 || tags.includes(recipient);
+      });
+    }
+    if (budgetMax != null && Number.isFinite(budgetMax)) {
+      filtered = filtered.filter((box) => Number(box.list_price) <= budgetMax);
+    }
+    if (budgetMin != null && Number.isFinite(budgetMin)) {
+      filtered = filtered.filter((box) => Number(box.list_price) >= budgetMin);
+    }
+
+    const list = (await Promise.all(filtered.map((box) => boxWithItems(box, poolProductIds)))).filter(
+      (box) => box.item_count > 0
+    );
 
     return jsonResponse(200, {
       success: true,

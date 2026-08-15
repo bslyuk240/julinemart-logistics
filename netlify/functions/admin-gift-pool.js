@@ -10,7 +10,7 @@ import { requireAdmin, adminClient, jsonResponse, headers } from './services/glo
 
 const POOL_SELECT = `
   id, gift_fulfilment_centre_id, product_id, variation_id,
-  available_qty, gift_program_cost, lead_time_days, active,
+  available_qty, gift_program_cost, lead_time_days, active, vendor_pre_settled,
   created_at, updated_at,
   products ( id, name, slug, sku, regular_price, sale_price, gift_eligible, gift_category, status )
 `;
@@ -36,7 +36,7 @@ export async function handler(event) {
         .from('products')
         .select('id, name, slug, sku, regular_price, sale_price, gift_eligible, gift_category, status')
         .or(`name.ilike.%${search.replace(/[%_]/g, '')}%,sku.ilike.%${search.replace(/[%_]/g, '')}%`)
-        .in('status', ['publish', 'published'])
+        .eq('status', 'published')
         .order('name')
         .limit(25);
 
@@ -90,6 +90,7 @@ export async function handler(event) {
     }
     if (body.lead_time_days != null) patch.lead_time_days = Math.max(0, Number(body.lead_time_days));
     if (body.active !== undefined) patch.active = Boolean(body.active);
+    if (body.vendor_pre_settled !== undefined) patch.vendor_pre_settled = Boolean(body.vendor_pre_settled);
 
     const { data, error } = await adminClient
       .from('gift_pool_inventory')
@@ -170,6 +171,7 @@ export async function handler(event) {
           : null,
       lead_time_days: Math.max(0, Number(body.lead_time_days ?? 0)),
       active: body.active !== false,
+      vendor_pre_settled: Boolean(body.vendor_pre_settled),
     };
 
     const { data, error } = await adminClient

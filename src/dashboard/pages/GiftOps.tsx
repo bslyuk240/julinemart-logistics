@@ -26,6 +26,8 @@ type GiftOpsOrder = {
   gift_message?: string | null;
   sender_visible: boolean;
   occasion?: string | null;
+  requested_delivery_date?: string | null;
+  occasion_date?: string | null;
   pack_photo_url?: string | null;
   qc_notes?: string | null;
   gift_boxes?: { name: string; slug: string } | null;
@@ -40,7 +42,7 @@ type GiftOpsOrder = {
 
 type GiftOpsDetail = GiftOpsOrder & {
   events?: { status: string; note?: string; created_at: string }[];
-  packing_checklist?: { name: string; quantity: number }[];
+  packing_checklist?: { name: string; quantity: number; customisation?: string[] | null }[];
 };
 
 const TABS: { id: Tab; label: string; icon: typeof Gift }[] = [
@@ -174,7 +176,7 @@ export default function GiftOpsPage() {
   };
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto">
+    <div className="w-full max-w-none px-4 sm:px-6 xl:px-8 py-4 md:py-6">
       <div className="flex items-center gap-3 mb-6">
         <Gift className="w-8 h-8 text-primary-600" />
         <div>
@@ -250,6 +252,15 @@ export default function GiftOpsPage() {
                 <p className="font-semibold">#{detail.orders?.order_number} — {detail.gift_boxes?.name}</p>
                 <p className="text-sm text-gray-600">From {detail.orders?.customer_name} → {detail.recipient_name}</p>
                 <p className="text-xs text-gray-500 mt-1">{detail.recipient_city}, {detail.recipient_state}</p>
+                {(detail.requested_delivery_date || detail.occasion_date) && (
+                  <p className="text-xs text-primary-700 mt-2">
+                    {detail.requested_delivery_date
+                      ? `Deliver by ${detail.requested_delivery_date}`
+                      : null}
+                    {detail.requested_delivery_date && detail.occasion_date ? ' · ' : null}
+                    {detail.occasion_date ? `Occasion ${detail.occasion_date}` : null}
+                  </p>
+                )}
               </div>
 
               {detail.gift_message && (
@@ -265,7 +276,14 @@ export default function GiftOpsPage() {
                     {detail.packing_checklist.map((item, i) => (
                       <li key={i} className="flex gap-2">
                         <span className="text-gray-500">{item.quantity}×</span>
-                        <span>{item.name}</span>
+                        <span>
+                          {item.name}
+                          {item.customisation?.length ? (
+                            <span className="block text-xs text-primary-700">
+                              {item.customisation.join(' · ')}
+                            </span>
+                          ) : null}
+                        </span>
                       </li>
                     ))}
                   </ul>

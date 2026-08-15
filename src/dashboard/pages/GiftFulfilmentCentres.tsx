@@ -26,6 +26,7 @@ type PoolRow = {
   gift_program_cost: number | null;
   lead_time_days: number;
   active: boolean;
+  vendor_pre_settled?: boolean;
   products?: {
     id: string;
     name: string;
@@ -41,6 +42,32 @@ type SearchProduct = {
   sku?: string;
   gift_eligible?: boolean;
   in_pool?: boolean;
+};
+
+type SourcedItem = {
+  id: string;
+  name: string;
+  sku?: string | null;
+  gift_category?: string | null;
+  gift_program_cost: number;
+  available_qty: number;
+  lead_time_days: number;
+  active: boolean;
+};
+
+type CommercialSettings = {
+  packaging_markup: number;
+  profit_margin_percent: number;
+  profit_margin_fixed: number;
+};
+
+const emptySourcedForm = {
+  name: '',
+  sku: '',
+  gift_category: '',
+  gift_program_cost: '',
+  available_qty: '10',
+  lead_time_days: '0',
 };
 
 const emptyHubForm = {
@@ -72,6 +99,17 @@ export default function GiftFulfilmentCentresPage() {
   const [assignQty, setAssignQty] = useState('10');
   const [assignCost, setAssignCost] = useState('');
   const [assignLead, setAssignLead] = useState('0');
+  const [assignPreSettled, setAssignPreSettled] = useState(false);
+  const [sourcedItems, setSourcedItems] = useState<SourcedItem[]>([]);
+  const [sourcedLoading, setSourcedLoading] = useState(false);
+  const [sourcedForm, setSourcedForm] = useState(emptySourcedForm);
+  const [showSourcedForm, setShowSourcedForm] = useState(false);
+  const [commercial, setCommercial] = useState<CommercialSettings>({
+    packaging_markup: 500,
+    profit_margin_percent: 15,
+    profit_margin_fixed: 0,
+  });
+  const [commercialSaving, setCommercialSaving] = useState(false);
 
   const authHeaders = useCallback(() => {
     if (!session?.access_token) return null;
@@ -121,13 +159,58 @@ export default function GiftFulfilmentCentresPage() {
     }
   }, [authHeaders, notification, selectedHubId]);
 
+  const loadSourced = useCallback(async () => {
+    const headers = authHeaders();
+    if (!headers || !selectedHubId) return;
+    setSourcedLoading(true);
+    try {
+      const res = await fetch(
+        `${functionsBase}/admin-gift-pool-sourced?gfc_id=${encodeURIComponent(selectedHubId)}`,
+        { headers }
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to load sourced items');
+      setSourcedItems(json.data || []);
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Failed to load sourced items');
+    } finally {
+      setSourcedLoading(false);
+    }
+  }, [authHeaders, notification, selectedHubId]);
+
+  const loadCommercial = useCallback(async () => {
+    const headers = authHeaders();
+    if (!headers || !selectedHubId) return;
+    try {
+      const res = await fetch(
+        `${functionsBase}/admin-gift-commercial-settings?gfc_id=${encodeURIComponent(selectedHubId)}`,
+        { headers }
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to load commercial settings');
+      if (json.data) {
+        setCommercial({
+          packaging_markup: Number(json.data.packaging_markup ?? 500),
+          profit_margin_percent: Number(json.data.profit_margin_percent ?? 15),
+          profit_margin_fixed: Number(json.data.profit_margin_fixed ?? 0),
+        });
+      }
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Failed to load commercial settings');
+    }
+  }, [authHeaders, notification, selectedHubId]);
+
   useEffect(() => {
     loadHubs();
   }, [loadHubs]);
 
   useEffect(() => {
-    if (tab === 'pool' && selectedHubId) loadPool();
-  }, [tab, selectedHubId, loadPool]);
+    if (tab === 'pool' && selectedHubId) {
+      loadPool();
+      loadSourced();
+      loadCommercial();
+    }
+  }, [tab, selectedHubId, loadPool, loadSourced, loadCommercial]);
 
   const saveHub = async () => {
     const headers = authHeaders();
@@ -205,6 +288,7 @@ export default function GiftFulfilmentCentresPage() {
           available_qty: Number(assignQty) || 0,
           gift_program_cost: assignCost ? Number(assignCost) : null,
           lead_time_days: Number(assignLead) || 0,
+          vendor_pre_settled: assignPreSettled,
         }),
       });
       const json = await res.json();
@@ -235,10 +319,96 @@ export default function GiftFulfilmentCentresPage() {
     }
   };
 
+  const saveCommercial = async () => {
+    const headers = authHeaders();
+    if (!headers || !selectedHubId) return;
+    setCommercialSaving(true);
+    try {
+      const res = await fetch(
+        `${functionsBase}/admin-gift-commercial-settings?gfc_id=${encodeURIComponent(selectedHubId)}`,
+        {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify(commercial),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Save failed');
+      notification.success('Commercial settings saved');
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setCommercialSaving(false);
+    }
+  };
+
+  const saveSourcedItem = async () => {
+    const headers = authHeaders();
+    if (!headers || !selectedHubId || !sourcedForm.name.trim()) return;
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-pool-sourced`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          gift_fulfilment_centre_id: selectedHubId,
+          name: sourcedForm.name.trim(),
+          sku: sourcedForm.sku.trim() || null,
+          gift_category: sourcedForm.gift_category.trim() || null,
+          gift_program_cost: Number(sourcedForm.gift_program_cost) || 0,
+          available_qty: Number(sourcedForm.available_qty) || 0,
+          lead_time_days: Number(sourcedForm.lead_time_days) || 0,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Save failed');
+      notification.success('Sourced item added');
+      setSourcedForm(emptySourcedForm);
+      setShowSourcedForm(false);
+      loadSourced();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Save failed');
+    }
+  };
+
+  const deleteSourcedItem = async (id: string) => {
+    const headers = authHeaders();
+    if (!headers) return;
+    if (!confirm('Remove this sourced item?')) return;
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-pool-sourced?id=${id}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Delete failed');
+      notification.success('Sourced item removed');
+      loadSourced();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
+
+  const togglePoolPreSettled = async (row: PoolRow) => {
+    const headers = authHeaders();
+    if (!headers) return;
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-pool?id=${row.id}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ vendor_pre_settled: !row.vendor_pre_settled }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Update failed');
+      loadPool();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Update failed');
+    }
+  };
+
   const selectedHub = hubs.find((h) => h.id === selectedHubId);
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="w-full max-w-none px-4 sm:px-6 xl:px-8 py-4 md:py-6">
       <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
@@ -381,8 +551,68 @@ export default function GiftFulfilmentCentresPage() {
           </div>
 
           <div className="card mb-6 space-y-3">
+            <h2 className="font-semibold">Customer pricing (BYO margin stack)</h2>
+            <p className="text-sm text-gray-600">
+              Applied when customers build their own box. Ready-made boxes use admin list price.
+            </p>
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Packaging markup ₦</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  value={commercial.packaging_markup}
+                  onChange={(e) =>
+                    setCommercial({ ...commercial, packaging_markup: Number(e.target.value) || 0 })
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Profit margin %</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={commercial.profit_margin_percent}
+                  onChange={(e) =>
+                    setCommercial({
+                      ...commercial,
+                      profit_margin_percent: Number(e.target.value) || 0,
+                    })
+                  }
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Fixed margin ₦</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  value={commercial.profit_margin_fixed}
+                  onChange={(e) =>
+                    setCommercial({
+                      ...commercial,
+                      profit_margin_fixed: Number(e.target.value) || 0,
+                    })
+                  }
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn-primary btn-sm"
+              disabled={commercialSaving}
+              onClick={saveCommercial}
+            >
+              {commercialSaving ? 'Saving…' : 'Save commercial settings'}
+            </button>
+          </div>
+
+          <div className="card mb-6 space-y-3">
             <h2 className="font-semibold flex items-center gap-2">
-              <Search className="w-4 h-4" /> Add product to pool
+              <Search className="w-4 h-4" /> Add vendor catalog product to pool
             </h2>
             <div className="flex flex-wrap gap-2">
               <input
@@ -395,6 +625,14 @@ export default function GiftFulfilmentCentresPage() {
               <input className="input w-24" placeholder="Qty" value={assignQty} onChange={(e) => setAssignQty(e.target.value)} />
               <input className="input w-32" placeholder="Program ₦" value={assignCost} onChange={(e) => setAssignCost(e.target.value)} />
               <input className="input w-24" placeholder="Lead days" value={assignLead} onChange={(e) => setAssignLead(e.target.value)} />
+              <label className="flex items-center gap-2 text-sm whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={assignPreSettled}
+                  onChange={(e) => setAssignPreSettled(e.target.checked)}
+                />
+                Pre-paid stock
+              </label>
               <button type="button" className="btn-primary" onClick={runSearch}>Search</button>
             </div>
             {searchResults.length > 0 && (
@@ -416,6 +654,108 @@ export default function GiftFulfilmentCentresPage() {
             )}
           </div>
 
+          <div className="card mb-6 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-semibold">JLO-sourced pool items</h2>
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => setShowSourcedForm((v) => !v)}
+              >
+                {showSourcedForm ? 'Cancel' : 'Add sourced item'}
+              </button>
+            </div>
+            <p className="text-sm text-gray-600">
+              Products sourced outside vendor catalog — no marketplace listing or vendor settlement.
+            </p>
+            {showSourcedForm && (
+              <div className="grid sm:grid-cols-2 gap-3 border rounded-lg p-3 bg-gray-50">
+                <input
+                  className="input"
+                  placeholder="Name *"
+                  value={sourcedForm.name}
+                  onChange={(e) => setSourcedForm({ ...sourcedForm, name: e.target.value })}
+                />
+                <input
+                  className="input"
+                  placeholder="SKU"
+                  value={sourcedForm.sku}
+                  onChange={(e) => setSourcedForm({ ...sourcedForm, sku: e.target.value })}
+                />
+                <input
+                  className="input"
+                  placeholder="Category"
+                  value={sourcedForm.gift_category}
+                  onChange={(e) => setSourcedForm({ ...sourcedForm, gift_category: e.target.value })}
+                />
+                <input
+                  className="input"
+                  placeholder="Program cost ₦"
+                  value={sourcedForm.gift_program_cost}
+                  onChange={(e) => setSourcedForm({ ...sourcedForm, gift_program_cost: e.target.value })}
+                />
+                <input
+                  className="input"
+                  placeholder="Qty"
+                  value={sourcedForm.available_qty}
+                  onChange={(e) => setSourcedForm({ ...sourcedForm, available_qty: e.target.value })}
+                />
+                <input
+                  className="input"
+                  placeholder="Lead days"
+                  value={sourcedForm.lead_time_days}
+                  onChange={(e) => setSourcedForm({ ...sourcedForm, lead_time_days: e.target.value })}
+                />
+                <button type="button" className="btn-primary sm:col-span-2" onClick={saveSourcedItem}>
+                  Save sourced item
+                </button>
+              </div>
+            )}
+            {sourcedLoading ? (
+              <p className="text-gray-500 text-sm">Loading…</p>
+            ) : sourcedItems.length === 0 ? (
+              <p className="text-gray-500 text-sm">No JLO-sourced items at this hub yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 border-b">
+                      <th className="py-2 pr-4">Name</th>
+                      <th className="py-2 pr-4">Qty</th>
+                      <th className="py-2 pr-4">Program cost</th>
+                      <th className="py-2 pr-4">Lead days</th>
+                      <th className="py-2" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sourcedItems.map((row) => (
+                      <tr key={row.id} className="border-b border-gray-100">
+                        <td className="py-2 pr-4">
+                          {row.name}
+                          {row.sku && <span className="ml-1 text-gray-400">({row.sku})</span>}
+                        </td>
+                        <td className="py-2 pr-4">{row.available_qty}</td>
+                        <td className="py-2 pr-4">
+                          ₦{Number(row.gift_program_cost).toLocaleString()}
+                        </td>
+                        <td className="py-2 pr-4">{row.lead_time_days}</td>
+                        <td className="py-2 text-right">
+                          <button
+                            type="button"
+                            className="text-red-600 p-1"
+                            onClick={() => deleteSourcedItem(row.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           <div className="card">
             <h2 className="font-semibold flex items-center gap-2 mb-4">
               <Package className="w-4 h-4" /> Pool inventory ({pool.length})
@@ -433,6 +773,7 @@ export default function GiftFulfilmentCentresPage() {
                       <th className="py-2 pr-4">Qty</th>
                       <th className="py-2 pr-4">Program cost</th>
                       <th className="py-2 pr-4">Lead days</th>
+                      <th className="py-2 pr-4">Pre-paid</th>
                       <th className="py-2" />
                     </tr>
                   </thead>
@@ -450,6 +791,16 @@ export default function GiftFulfilmentCentresPage() {
                           {row.gift_program_cost != null ? `₦${Number(row.gift_program_cost).toLocaleString()}` : '—'}
                         </td>
                         <td className="py-2 pr-4">{row.lead_time_days}</td>
+                        <td className="py-2 pr-4">
+                          <label className="inline-flex items-center gap-1.5 text-xs">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(row.vendor_pre_settled)}
+                              onChange={() => togglePoolPreSettled(row)}
+                            />
+                            {row.vendor_pre_settled ? 'Pre-settled' : 'Pending'}
+                          </label>
+                        </td>
                         <td className="py-2 text-right">
                           <button type="button" className="text-red-600 p-1" onClick={() => removeFromPool(row.id)}>
                             <Trash2 className="w-4 h-4" />

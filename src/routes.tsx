@@ -50,6 +50,9 @@ import MobileCategories from './dashboard/mobile/screens/Categories';
 import MobileHomepageContent from './dashboard/mobile/screens/HomepageContent';
 import MobileVendors from './dashboard/mobile/screens/Vendors';
 import MobileSellerVerifications from './dashboard/mobile/screens/SellerVerifications';
+import MobileGiftFulfilmentCentres from './dashboard/mobile/screens/GiftFulfilmentCentres';
+import MobileGiftBoxes from './dashboard/mobile/screens/GiftBoxes';
+import MobileGiftOps from './dashboard/mobile/screens/GiftOps';
 import MobileVendorDetail from './dashboard/mobile/screens/VendorDetail';
 import MobileVendorWithdrawals from './dashboard/mobile/screens/VendorWithdrawals';
 import MobileVendorDebits from './dashboard/mobile/screens/VendorDebits';
@@ -331,15 +334,18 @@ function VendorCampaignApprovalsRoute() {
 }
 
 function GiftFulfilmentCentresRoute() {
-  return <GiftFulfilmentCentresPage />;
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileGiftFulfilmentCentres /> : <GiftFulfilmentCentresPage />;
 }
 
 function GiftBoxesRoute() {
-  return <GiftBoxesPage />;
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileGiftBoxes /> : <GiftBoxesPage />;
 }
 
 function GiftOpsRoute() {
-  return <GiftOpsPage />;
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileGiftOps /> : <GiftOpsPage />;
 }
 
 function VendorDetailRoute() {

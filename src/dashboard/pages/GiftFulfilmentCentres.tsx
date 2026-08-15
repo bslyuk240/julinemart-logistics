@@ -215,6 +215,10 @@ export default function GiftFulfilmentCentresPage() {
   const saveHub = async () => {
     const headers = authHeaders();
     if (!headers) return;
+    if (!hubForm.name.trim() || !hubForm.code.trim() || !hubForm.state.trim() || !hubForm.city.trim()) {
+      notification.error('Name, code, state, and city are required');
+      return;
+    }
     try {
       const url = editingHub
         ? `${functionsBase}/admin-gift-fulfilment-centres?id=${editingHub.id}`
@@ -255,6 +259,56 @@ export default function GiftFulfilmentCentresPage() {
       loadHubs();
     } catch (err) {
       notification.error(err instanceof Error ? err.message : 'Failed');
+    }
+  };
+
+  const reactivateHub = async (hub: GiftHub) => {
+    const headers = authHeaders();
+    if (!headers) return;
+    try {
+      const res = await fetch(
+        `${functionsBase}/admin-gift-fulfilment-centres?id=${hub.id}`,
+        {
+          method: 'PUT',
+          headers,
+          body: JSON.stringify({ active: true }),
+        }
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed');
+      notification.success('Hub reactivated');
+      loadHubs();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Failed');
+    }
+  };
+
+  const deleteHub = async (hub: GiftHub) => {
+    if (hub.is_default) {
+      notification.error('Cannot delete the default hub — set another hub as default first');
+      return;
+    }
+    const headers = authHeaders();
+    if (!headers) return;
+    if (
+      !confirm(
+        `Permanently delete "${hub.name}"? This cannot be undone. Only for hubs with no boxes, orders, or build-your-own sessions.`
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-fulfilment-centres?id=${hub.id}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Delete failed');
+      notification.success('Hub deleted');
+      if (selectedHubId === hub.id) setSelectedHubId('');
+      loadHubs();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Delete failed');
     }
   };
 
@@ -516,11 +570,23 @@ export default function GiftFulfilmentCentresPage() {
                     </div>
                   </div>
                   {!hub.active && <p className="text-xs text-red-600 mt-2">Inactive</p>}
-                  {hub.active && !hub.is_default && (
-                    <button type="button" className="text-xs text-red-600 mt-3 underline" onClick={() => deactivateHub(hub)}>
-                      Deactivate
-                    </button>
-                  )}
+                  <div className="flex flex-wrap items-center gap-3 mt-3">
+                    {hub.active && !hub.is_default && (
+                      <button type="button" className="text-xs text-red-600 underline" onClick={() => deactivateHub(hub)}>
+                        Deactivate
+                      </button>
+                    )}
+                    {!hub.active && (
+                      <button type="button" className="text-xs text-emerald-700 underline" onClick={() => reactivateHub(hub)}>
+                        Reactivate
+                      </button>
+                    )}
+                    {!hub.is_default && (
+                      <button type="button" className="text-xs text-red-800 underline" onClick={() => deleteHub(hub)}>
+                        Delete
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

@@ -28,12 +28,30 @@ type PoolRow = {
   gift_program_cost: number | null;
   lead_time_days: number;
   active: boolean;
+  vendor_pre_settled?: boolean;
   products?: {
     id: string;
     name: string;
     sku?: string;
     gift_eligible?: boolean;
   } | null;
+};
+
+type SourcedItem = {
+  id: string;
+  name: string;
+  sku?: string | null;
+  gift_category?: string | null;
+  gift_program_cost: number;
+  available_qty: number;
+  lead_time_days: number;
+  active: boolean;
+};
+
+type CommercialSettings = {
+  packaging_markup: number;
+  profit_margin_percent: number;
+  profit_margin_fixed: number;
 };
 
 type SearchProduct = {
@@ -54,6 +72,15 @@ const emptyHubForm = {
   active: true,
   same_day_supported: false,
   next_day_supported: true,
+};
+
+const emptySourcedForm = {
+  name: '',
+  sku: '',
+  gift_category: '',
+  gift_program_cost: '',
+  available_qty: '10',
+  lead_time_days: '0',
 };
 
 const inputCls =
@@ -87,7 +114,18 @@ export default function MobileGiftFulfilmentCentres() {
   const [assignQty, setAssignQty] = useState('10');
   const [assignCost, setAssignCost] = useState('');
   const [assignLead, setAssignLead] = useState('0');
+  const [assignPreSettled, setAssignPreSettled] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [sourcedItems, setSourcedItems] = useState<SourcedItem[]>([]);
+  const [sourcedLoading, setSourcedLoading] = useState(false);
+  const [sourcedFormOpen, setSourcedFormOpen] = useState(false);
+  const [sourcedForm, setSourcedForm] = useState(emptySourcedForm);
+  const [commercial, setCommercial] = useState<CommercialSettings>({
+    packaging_markup: 500,
+    profit_margin_percent: 15,
+    profit_margin_fixed: 0,
+  });
+  const [commercialSaving, setCommercialSaving] = useState(false);
 
   const authHeaders = useCallback(() => {
     if (!session?.access_token) return null;
@@ -137,17 +175,64 @@ export default function MobileGiftFulfilmentCentres() {
     }
   }, [authHeaders, notification, selectedHubId]);
 
+  const loadSourced = useCallback(async () => {
+    const headers = authHeaders();
+    if (!headers || !selectedHubId) return;
+    setSourcedLoading(true);
+    try {
+      const res = await fetch(
+        `${functionsBase}/admin-gift-pool-sourced?gfc_id=${encodeURIComponent(selectedHubId)}`,
+        { headers },
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to load sourced items');
+      setSourcedItems(json.data || []);
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Failed to load sourced items');
+    } finally {
+      setSourcedLoading(false);
+    }
+  }, [authHeaders, notification, selectedHubId]);
+
+  const loadCommercial = useCallback(async () => {
+    const headers = authHeaders();
+    if (!headers || !selectedHubId) return;
+    try {
+      const res = await fetch(
+        `${functionsBase}/admin-gift-commercial-settings?gfc_id=${encodeURIComponent(selectedHubId)}`,
+        { headers },
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to load commercial settings');
+      if (json.data) {
+        setCommercial({
+          packaging_markup: Number(json.data.packaging_markup ?? 500),
+          profit_margin_percent: Number(json.data.profit_margin_percent ?? 15),
+          profit_margin_fixed: Number(json.data.profit_margin_fixed ?? 0),
+        });
+      }
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Failed to load commercial settings');
+    }
+  }, [authHeaders, notification, selectedHubId]);
+
   useEffect(() => {
     loadHubs();
   }, [loadHubs]);
 
   useEffect(() => {
-    if (view === 'pool' && selectedHubId) loadPool();
-  }, [view, selectedHubId, loadPool]);
+    if (view === 'pool' && selectedHubId) {
+      loadPool();
+      loadSourced();
+      loadCommercial();
+    }
+  }, [view, selectedHubId, loadPool, loadSourced, loadCommercial]);
 
   const refresh = async () => {
     await loadHubs();
-    if (view === 'pool') await loadPool();
+    if (view === 'pool') {
+      await Promise.all([loadPool(), loadSourced(), loadCommercial()]);
+    }
   };
 
   const openCreate = () => {
@@ -177,8 +262,8 @@ export default function MobileGiftFulfilmentCentres() {
   const saveHub = async () => {
     const headers = authHeaders();
     if (!headers) return;
-    if (!hubForm.name.trim() || !hubForm.code.trim()) {
-      notification.error('Name and code are required');
+    if (!hubForm.name.trim() || !hubForm.code.trim() || !hubForm.state.trim() || !hubForm.city.trim()) {
+      notification.error('Name, code, state, and city are required');
       return;
     }
     setSaving(true);
@@ -205,6 +290,25 @@ export default function MobileGiftFulfilmentCentres() {
     }
   };
 
+  const reactivateHub = async (hub: GiftHub) => {
+    const headers = authHeaders();
+    if (!headers) return;
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-fulfilment-centres?id=${hub.id}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ active: true }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed');
+      notification.success('Hub reactivated');
+      setSelectedHub(null);
+      await loadHubs();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Failed');
+    }
+  };
+
   const deactivateHub = async (hub: GiftHub) => {
     if (hub.is_default) {
       notification.error('Set another default hub first');
@@ -225,6 +329,35 @@ export default function MobileGiftFulfilmentCentres() {
       await loadHubs();
     } catch (err) {
       notification.error(err instanceof Error ? err.message : 'Failed');
+    }
+  };
+
+  const deleteHub = async (hub: GiftHub) => {
+    if (hub.is_default) {
+      notification.error('Set another default hub first');
+      return;
+    }
+    const headers = authHeaders();
+    if (!headers) return;
+    if (
+      !confirm(
+        `Permanently delete "${hub.name}"? This cannot be undone. Only for hubs with no boxes, orders, or build-your-own sessions.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-fulfilment-centres?id=${hub.id}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Delete failed');
+      notification.success('Hub deleted');
+      setSelectedHub(null);
+      await loadHubs();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Delete failed');
     }
   };
 
@@ -258,6 +391,7 @@ export default function MobileGiftFulfilmentCentres() {
           available_qty: Number(assignQty) || 0,
           gift_program_cost: assignCost ? Number(assignCost) : null,
           lead_time_days: Number(assignLead) || 0,
+          vendor_pre_settled: assignPreSettled,
         }),
       });
       const json = await res.json();
@@ -288,7 +422,90 @@ export default function MobileGiftFulfilmentCentres() {
     }
   };
 
+  const togglePoolPreSettled = async (row: PoolRow) => {
+    const headers = authHeaders();
+    if (!headers) return;
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-pool?id=${row.id}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ vendor_pre_settled: !row.vendor_pre_settled }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Update failed');
+      await loadPool();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Update failed');
+    }
+  };
+
+  const saveCommercial = async () => {
+    const headers = authHeaders();
+    if (!headers || !selectedHubId) return;
+    setCommercialSaving(true);
+    try {
+      const res = await fetch(
+        `${functionsBase}/admin-gift-commercial-settings?gfc_id=${encodeURIComponent(selectedHubId)}`,
+        { method: 'PUT', headers, body: JSON.stringify(commercial) },
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Save failed');
+      notification.success('Commercial settings saved');
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setCommercialSaving(false);
+    }
+  };
+
+  const saveSourcedItem = async () => {
+    const headers = authHeaders();
+    if (!headers || !selectedHubId || !sourcedForm.name.trim()) return;
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-pool-sourced`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          gift_fulfilment_centre_id: selectedHubId,
+          name: sourcedForm.name.trim(),
+          sku: sourcedForm.sku.trim() || null,
+          gift_category: sourcedForm.gift_category.trim() || null,
+          gift_program_cost: Number(sourcedForm.gift_program_cost) || 0,
+          available_qty: Number(sourcedForm.available_qty) || 0,
+          lead_time_days: Number(sourcedForm.lead_time_days) || 0,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Save failed');
+      notification.success('Sourced item added');
+      setSourcedForm(emptySourcedForm);
+      setSourcedFormOpen(false);
+      await loadSourced();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Save failed');
+    }
+  };
+
+  const deleteSourcedItem = async (id: string) => {
+    const headers = authHeaders();
+    if (!headers) return;
+    if (!confirm('Remove this sourced item?')) return;
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-pool-sourced?id=${id}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Delete failed');
+      notification.success('Sourced item removed');
+      await loadSourced();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
+
   const activeHub = hubs.find((h) => h.id === selectedHubId);
+  const totalPoolCount = pool.length + sourcedItems.length;
 
   return (
     <>
@@ -314,14 +531,24 @@ export default function MobileGiftFulfilmentCentres() {
                 </button>
               )}
               {view === 'pool' && (
-                <button
-                  type="button"
-                  onClick={() => setSearchOpen(true)}
-                  className="flex shrink-0 items-center gap-1 rounded-xl bg-primary-600 px-3 py-2 text-xs font-semibold text-white"
-                >
-                  <Search className="h-3.5 w-3.5" />
-                  Add SKU
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setSearchOpen(true)}
+                    className="flex shrink-0 items-center gap-1 rounded-xl bg-primary-600 px-3 py-2 text-xs font-semibold text-white"
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                    Add SKU
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSourcedFormOpen(true)}
+                    className="flex shrink-0 items-center gap-1 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-gray-700 ring-1 ring-gray-200"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Sourced
+                  </button>
+                </>
               )}
             </div>
 
@@ -357,34 +584,46 @@ export default function MobileGiftFulfilmentCentres() {
                 </div>
               ) : (
                 hubs.map((hub) => (
-                  <button
+                  <div
                     key={hub.id}
-                    type="button"
-                    onClick={() => setSelectedHub(hub)}
-                    className={`flex w-full items-center gap-3 rounded-2xl bg-white p-3.5 text-left ring-1 ring-gray-100 active:bg-gray-50 ${!hub.active ? 'opacity-60' : ''}`}
+                    className={`flex items-center gap-2 rounded-2xl bg-white p-3.5 ring-1 ring-gray-100 ${!hub.active ? 'opacity-60' : ''}`}
                   >
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary-100 text-primary-700">
-                      <MapPin className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <p className="truncate font-semibold text-gray-900">{hub.name}</p>
-                        {hub.is_default && (
-                          <span className="rounded-full bg-primary-100 px-2 py-0.5 text-[10px] font-medium text-primary-700">
-                            Default
-                          </span>
-                        )}
-                        {!hub.active && (
-                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700">
-                            Inactive
-                          </span>
-                        )}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedHub(hub)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left active:opacity-80"
+                    >
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary-100 text-primary-700">
+                        <MapPin className="h-5 w-5" />
                       </div>
-                      <p className="mt-0.5 text-xs text-gray-500">
-                        {hub.code} · {hub.city}, {hub.state}
-                      </p>
-                    </div>
-                  </button>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="truncate font-semibold text-gray-900">{hub.name}</p>
+                          {hub.is_default && (
+                            <span className="rounded-full bg-primary-100 px-2 py-0.5 text-[10px] font-medium text-primary-700">
+                              Default
+                            </span>
+                          )}
+                          {!hub.active && (
+                            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700">
+                              Inactive
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          {hub.code} · {hub.city}, {hub.state}
+                        </p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openEdit(hub)}
+                      className="shrink-0 rounded-lg p-2 text-gray-500 active:bg-gray-50"
+                      aria-label="Edit hub"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  </div>
                 ))
               )}
             </div>
@@ -408,13 +647,69 @@ export default function MobileGiftFulfilmentCentres() {
 
               {activeHub && (
                 <p className="text-xs text-gray-500">
-                  Pool at <strong>{activeHub.city}</strong> — gift-eligible products only
+                  Pool at <strong>{activeHub.city}</strong> — {totalPoolCount} item{totalPoolCount === 1 ? '' : 's'} total
                 </p>
               )}
 
-              <div className="flex items-center gap-2">
-                <Package className="h-4 w-4 text-gray-400" />
-                <p className="text-sm font-semibold text-gray-900">Pool ({pool.length})</p>
+              <div className="rounded-2xl bg-white p-3.5 ring-1 ring-gray-100 space-y-3">
+                <p className="text-sm font-semibold text-gray-900">BYO pricing (margin stack)</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <Field label="Packaging ₦">
+                    <input
+                      type="number"
+                      min={0}
+                      value={commercial.packaging_markup}
+                      onChange={(e) =>
+                        setCommercial({ ...commercial, packaging_markup: Number(e.target.value) || 0 })
+                      }
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="Margin %">
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.1}
+                      value={commercial.profit_margin_percent}
+                      onChange={(e) =>
+                        setCommercial({
+                          ...commercial,
+                          profit_margin_percent: Number(e.target.value) || 0,
+                        })
+                      }
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="Fixed ₦">
+                    <input
+                      type="number"
+                      min={0}
+                      value={commercial.profit_margin_fixed}
+                      onChange={(e) =>
+                        setCommercial({
+                          ...commercial,
+                          profit_margin_fixed: Number(e.target.value) || 0,
+                        })
+                      }
+                      className={inputCls}
+                    />
+                  </Field>
+                </div>
+                <button
+                  type="button"
+                  disabled={commercialSaving}
+                  onClick={saveCommercial}
+                  className="w-full rounded-xl bg-gray-900 py-2.5 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  {commercialSaving ? 'Saving…' : 'Save pricing'}
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Package className="h-4 w-4 text-gray-400" />
+                  <p className="text-sm font-semibold text-gray-900">Vendor catalog ({pool.length})</p>
+                </div>
               </div>
 
               {poolLoading ? (
@@ -448,12 +743,72 @@ export default function MobileGiftFulfilmentCentres() {
                           {row.gift_program_cost != null ? ` · ${formatNaira(Number(row.gift_program_cost))}` : ''}
                           {row.lead_time_days ? ` · ${row.lead_time_days}d lead` : ''}
                         </p>
+                        <label className="mt-2 inline-flex items-center gap-1.5 text-[11px] text-gray-600">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(row.vendor_pre_settled)}
+                            onChange={() => togglePoolPreSettled(row)}
+                          />
+                          Pre-paid stock
+                        </label>
                       </div>
                       <button
                         type="button"
                         onClick={() => removeFromPool(row.id)}
                         className="shrink-0 rounded-lg p-2 text-red-600 active:bg-red-50"
                         aria-label="Remove from pool"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-2 pt-2">
+                <p className="text-sm font-semibold text-gray-900">JLO-sourced ({sourcedItems.length})</p>
+                <button
+                  type="button"
+                  onClick={() => setSourcedFormOpen(true)}
+                  className="text-xs font-semibold text-primary-600"
+                >
+                  Add sourced
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 -mt-2">
+                Items sourced outside the vendor catalog — same pool used by the gift builder.
+              </p>
+
+              {sourcedLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader className="h-6 w-6 animate-spin text-primary-600" />
+                </div>
+              ) : sourcedItems.length === 0 ? (
+                <div className="rounded-2xl bg-white px-6 py-8 text-center ring-1 ring-gray-100">
+                  <p className="text-sm text-gray-500">No JLO-sourced items at this hub.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {sourcedItems.map((row) => (
+                    <div
+                      key={row.id}
+                      className="flex items-start justify-between gap-3 rounded-2xl bg-white p-3.5 ring-1 ring-gray-100"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-sm text-gray-900 truncate">
+                          {row.name}
+                          {row.sku && <span className="text-gray-400"> ({row.sku})</span>}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Qty {row.available_qty} · {formatNaira(Number(row.gift_program_cost))}
+                          {row.lead_time_days ? ` · ${row.lead_time_days}d lead` : ''}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => deleteSourcedItem(row.id)}
+                        className="shrink-0 rounded-lg p-2 text-red-600 active:bg-red-50"
+                        aria-label="Remove sourced item"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -503,6 +858,24 @@ export default function MobileGiftFulfilmentCentres() {
                 Deactivate hub
               </button>
             )}
+            {!selectedHub.active && (
+              <button
+                type="button"
+                onClick={() => reactivateHub(selectedHub)}
+                className="w-full rounded-2xl bg-emerald-50 py-3 text-sm font-semibold text-emerald-700"
+              >
+                Reactivate hub
+              </button>
+            )}
+            {!selectedHub.is_default && (
+              <button
+                type="button"
+                onClick={() => deleteHub(selectedHub)}
+                className="w-full rounded-2xl border border-red-200 py-3 text-sm font-semibold text-red-800"
+              >
+                Delete permanently
+              </button>
+            )}
           </div>
         )}
       </Sheet>
@@ -533,14 +906,14 @@ export default function MobileGiftFulfilmentCentres() {
             />
           </Field>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="State">
+            <Field label="State *">
               <input
                 value={hubForm.state}
                 onChange={(e) => setHubForm({ ...hubForm, state: e.target.value })}
                 className={inputCls}
               />
             </Field>
-            <Field label="City">
+            <Field label="City *">
               <input
                 value={hubForm.city}
                 onChange={(e) => setHubForm({ ...hubForm, city: e.target.value })}
@@ -606,6 +979,14 @@ export default function MobileGiftFulfilmentCentres() {
               <input value={assignLead} onChange={(e) => setAssignLead(e.target.value)} className={inputCls} />
             </Field>
           </div>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={assignPreSettled}
+              onChange={(e) => setAssignPreSettled(e.target.checked)}
+            />
+            Pre-paid stock
+          </label>
           {searchResults.length > 0 && (
             <ul className="max-h-48 space-y-2 overflow-y-auto">
               {searchResults.map((p) => (
@@ -633,6 +1014,63 @@ export default function MobileGiftFulfilmentCentres() {
             </ul>
           )}
         </div>
+      </Sheet>
+
+      <Sheet open={sourcedFormOpen} onClose={() => setSourcedFormOpen(false)} ariaLabel="Add sourced pool item">
+        <h2 className="text-lg font-bold text-gray-900">Add sourced item</h2>
+        <div className="max-h-[62vh] space-y-3 overflow-y-auto">
+          <Field label="Name *">
+            <input
+              value={sourcedForm.name}
+              onChange={(e) => setSourcedForm({ ...sourcedForm, name: e.target.value })}
+              className={inputCls}
+            />
+          </Field>
+          <Field label="SKU">
+            <input
+              value={sourcedForm.sku}
+              onChange={(e) => setSourcedForm({ ...sourcedForm, sku: e.target.value })}
+              className={inputCls}
+            />
+          </Field>
+          <Field label="Category">
+            <input
+              value={sourcedForm.gift_category}
+              onChange={(e) => setSourcedForm({ ...sourcedForm, gift_category: e.target.value })}
+              className={inputCls}
+            />
+          </Field>
+          <div className="grid grid-cols-3 gap-2">
+            <Field label="Cost ₦">
+              <input
+                value={sourcedForm.gift_program_cost}
+                onChange={(e) => setSourcedForm({ ...sourcedForm, gift_program_cost: e.target.value })}
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Qty">
+              <input
+                value={sourcedForm.available_qty}
+                onChange={(e) => setSourcedForm({ ...sourcedForm, available_qty: e.target.value })}
+                className={inputCls}
+              />
+            </Field>
+            <Field label="Lead days">
+              <input
+                value={sourcedForm.lead_time_days}
+                onChange={(e) => setSourcedForm({ ...sourcedForm, lead_time_days: e.target.value })}
+                className={inputCls}
+              />
+            </Field>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={saveSourcedItem}
+          className="w-full rounded-2xl bg-primary-600 py-3.5 text-sm font-semibold text-white"
+        >
+          Save sourced item
+        </button>
       </Sheet>
     </>
   );

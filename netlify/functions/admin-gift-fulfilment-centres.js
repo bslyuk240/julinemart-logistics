@@ -5,6 +5,7 @@
  * POST   /api/admin-gift-fulfilment-centres
  * PUT    /api/admin-gift-fulfilment-centres?id=<uuid>
  * PATCH  /api/admin-gift-fulfilment-centres?id=<uuid>  — deactivate (active=false)
+ * DELETE /api/admin-gift-fulfilment-centres?id=<uuid>  — permanent delete (no boxes/orders/sessions)
  */
 import { requireAdmin, adminClient, jsonResponse, headers } from './services/global-sourcing-utils.js';
 
@@ -102,6 +103,36 @@ export async function handler(event) {
     if (error) return jsonResponse(500, { success: false, error: error.message });
     if (!data) return jsonResponse(404, { success: false, error: 'Hub not found' });
     return jsonResponse(200, { success: true, data });
+  }
+
+  if (event.httpMethod === 'DELETE') {
+    const { data: hub, error: loadErr } = await adminClient
+      .from('gift_fulfilment_centres')
+      .select('id, is_default')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (loadErr) return jsonResponse(500, { success: false, error: loadErr.message });
+    if (!hub) return jsonResponse(404, { success: false, error: 'Hub not found' });
+    if (hub.is_default) {
+      return jsonResponse(409, {
+        success: false,
+        error: 'Cannot delete the default hub — set another hub as default first',
+      });
+    }
+
+    const { error } = await adminClient.from('gift_fulfilment_centres').delete().eq('id', id);
+    if (error) {
+      if (error.code === '23503') {
+        return jsonResponse(409, {
+          success: false,
+          error: 'Hub has gift boxes, gift orders, or build-your-own sessions — deactivate instead of deleting',
+        });
+      }
+      return jsonResponse(500, { success: false, error: error.message });
+    }
+
+    return jsonResponse(200, { success: true });
   }
 
   if (event.httpMethod === 'PUT') {

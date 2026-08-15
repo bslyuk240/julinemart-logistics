@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Gift, Loader, MapPin, Package, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Ban, Gift, Loader, MapPin, Package, Pencil, Plus, RotateCcw, Search, Trash2 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { PullToRefresh } from '../PullToRefresh';
@@ -841,41 +841,46 @@ export default function MobileGiftFulfilmentCentres() {
                 <p className="text-primary-700 font-medium text-xs">Default hub for new gift sessions</p>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => openEdit(selectedHub)}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary-600 py-3.5 text-sm font-semibold text-white"
-            >
-              <Pencil className="h-4 w-4" />
-              Edit hub
-            </button>
-            {selectedHub.active && !selectedHub.is_default && (
+            <div className="flex gap-2">
               <button
                 type="button"
-                onClick={() => deactivateHub(selectedHub)}
-                className="w-full rounded-2xl bg-red-50 py-3 text-sm font-semibold text-red-700"
+                onClick={() => openEdit(selectedHub)}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-primary-600 py-3 text-sm font-semibold text-white"
               >
-                Deactivate hub
+                <Pencil className="h-4 w-4" />
+                Edit
               </button>
-            )}
-            {!selectedHub.active && (
-              <button
-                type="button"
-                onClick={() => reactivateHub(selectedHub)}
-                className="w-full rounded-2xl bg-emerald-50 py-3 text-sm font-semibold text-emerald-700"
-              >
-                Reactivate hub
-              </button>
-            )}
-            {!selectedHub.is_default && (
-              <button
-                type="button"
-                onClick={() => deleteHub(selectedHub)}
-                className="w-full rounded-2xl border border-red-200 py-3 text-sm font-semibold text-red-800"
-              >
-                Delete permanently
-              </button>
-            )}
+              {selectedHub.active && !selectedHub.is_default && (
+                <button
+                  type="button"
+                  onClick={() => deactivateHub(selectedHub)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-red-50 py-3 text-sm font-semibold text-red-700"
+                >
+                  <Ban className="h-4 w-4" />
+                  Deactivate
+                </button>
+              )}
+              {!selectedHub.active && (
+                <button
+                  type="button"
+                  onClick={() => reactivateHub(selectedHub)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-emerald-50 py-3 text-sm font-semibold text-emerald-700"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  Reactivate
+                </button>
+              )}
+              {!selectedHub.is_default && (
+                <button
+                  type="button"
+                  onClick={() => deleteHub(selectedHub)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-red-200 py-3 text-sm font-semibold text-red-800"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </button>
+              )}
+            </div>
           </div>
         )}
       </Sheet>

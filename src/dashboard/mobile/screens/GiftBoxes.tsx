@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ChevronRight, Gift, Loader, Package, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { Ban, ChevronRight, Gift, Loader, Package, Pencil, Plus, RotateCcw, Search, Trash2 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { PullToRefresh } from '../PullToRefresh';
@@ -548,30 +548,35 @@ export default function MobileGiftBoxes() {
                 </ul>
               )}
             </div>
-            {selectedBox.active ? (
+            <div className="flex gap-2">
+              {selectedBox.active ? (
+                <button
+                  type="button"
+                  onClick={() => deactivateBox(selectedBox)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-red-50 py-3 text-sm font-semibold text-red-700"
+                >
+                  <Ban className="h-4 w-4" />
+                  Deactivate
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => reactivateBox(selectedBox)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-primary-600 py-3 text-sm font-semibold text-white"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  Reactivate
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => deactivateBox(selectedBox)}
-                className="w-full rounded-2xl bg-red-50 py-3 text-sm font-semibold text-red-700"
+                onClick={() => deleteBox(selectedBox)}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-red-200 py-3 text-sm font-semibold text-red-800"
               >
-                Deactivate box
+                <Trash2 className="h-4 w-4" />
+                Delete
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => reactivateBox(selectedBox)}
-                className="w-full rounded-2xl bg-primary-600 py-3 text-sm font-semibold text-white"
-              >
-                Reactivate box
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => deleteBox(selectedBox)}
-              className="w-full rounded-2xl border border-red-200 py-3 text-sm font-semibold text-red-800"
-            >
-              Delete permanently
-            </button>
+            </div>
           </div>
         )}
       </Sheet>

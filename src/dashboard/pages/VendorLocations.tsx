@@ -18,11 +18,13 @@ interface ApprovedLocation {
   hub_id: string | null;
   fez_hub_name: string | null;
   fez_hub_address: string | null;
+  courier_hub_id: string | null;
   vendor_pickup_surcharge: number;
   notes: string | null;
   hubs?: { name: string; city: string; state: string } | null;
   couriers?: { name: string; code: string } | null;
   zones?: { name: string; code: string } | null;
+  courier_hubs?: { id: string; name: string; address: string; city: string; state: string; courier_id: string; couriers?: { name: string; code: string } | null } | null;
 }
 
 interface HubOption {
@@ -31,6 +33,15 @@ interface HubOption {
   city: string;
   state: string;
   is_active: boolean;
+}
+
+interface CourierHubOption {
+  id: string;
+  name: string;
+  city: string;
+  state: string;
+  is_active: boolean;
+  couriers?: { name: string; code: string } | null;
 }
 
 interface WaitlistEntry {
@@ -68,12 +79,14 @@ export function VendorLocationsPage() {
   const [editing, setEditing]           = useState<ApprovedLocation | null>(null);
   const [activatingId, setActivatingId] = useState<string | null>(null);
   const [hubOptions, setHubOptions]     = useState<HubOption[]>([]);
+  const [courierHubOptions, setCourierHubOptions] = useState<CourierHubOption[]>([]);
   const notification                    = useNotification();
 
   type FormStatus = 'active' | 'paused' | 'waitlist_only' | 'coming_soon';
   type FormState = {
     state: string; city: string; lgas: string[]; country: string;
     hub_id: string;
+    courier_hub_id: string;
     fez_hub_name: string; fez_hub_address: string; notes: string;
     supports_vendor_direct_fez: boolean;
     supports_vendor_to_hub: boolean;
@@ -84,6 +97,7 @@ export function VendorLocationsPage() {
   const emptyForm: FormState = {
     state: '', city: '', lgas: [''], country: 'Nigeria',
     hub_id: '',
+    courier_hub_id: '',
     fez_hub_name: '', fez_hub_address: '', notes: '',
     supports_vendor_direct_fez: true,
     supports_vendor_to_hub: false,
@@ -93,7 +107,7 @@ export function VendorLocationsPage() {
   };
   const [form, setForm] = useState<FormState>(emptyForm);
 
-  useEffect(() => { fetchLocations(); fetchHubs(); }, []);
+  useEffect(() => { fetchLocations(); fetchHubs(); fetchCourierHubs(); }, []);
   useEffect(() => { if (tab === 'waitlist') fetchWaitlist(); }, [tab]);
 
   async function fetchHubs() {
@@ -105,6 +119,20 @@ export function VendorLocationsPage() {
       const data = await res.json();
       const all: HubOption[] = Array.isArray(data.data) ? data.data : [];
       setHubOptions(all.filter((h) => h.is_active).sort((a, b) => `${a.state}${a.name}`.localeCompare(`${b.state}${b.name}`)));
+    } catch {
+      // non-fatal — dropdown just stays empty
+    }
+  }
+
+  async function fetchCourierHubs() {
+    try {
+      const auth = await getAuthHeader();
+      const res = await fetch(`${JLO_API}/.netlify/functions/admin-courier-hubs`, {
+        headers: { Authorization: auth },
+      });
+      const data = await res.json();
+      const all: CourierHubOption[] = Array.isArray(data.data) ? data.data : [];
+      setCourierHubOptions(all.filter((h) => h.is_active).sort((a, b) => `${a.state}${a.city}${a.name}`.localeCompare(`${b.state}${b.city}${b.name}`)));
     } catch {
       // non-fatal — dropdown just stays empty
     }
@@ -153,6 +181,7 @@ export function VendorLocationsPage() {
       lgas:                       loc.lgas?.length ? loc.lgas : [''],
       country:                    loc.country || 'Nigeria',
       hub_id:                     loc.hub_id || '',
+      courier_hub_id:             loc.courier_hub_id || '',
       fez_hub_name:               loc.fez_hub_name || '',
       fez_hub_address:            loc.fez_hub_address || '',
       notes:                      loc.notes || '',
@@ -351,7 +380,7 @@ export function VendorLocationsPage() {
                               {loc.supports_vendor_to_hub && (
                                 loc.hubs ? (
                                   <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">JLO Hub</span>
-                                ) : loc.fez_hub_name ? (
+                                ) : (loc.courier_hubs || loc.fez_hub_name) ? (
                                   <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Fez Hub</span>
                                 ) : (
                                   <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Hub not set</span>
@@ -360,16 +389,18 @@ export function VendorLocationsPage() {
                               {loc.supports_vendor_direct_fez && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Fez Vendor Pickup</span>}
                               {loc.supports_local_delivery && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Local Rider</span>}
                             </div>
-                            {(loc.hubs || loc.fez_hub_name || loc.vendor_pickup_surcharge > 0) && (
+                            {(loc.hubs || loc.courier_hubs || loc.fez_hub_name || loc.vendor_pickup_surcharge > 0) && (
                               <p className="text-xs text-gray-500 mt-1">
                                 {loc.hubs ? (
                                   <span className="font-medium text-primary-700">{loc.hubs.name}</span>
+                                ) : loc.courier_hubs ? (
+                                  <span>{loc.courier_hubs.name} <span className="text-gray-400">({loc.courier_hubs.couriers?.name || 'courier'})</span></span>
                                 ) : loc.fez_hub_name ? (
                                   <span>{loc.fez_hub_name} <span className="text-gray-400">(Fez)</span></span>
                                 ) : null}
                                 {loc.vendor_pickup_surcharge > 0 && (
                                   <span className="text-gray-400">
-                                    {(loc.hubs || loc.fez_hub_name) ? ' · ' : ''}Pickup fee ₦{loc.vendor_pickup_surcharge.toLocaleString()}
+                                    {(loc.hubs || loc.courier_hubs || loc.fez_hub_name) ? ' · ' : ''}Pickup fee ₦{loc.vendor_pickup_surcharge.toLocaleString()}
                                   </span>
                                 )}
                               </p>
@@ -427,7 +458,7 @@ export function VendorLocationsPage() {
                         {loc.supports_vendor_to_hub && (
                           loc.hubs ? (
                             <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">JLO Hub</span>
-                          ) : loc.fez_hub_name ? (
+                          ) : (loc.courier_hubs || loc.fez_hub_name) ? (
                             <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Fez Hub</span>
                           ) : (
                             <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Hub not set</span>
@@ -439,6 +470,8 @@ export function VendorLocationsPage() {
 
                       {loc.hubs ? (
                         <p className="text-xs font-medium text-primary-700 mb-3">Hub: {loc.hubs.name}</p>
+                      ) : loc.courier_hubs ? (
+                        <p className="text-xs text-gray-400 mb-3">Fez Hub: {loc.courier_hubs.name}</p>
                       ) : loc.fez_hub_name ? (
                         <p className="text-xs text-gray-400 mb-3">Fez Hub: {loc.fez_hub_name}</p>
                       ) : null}
@@ -649,7 +682,7 @@ export function VendorLocationsPage() {
                 <label className="block text-xs font-medium text-gray-600 mb-1">JLO Hub</label>
                 <select value={form.hub_id} onChange={e => setForm(f => ({ ...f, hub_id: e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                  <option value="">— No JLO hub here (use Fez Hub fields below) —</option>
+                  <option value="">— No JLO hub here (use Courier Hub below) —</option>
                   {hubOptions.map(h => (
                     <option key={h.id} value={h.id}>{h.name} — {h.city}, {h.state}</option>
                   ))}
@@ -657,19 +690,40 @@ export function VendorLocationsPage() {
                 <p className="text-xs text-gray-400 mt-1">
                   Set this whenever you have any hub (main or sub-hub) that actually serves this city — vendors here
                   drop off there, and it&apos;s what prints on the real Fez pickup label. Leave blank only if you
-                  have no hub anywhere near this city; the Fez Hub fields below become the drop-off point instead.
+                  have no hub anywhere near this city; the Courier Hub below becomes the drop-off point instead.
                 </p>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Fez Hub Name <span className="font-normal text-gray-400">(fallback)</span></label>
-                <input type="text" value={form.fez_hub_name} onChange={e => setForm(f => ({ ...f, fez_hub_name: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="e.g. Fez Lagos Hub" />
+                <label className="block text-xs font-medium text-gray-600 mb-1">Courier Hub</label>
+                <select value={form.courier_hub_id} onChange={e => setForm(f => ({ ...f, courier_hub_id: e.target.value }))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                  <option value="">— No courier hub selected —</option>
+                  {courierHubOptions.map(h => (
+                    <option key={h.id} value={h.id}>{h.name} — {h.city}, {h.state} ({h.couriers?.name || 'courier'})</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  Only used when no JLO Hub is set above — this is a depot the courier runs, not JulineMart. Manage
+                  the list under Network → Hubs → Courier Hubs.
+                </p>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Fez Hub Address <span className="font-normal text-gray-400">(fallback)</span></label>
-                <input type="text" value={form.fez_hub_address} onChange={e => setForm(f => ({ ...f, fez_hub_address: e.target.value }))}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Full address for vendors to drop off" />
-              </div>
+              <details className="rounded-lg border border-gray-200 p-3">
+                <summary className="cursor-pointer text-xs font-medium text-gray-600">
+                  Legacy Fez Hub text fields (only used if no JLO Hub and no Courier Hub are set)
+                </summary>
+                <div className="mt-3 space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Fez Hub Name</label>
+                    <input type="text" value={form.fez_hub_name} onChange={e => setForm(f => ({ ...f, fez_hub_name: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="e.g. Fez Lagos Hub" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Fez Hub Address</label>
+                    <input type="text" value={form.fez_hub_address} onChange={e => setForm(f => ({ ...f, fez_hub_address: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Full address for vendors to drop off" />
+                  </div>
+                </div>
+              </details>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Pickup Surcharge (₦)</label>
                 <input type="number" min="0" value={form.vendor_pickup_surcharge}

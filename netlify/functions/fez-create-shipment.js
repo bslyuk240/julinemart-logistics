@@ -212,6 +212,7 @@ exports.handler = async (event) => {
           approved_vendor_locations (
             fez_hub_name,
             fez_hub_address,
+            courier_hubs ( name, address, city, state, phone ),
             hubs ( name, address, city )
           )
         )

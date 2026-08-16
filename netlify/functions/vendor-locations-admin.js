@@ -72,7 +72,8 @@ export const handler = async (event) => {
         *,
         hubs ( name, city, state ),
         couriers ( name, code ),
-        zones ( name, code )
+        zones ( name, code ),
+        courier_hubs ( id, name, address, city, state, courier_id, couriers ( name, code ) )
       `)
       .order('state')
       .order('city')
@@ -92,7 +93,7 @@ export const handler = async (event) => {
     const {
       state, city, lgas, country,
       zone_id, hub_id, default_courier_id,
-      fez_hub_name, fez_hub_address,
+      fez_hub_name, fez_hub_address, courier_hub_id,
       supports_vendor_direct_fez,
       supports_vendor_to_hub,
       supports_local_delivery,
@@ -116,6 +117,7 @@ export const handler = async (event) => {
         lga:                         lgasArr[0] || null,
         fez_hub_name:                fez_hub_name || null,
         fez_hub_address:             fez_hub_address || null,
+        courier_hub_id:              courier_hub_id || null,
         supports_vendor_direct_fez:  supports_vendor_direct_fez ?? true,
         supports_vendor_to_hub:      supports_vendor_to_hub ?? false,
         supports_local_delivery:     supports_local_delivery ?? false,
@@ -146,7 +148,7 @@ export const handler = async (event) => {
     delete updates.created_at;
 
     // Coerce empty strings to null for UUID and nullable fields
-    const UUID_FIELDS = ['hub_id', 'zone_id', 'default_courier_id'];
+    const UUID_FIELDS = ['hub_id', 'zone_id', 'default_courier_id', 'courier_hub_id'];
     for (const f of UUID_FIELDS) {
       if (updates[f] === '') updates[f] = null;
     }

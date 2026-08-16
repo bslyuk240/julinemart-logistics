@@ -13,10 +13,12 @@
 //                     the parent hub's dispatch queue, but Fez physically
 //                     visits the sub-hub itself — never substitute the
 //                     parent hub's address.
-//                  2. A Fez hub (approved_vendor_locations.fez_hub_name/
-//                     _address) — Fez's own depot, not one JulineMart runs,
-//                     for vendors outside any JLO hub's territory but inside
-//                     a town where Fez has a depot.
+//                  2. A courier hub (approved_vendor_locations.courier_hub_id
+//                     -> courier_hubs, or the legacy free-text
+//                     fez_hub_name/_address for locations not yet migrated
+//                     to the structured picker) — a depot the COURIER runs,
+//                     not JulineMart, for vendors outside any JLO hub's
+//                     territory but inside a town where that courier has one.
 export function resolveSender(subOrder) {
   if (subOrder.vendors?.fez_collection_method === 'fez_pickup') {
     return {
@@ -41,12 +43,23 @@ export function resolveSender(subOrder) {
     };
   }
 
-  const fezHub = subOrder.vendors?.approved_vendor_locations;
-  if (fezHub?.fez_hub_name || fezHub?.fez_hub_address) {
+  const loc = subOrder.vendors?.approved_vendor_locations;
+  const courierHub = loc?.courier_hubs;
+  if (courierHub?.name) {
+    return {
+      kind: 'courier_hub',
+      name: courierHub.name,
+      address: courierHub.address || '',
+      city: courierHub.city || subOrder.vendors?.city || '',
+      state: courierHub.state || subOrder.vendors?.state || '',
+      phone: courierHub.phone || '',
+    };
+  }
+  if (loc?.fez_hub_name || loc?.fez_hub_address) {
     return {
       kind: 'fez_hub',
-      name: fezHub.fez_hub_name || 'Fez Hub',
-      address: fezHub.fez_hub_address || '',
+      name: loc.fez_hub_name || 'Fez Hub',
+      address: loc.fez_hub_address || '',
       city: subOrder.vendors?.city || '',
       state: subOrder.vendors?.state || '',
       phone: '',

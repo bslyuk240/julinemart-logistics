@@ -5,7 +5,11 @@
   'https://dev-lab--julinemart-pwa.netlify.app',
   'https://vendors.julinemart.com',
   'https://vendors-julinemart.netlify.app',
+  'https://riders.julinemart.com',
+  'https://rider-julinemart.netlify.app',
   'https://jlo.julinemart.com',
+  // Local dev — rider-app's Vite server (see rider-app/vite.config.ts)
+  'http://localhost:5175',
 ];
 
 function getCorsHeaders(origin) {

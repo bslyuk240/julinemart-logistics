@@ -53,6 +53,10 @@ import MobileSellerVerifications from './dashboard/mobile/screens/SellerVerifica
 import MobileGiftFulfilmentCentres from './dashboard/mobile/screens/GiftFulfilmentCentres';
 import MobileGiftBoxes from './dashboard/mobile/screens/GiftBoxes';
 import MobileGiftOps from './dashboard/mobile/screens/GiftOps';
+import MobileGiftPackaging from './dashboard/mobile/screens/GiftPackaging';
+import MobileGiftBoxReviews from './dashboard/mobile/screens/GiftBoxReviews';
+import MobileCustomOrders from './dashboard/mobile/screens/CustomOrders';
+import MobileVendorCampaignApprovals from './dashboard/mobile/screens/VendorCampaignApprovals';
 import MobileVendorDetail from './dashboard/mobile/screens/VendorDetail';
 import MobileVendorWithdrawals from './dashboard/mobile/screens/VendorWithdrawals';
 import MobileVendorDebits from './dashboard/mobile/screens/VendorDebits';
@@ -130,6 +134,7 @@ import GiftFulfilmentCentresPage from './dashboard/pages/GiftFulfilmentCentres';
 import GiftBoxesPage from './dashboard/pages/GiftBoxes';
 import GiftOpsPage from './dashboard/pages/GiftOps';
 import GiftBoxReviewsPage from './dashboard/pages/GiftBoxReviews';
+import GiftPackagingPage from './dashboard/pages/GiftPackaging';
 import CustomOrdersPage from './dashboard/pages/CustomOrders';
 import VendorDetail from './dashboard/pages/VendorDetail';
 import VendorWithdrawals from './dashboard/pages/VendorWithdrawals';
@@ -332,7 +337,8 @@ function SellerVerificationsRoute() {
 }
 
 function VendorCampaignApprovalsRoute() {
-  return <VendorCampaignApprovalsPage />;
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileVendorCampaignApprovals /> : <VendorCampaignApprovalsPage />;
 }
 
 function GiftFulfilmentCentresRoute() {
@@ -348,6 +354,21 @@ function GiftBoxesRoute() {
 function GiftOpsRoute() {
   const isMobile = useIsMobile();
   return isMobile ? <MobileGiftOps /> : <GiftOpsPage />;
+}
+
+function GiftPackagingRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileGiftPackaging /> : <GiftPackagingPage />;
+}
+
+function GiftBoxReviewsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileGiftBoxReviews /> : <GiftBoxReviewsPage />;
+}
+
+function CustomOrdersRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileCustomOrders /> : <CustomOrdersPage />;
 }
 
 function VendorDetailRoute() {
@@ -589,8 +610,9 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'gift-fulfilment-centres', element: <GiftFulfilmentCentresRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'gift-boxes', element: <GiftBoxesRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'gift-ops', element: <GiftOpsRoute />, allowedRoles: ['admin', 'manager', 'staff'] },
-  { path: 'gift-box-reviews', element: <GiftBoxReviewsPage />, allowedRoles: ['admin', 'manager', 'staff'] },
-  { path: 'custom-orders', element: <CustomOrdersPage />, allowedRoles: ['admin', 'manager', 'staff'] },
+  { path: 'gift-box-reviews', element: <GiftBoxReviewsRoute />, allowedRoles: ['admin', 'manager', 'staff'] },
+  { path: 'gift-packaging', element: <GiftPackagingRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'custom-orders', element: <CustomOrdersRoute />, allowedRoles: ['admin', 'manager', 'staff'] },
   { path: 'vendors/:id', element: <VendorDetailRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-withdrawals', element: <VendorWithdrawalsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-debits', element: <VendorDebitsRoute />, allowedRoles: ['admin', 'manager'] },

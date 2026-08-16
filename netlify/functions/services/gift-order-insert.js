@@ -183,6 +183,14 @@ export async function insertGiftCommercialOrder({
   }
 
   const primaryHubId = vendorOrderItems.find((i) => i.hub_id)?.hub_id || null;
+
+  // Gift boxes ship as one consolidated parcel from the GFC — no single
+  // vendor to match, so local rider only needs the GFC and recipient in
+  // the same town.
+  const gfcCity = (gfc.city || '').trim().toLowerCase();
+  const recipientCity = (customer.recipient_city || '').trim().toLowerCase();
+  const isLocalEligible = Boolean(gfcCity && recipientCity && gfcCity === recipientCity);
+
   const { data: giftSubOrder, error: subErr } = await adminClient
     .from('sub_orders')
     .insert({
@@ -200,6 +208,8 @@ export async function insertGiftCommercialOrder({
         order_kind: orderKind,
         gift_fulfilment_centre_id: gfc.id,
         gift_fulfilment: true,
+        selected_lane: isLocalEligible ? 'local_rider' : 'fez',
+        eligible_lanes: isLocalEligible ? ['local_rider', 'fez'] : ['fez'],
         ...packingChecklistMeta.metadata,
         component_cost_total: componentCostTotal,
         vendor_settlement_subtotal: vendorSettlementSubtotal,

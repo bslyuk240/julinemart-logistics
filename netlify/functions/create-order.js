@@ -31,6 +31,7 @@ import {
   computeCustomisationAdjustment,
   validateCustomisation,
 } from './services/custom-order-utils.js';
+import { loadApprovedLocations, resolveApprovedLocation } from './services/locationResolver.js';
 function generateRef() {
   const ts = Date.now().toString(36).toUpperCase();
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -548,9 +549,13 @@ export async function handler(event) {
     const hubIds = [...new Set(
       Array.from(vendorGroups.values()).map((g) => g.hub_id).filter(Boolean)
     )];
+    const vendorIds = [...new Set(
+      Array.from(vendorGroups.values()).map((g) => g.vendor_id).filter(Boolean)
+    )];
 
     const hubCourierMap = {};
     const hubCityMap = {};
+    const vendorCityMap = {};
 
     if (hubIds.length > 0) {
       const [{ data: hcRows }, { data: hubRows }] = await Promise.all([
@@ -582,7 +587,30 @@ export async function handler(event) {
       }
     }
 
+    if (vendorIds.length > 0) {
+      const { data: vendorRows } = await adminClient
+        .from('vendors')
+        .select('id, city')
+        .in('id', vendorIds);
+      for (const v of (vendorRows || [])) {
+        vendorCityMap[v.id] = (v.city || '').trim().toLowerCase();
+      }
+    }
+
     const custCity = (delivery_city || '').trim().toLowerCase();
+
+    // Resolve the customer's town through the same admin-curated
+    // approved_vendor_locations table vendors are already tied to (their
+    // hub_id was set from this table at approval — see vendor-approve.js).
+    // That reconciles vendor, hub, and customer through one canonical
+    // location mapping instead of three independent city strings, and
+    // means an LGA the customer picks (or types where a city was expected,
+    // e.g. "Effurun" for Warri) resolves correctly as long as it's listed
+    // under that hub's location row on the Vendor Locations admin page.
+    const approvedLocations = await loadApprovedLocations(adminClient);
+    const custLocation = resolveApprovedLocation(approvedLocations, delivery_city, delivery_lga);
+    const custHubId = custLocation?.hub_id || null;
+    const custSupportsLocal = Boolean(custLocation?.supports_local_delivery);
 
     const subOrderRows = Array.from(vendorGroups.values()).map((g) => {
       const sourcedItems = g.items.filter(
@@ -590,8 +618,17 @@ export async function handler(event) {
       );
       const sourceSeed = sourcedItems[0]?.globalSourcing || null;
 
+      // Local rider requires vendor, hub/sub-hub, and customer to all be in
+      // the same town. Prefer the structural match through
+      // approved_vendor_locations (handles LGA aliases); fall back to a
+      // plain city-string match for locations not yet curated there so we
+      // don't regress eligibility that already worked.
+      const structuralMatch = custSupportsLocal && custHubId && custHubId === g.hub_id;
       const hubCity = hubCityMap[g.hub_id] || '';
-      const isLocalEligible = hubCity && custCity && hubCity === custCity;
+      const vendorCity = vendorCityMap[g.vendor_id] || '';
+      const legacyMatch =
+        hubCity && custCity && vendorCity && hubCity === custCity && vendorCity === custCity;
+      const isLocalEligible = structuralMatch || legacyMatch;
       const eligible_lanes = isLocalEligible ? ['local_rider', 'fez'] : ['fez'];
       const selected_lane = isLocalEligible ? 'local_rider' : 'fez';
 

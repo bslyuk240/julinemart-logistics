@@ -163,23 +163,20 @@ export async function handler(event) {
       };
     }
 
-    // ── Group by (main_order_id + effective_hub_id) ───────────────────────────
-    // Sub-orders from the same order at the same effective dispatch hub = 1 Fez shipment
+    // ── Group by (main_order_id + hub_id) ─────────────────────────────────────
+    // Sub-orders from the same order at the same PHYSICAL hub = 1 Fez shipment.
+    // Group by the sub-order's own hub_id, never the parent hub — a sub-hub has
+    // no on-site staff, but Fez still has to physically visit its address, so a
+    // sub-hub parcel can never share a shipment with a main-hub parcel.
     const groups = new Map();
     for (const row of fezRows) {
-      const effectiveHubId = row.hubs?.is_sub_hub && row.hubs?.parent_hub_id
-        ? row.hubs.parent_hub_id
-        : row.hub_id;
-      const key = `${row.main_order_id}::${effectiveHubId}`;
+      const key = `${row.main_order_id}::${row.hub_id}`;
       if (!groups.has(key)) {
-        const dispatchHub = row.hubs?.is_sub_hub && row.hubs?.parent_hub
-          ? row.hubs.parent_hub
-          : row.hubs;
         groups.set(key, {
           key,
           mainOrderId: row.main_order_id,
-          effectiveHubId,
-          dispatchHub,
+          hubId: row.hub_id,
+          dispatchHub: row.hubs,
           order: row.orders,
           subOrders: [],
         });

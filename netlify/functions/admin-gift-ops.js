@@ -16,7 +16,7 @@ const TAB_STATUSES = {
 };
 
 const GIFT_SELECT = `
-  id, order_id, gift_box_id, gift_fulfilment_centre_id, order_kind,
+  id, order_id, gift_box_id, gift_fulfilment_centre_id, gift_packaging_type_id, order_kind,
   recipient_name, recipient_phone, recipient_email,
   recipient_address, recipient_city, recipient_state, recipient_zone,
   gift_message, sender_visible, occasion,
@@ -26,6 +26,7 @@ const GIFT_SELECT = `
   created_at, updated_at,
   gift_boxes ( id, name, slug, list_price ),
   gift_fulfilment_centres ( id, name, code, city ),
+  gift_packaging_types ( id, code, name, description ),
   orders!inner (
     id, order_number, customer_name, customer_email, customer_phone,
     total_amount, payment_status, overall_status, payment_reference, created_at, order_kind

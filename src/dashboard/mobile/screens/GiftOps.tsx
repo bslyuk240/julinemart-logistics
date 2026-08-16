@@ -32,6 +32,7 @@ type GiftOpsOrder = {
   qc_notes?: string | null;
   gift_boxes?: { name: string; slug: string } | null;
   gift_fulfilment_centres?: { name: string; code: string } | null;
+  gift_packaging_types?: { code: string; name: string; description?: string | null } | null;
   orders?: {
     order_number: string | number;
     customer_name: string;
@@ -291,6 +292,7 @@ export default function MobileGiftOps() {
                   </div>
                   <p className="text-xs text-gray-500">
                     To {o.recipient_name} · {o.recipient_city}
+                    {o.gift_packaging_types ? ` · ${o.gift_packaging_types.name}` : ''}
                   </p>
                   {o.orders?.total_amount != null && (
                     <p className="text-xs text-gray-400">{formatNaira(Number(o.orders.total_amount))}</p>
@@ -324,6 +326,12 @@ export default function MobileGiftOps() {
                   <span className={`mt-2 inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${statusChip(detail.gift_status)}`}>
                     {detail.gift_status}
                   </span>
+                  {detail.gift_packaging_types && (
+                    <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
+                      <Package className="h-3.5 w-3.5" />
+                      Pack as: {detail.gift_packaging_types.name}
+                    </p>
+                  )}
                 </div>
 
                 {detail.gift_message && (

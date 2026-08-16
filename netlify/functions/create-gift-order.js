@@ -136,7 +136,7 @@ async function createCustomBuildOrder(params) {
     .from('gift_builder_sessions')
     .select(`
       id, session_token, status, gift_fulfilment_centre_id, gift_packaging_type_id,
-      gift_fulfilment_centres ( id, name, code ),
+      gift_fulfilment_centres ( id, name, code, city ),
       gift_packaging_types ( id, code, name, price )
     `)
     .eq('session_token', builder_session_token)

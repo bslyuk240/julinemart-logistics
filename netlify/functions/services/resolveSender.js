@@ -4,9 +4,11 @@
 //
 // Sender address depends on the vendor's collection preference:
 // fez_pickup  -> Fez rides to the vendor's shop
-// hub_dropoff -> Fez collects from the dispatch hub
-//                Sub-hub: parcel has been consolidated at the main hub -> use parent hub
-//                Main hub: use this hub's address directly
+// hub_dropoff -> Fez collects from the dispatch hub — always the sub-order's
+//                OWN hub (sub-hub included). Sub-hubs have no on-site staff,
+//                so a shipment can still be *created* by staff working the
+//                parent hub's dispatch queue, but Fez physically visits the
+//                sub-hub itself — never substitute the parent hub's address.
 export function resolveSender(subOrder) {
   if (subOrder.vendors?.fez_collection_method === 'fez_pickup') {
     return {
@@ -19,9 +21,7 @@ export function resolveSender(subOrder) {
     };
   }
 
-  const senderHub = subOrder.hubs?.is_sub_hub && subOrder.hubs?.parent_hub
-    ? subOrder.hubs.parent_hub
-    : subOrder.hubs;
+  const senderHub = subOrder.hubs;
 
   return {
     kind: 'hub',

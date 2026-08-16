@@ -188,6 +188,7 @@ export async function handler(event) {
         let hubCourierMap = {};
         const hubCityMap = {};
         const vendorCityMap = {};
+        const vendorLocationMap = {};
 
         if (hubIds.length > 0) {
           const [{ data: hubCouriers }, { data: hubRows }] = await Promise.all([
@@ -214,9 +215,13 @@ export async function handler(event) {
           ...new Set(shippingBreakdown.map((b) => b.vendorId || b.vendor_id).filter(Boolean))
         ];
         if (vendorIds.length > 0) {
-          const { data: vendorRows } = await supabase.from('vendors').select('id, city').in('id', vendorIds);
+          const { data: vendorRows } = await supabase
+            .from('vendors')
+            .select('id, city, approved_location_id')
+            .in('id', vendorIds);
           for (const v of (vendorRows || [])) {
             vendorCityMap[v.id] = (v.city || '').trim().toLowerCase();
+            vendorLocationMap[v.id] = v.approved_location_id || null;
           }
         }
 
@@ -242,15 +247,21 @@ export async function handler(event) {
             hubCourierMap[hubId] ||
             null;
 
-          // Local rider requires vendor, hub, and customer to all be in the
-          // same town. Prefer the structural match; fall back to a plain
-          // city-string match for locations not yet curated in that table.
-          const structuralMatch = custSupportsLocal && custHubId && custHubId === hubId;
+          // Local rider requires vendor and customer to resolve to the same
+          // town — not a JLO hub to exist there. A town with no hub_id at
+          // all can still qualify once it has rider coverage
+          // (approved_vendor_locations.supports_local_delivery).
+          const hubMatch = custSupportsLocal && custHubId && custHubId === hubId;
+          const sameLocationMatch =
+            custSupportsLocal &&
+            custLocation?.id &&
+            vendorLocationMap[vendorId] &&
+            custLocation.id === vendorLocationMap[vendorId];
           const hubCity = hubCityMap[hubId] || '';
           const vendorCity = vendorCityMap[vendorId] || '';
           const legacyMatch =
             hubCity && custCity && vendorCity && hubCity === custCity && vendorCity === custCity;
-          const isLocalEligible = structuralMatch || legacyMatch;
+          const isLocalEligible = hubMatch || sameLocationMatch || legacyMatch;
 
           return {
             main_order_id: order.id,

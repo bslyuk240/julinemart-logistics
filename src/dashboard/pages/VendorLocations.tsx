@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { MapPin, Plus, Edit, Pause, Play, Trash2, Users, X, Check } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { supabase } from '../../lib/supabase';
@@ -307,58 +307,80 @@ export function VendorLocationsPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            {Object.entries(byState).sort(([a], [b]) => a.localeCompare(b)).map(([state, locs]) => (
-              <div key={state}>
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">{state}</h3>
-
-                {/* ── Desktop table ── */}
-                <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50 border-b border-gray-200">
-                      <tr>
-                        <th className="text-left px-4 py-3 font-medium text-gray-600">City / LGA</th>
-                        <th className="text-left px-4 py-3 font-medium text-gray-600">Modes</th>
-                        <th className="text-left px-4 py-3 font-medium text-gray-600">Hub</th>
-                        <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-                        <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
+            {/* ── Desktop: one continuous table, state as an in-table divider row ── */}
+            {/* Splitting into a separate <table> per state let each section compute its
+                own column widths (table-layout: auto), so the same column drifted to a
+                different x-position every time content length changed — the "scattered"
+                look. One table + colgroup keeps every row's columns aligned. */}
+            <div className="hidden md:block bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <table className="w-full text-sm table-fixed">
+                <colgroup>
+                  <col className="w-[26%]" />
+                  <col className="w-[40%]" />
+                  <col className="w-[16%]" />
+                  <col className="w-[18%]" />
+                </colgroup>
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">City / LGA</th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">Modes &amp; hub</th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
+                    <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {Object.entries(byState).sort(([a], [b]) => a.localeCompare(b)).map(([state, locs]) => (
+                    <Fragment key={state}>
+                      <tr className="bg-gray-50/80">
+                        <td colSpan={4} className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          {state}
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
                       {locs.map(loc => (
-                        <tr key={loc.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3">
-                            <p className="font-medium text-gray-900">{loc.city}</p>
-                            <div className="flex flex-wrap gap-1 mt-0.5">
+                        <tr key={loc.id} className="hover:bg-gray-50 align-top">
+                          <td className="px-4 py-3 align-top">
+                            <p className="text-base font-extrabold text-gray-900">{loc.city}</p>
+                            <div className="flex flex-wrap gap-1 mt-1">
                               {(loc.lgas || []).map(lga => (
                                 <span key={lga} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{lga}</span>
                               ))}
                             </div>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-3 align-top">
                             <div className="flex flex-wrap gap-1">
-                              {loc.supports_vendor_direct_fez && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Vendor Pickup</span>}
-                              {loc.supports_vendor_to_hub && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Hub Drop-off</span>}
-                              {loc.supports_local_delivery && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Local Delivery</span>}
+                              {loc.supports_vendor_to_hub && (
+                                loc.hubs ? (
+                                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">JLO Hub</span>
+                                ) : loc.fez_hub_name ? (
+                                  <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Fez Hub</span>
+                                ) : (
+                                  <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Hub not set</span>
+                                )
+                              )}
+                              {loc.supports_vendor_direct_fez && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Fez Vendor Pickup</span>}
+                              {loc.supports_local_delivery && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Local Rider</span>}
                             </div>
-                            {loc.vendor_pickup_surcharge > 0 && (
-                              <p className="text-xs text-gray-400 mt-0.5">Pickup fee: ₦{loc.vendor_pickup_surcharge.toLocaleString()}</p>
+                            {(loc.hubs || loc.fez_hub_name || loc.vendor_pickup_surcharge > 0) && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                {loc.hubs ? (
+                                  <span className="font-medium text-primary-700">{loc.hubs.name}</span>
+                                ) : loc.fez_hub_name ? (
+                                  <span>{loc.fez_hub_name} <span className="text-gray-400">(Fez)</span></span>
+                                ) : null}
+                                {loc.vendor_pickup_surcharge > 0 && (
+                                  <span className="text-gray-400">
+                                    {(loc.hubs || loc.fez_hub_name) ? ' · ' : ''}Pickup fee ₦{loc.vendor_pickup_surcharge.toLocaleString()}
+                                  </span>
+                                )}
+                              </p>
                             )}
                           </td>
-                          <td className="px-4 py-3 text-xs">
-                            {loc.hubs ? (
-                              <span className="font-medium text-primary-700">{loc.hubs.name}</span>
-                            ) : loc.fez_hub_name ? (
-                              <span className="text-gray-500">{loc.fez_hub_name} <span className="text-gray-400">(Fez)</span></span>
-                            ) : (
-                              <span className="text-gray-400">—</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-3 align-top">
                             <span className={`text-xs px-2 py-1 rounded-full font-medium ${STATUS_BADGE[loc.status] || 'bg-gray-100 text-gray-500'}`}>
                               {loc.status.replace(/_/g, ' ')}
                             </span>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-4 py-3 align-top">
                             <div className="flex items-center justify-end gap-1">
                               <button onClick={() => openEdit(loc)} title="Edit" className="p-1.5 text-gray-500 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition"><Edit className="w-4 h-4" /></button>
                               <button onClick={() => toggleStatus(loc)} title={loc.status === 'active' ? 'Pause' : 'Activate'} className="p-1.5 text-gray-500 hover:text-yellow-600 hover:bg-yellow-50 rounded-lg transition">
@@ -370,17 +392,23 @@ export function VendorLocationsPage() {
                           </td>
                         </tr>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-                {/* ── Mobile cards ── */}
-                <div className="md:hidden space-y-2">
+            {/* ── Mobile: per-state card groups ── */}
+            <div className="md:hidden space-y-6">
+              {Object.entries(byState).sort(([a], [b]) => a.localeCompare(b)).map(([state, locs]) => (
+                <div key={state}>
+                  <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">{state}</h3>
+                  <div className="space-y-2">
                   {locs.map(loc => (
                     <div key={loc.id} className="bg-white rounded-xl border border-gray-200 p-4">
                       <div className="flex items-start justify-between gap-3 mb-2">
                         <div>
-                          <p className="font-semibold text-gray-900">{loc.city}</p>
+                          <p className="text-base font-extrabold text-gray-900">{loc.city}</p>
                           <div className="flex flex-wrap gap-1 mt-0.5">
                             {(loc.lgas || []).map(lga => (
                               <span key={lga} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{lga}</span>
@@ -396,9 +424,17 @@ export function VendorLocationsPage() {
 
                       {/* Modes */}
                       <div className="flex flex-wrap gap-1 mb-2">
-                        {loc.supports_vendor_direct_fez && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Vendor Pickup</span>}
-                        {loc.supports_vendor_to_hub && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Hub Drop-off</span>}
-                        {loc.supports_local_delivery && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Local Delivery</span>}
+                        {loc.supports_vendor_to_hub && (
+                          loc.hubs ? (
+                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">JLO Hub</span>
+                          ) : loc.fez_hub_name ? (
+                            <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">Fez Hub</span>
+                          ) : (
+                            <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">Hub not set</span>
+                          )
+                        )}
+                        {loc.supports_vendor_direct_fez && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Fez Vendor Pickup</span>}
+                        {loc.supports_local_delivery && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Local Rider</span>}
                       </div>
 
                       {loc.hubs ? (
@@ -427,9 +463,10 @@ export function VendorLocationsPage() {
                       </div>
                     </div>
                   ))}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )
       )}
@@ -591,9 +628,9 @@ export function VendorLocationsPage() {
               <div className="border border-gray-200 rounded-xl p-4 space-y-3">
                 <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">Supported Modes</p>
                 {[
-                  { key: 'supports_vendor_direct_fez', label: 'Fez pickup from vendor address' },
-                  { key: 'supports_vendor_to_hub',     label: 'Vendor drops off at hub' },
-                  { key: 'supports_local_delivery',    label: 'Local delivery (non-Fez)' },
+                  { key: 'supports_vendor_to_hub',     label: 'JLO Hub / Fez Hub — vendor drops off there instead of their own shop' },
+                  { key: 'supports_vendor_direct_fez', label: 'Fez Vendor Pickup — Fez rides to the vendor’s shop' },
+                  { key: 'supports_local_delivery',    label: 'Local Rider — customer gets same-day rider delivery instead of Fez' },
                 ].map(({ key, label }) => (
                   <label key={key} className="flex items-center gap-3 cursor-pointer">
                     <input type="checkbox" checked={(form as any)[key]}
@@ -602,18 +639,26 @@ export function VendorLocationsPage() {
                     <span className="text-sm text-gray-700">{label}</span>
                   </label>
                 ))}
+                <p className="text-xs text-gray-400">
+                  These aren&apos;t exclusive — a location can support more than one. When more than one applies,
+                  the vendor picks between them at registration.
+                </p>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">JLO Hub (primary)</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">JLO Hub</label>
                 <select value={form.hub_id} onChange={e => setForm(f => ({ ...f, hub_id: e.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                  <option value="">— No JLO hub (use Fez hub below) —</option>
+                  <option value="">— No JLO hub here (use Fez Hub fields below) —</option>
                   {hubOptions.map(h => (
                     <option key={h.id} value={h.id}>{h.name} — {h.city}, {h.state}</option>
                   ))}
                 </select>
-                <p className="text-xs text-gray-400 mt-1">If set, vendors in this location drop off at this JLO hub. Fez hub below is the fallback.</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Set this whenever you have any hub (main or sub-hub) that actually serves this city — vendors here
+                  drop off there, and it&apos;s what prints on the real Fez pickup label. Leave blank only if you
+                  have no hub anywhere near this city; the Fez Hub fields below become the drop-off point instead.
+                </p>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Fez Hub Name <span className="font-normal text-gray-400">(fallback)</span></label>

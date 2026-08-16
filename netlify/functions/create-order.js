@@ -587,13 +587,15 @@ export async function handler(event) {
       }
     }
 
+    const vendorLocationMap = {};
     if (vendorIds.length > 0) {
       const { data: vendorRows } = await adminClient
         .from('vendors')
-        .select('id, city')
+        .select('id, city, approved_location_id')
         .in('id', vendorIds);
       for (const v of (vendorRows || [])) {
         vendorCityMap[v.id] = (v.city || '').trim().toLowerCase();
+        vendorLocationMap[v.id] = v.approved_location_id || null;
       }
     }
 
@@ -618,17 +620,31 @@ export async function handler(event) {
       );
       const sourceSeed = sourcedItems[0]?.globalSourcing || null;
 
-      // Local rider requires vendor, hub/sub-hub, and customer to all be in
-      // the same town. Prefer the structural match through
-      // approved_vendor_locations (handles LGA aliases); fall back to a
-      // plain city-string match for locations not yet curated there so we
-      // don't regress eligibility that already worked.
-      const structuralMatch = custSupportsLocal && custHubId && custHubId === g.hub_id;
+      // Local rider requires vendor and customer to resolve to the same
+      // town — it does NOT require a JLO hub to exist there. A town with no
+      // hub_id at all can still qualify once it has rider coverage
+      // (approved_vendor_locations.supports_local_delivery), which is what
+      // lets local rider expand into towns outside the hub network.
+      //
+      // Two structural match strategies, since either side's hub_id can be
+      // missing/diverge from the location row (e.g. a product's own hub_id
+      // vs the vendor's):
+      //  - hubMatch: customer's resolved hub_id equals the item's dispatch hub
+      //  - sameLocationMatch: vendor and customer resolve to the exact same
+      //    approved_vendor_locations row, hub or no hub
+      // Falls back to a plain city-string match for locations not yet
+      // curated there so we don't regress eligibility that already worked.
+      const hubMatch = custSupportsLocal && custHubId && custHubId === g.hub_id;
+      const sameLocationMatch =
+        custSupportsLocal &&
+        custLocation?.id &&
+        vendorLocationMap[g.vendor_id] &&
+        custLocation.id === vendorLocationMap[g.vendor_id];
       const hubCity = hubCityMap[g.hub_id] || '';
       const vendorCity = vendorCityMap[g.vendor_id] || '';
       const legacyMatch =
         hubCity && custCity && vendorCity && hubCity === custCity && vendorCity === custCity;
-      const isLocalEligible = structuralMatch || legacyMatch;
+      const isLocalEligible = hubMatch || sameLocationMatch || legacyMatch;
       const eligible_lanes = isLocalEligible ? ['local_rider', 'fez'] : ['fez'];
       const selected_lane = isLocalEligible ? 'local_rider' : 'fez';
 

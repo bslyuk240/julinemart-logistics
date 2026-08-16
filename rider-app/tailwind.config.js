@@ -24,6 +24,15 @@ export default {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
       },
+      keyframes: {
+        'hero-float': {
+          '0%, 100%': { transform: 'translateY(0) scale(1.02)' },
+          '50%': { transform: 'translateY(-6px) scale(1.02)' },
+        },
+      },
+      animation: {
+        'hero-float': 'hero-float 4s ease-in-out infinite',
+      },
     },
   },
   plugins: [],

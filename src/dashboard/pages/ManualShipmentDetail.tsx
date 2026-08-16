@@ -5,6 +5,7 @@ import { useNotification } from '../contexts/NotificationContext';
 import { supabase } from '../contexts/AuthContext';
 import { openLabelPrint, openWaybillPrint } from '../lib/waybillPrint';
 import { ShipmentTrackingEvents } from '../../shared/ShipmentTrackingEvents';
+import RiderPicker from '../components/RiderPicker';
 
 const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
@@ -83,7 +84,7 @@ export function ManualShipmentDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [fetchingTracking, setFetchingTracking] = useState(false);
   const [showRiderModal, setShowRiderModal] = useState(false);
-  const [riderInfo, setRiderInfo] = useState({ name: '', phone: '', vehicle: '' });
+  const [riderId, setRiderId] = useState('');
 
   const fetchShipment = async () => {
     try {
@@ -135,16 +136,14 @@ export function ManualShipmentDetailPage() {
         headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
         body: JSON.stringify({
           shipment_id: id,
-          rider_name: riderInfo.name.trim(),
-          rider_phone: riderInfo.phone.trim(),
-          rider_vehicle: riderInfo.vehicle || null,
+          rider_id: riderId,
         }),
       });
       const data = await response.json();
       if (data.success) {
-        notification.success('Rider Assigned', riderInfo.name);
+        notification.success('Rider Assigned', 'Local rider saved for this shipment');
         setShowRiderModal(false);
-        setRiderInfo({ name: '', phone: '', vehicle: '' });
+        setRiderId('');
         fetchShipment();
       } else {
         notification.error('Assignment Failed', data.error || 'Unable to assign rider');
@@ -389,45 +388,15 @@ export function ManualShipmentDetailPage() {
             <h3 className="text-lg font-bold mb-4">Assign Local Rider</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Rider Name <span className="text-red-500">*</span></label>
-                <input
-                  type="text"
-                  value={riderInfo.name}
-                  onChange={(e) => setRiderInfo({ ...riderInfo, name: e.target.value })}
-                  className="w-full px-3 py-2 border rounded"
-                  placeholder="Enter rider name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Phone Number <span className="text-red-500">*</span></label>
-                <input
-                  type="tel"
-                  value={riderInfo.phone}
-                  onChange={(e) => setRiderInfo({ ...riderInfo, phone: e.target.value })}
-                  className="w-full px-3 py-2 border rounded"
-                  placeholder="+234 800 000 0000"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Vehicle Type</label>
-                <select
-                  value={riderInfo.vehicle}
-                  onChange={(e) => setRiderInfo({ ...riderInfo, vehicle: e.target.value })}
-                  className="w-full px-3 py-2 border rounded"
-                >
-                  <option value="">Select vehicle</option>
-                  <option value="Motorcycle">Motorcycle</option>
-                  <option value="Bicycle">Bicycle</option>
-                  <option value="Van">Van</option>
-                  <option value="Car">Car</option>
-                </select>
+                <label className="block text-sm font-medium mb-1">Rider <span className="text-red-500">*</span></label>
+                <RiderPicker value={riderId} onChange={setRiderId} />
               </div>
             </div>
             <div className="flex gap-2 mt-6">
               <button
                 onClick={() => {
                   setShowRiderModal(false);
-                  setRiderInfo({ name: '', phone: '', vehicle: '' });
+                  setRiderId('');
                 }}
                 className="flex-1 px-4 py-2 border rounded hover:bg-gray-50"
               >
@@ -435,7 +404,7 @@ export function ManualShipmentDetailPage() {
               </button>
               <button
                 onClick={assignRider}
-                disabled={!riderInfo.name || !riderInfo.phone || dispatching}
+                disabled={!riderId || dispatching}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {dispatching ? 'Assigning…' : 'Assign Rider'}

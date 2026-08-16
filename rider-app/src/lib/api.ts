@@ -42,6 +42,38 @@ export type RiderApplicationPayload = {
   approved_location_id: string;
 };
 
+export type JobLocation = { name?: string; address: string | null; city: string | null; state: string | null; phone?: string };
+export type JobDropoff = {
+  customer_name: string | null;
+  customer_phone: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  landmark: string | null;
+};
+
+export type Job = {
+  id: string;
+  tracking_number: string | null;
+  status: 'assigned' | 'picked_up' | 'out_for_delivery' | 'delivered';
+  accepted: boolean;
+  fee: number;
+  order_number: string | null;
+  pickup: JobLocation;
+  dropoff: JobDropoff;
+  delivery_proof_url: string | null;
+  picked_up_at: string | null;
+  out_for_delivery_at: string | null;
+  delivered_at: string | null;
+};
+
+export type JobsResponse = {
+  pending: Job[];
+  active: Job | null;
+  today: { count: number; earnings: number };
+  online: boolean;
+};
+
 export const api = {
   ping: () => request<{ rider_id: string; status: string }>('rider-ping'),
   register: (payload: RiderApplicationPayload) =>
@@ -49,4 +81,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+  getJobs: () => request<JobsResponse>('rider-jobs'),
+  acceptJob: (sub_order_id: string) =>
+    request<{ accepted: boolean }>('rider-jobs', { method: 'POST', body: JSON.stringify({ sub_order_id, action: 'accept' }) }),
+  declineJob: (sub_order_id: string) =>
+    request<{ declined: boolean }>('rider-jobs', { method: 'POST', body: JSON.stringify({ sub_order_id, action: 'decline' }) }),
+  advanceJob: (sub_order_id: string, target_status: string, delivery_proof_url?: string) =>
+    request<{ status: string }>('rider-jobs', {
+      method: 'POST',
+      body: JSON.stringify({ sub_order_id, action: 'advance', target_status, delivery_proof_url }),
+    }),
+  setOnline: (online: boolean) =>
+    request<{ online: boolean }>('rider-online', { method: 'POST', body: JSON.stringify({ online }) }),
 };

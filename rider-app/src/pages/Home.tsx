@@ -1,8 +1,17 @@
-import { Clock } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Clock, MapPin, Package, Power, RefreshCw, Wallet, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { usePushNotifications } from '../hooks/usePushNotifications';
+import { api, Job } from '../lib/api';
+
+function formatNaira(amount: number) {
+  return `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 0 })}`;
+}
 
 export default function Home() {
-  const { user, riderActive, signOut } = useAuth();
+  const { user, riderId, riderActive, signOut } = useAuth();
+  usePushNotifications(riderId);
 
   if (riderActive === false) {
     return (
@@ -22,13 +31,184 @@ export default function Home() {
     );
   }
 
+  return <RiderHome />;
+}
+
+function RiderHome() {
+  const { user, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  const [online, setOnlineState] = useState(false);
+  const [togglingOnline, setTogglingOnline] = useState(false);
+  const [pending, setPending] = useState<Job[]>([]);
+  const [active, setActive] = useState<Job | null>(null);
+  const [today, setToday] = useState({ count: 0, earnings: 0 });
+  const [loading, setLoading] = useState(true);
+  const [actingOn, setActingOn] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api.getJobs();
+      setPending(data.pending);
+      setActive(data.active);
+      setToday(data.today);
+      setOnlineState(data.online);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load jobs');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+    const interval = setInterval(load, 20000);
+    return () => clearInterval(interval);
+  }, [load]);
+
+  useEffect(() => {
+    if (active) navigate('/delivery', { replace: true });
+  }, [active, navigate]);
+
+  const toggleOnline = async () => {
+    setTogglingOnline(true);
+    try {
+      const result = await api.setOnline(!online);
+      setOnlineState(result.online);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update status');
+    } finally {
+      setTogglingOnline(false);
+    }
+  };
+
+  const respond = async (job: Job, accept: boolean) => {
+    setActingOn(job.id);
+    try {
+      if (accept) {
+        await api.acceptJob(job.id);
+        navigate('/delivery', { replace: true });
+      } else {
+        await api.declineJob(job.id);
+        await load();
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setActingOn(null);
+    }
+  };
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
-      <h1 className="text-2xl font-black text-gray-900">Julinemart Dispatch</h1>
-      <p className="mt-2 text-sm text-gray-500">{user?.email}</p>
-      <button onClick={signOut} className="btn-secondary mt-8 max-w-[160px]">
-        Sign out
-      </button>
+    <div className="min-h-screen pb-10">
+      <div className="px-6 pt-8 pb-6 bg-white border-b border-gray-100">
+        <div className="flex items-start justify-between">
+          <div>
+            <p className="text-xs text-gray-500">Welcome back</p>
+            <h1 className="text-lg font-bold text-gray-900 truncate max-w-[200px]">{user?.email}</h1>
+          </div>
+          <button
+            type="button"
+            onClick={toggleOnline}
+            disabled={togglingOnline}
+            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${
+              online ? 'bg-signal text-signal-ink' : 'bg-gray-100 text-gray-500'
+            }`}
+          >
+            <Power className="w-4 h-4" />
+            {online ? 'Online' : 'Offline'}
+          </button>
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-gray-200 p-4 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center shrink-0">
+            <Wallet className="w-5 h-5 text-primary-600" />
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">Today</p>
+            <p className="text-base font-bold text-gray-900">
+              {formatNaira(today.earnings)} <span className="font-normal text-gray-400">· {today.count} {today.count === 1 ? 'delivery' : 'deliveries'}</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-6 pt-6 space-y-4">
+        {error && <p className="text-sm text-red-600">{error}</p>}
+
+        {!online && (
+          <div className="rounded-2xl border border-dashed border-gray-300 p-6 text-center">
+            <p className="text-sm font-semibold text-gray-900">You're offline</p>
+            <p className="mt-1 text-xs text-gray-500">Go online to start receiving delivery offers.</p>
+          </div>
+        )}
+
+        {online && loading && (
+          <div className="flex items-center justify-center py-10 text-gray-400">
+            <RefreshCw className="w-5 h-5 animate-spin" />
+          </div>
+        )}
+
+        {online && !loading && pending.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-gray-300 p-6 text-center">
+            <Package className="w-6 h-6 text-gray-300 mx-auto mb-2" />
+            <p className="text-sm font-semibold text-gray-900">No deliveries yet</p>
+            <p className="mt-1 text-xs text-gray-500">We'll notify you the moment one comes in.</p>
+          </div>
+        )}
+
+        {online &&
+          pending.map((job) => (
+            <div key={job.id} className="rounded-2xl border border-gray-200 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-primary-600">New delivery</p>
+                  <p className="text-sm text-gray-900 mt-1">{job.tracking_number || `Order ${job.order_number ?? ''}`}</p>
+                </div>
+                <p className="text-base font-bold text-gray-900 shrink-0">{formatNaira(job.fee)}</p>
+              </div>
+
+              <div className="mt-3 space-y-2 text-xs text-gray-600">
+                <div className="flex items-start gap-2">
+                  <MapPin className="w-3.5 h-3.5 mt-0.5 text-gray-400 shrink-0" />
+                  <span>Pickup: {job.pickup.name ? `${job.pickup.name}, ` : ''}{job.pickup.city || job.pickup.address || '—'}</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <MapPin className="w-3.5 h-3.5 mt-0.5 text-gray-400 shrink-0" />
+                  <span>Drop-off: {job.dropoff.city || job.dropoff.address || '—'}</span>
+                </div>
+              </div>
+
+              <div className="mt-4 flex gap-2">
+                <button
+                  type="button"
+                  disabled={actingOn === job.id}
+                  onClick={() => respond(job, false)}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 disabled:opacity-50"
+                >
+                  <X className="w-4 h-4" />
+                  Decline
+                </button>
+                <button
+                  type="button"
+                  disabled={actingOn === job.id}
+                  onClick={() => respond(job, true)}
+                  className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Accept
+                </button>
+              </div>
+            </div>
+          ))}
+      </div>
+
+      <div className="px-6 mt-10">
+        <button onClick={signOut} className="btn-secondary">
+          Sign out
+        </button>
+      </div>
     </div>
   );
 }

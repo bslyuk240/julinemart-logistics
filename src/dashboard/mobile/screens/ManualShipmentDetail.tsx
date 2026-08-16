@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useNotification } from '../../contexts/NotificationContext';
 import { ContactSection, DetailRow, SectionLabel } from '../components/MobileDetailParts';
+import RiderPicker from '../../components/RiderPicker';
 import { Sheet } from '../Sheet';
 import { TABBAR_SPACE, functionsAuthHeader, functionsBase } from '../lib/functionsAuth';
 import { openLabelPrint, openWaybillPrint } from '../../lib/waybillPrint';
@@ -77,7 +78,7 @@ export default function MobileManualShipmentDetail() {
   const [deleting, setDeleting] = useState(false);
   const [fetchingTracking, setFetchingTracking] = useState(false);
   const [riderOpen, setRiderOpen] = useState(false);
-  const [riderInfo, setRiderInfo] = useState({ name: '', phone: '', vehicle: '' });
+  const [riderId, setRiderId] = useState('');
 
   const fetchShipment = useCallback(async () => {
     if (!id) return;
@@ -129,16 +130,14 @@ export default function MobileManualShipmentDetail() {
         headers: { 'Content-Type': 'application/json', ...(await functionsAuthHeader()) },
         body: JSON.stringify({
           shipment_id: id,
-          rider_name: riderInfo.name.trim(),
-          rider_phone: riderInfo.phone.trim(),
-          rider_vehicle: riderInfo.vehicle || null,
+          rider_id: riderId,
         }),
       });
       const data = await response.json();
       if (data.success) {
-        notification.success('Rider assigned', riderInfo.name);
+        notification.success('Rider assigned', 'Local rider saved for this shipment');
         setRiderOpen(false);
-        setRiderInfo({ name: '', phone: '', vehicle: '' });
+        setRiderId('');
         await fetchShipment();
       } else {
         notification.error('Assignment Failed', data.error || 'Unable to assign rider');
@@ -441,34 +440,7 @@ export default function MobileManualShipmentDetail() {
       <Sheet open={riderOpen} onClose={() => setRiderOpen(false)} ariaLabel="Assign rider">
         <h3 className="text-lg font-bold text-gray-900">Assign local rider</h3>
         <div className="mt-4 space-y-3">
-          <input
-            type="text"
-            value={riderInfo.name}
-            onChange={(e) => setRiderInfo({ ...riderInfo, name: e.target.value })}
-            placeholder="Rider name"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
-            style={{ fontSize: '16px' }}
-          />
-          <input
-            type="tel"
-            value={riderInfo.phone}
-            onChange={(e) => setRiderInfo({ ...riderInfo, phone: e.target.value })}
-            placeholder="Phone number"
-            className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
-            style={{ fontSize: '16px' }}
-          />
-          <select
-            value={riderInfo.vehicle}
-            onChange={(e) => setRiderInfo({ ...riderInfo, vehicle: e.target.value })}
-            className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
-            style={{ fontSize: '16px' }}
-          >
-            <option value="">Vehicle type</option>
-            <option value="Motorcycle">Motorcycle</option>
-            <option value="Bicycle">Bicycle</option>
-            <option value="Van">Van</option>
-            <option value="Car">Car</option>
-          </select>
+          <RiderPicker value={riderId} onChange={setRiderId} />
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button type="button" onClick={() => setRiderOpen(false)} className="rounded-lg border border-gray-200 py-3 text-sm font-semibold text-gray-900">
@@ -477,7 +449,7 @@ export default function MobileManualShipmentDetail() {
           <button
             type="button"
             onClick={assignRider}
-            disabled={!riderInfo.name.trim() || !riderInfo.phone.trim() || dispatching}
+            disabled={!riderId || dispatching}
             className="rounded-lg bg-primary-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
           >
             {dispatching ? 'Assigning…' : 'Assign'}

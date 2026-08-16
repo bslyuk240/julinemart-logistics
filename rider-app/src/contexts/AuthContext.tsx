@@ -6,6 +6,7 @@ import { api } from '../lib/api';
 interface AuthContextValue {
   user: User | null;
   session: Session | null;
+  riderId: string | null;
   riderActive: boolean | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
@@ -17,17 +18,20 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const [riderId, setRiderId] = useState<string | null>(null);
   const [riderActive, setRiderActive] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Phase 0: rider-ping is the only endpoint that exists, and it doubles as
-  // "is this token tied to an active riders row" until rider-profile.js
-  // lands in Phase 1.
+  // rider-ping doubles as "is this token tied to an active riders row" and
+  // carries the rider's own id (distinct from the auth user id) for
+  // endpoints keyed on riders.id, like push token registration.
   const checkRiderStatus = async () => {
     try {
       const result = await api.ping();
+      setRiderId(result.rider_id);
       setRiderActive(result.status === 'active');
     } catch {
+      setRiderId(null);
       setRiderActive(false);
     }
   };
@@ -64,11 +68,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = async () => {
     await supabase.auth.signOut();
+    setRiderId(null);
     setRiderActive(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, riderActive, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, session, riderId, riderActive, loading, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );

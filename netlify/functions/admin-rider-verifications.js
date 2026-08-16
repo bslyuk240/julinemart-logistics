@@ -5,6 +5,8 @@
  * status column tracks the review state).
  *
  * GET /api/admin-rider-verifications?status=pending_review|active|rejected|suspended|all
+ * Optional &location_id= scopes to riders approved for one location — used
+ * by the dispatch rider picker (assign a job to a rider serving that area).
  */
 import { requireAdmin, jsonResponse, headers } from './services/global-sourcing-utils.js';
 
@@ -13,7 +15,7 @@ const SELECT = `
   id_document_url, selfie_url, selfie_captured_at,
   vehicle_type, vehicle_plate, vehicle_document_url,
   guarantor_name, guarantor_phone,
-  approved_location_id, status, reject_reason, approved_at, created_at,
+  approved_location_id, status, reject_reason, approved_at, created_at, is_online,
   approved_vendor_locations ( city, state )
 `;
 
@@ -26,9 +28,11 @@ export async function handler(event) {
   const { adminClient } = auth;
 
   const status = (event.queryStringParameters?.status || 'pending_review').toLowerCase();
+  const locationId = event.queryStringParameters?.location_id || null;
 
   let query = adminClient.from('riders').select(SELECT).order('created_at', { ascending: false }).limit(200);
   if (status !== 'all') query = query.eq('status', status);
+  if (locationId) query = query.eq('approved_location_id', locationId);
 
   const { data, error } = await query;
   if (error) return jsonResponse(500, { success: false, error: error.message });

@@ -28,6 +28,25 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return json.data as T;
 }
 
+export type RiderApplicationPayload = {
+  full_name: string;
+  phone: string;
+  nin: string;
+  id_document_url: string;
+  selfie_url: string;
+  vehicle_type: 'okada' | 'keke' | 'car' | 'foot';
+  vehicle_plate: string;
+  vehicle_document_url?: string;
+  guarantor_name: string;
+  guarantor_phone: string;
+  approved_location_id: string;
+};
+
 export const api = {
   ping: () => request<{ rider_id: string; status: string }>('rider-ping'),
+  register: (payload: RiderApplicationPayload) =>
+    request<{ rider_id: string; status: string }>('rider-register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 };

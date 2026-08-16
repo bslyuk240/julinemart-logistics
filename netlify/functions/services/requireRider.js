@@ -32,7 +32,13 @@ export function jsonResponse(statusCode, body) {
   return { statusCode, headers, body: JSON.stringify(body) };
 }
 
-export async function requireRider(event) {
+/**
+ * Verifies the Bearer token resolves to a real Supabase Auth user — no
+ * `riders` row required. Used by rider-register.js, where that row may not
+ * exist yet (a rider self-registers an auth account first, then submits
+ * their KYC application to create/update it).
+ */
+export async function verifySession(event) {
   if (!authClient || !adminClient) {
     return {
       errorResponse: jsonResponse(500, {
@@ -58,10 +64,18 @@ export async function requireRider(event) {
     };
   }
 
+  return { authUser: authData.user, adminClient };
+}
+
+export async function requireRider(event) {
+  const session = await verifySession(event);
+  if (session.errorResponse) return session;
+  const { authUser } = session;
+
   const { data: rider, error: riderError } = await adminClient
     .from('riders')
     .select('id, user_id, email, full_name, phone, status, approved_location_id')
-    .eq('user_id', authData.user.id)
+    .eq('user_id', authUser.id)
     .maybeSingle();
 
   if (riderError) {
@@ -77,7 +91,7 @@ export async function requireRider(event) {
     };
   }
 
-  return { authUser: authData.user, rider, adminClient };
+  return { authUser, rider, adminClient };
 }
 
 /** Same as requireRider, but also enforces status = 'active' — for anything job-related. */

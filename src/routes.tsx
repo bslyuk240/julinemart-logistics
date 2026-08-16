@@ -129,6 +129,7 @@ import { CampaignsPage } from './dashboard/pages/Campaigns';
 import { CustomersPage } from './dashboard/pages/Customers';
 import { VendorsPage } from './dashboard/pages/Vendors';
 import SellerVerificationsPage from './dashboard/pages/SellerVerifications';
+import RiderVerificationsPage from './dashboard/pages/RiderVerifications';
 import VendorCampaignApprovalsPage from './dashboard/pages/VendorCampaignApprovals';
 import GiftFulfilmentCentresPage from './dashboard/pages/GiftFulfilmentCentres';
 import GiftBoxesPage from './dashboard/pages/GiftBoxes';
@@ -606,6 +607,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'campaigns', element: <CampaignsRoute />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
   { path: 'vendors', element: <VendorsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'seller-verifications', element: <SellerVerificationsRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'rider-verifications', element: <RiderVerificationsPage />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-campaign-approvals', element: <VendorCampaignApprovalsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'gift-fulfilment-centres', element: <GiftFulfilmentCentresRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'gift-boxes', element: <GiftBoxesRoute />, allowedRoles: ['admin', 'manager'] },

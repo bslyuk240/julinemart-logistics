@@ -1,5 +1,5 @@
 import { useState, FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Mail, Lock, Eye, EyeOff, ShieldCheck, ArrowRight } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -138,7 +138,12 @@ export default function Login() {
           </button>
         </form>
 
-        <div className="mt-8 flex items-center justify-center gap-2.5 text-center">
+        <p className="mt-5 text-center text-sm text-gray-500">
+          New rider?{' '}
+          <Link to="/signup" className="font-semibold text-primary-600">Apply here</Link>
+        </p>
+
+        <div className="mt-6 flex items-center justify-center gap-2.5 text-center">
           <ShieldCheck className="w-8 h-8 text-primary-600 shrink-0" />
           <div className="text-left">
             <p className="text-xs font-semibold text-gray-900">Secure rider access</p>

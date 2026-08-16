@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Login from './pages/Login';
+import SignUp from './pages/SignUp';
+import Apply from './pages/Apply';
 import Home from './pages/Home';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -20,6 +22,15 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<SignUp />} />
+      <Route
+        path="/apply"
+        element={
+          <PrivateRoute>
+            <Apply />
+          </PrivateRoute>
+        }
+      />
       <Route
         path="/*"
         element={

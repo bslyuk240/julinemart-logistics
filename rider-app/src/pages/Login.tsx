@@ -54,16 +54,10 @@ export default function Login() {
       <div className="relative overflow-hidden bg-primary-50">
         <img
           src="/rider-hero.png"
-          alt=""
-          aria-hidden="true"
-          className="w-full h-[190px] object-cover motion-safe:animate-hero-float"
+          alt="JulineMart rider on delivery"
+          className="w-full h-[210px] object-cover motion-safe:animate-hero-float"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-gray-50 via-transparent to-transparent" />
-        <img
-          src="/logo.png"
-          alt="JulineMart"
-          className="absolute left-6 bottom-3 w-14 h-14 rounded-full shadow-md ring-4 ring-white"
-        />
       </div>
 
       <div className="flex-1 px-6 pt-6 pb-10 max-w-sm w-full mx-auto">

@@ -7,6 +7,7 @@ import {
   sendPushToCustomer,
 } from './services/pushNotifications.js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
+import { syncShipmentBestEffort } from './services/shipmentSync.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -68,20 +69,45 @@ exports.handler = async (event) => {
       return { statusCode: access.statusCode, headers, body: access.body };
     }
 
-    const { sub_order_id, rider_name, rider_phone, rider_vehicle } = JSON.parse(
-      event.body || '{}'
-    );
+    const { sub_order_id, rider_id } = JSON.parse(event.body || '{}');
 
-    if (!sub_order_id || !rider_name || !rider_phone) {
+    if (!sub_order_id || !rider_id) {
       return {
         statusCode: 400,
         headers,
         body: JSON.stringify({
           success: false,
-          error: 'Missing required fields: sub_order_id, rider_name, rider_phone',
+          error: 'Missing required fields: sub_order_id, rider_id',
         }),
       };
     }
+
+    const { data: rider, error: riderLookupError } = await supabase
+      .from('riders')
+      .select('id, full_name, phone, vehicle_type, vehicle_plate, status')
+      .eq('id', rider_id)
+      .maybeSingle();
+
+    if (riderLookupError || !rider) {
+      return {
+        statusCode: 404,
+        headers,
+        body: JSON.stringify({ success: false, error: 'Rider not found' }),
+      };
+    }
+    if (rider.status !== 'active') {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ success: false, error: 'This rider is not active' }),
+      };
+    }
+
+    const rider_name = rider.full_name;
+    const rider_phone = rider.phone;
+    const rider_vehicle = rider.vehicle_type
+      ? `${rider.vehicle_type}${rider.vehicle_plate ? ` · ${rider.vehicle_plate}` : ''}`
+      : null;
 
     const { data: localCourier, error: courierError } = await supabase
       .from('couriers')
@@ -152,9 +178,11 @@ exports.handler = async (event) => {
         status: 'assigned',
         rider_name: rider_name,
         rider_phone: rider_phone,
+        assigned_rider_id: rider.id,
         ...(waybillNumber ? { waybill_number: waybillNumber } : {}),
         metadata: {
           ...existingMetadata,
+          rider_accepted_at: null,
           selected_lane: 'local_rider',
           eligible_lanes:
             Array.isArray(existingMetadata.eligible_lanes) &&
@@ -176,6 +204,25 @@ exports.handler = async (event) => {
       };
     }
 
+    await syncShipmentBestEffort(
+      supabase,
+      {
+        subOrderId: sub_order_id,
+        fields: {
+          courier_id: localCourier.id,
+          assigned_rider_id: rider.id,
+          status: 'assigned',
+          tracking_number: updatedSubOrder.tracking_number,
+          waybill_number: updatedSubOrder.waybill_number,
+          delivery_person_name: rider_name,
+          delivery_person_phone: rider_phone,
+          delivery_person_vehicle: rider_vehicle || null,
+          metadata: updatedSubOrder.metadata,
+        },
+      },
+      'assign-rider'
+    );
+
     const riderDescription = `Assigned to local rider: ${rider_name} (${rider_phone})${
       rider_vehicle ? ` - ${rider_vehicle}` : ''
     }`;
@@ -187,6 +234,16 @@ exports.handler = async (event) => {
       actor_type: 'user',
       source: 'manual_assignment',
     });
+
+    const riderPushResult = await sendPushToCustomer(rider.id, {
+      title: 'New delivery assigned',
+      message: `You've been assigned tracking #${nextTrackingNumber}. Open the app to accept.`,
+      type: 'rider_job_assigned',
+      data: { sub_order_id, targetPath: '/' },
+    });
+    if (!riderPushResult.success && !riderPushResult.skipped) {
+      console.warn('Assign rider push (to rider) failed:', riderPushResult);
+    }
 
     if (existingSubOrder.main_order_id) {
       const { data: orderRecord, error: orderError } = await supabase

@@ -98,14 +98,16 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   getJobs: () => request<JobsResponse>('rider-jobs'),
-  acceptJob: (sub_order_id: string) =>
-    request<{ accepted: boolean }>('rider-jobs', { method: 'POST', body: JSON.stringify({ sub_order_id, action: 'accept' }) }),
-  declineJob: (sub_order_id: string) =>
-    request<{ declined: boolean }>('rider-jobs', { method: 'POST', body: JSON.stringify({ sub_order_id, action: 'decline' }) }),
-  advanceJob: (sub_order_id: string, target_status: string, delivery_proof_url?: string) =>
+  // job.id is a shipments.id — opaque to the caller, works the same
+  // whether the job came from a marketplace order or a manual shipment.
+  acceptJob: (shipment_id: string) =>
+    request<{ accepted: boolean }>('rider-jobs', { method: 'POST', body: JSON.stringify({ shipment_id, action: 'accept' }) }),
+  declineJob: (shipment_id: string) =>
+    request<{ declined: boolean }>('rider-jobs', { method: 'POST', body: JSON.stringify({ shipment_id, action: 'decline' }) }),
+  advanceJob: (shipment_id: string, target_status: string, delivery_proof_url?: string) =>
     request<{ status: string }>('rider-jobs', {
       method: 'POST',
-      body: JSON.stringify({ sub_order_id, action: 'advance', target_status, delivery_proof_url }),
+      body: JSON.stringify({ shipment_id, action: 'advance', target_status, delivery_proof_url }),
     }),
   setOnline: (online: boolean) =>
     request<{ online: boolean }>('rider-online', { method: 'POST', body: JSON.stringify({ online }) }),

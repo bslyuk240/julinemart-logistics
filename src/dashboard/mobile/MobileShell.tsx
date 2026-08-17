@@ -60,6 +60,7 @@ const MOBILE_NATIVE_PATHS = new Set([
   '/admin/couriers',
   '/admin/manual-shipments',
   '/admin/manual-shipments/create',
+  '/admin/custom-orders',
   '/admin/products/moderation',
   '/admin/products/upload',
   '/admin/more',

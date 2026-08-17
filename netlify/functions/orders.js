@@ -186,6 +186,29 @@ export async function handler(event) {
 
       const payload = JSON.parse(event.body || '{}');
 
+      // Validate up front — these columns are NOT NULL with no default, so
+      // an omitted field previously reached Postgres as a raw, unhandled
+      // constraint violation (500, leaking internal schema details) instead
+      // of a clean error. Mirrors create-order.js's validation.
+      const missing = [];
+      if (!String(payload.customer_name || '').trim()) missing.push('customer_name');
+      if (!String(payload.customer_email || '').trim()) missing.push('customer_email');
+      if (!String(payload.customer_phone || '').trim()) missing.push('customer_phone');
+      if (!String(payload.delivery_address || '').trim()) missing.push('delivery_address');
+      if (!String(payload.delivery_city || '').trim()) missing.push('delivery_city');
+      if (!String(payload.delivery_state || '').trim()) missing.push('delivery_state');
+      if (!String(payload.delivery_zone || '').trim()) missing.push('delivery_zone');
+      if (!Number.isFinite(Number(payload.subtotal))) missing.push('subtotal');
+      if (!Number.isFinite(Number(payload.total_amount))) missing.push('total_amount');
+      if (!Number.isFinite(Number(payload.shipping_fee_paid))) missing.push('shipping_fee_paid');
+      if (missing.length > 0) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ success: false, error: `Missing required fields: ${missing.join(', ')}` })
+        };
+      }
+
       const orderInsert = {
         woocommerce_order_id: payload.woocommerce_order_id,
         customer_name: payload.customer_name,

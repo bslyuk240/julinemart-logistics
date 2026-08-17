@@ -5,6 +5,7 @@ import SignUp from './pages/SignUp';
 import Apply from './pages/Apply';
 import Home from './pages/Home';
 import ActiveDelivery from './pages/ActiveDelivery';
+import Earnings from './pages/Earnings';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -37,6 +38,14 @@ function AppRoutes() {
         element={
           <PrivateRoute>
             <ActiveDelivery />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/earnings"
+        element={
+          <PrivateRoute>
+            <Earnings />
           </PrivateRoute>
         }
       />

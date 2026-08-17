@@ -72,6 +72,7 @@ export const navigationSections: NavSection[] = [
       { name: 'Manual Shipments', href: '/admin/manual-shipments', icon: Send, roles: ['admin', 'agent', 'manager', 'viewer'] },
       { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent', 'manager', 'viewer'] },
       { name: 'Rider Verifications', href: '/admin/rider-verifications', icon: Bike, roles: ['admin', 'manager'] },
+      { name: 'Rider Roster', href: '/admin/rider-roster', icon: MapPin, roles: ['admin', 'manager'] },
       { name: 'Live Support', href: '/admin/support', icon: Headphones, roles: ['admin', 'agent', 'manager', 'viewer'] },
       { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent', 'manager', 'viewer'] },
     ],

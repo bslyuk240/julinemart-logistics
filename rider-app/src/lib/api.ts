@@ -75,6 +75,21 @@ export type JobsResponse = {
   online: boolean;
 };
 
+export type EarningsDelivery = {
+  id: string;
+  tracking_number: string | null;
+  order_number: string | null;
+  fee: number;
+  delivered_at: string;
+};
+
+export type EarningsResponse = {
+  weekly_total: number;
+  delivery_count: number;
+  breakdown: EarningsDelivery[];
+  sparkline: { date: string; amount: number }[];
+};
+
 export const api = {
   ping: () => request<{ rider_id: string; status: string }>(`rider-ping?device_id=${encodeURIComponent(getDeviceId())}`),
   register: (payload: RiderApplicationPayload) =>
@@ -98,4 +113,5 @@ export const api = {
     request<void>('rider-selfie-checkin', { method: 'POST', body: JSON.stringify({ selfie_url }) }),
   pingLocation: (lat: number, lng: number, accuracy?: number) =>
     request<void>('rider-location-ping', { method: 'POST', body: JSON.stringify({ lat, lng, accuracy }) }),
+  getEarnings: () => request<EarningsResponse>('rider-earnings'),
 };

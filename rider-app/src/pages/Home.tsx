@@ -149,17 +149,22 @@ function RiderHome() {
           </button>
         </div>
 
-        <div className="mt-5 rounded-2xl border border-gray-200 p-4 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => navigate('/earnings')}
+          className="mt-5 w-full rounded-2xl border border-gray-200 p-4 flex items-center gap-3 text-left active:bg-gray-50"
+        >
           <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center shrink-0">
             <Wallet className="w-5 h-5 text-primary-600" />
           </div>
-          <div>
+          <div className="flex-1">
             <p className="text-xs text-gray-500">Today</p>
             <p className="text-base font-bold text-gray-900">
               {formatNaira(today.earnings)} <span className="font-normal text-gray-400">· {today.count} {today.count === 1 ? 'delivery' : 'deliveries'}</span>
             </p>
           </div>
-        </div>
+          <span className="text-xs font-semibold text-primary-600">View earnings</span>
+        </button>
       </div>
 
       <div className="px-6 pt-6 space-y-4">

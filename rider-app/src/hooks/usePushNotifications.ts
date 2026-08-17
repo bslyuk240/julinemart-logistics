@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { api } from '../lib/api';
 
 const JLO_BASE = ((import.meta.env.VITE_JLO_API_URL as string) || '').replace(/\/$/, '');
 const SW_PATH = '/rider-messaging-sw.js';
 const CONFIG_URL = `${JLO_BASE}/.netlify/functions/vendor-firebase-config`;
-const REGISTER_URL = `${JLO_BASE}/.netlify/functions/rider-register-push`;
 const TOKEN_KEY = 'jlr_fcm_token';
 
 type PermissionState = NotificationPermission | 'unsupported';
@@ -24,7 +24,7 @@ export function usePushNotifications(riderId: string | null) {
     if (permission !== 'granted') return;
 
     initialised.current = true;
-    initPush(riderId).catch((err) => console.warn('[push] init failed:', err?.message ?? err));
+    initPush().catch((err) => console.warn('[push] init failed:', err?.message ?? err));
   }, [riderId, permission]);
 
   const requestPermission = useCallback(async () => {
@@ -33,7 +33,7 @@ export function usePushNotifications(riderId: string | null) {
     setPermission(result);
     if (result === 'granted' && riderId && !initialised.current) {
       initialised.current = true;
-      await initPush(riderId).catch((err) => console.warn('[push] init failed:', err?.message ?? err));
+      await initPush().catch((err) => console.warn('[push] init failed:', err?.message ?? err));
     }
     return result;
   }, [riderId]);
@@ -41,7 +41,7 @@ export function usePushNotifications(riderId: string | null) {
   return { permission, requestPermission };
 }
 
-async function initPush(riderId: string) {
+async function initPush() {
   if (!('serviceWorker' in navigator)) return;
 
   const registration = await navigator.serviceWorker.register(SW_PATH, { scope: '/' });
@@ -73,11 +73,7 @@ async function initPush(riderId: string) {
   const cached = localStorage.getItem(TOKEN_KEY);
   if (cached === fcmToken) return;
 
-  await fetch(REGISTER_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rider_id: riderId, fcm_token: fcmToken }),
-  });
+  await api.registerPushToken(fcmToken);
 
   localStorage.setItem(TOKEN_KEY, fcmToken);
 

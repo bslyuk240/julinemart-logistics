@@ -132,4 +132,6 @@ export const api = {
     request<void>('rider-location-ping', { method: 'POST', body: JSON.stringify({ lat, lng, accuracy }) }),
   getEarnings: () => request<EarningsResponse>('rider-earnings'),
   getProfile: () => request<RiderProfile>('rider-profile'),
+  registerPushToken: (fcm_token: string) =>
+    request<{ success: boolean }>('rider-register-push', { method: 'POST', body: JSON.stringify({ fcm_token }) }),
 };

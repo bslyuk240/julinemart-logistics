@@ -8,7 +8,7 @@ const SUPABASE_FUNCTIONS_BASE =
 function normalizeBase(base: string) {
   return base.replace(/\/$/, "");
 }
-async function getAuthHeaders() {
+export async function getAuthHeaders() {
   const { data: { session } } = await supabase.auth.getSession();
   const headers: Record<string, string> = {
     'apikey': SUPABASE_ANON_KEY,

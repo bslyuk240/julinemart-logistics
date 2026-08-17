@@ -83,6 +83,36 @@ const getOrderIdFromPath = (pathname: string) => {
   return segments.length > ordersIndex + 1 ? segments[ordersIndex + 1] : undefined;
 };
 
+// Every real caller (Orders.tsx desktop/mobile, Home.tsx mobile,
+// DashboardHome.tsx) is a staff-only dashboard page that already sends a
+// Bearer token via callSupabaseFunctionWithQuery — this function just never
+// checked it. verify_jwt is on for this function at the platform level, so
+// a request without ANY valid Supabase session is already rejected before
+// this code runs; this closes the remaining gap, where any signed-up
+// customer's own valid JWT was still enough to read every order.
+async function requireStaff(req: Request, supabase: any) {
+  const authHeader = req.headers.get("Authorization") || "";
+  const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (!token) return { ok: false, status: 401, error: "unauthorized" };
+
+  const { data: userData, error: authError } = await supabase.auth.getUser(token);
+  if (authError || !userData?.user) {
+    return { ok: false, status: 401, error: "unauthorized" };
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("users")
+    .select("role, is_active")
+    .eq("id", userData.user.id)
+    .single();
+
+  if (profileError || !profile?.is_active || !["admin", "agent"].includes(profile.role)) {
+    return { ok: false, status: 403, error: "forbidden" };
+  }
+
+  return { ok: true };
+}
+
 const getEventTimestamp = (event: any) => {
   const timestamp = event?.event_time ?? event?.created_at;
   return timestamp ? new Date(timestamp).getTime() : 0;
@@ -130,6 +160,14 @@ serve(async (req: Request) => {
     const orderId = getOrderIdFromPath(url.pathname);
 
     if (req.method === "GET") {
+      const auth = await requireStaff(req, supabase);
+      if (!auth.ok) {
+        return new Response(
+          JSON.stringify({ success: false, error: auth.error }),
+          { status: auth.status, headers }
+        );
+      }
+
       if (orderId) {
         const { data, error } = await supabase
           .from("orders")

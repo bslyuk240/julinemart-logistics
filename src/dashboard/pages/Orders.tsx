@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Package, Plus, Search, Download, Eye } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
-import { callSupabaseFunctionWithQuery } from '../../lib/supabaseFunctions';
+import { callSupabaseFunctionWithQuery, getAuthHeaders } from '../../lib/supabaseFunctions';
 
 interface Order {
   id: string;
@@ -92,6 +92,7 @@ export function OrdersPage() {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
+          ...(await getAuthHeaders()),
         },
       });
 

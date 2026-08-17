@@ -1,6 +1,7 @@
 // Netlify Function: /api/orders and /api/orders/:id
 import { createClient } from '@supabase/supabase-js';
 import { loadApprovedLocations, resolveApprovedLocation } from './services/locationResolver.js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -13,6 +14,13 @@ const headers = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
 };
+
+// List/create/update/delete are staff-only, matching this project's local
+// dev Express server (src/api/index.ts's requireRole('admin', 'agent')) and
+// the dashboard's own documented API reference (settingsDeveloperContent.ts)
+// — the Netlify function running in production was the only place that
+// check was never actually implemented.
+const STAFF_ROLES = ['admin', 'agent'];
 
 // =========================================================
 // HELPER – Fetch order with all nested relationships
@@ -111,6 +119,27 @@ export async function handler(event) {
 
       if (error) throw error;
 
+      // Two ways in: staff (Bearer token), or the customer who placed the
+      // order (proves it by passing the email on the order) -- the customer
+      // PWA's order-detail page uses the latter. Anyone else gets the same
+      // 404 as a nonexistent order, not a 401/403, so this can't be used to
+      // probe which order ids exist.
+      const url = new URL(event.rawUrl);
+      const requestedEmail = (url.searchParams.get('email') || '').trim().toLowerCase();
+      const orderEmail = (data?.customer_email || '').trim().toLowerCase();
+      const emailMatches = Boolean(requestedEmail) && requestedEmail === orderEmail;
+
+      if (!emailMatches) {
+        const auth = await requireAdmin(event, STAFF_ROLES);
+        if (auth.errorResponse) {
+          return {
+            statusCode: 404,
+            headers,
+            body: JSON.stringify({ success: false, error: 'Order not found' })
+          };
+        }
+      }
+
       return {
         statusCode: 200,
         headers,
@@ -119,9 +148,12 @@ export async function handler(event) {
     }
 
     // =====================================================
-    // GET /api/orders — list orders
+    // GET /api/orders — list orders (staff only)
     // =====================================================
     if (event.httpMethod === 'GET') {
+      const auth = await requireAdmin(event, STAFF_ROLES);
+      if (auth.errorResponse) return auth.errorResponse;
+
       const url = new URL(event.rawUrl);
       const limit = Number(url.searchParams.get('limit') || 50);
       const offset = Number(url.searchParams.get('offset') || 0);
@@ -146,9 +178,12 @@ export async function handler(event) {
     }
 
     // =====================================================
-    // POST /api/orders — create WC → JLO order
+    // POST /api/orders — create WC → JLO order (staff only)
     // =====================================================
     if (event.httpMethod === 'POST') {
+      const auth = await requireAdmin(event, STAFF_ROLES);
+      if (auth.errorResponse) return auth.errorResponse;
+
       const payload = JSON.parse(event.body || '{}');
 
       const orderInsert = {
@@ -315,9 +350,12 @@ export async function handler(event) {
     }
 
     // =====================================================
-    // PUT /api/orders/:id/status — update status
+    // PUT /api/orders/:id/status — update status (staff only)
     // =====================================================
     if (event.httpMethod === 'PUT' && id && tail === 'status') {
+      const auth = await requireAdmin(event, STAFF_ROLES);
+      if (auth.errorResponse) return auth.errorResponse;
+
       const payload = JSON.parse(event.body || '{}');
       const updateData = {};
 
@@ -350,9 +388,12 @@ export async function handler(event) {
     }
 
     // =====================================================
-    // DELETE order + suborders + tracking events
+    // DELETE order + suborders + tracking events (staff only)
     // =====================================================
     if (event.httpMethod === 'DELETE' && id) {
+      const auth = await requireAdmin(event, STAFF_ROLES);
+      if (auth.errorResponse) return auth.errorResponse;
+
       const { data: subOrders, error: subOrdersError } = await supabase
         .from('sub_orders')
         .select('id')

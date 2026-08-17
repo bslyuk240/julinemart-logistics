@@ -4,6 +4,7 @@ import { Camera, Check, MapPin, Package, Phone, RefreshCw } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api, Job } from '../lib/api';
 import { uploadRiderDocument } from '../lib/storage';
+import { Scanner } from '../components/Scanner';
 
 const STEPS: { status: Job['status']; label: string }[] = [
   { status: 'assigned', label: 'Accepted' },
@@ -37,6 +38,7 @@ export default function ActiveDelivery() {
   const [error, setError] = useState<string | null>(null);
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [uploadingProof, setUploadingProof] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -86,6 +88,14 @@ export default function ActiveDelivery() {
     const targetStatus = NEXT_STATUS[job.status];
     if (!targetStatus) return;
 
+    // Pickup is confirmed by scanning the package's label, not a plain tap —
+    // see handleScanDetect for the actual advance call.
+    if (targetStatus === 'picked_up') {
+      setError(null);
+      setShowScanner(true);
+      return;
+    }
+
     if (targetStatus === 'delivered' && !proofFile) {
       fileInputRef.current?.click();
       return;
@@ -100,7 +110,7 @@ export default function ActiveDelivery() {
         proofUrl = await uploadRiderDocument(user.id, proofFile, 'delivery_proof');
         setUploadingProof(false);
       }
-      await api.advanceJob(job.id, targetStatus, proofUrl);
+      await api.advanceJob(job.id, targetStatus, { delivery_proof_url: proofUrl });
       if (targetStatus === 'delivered') {
         navigate('/', { replace: true });
       } else {
@@ -111,6 +121,21 @@ export default function ActiveDelivery() {
     } finally {
       setAdvancing(false);
       setUploadingProof(false);
+    }
+  };
+
+  const handleScanDetect = async (code: string) => {
+    if (!job) return;
+    setShowScanner(false);
+    setAdvancing(true);
+    setError(null);
+    try {
+      await api.advanceJob(job.id, 'picked_up', { scanned_code: code });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not confirm pickup');
+    } finally {
+      setAdvancing(false);
     }
   };
 
@@ -234,6 +259,15 @@ export default function ActiveDelivery() {
           {advancing ? (uploadingProof ? 'Uploading photo…' : 'Saving…') : ACTION_LABEL[job.status] || 'Done'}
         </button>
       </div>
+
+      {showScanner && (
+        <Scanner
+          title="Scan to confirm pickup"
+          hint="Point the camera at the QR code on this package's label"
+          onDetect={handleScanDetect}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
     </div>
   );
 }

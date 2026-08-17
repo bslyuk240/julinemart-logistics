@@ -8,6 +8,7 @@ import {
   sendPushToCustomer,
 } from './services/pushNotifications.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
+import { normalizeScanCode } from './services/scanLookup.js';
 
 // picked up -> en route (out_for_delivery) -> delivered. Matches the
 // existing local-rider status set used by local-status.js — riders never
@@ -180,7 +181,7 @@ async function handleGet(rider, adminClient) {
 async function loadOwnedShipment(adminClient, riderId, shipmentId) {
   const { data: shipment, error } = await adminClient
     .from('shipments')
-    .select('id, source_type, sub_order_id, manual_shipment_id, assigned_rider_id, status, metadata')
+    .select('id, source_type, sub_order_id, manual_shipment_id, assigned_rider_id, status, metadata, tracking_number, waybill_number')
     .eq('id', shipmentId)
     .maybeSingle();
 
@@ -286,6 +287,27 @@ async function handlePost(rider, adminClient, body) {
     }
     if (targetStatus === 'delivered' && !body.delivery_proof_url) {
       return jsonResponse(400, { success: false, error: 'A delivery photo is required to confirm delivery' });
+    }
+
+    // Pickup requires scanning the package's own printed label — a chain-
+    // of-custody check that the rider actually has the right package in
+    // hand, not just a status tap. Every dispatched package gets a label
+    // (see generate-label.js), so this can be a hard gate rather than a
+    // best-effort nudge.
+    if (targetStatus === 'picked_up') {
+      const scanned = normalizeScanCode(body.scanned_code);
+      if (!scanned) {
+        return jsonResponse(400, { success: false, error: 'Scan the label on this package to confirm pickup' });
+      }
+      const expected = [shipment.tracking_number, shipment.waybill_number]
+        .map((v) => normalizeScanCode(v))
+        .filter(Boolean);
+      if (!expected.some((code) => code.toUpperCase() === scanned.toUpperCase())) {
+        return jsonResponse(400, {
+          success: false,
+          error: "That code doesn't match this delivery — scan the label on this specific package.",
+        });
+      }
     }
 
     const timestampColumn = { picked_up: 'picked_up_at', out_for_delivery: 'out_for_delivery_at', delivered: 'delivered_at' }[targetStatus];

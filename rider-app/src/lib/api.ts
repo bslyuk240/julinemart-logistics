@@ -104,10 +104,10 @@ export const api = {
     request<{ accepted: boolean }>('rider-jobs', { method: 'POST', body: JSON.stringify({ shipment_id, action: 'accept' }) }),
   declineJob: (shipment_id: string) =>
     request<{ declined: boolean }>('rider-jobs', { method: 'POST', body: JSON.stringify({ shipment_id, action: 'decline' }) }),
-  advanceJob: (shipment_id: string, target_status: string, delivery_proof_url?: string) =>
+  advanceJob: (shipment_id: string, target_status: string, opts: { delivery_proof_url?: string; scanned_code?: string } = {}) =>
     request<{ status: string }>('rider-jobs', {
       method: 'POST',
-      body: JSON.stringify({ shipment_id, action: 'advance', target_status, delivery_proof_url }),
+      body: JSON.stringify({ shipment_id, action: 'advance', target_status, ...opts }),
     }),
   setOnline: (online: boolean) =>
     request<{ online: boolean }>('rider-online', { method: 'POST', body: JSON.stringify({ online }) }),

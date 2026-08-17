@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Package, RefreshCw } from 'lucide-react';
 import { api, EarningsResponse } from '../lib/api';
+import { BottomNav } from '../components/BottomNav';
 
 function formatNaira(amount: number) {
   return `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 0 })}`;
@@ -64,7 +65,7 @@ export default function Earnings() {
   }, []);
 
   return (
-    <div className="min-h-screen pb-10">
+    <div className="min-h-screen pb-24">
       <div className="px-6 pt-8 pb-6 bg-white border-b border-gray-100">
         <button type="button" onClick={() => navigate('/')} className="inline-flex items-center gap-1.5 text-sm text-gray-500 mb-4">
           <ArrowLeft className="w-4 h-4" /> Home
@@ -127,6 +128,8 @@ export default function Earnings() {
           </>
         ) : null}
       </div>
+
+      <BottomNav />
     </div>
   );
 }

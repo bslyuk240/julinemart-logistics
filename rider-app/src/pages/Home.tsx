@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { api, Job } from '../lib/api';
 import { uploadRiderDocument } from '../lib/storage';
+import { BottomNav } from '../components/BottomNav';
 
 function formatNaira(amount: number) {
   return `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 0 })}`;
@@ -129,7 +130,7 @@ function RiderHome() {
   };
 
   return (
-    <div className="min-h-screen pb-10">
+    <div className="min-h-screen pb-24">
       <div className="px-6 pt-8 pb-6 bg-white border-b border-gray-100">
         <div className="flex items-start justify-between">
           <div>
@@ -286,6 +287,8 @@ function RiderHome() {
           </div>
         </div>
       )}
+
+      <BottomNav />
     </div>
   );
 }

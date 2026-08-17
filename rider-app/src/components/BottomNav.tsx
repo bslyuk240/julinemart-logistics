@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom';
-import { Home, Wallet } from 'lucide-react';
+import { Home, User, Wallet } from 'lucide-react';
 
 const TABS = [
   { to: '/', label: 'Home', icon: Home, end: true },
   { to: '/earnings', label: 'Earnings', icon: Wallet, end: false },
+  { to: '/profile', label: 'Profile', icon: User, end: false },
 ];
 
 export function BottomNav() {

@@ -37,7 +37,7 @@ export default function Home() {
 }
 
 function RiderHome() {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
 
   const [online, setOnlineState] = useState(false);
@@ -235,12 +235,6 @@ function RiderHome() {
               </div>
             </div>
           ))}
-      </div>
-
-      <div className="px-6 mt-10">
-        <button onClick={signOut} className="btn-secondary">
-          Sign out
-        </button>
       </div>
 
       {showSelfiePrompt && (

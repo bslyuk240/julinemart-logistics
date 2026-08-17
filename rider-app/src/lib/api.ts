@@ -90,6 +90,21 @@ export type EarningsResponse = {
   sparkline: { date: string; amount: number }[];
 };
 
+export type RiderProfile = {
+  full_name: string;
+  email: string;
+  phone: string;
+  vehicle_type: string;
+  vehicle_plate: string;
+  guarantor_name: string;
+  guarantor_phone: string;
+  status: string;
+  selfie_url: string | null;
+  selfie_captured_at: string | null;
+  member_since: string;
+  town: string | null;
+};
+
 export const api = {
   ping: () => request<{ rider_id: string; status: string }>(`rider-ping?device_id=${encodeURIComponent(getDeviceId())}`),
   register: (payload: RiderApplicationPayload) =>
@@ -116,4 +131,5 @@ export const api = {
   pingLocation: (lat: number, lng: number, accuracy?: number) =>
     request<void>('rider-location-ping', { method: 'POST', body: JSON.stringify({ lat, lng, accuracy }) }),
   getEarnings: () => request<EarningsResponse>('rider-earnings'),
+  getProfile: () => request<RiderProfile>('rider-profile'),
 };

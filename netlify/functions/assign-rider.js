@@ -7,6 +7,7 @@ import {
   sendPushToCustomer,
 } from './services/pushNotifications.js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
+import { syncShipmentBestEffort } from './services/shipmentSync.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -202,6 +203,25 @@ exports.handler = async (event) => {
         body: JSON.stringify({ success: false, error: error.message }),
       };
     }
+
+    await syncShipmentBestEffort(
+      supabase,
+      {
+        subOrderId: sub_order_id,
+        fields: {
+          courier_id: localCourier.id,
+          assigned_rider_id: rider.id,
+          status: 'assigned',
+          tracking_number: updatedSubOrder.tracking_number,
+          waybill_number: updatedSubOrder.waybill_number,
+          delivery_person_name: rider_name,
+          delivery_person_phone: rider_phone,
+          delivery_person_vehicle: rider_vehicle || null,
+          metadata: updatedSubOrder.metadata,
+        },
+      },
+      'assign-rider'
+    );
 
     const riderDescription = `Assigned to local rider: ${rider_name} (${rider_phone})${
       rider_vehicle ? ` - ${rider_vehicle}` : ''

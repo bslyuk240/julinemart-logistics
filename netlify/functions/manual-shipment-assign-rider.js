@@ -8,6 +8,7 @@ import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { notifyManualShipmentRiderAssigned } from './services/manualShipmentNotify.js';
 import { insertTrackingEvent } from './services/fezTracking.js';
 import { sendPushToCustomer } from './services/pushNotifications.js';
+import { syncShipmentBestEffort } from './services/shipmentSync.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -149,6 +150,25 @@ exports.handler = async (event) => {
       console.error('Update manual_shipment error:', error);
       return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: error.message }) };
     }
+
+    await syncShipmentBestEffort(
+      supabase,
+      {
+        manualShipmentId: shipment_id,
+        fields: {
+          courier_id: localCourier.id,
+          assigned_rider_id: rider.id,
+          status: 'assigned',
+          tracking_number: updatedShipment.tracking_number,
+          waybill_number: updatedShipment.waybill_number,
+          delivery_person_name: rider_name,
+          delivery_person_phone: rider_phone,
+          delivery_person_vehicle: rider_vehicle || null,
+          metadata: updatedShipment.metadata,
+        },
+      },
+      'manual-shipment-assign-rider'
+    );
 
     const riderPushResult = await sendPushToCustomer(rider.id, {
       title: 'New delivery assigned',

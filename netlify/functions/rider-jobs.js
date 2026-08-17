@@ -7,6 +7,7 @@ import {
   extractOrderReference,
   sendPushToCustomer,
 } from './services/pushNotifications.js';
+import { syncShipmentBestEffort } from './services/shipmentSync.js';
 
 // picked up -> en route (out_for_delivery) -> delivered. Matches the
 // existing local-rider status set used by local-status.js — riders never
@@ -156,11 +157,18 @@ async function handlePost(rider, adminClient, body) {
     if (subOrder.status !== 'assigned' || isAccepted(subOrder.metadata)) {
       return jsonResponse(409, { success: false, error: 'Job is not awaiting acceptance' });
     }
+    const acceptedMetadata = { ...existingMetadata, rider_accepted_at: new Date().toISOString() };
     const { error } = await adminClient
       .from('sub_orders')
-      .update({ metadata: { ...existingMetadata, rider_accepted_at: new Date().toISOString() } })
+      .update({ metadata: acceptedMetadata })
       .eq('id', sub_order_id);
     if (error) return jsonResponse(500, { success: false, error: error.message });
+
+    await syncShipmentBestEffort(
+      adminClient,
+      { subOrderId: sub_order_id, fields: { metadata: acceptedMetadata } },
+      'rider-jobs accept'
+    );
 
     await adminClient.from('tracking_events').insert({
       sub_order_id,
@@ -178,14 +186,18 @@ async function handlePost(rider, adminClient, body) {
       return jsonResponse(409, { success: false, error: 'Cannot decline a job you already accepted' });
     }
     const declineLog = Array.isArray(existingMetadata.declined_by) ? existingMetadata.declined_by : [];
+    const declinedMetadata = { ...existingMetadata, declined_by: [...declineLog, { rider_id: rider.id, at: new Date().toISOString() }] };
     const { error } = await adminClient
       .from('sub_orders')
-      .update({
-        assigned_rider_id: null,
-        metadata: { ...existingMetadata, declined_by: [...declineLog, { rider_id: rider.id, at: new Date().toISOString() }] },
-      })
+      .update({ assigned_rider_id: null, metadata: declinedMetadata })
       .eq('id', sub_order_id);
     if (error) return jsonResponse(500, { success: false, error: error.message });
+
+    await syncShipmentBestEffort(
+      adminClient,
+      { subOrderId: sub_order_id, fields: { assigned_rider_id: null, metadata: declinedMetadata } },
+      'rider-jobs decline'
+    );
 
     await adminClient.from('tracking_events').insert({
       sub_order_id,
@@ -216,6 +228,12 @@ async function handlePost(rider, adminClient, body) {
 
     const { error } = await adminClient.from('sub_orders').update(update).eq('id', sub_order_id);
     if (error) return jsonResponse(500, { success: false, error: error.message });
+
+    await syncShipmentBestEffort(
+      adminClient,
+      { subOrderId: sub_order_id, fields: { status: targetStatus, [timestampColumn]: update[timestampColumn], ...(update.delivery_proof_url ? { delivery_proof_url: update.delivery_proof_url } : {}) } },
+      'rider-jobs advance'
+    );
 
     const description = {
       picked_up: `${rider.full_name} picked up the package`,

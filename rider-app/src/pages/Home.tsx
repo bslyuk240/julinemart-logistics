@@ -3,17 +3,21 @@ import { useNavigate } from 'react-router-dom';
 import { Camera, Clock, MapPin, Package, Power, RefreshCw, Wallet, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePushNotifications } from '../hooks/usePushNotifications';
+import { useInstallPrompt } from '../hooks/useInstallPrompt';
 import { api, Job } from '../lib/api';
 import { uploadRiderDocument } from '../lib/storage';
 import { BottomNav } from '../components/BottomNav';
+import { InstallPrompt } from '../components/InstallPrompt';
+import { NotificationPrompt } from '../components/NotificationPrompt';
+
+const NOTIFICATION_DISMISS_KEY = 'jlr_notification_dismissed_session';
 
 function formatNaira(amount: number) {
   return `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 0 })}`;
 }
 
 export default function Home() {
-  const { user, riderId, riderActive, signOut } = useAuth();
-  usePushNotifications(riderId);
+  const { user, riderActive, signOut } = useAuth();
 
   if (riderActive === false) {
     return (
@@ -37,7 +41,7 @@ export default function Home() {
 }
 
 function RiderHome() {
-  const { user } = useAuth();
+  const { user, riderId } = useAuth();
   const navigate = useNavigate();
 
   const [online, setOnlineState] = useState(false);
@@ -51,6 +55,24 @@ function RiderHome() {
   const [showSelfiePrompt, setShowSelfiePrompt] = useState(false);
   const [checkingInSelfie, setCheckingInSelfie] = useState(false);
   const selfieInputRef = useRef<HTMLInputElement>(null);
+
+  const install = useInstallPrompt();
+  const { permission: notificationPermission, requestPermission: requestNotificationPermission } =
+    usePushNotifications(riderId);
+  const [notificationDismissedThisSession, setNotificationDismissedThisSession] = useState(
+    () => sessionStorage.getItem(NOTIFICATION_DISMISS_KEY) === '1'
+  );
+  const showInstallPrompt = install.eligible && !showSelfiePrompt;
+  const showNotificationPrompt =
+    !showInstallPrompt &&
+    !showSelfiePrompt &&
+    notificationPermission === 'default' &&
+    !notificationDismissedThisSession;
+
+  const dismissNotificationPrompt = () => {
+    sessionStorage.setItem(NOTIFICATION_DISMISS_KEY, '1');
+    setNotificationDismissedThisSession(true);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -280,6 +302,14 @@ function RiderHome() {
             </div>
           </div>
         </div>
+      )}
+
+      {showInstallPrompt && install.platform && (
+        <InstallPrompt platform={install.platform} onInstall={install.promptInstall} onDismiss={install.dismiss} />
+      )}
+
+      {showNotificationPrompt && (
+        <NotificationPrompt onEnable={requestNotificationPermission} onDismiss={dismissNotificationPrompt} />
       )}
 
       <BottomNav />

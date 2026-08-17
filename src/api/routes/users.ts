@@ -358,8 +358,7 @@ export async function getActivityLogsHandler(req: AuthRequest, res: Response) {
         details,
         ip_address,
         source,
-        created_at,
-        users (email, full_name, role)
+        created_at
       `)
       .order('created_at', { ascending: false })
       .range(Number(offset), Number(offset) + Number(limit) - 1);

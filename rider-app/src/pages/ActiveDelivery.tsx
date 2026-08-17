@@ -55,6 +55,30 @@ export default function ActiveDelivery() {
     load();
   }, [load]);
 
+  // Location is only ever tracked while this screen is mounted, i.e. while
+  // the rider has an accepted, in-progress delivery — never while idle on
+  // Home. The server independently enforces the same rule (rider-location-
+  // ping.js rejects pings with no active assignment), so a stray watcher
+  // here can't leak location data even if this effect misbehaves.
+  const jobId = job?.id;
+  useEffect(() => {
+    if (!jobId || !('geolocation' in navigator)) return;
+
+    let lastPingAt = 0;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const now = Date.now();
+        if (now - lastPingAt < 20000) return;
+        lastPingAt = now;
+        api.pingLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy).catch(() => {});
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [jobId]);
+
   const currentStepIndex = job ? STEPS.findIndex((s) => s.status === job.status) : 0;
 
   const handleAdvance = async () => {

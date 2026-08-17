@@ -85,6 +85,7 @@ const ACTION_LABELS: Record<string, string> = {
   CUSTOM_ORDER_PROOF_SENT: 'Custom order proof sent',
   CUSTOM_ORDER_PROOF_APPROVED: 'Custom order proof approved',
   CUSTOM_ORDER_MESSAGE_SENT: 'Custom order message sent',
+  RIDER_NEW_DEVICE_LOGIN: 'Rider new device login',
 };
 
 const ACTION_COLOR: Record<string, string> = {
@@ -112,6 +113,7 @@ const ACTION_COLOR: Record<string, string> = {
   VOUCHER_DELETED: 'bg-red-50 text-red-700',
   CUSTOMISATION_SCHEMA_SAVED: 'bg-blue-50 text-blue-700',
   CUSTOM_ORDER_PROOF_APPROVED: 'bg-green-50 text-green-700',
+  RIDER_NEW_DEVICE_LOGIN: 'bg-amber-100 text-amber-800',
 };
 
 const ROLE_BADGE: Record<string, string> = {
@@ -143,6 +145,7 @@ const ACTION_FILTERS = [
   { value: 'VOUCHER_CREATED', label: 'Voucher created' },
   { value: 'CUSTOMISATION_SCHEMA_SAVED', label: 'Customisation saved' },
   { value: 'CUSTOM_ORDER_STATUS_UPDATED', label: 'Custom order status' },
+  { value: 'RIDER_NEW_DEVICE_LOGIN', label: 'Rider new device login' },
 ];
 
 const AUTH_ACTIONS = new Set(['LOGIN', 'LOGOUT', 'SIGNUP', 'PASSWORD_RESET_SENT', 'PASSWORD_CHANGED']);

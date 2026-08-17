@@ -4,6 +4,7 @@
  * see netlify/functions/services/requireRider.js in the main JLO repo.
  */
 import { supabase } from './supabase';
+import { getDeviceId } from './device';
 
 const JLO_BASE = ((import.meta.env.VITE_JLO_API_URL as string) || '').replace(/\/$/, '');
 
@@ -75,7 +76,7 @@ export type JobsResponse = {
 };
 
 export const api = {
-  ping: () => request<{ rider_id: string; status: string }>('rider-ping'),
+  ping: () => request<{ rider_id: string; status: string }>(`rider-ping?device_id=${encodeURIComponent(getDeviceId())}`),
   register: (payload: RiderApplicationPayload) =>
     request<{ rider_id: string; status: string }>('rider-register', {
       method: 'POST',
@@ -93,4 +94,8 @@ export const api = {
     }),
   setOnline: (online: boolean) =>
     request<{ online: boolean }>('rider-online', { method: 'POST', body: JSON.stringify({ online }) }),
+  checkinSelfie: (selfie_url: string) =>
+    request<void>('rider-selfie-checkin', { method: 'POST', body: JSON.stringify({ selfie_url }) }),
+  pingLocation: (lat: number, lng: number, accuracy?: number) =>
+    request<void>('rider-location-ping', { method: 'POST', body: JSON.stringify({ lat, lng, accuracy }) }),
 };

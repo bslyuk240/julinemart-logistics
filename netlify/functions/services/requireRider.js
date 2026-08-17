@@ -74,7 +74,7 @@ export async function requireRider(event) {
 
   const { data: rider, error: riderError } = await adminClient
     .from('riders')
-    .select('id, user_id, email, full_name, phone, status, approved_location_id, is_online')
+    .select('id, user_id, email, full_name, phone, status, approved_location_id, is_online, selfie_captured_at, known_device_ids')
     .eq('user_id', authUser.id)
     .maybeSingle();
 

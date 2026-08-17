@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock, MapPin, Package, Power, RefreshCw, Wallet, X } from 'lucide-react';
+import { Camera, Clock, MapPin, Package, Power, RefreshCw, Wallet, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { api, Job } from '../lib/api';
+import { uploadRiderDocument } from '../lib/storage';
 
 function formatNaira(amount: number) {
   return `₦${amount.toLocaleString('en-NG', { maximumFractionDigits: 0 })}`;
@@ -46,6 +47,9 @@ function RiderHome() {
   const [loading, setLoading] = useState(true);
   const [actingOn, setActingOn] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showSelfiePrompt, setShowSelfiePrompt] = useState(false);
+  const [checkingInSelfie, setCheckingInSelfie] = useState(false);
+  const selfieInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -73,14 +77,37 @@ function RiderHome() {
   }, [active, navigate]);
 
   const toggleOnline = async () => {
+    const goingOnline = !online;
     setTogglingOnline(true);
+    setError(null);
     try {
-      const result = await api.setOnline(!online);
+      const result = await api.setOnline(goingOnline);
       setOnlineState(result.online);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not update status');
+      if (goingOnline && err instanceof Error && err.message === 'selfie_stale') {
+        setShowSelfiePrompt(true);
+      } else {
+        setError(err instanceof Error ? err.message : 'Could not update status');
+      }
     } finally {
       setTogglingOnline(false);
+    }
+  };
+
+  const handleSelfieCapture = async (file: File) => {
+    if (!user) return;
+    setCheckingInSelfie(true);
+    setError(null);
+    try {
+      const selfieUrl = await uploadRiderDocument(user.id, file, 'selfie_checkin');
+      await api.checkinSelfie(selfieUrl);
+      setShowSelfiePrompt(false);
+      const result = await api.setOnline(true);
+      setOnlineState(result.online);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not verify selfie');
+    } finally {
+      setCheckingInSelfie(false);
     }
   };
 
@@ -209,6 +236,51 @@ function RiderHome() {
           Sign out
         </button>
       </div>
+
+      {showSelfiePrompt && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 px-6 pb-6 sm:pb-0">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6">
+            <div className="w-12 h-12 rounded-full bg-primary-50 flex items-center justify-center mb-4">
+              <Camera className="w-6 h-6 text-primary-600" />
+            </div>
+            <h3 className="text-base font-bold text-gray-900">Take a fresh selfie</h3>
+            <p className="mt-1 text-sm text-gray-500">
+              For your safety and your customers', we check it's really you before you go online each day.
+            </p>
+
+            <input
+              ref={selfieInputRef}
+              type="file"
+              accept="image/*"
+              capture="user"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleSelfieCapture(file);
+              }}
+            />
+
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowSelfiePrompt(false)}
+                disabled={checkingInSelfie}
+                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 disabled:opacity-50"
+              >
+                Not now
+              </button>
+              <button
+                type="button"
+                onClick={() => selfieInputRef.current?.click()}
+                disabled={checkingInSelfie}
+                className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {checkingInSelfie ? 'Verifying…' : 'Take selfie'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

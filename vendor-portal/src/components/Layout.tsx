@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Package, ShoppingBag, TrendingUp, Star,
-  Wallet, Settings, LogOut, Store, RotateCcw,
+  Wallet, Settings, LogOut, Store, RotateCcw, Megaphone, Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { JulineMartLogo } from './JulineMartLogo';
@@ -11,6 +11,7 @@ const nav = [
   { to: '/',            label: 'Home',      icon: LayoutDashboard },
   { to: '/products',    label: 'Products',  icon: Package },
   { to: '/orders',      label: 'Orders',    icon: ShoppingBag },
+  { to: '/custom-orders', label: 'Custom', icon: Sparkles },
   { to: '/returns',     label: 'Returns',   icon: RotateCcw },
   { to: '/withdrawals', label: 'Withdraw',  icon: Wallet },
   { to: '/settings',    label: 'Settings',  icon: Settings },
@@ -21,7 +22,9 @@ const sidebarNav = [
   { to: '/',            label: 'Dashboard',   icon: LayoutDashboard },
   { to: '/products',    label: 'Products',    icon: Package },
   { to: '/orders',      label: 'Orders',      icon: ShoppingBag },
+  { to: '/custom-orders', label: 'Custom orders', icon: Sparkles },
   { to: '/returns',     label: 'Returns',     icon: RotateCcw },
+  { to: '/campaigns',   label: 'Promotions',  icon: Megaphone },
   { to: '/reviews',     label: 'Reviews',     icon: Star },
   { to: '/earnings',    label: 'Earnings',    icon: TrendingUp },
   { to: '/withdrawals', label: 'Withdrawals', icon: Wallet },

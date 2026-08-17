@@ -1,0 +1,924 @@
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Ban, ChevronRight, Gift, Loader, Package, Pencil, Plus, RotateCcw, Search, Trash2 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
+import { useNotification } from '../../contexts/NotificationContext';
+import { PullToRefresh } from '../PullToRefresh';
+import { Sheet } from '../Sheet';
+import { TABBAR_SPACE, functionsBase } from '../lib/functionsAuth';
+import { formatNaira } from '../lib/displayUtils';
+import { GIFT_OCCASION_TAGS, GIFT_RECIPIENT_TAGS } from '../../lib/giftDiscoveryTags';
+import {
+  filterPoolPickerItems,
+  giftBoxSlugPreview,
+  buildGiftBoxSkuPrefix,
+  normalizePoolPickerItems,
+  normalizeSourcedPickerItems,
+  computeGiftCustomerPrice,
+  catalogDisplayPrice,
+  type PoolPickerProduct,
+  type GiftCommercialSettings,
+} from '../../lib/giftBoxHelpers';
+import GiftBoxImageFields from '../../components/GiftBoxImageFields';
+
+type GiftHub = { id: string; name: string; code: string; is_default: boolean };
+
+type GiftBox = {
+  id: string;
+  slug: string;
+  sku?: string;
+  name: string;
+  description?: string | null;
+  image_url?: string | null;
+  gallery_urls?: string[];
+  list_price: number;
+  active: boolean;
+  sort_order: number;
+  gift_fulfilment_centre_id: string;
+  recipient_types?: string[];
+  occasion_types?: string[];
+};
+
+type BoxItem = {
+  id: string;
+  product_id: string | null;
+  pool_sourced_item_id?: string | null;
+  line_source?: string;
+  quantity: number;
+  component_cost: number | null;
+  products?: { id: string; name: string; sku?: string; regular_price?: number | null; sale_price?: number | null } | null;
+  gift_pool_sourced_items?: { id: string; name: string; sku?: string | null; gift_program_cost?: number } | null;
+};
+
+type PoolProduct = PoolPickerProduct;
+
+const emptyBoxForm = {
+  name: '',
+  slug: '',
+  sku: '',
+  description: '',
+  image_url: '',
+  gallery_urls: [] as string[],
+  list_price: '',
+  sort_order: '0',
+  active: true,
+  occasion_types: [] as string[],
+  recipient_types: [] as string[],
+};
+
+const inputCls =
+  'w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-base text-gray-900 outline-none focus:border-primary-500 focus:bg-white';
+
+function boxItemUnitCost(item: BoxItem): number {
+  if (item.component_cost != null && Number.isFinite(Number(item.component_cost))) {
+    return Number(item.component_cost);
+  }
+  if (item.gift_pool_sourced_items?.gift_program_cost != null) {
+    return Number(item.gift_pool_sourced_items.gift_program_cost);
+  }
+  return catalogDisplayPrice(item.products) || 0;
+}
+
+function boxItemName(item: BoxItem): string {
+  return item.gift_pool_sourced_items?.name || item.products?.name || item.product_id || 'Item';
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <label className="mb-1.5 block text-xs font-medium text-gray-600">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+export default function MobileGiftBoxes() {
+  const { session } = useAuth();
+  const notification = useNotification();
+  const [hubs, setHubs] = useState<GiftHub[]>([]);
+  const [selectedHubId, setSelectedHubId] = useState('');
+  const [boxes, setBoxes] = useState<GiftBox[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedBox, setSelectedBox] = useState<GiftBox | null>(null);
+  const [boxItems, setBoxItems] = useState<BoxItem[]>([]);
+  const [itemsLoading, setItemsLoading] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingBox, setEditingBox] = useState<GiftBox | null>(null);
+  const [boxForm, setBoxForm] = useState(emptyBoxForm);
+  const [saving, setSaving] = useState(false);
+  const [addItemOpen, setAddItemOpen] = useState(false);
+  const [poolSearch, setPoolSearch] = useState('');
+  const [poolCatalog, setPoolCatalog] = useState<PoolProduct[]>([]);
+  const [poolLoading, setPoolLoading] = useState(false);
+  const [showOptionalFields, setShowOptionalFields] = useState(false);
+  const [addQty, setAddQty] = useState('1');
+  const [addCost, setAddCost] = useState('');
+  const [commercial, setCommercial] = useState<GiftCommercialSettings>({
+    packaging_markup: 500,
+    profit_margin_percent: 15,
+    profit_margin_fixed: 0,
+  });
+  const [priceApplyBusy, setPriceApplyBusy] = useState(false);
+  const [skuGenBusy, setSkuGenBusy] = useState(false);
+
+  const authHeaders = useCallback(() => {
+    if (!session?.access_token) return null;
+    return {
+      Authorization: `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    };
+  }, [session?.access_token]);
+
+  const loadHubs = useCallback(async () => {
+    const headers = authHeaders();
+    if (!headers) return;
+    const res = await fetch(`${functionsBase}/admin-gift-fulfilment-centres`, { headers });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Failed to load hubs');
+    const list: GiftHub[] = json.data || [];
+    setHubs(list);
+    if (!selectedHubId && list.length) {
+      const def = list.find((h) => h.is_default) || list[0];
+      setSelectedHubId(def.id);
+    }
+  }, [authHeaders, selectedHubId]);
+
+  const loadBoxes = useCallback(async () => {
+    const headers = authHeaders();
+    if (!headers || !selectedHubId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `${functionsBase}/admin-gift-boxes?gfc_id=${encodeURIComponent(selectedHubId)}`,
+        { headers },
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to load boxes');
+      setBoxes(json.data || []);
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Failed to load boxes');
+    } finally {
+      setLoading(false);
+    }
+  }, [authHeaders, notification, selectedHubId]);
+
+  const loadBoxDetail = useCallback(
+    async (boxId: string) => {
+      const headers = authHeaders();
+      if (!headers) return;
+      setItemsLoading(true);
+      try {
+        const res = await fetch(`${functionsBase}/admin-gift-boxes?id=${encodeURIComponent(boxId)}`, { headers });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed to load box');
+        setBoxItems(json.data?.items || []);
+      } catch (err) {
+        notification.error(err instanceof Error ? err.message : 'Failed to load items');
+      } finally {
+        setItemsLoading(false);
+      }
+    },
+    [authHeaders, notification],
+  );
+
+  useEffect(() => {
+    loadHubs().catch((err) => notification.error(err.message));
+  }, [loadHubs, notification]);
+
+  useEffect(() => {
+    if (selectedHubId) loadBoxes();
+  }, [selectedHubId, loadBoxes]);
+
+  useEffect(() => {
+    if (selectedBox) loadBoxDetail(selectedBox.id);
+    else setBoxItems([]);
+  }, [selectedBox, loadBoxDetail]);
+
+  const loadPoolCatalog = useCallback(async () => {
+    const headers = authHeaders();
+    if (!headers || !selectedHubId) return;
+    setPoolLoading(true);
+    try {
+      const [poolRes, sourcedRes, commercialRes] = await Promise.all([
+        fetch(`${functionsBase}/admin-gift-pool?gfc_id=${encodeURIComponent(selectedHubId)}`, { headers }),
+        fetch(`${functionsBase}/admin-gift-pool-sourced?gfc_id=${encodeURIComponent(selectedHubId)}`, { headers }),
+        fetch(`${functionsBase}/admin-gift-commercial-settings?gfc_id=${encodeURIComponent(selectedHubId)}`, { headers }),
+      ]);
+      const poolJson = await poolRes.json();
+      if (!poolRes.ok) throw new Error(poolJson.error || 'Failed to load pool');
+      const sourcedJson = sourcedRes.ok ? await sourcedRes.json() : { data: [] };
+      const commercialJson = commercialRes.ok ? await commercialRes.json() : { data: null };
+      setPoolCatalog([
+        ...normalizePoolPickerItems(poolJson.data || []),
+        ...normalizeSourcedPickerItems(sourcedJson.data || []),
+      ]);
+      if (commercialJson.data) {
+        setCommercial({
+          packaging_markup: Number(commercialJson.data.packaging_markup ?? 500),
+          profit_margin_percent: Number(commercialJson.data.profit_margin_percent ?? 15),
+          profit_margin_fixed: Number(commercialJson.data.profit_margin_fixed ?? 0),
+        });
+      }
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Failed to load pool');
+      setPoolCatalog([]);
+    } finally {
+      setPoolLoading(false);
+    }
+  }, [authHeaders, notification, selectedHubId]);
+
+  useEffect(() => {
+    if (selectedHubId) loadPoolCatalog();
+  }, [selectedHubId, loadPoolCatalog]);
+
+  useEffect(() => {
+    if (addItemOpen) loadPoolCatalog();
+  }, [addItemOpen, loadPoolCatalog]);
+
+  const boxPickerKeys = useMemo(
+    () =>
+      boxItems
+        .map((i) => i.pool_sourced_item_id || i.product_id)
+        .filter((id): id is string => Boolean(id)),
+    [boxItems],
+  );
+
+  const poolResults = useMemo(
+    () => filterPoolPickerItems(poolCatalog, poolSearch, boxPickerKeys),
+    [poolCatalog, poolSearch, boxPickerKeys],
+  );
+
+  const slugPreview = giftBoxSlugPreview(boxForm.name);
+  const skuPrefixPreview = buildGiftBoxSkuPrefix(boxForm.occasion_types, boxForm.recipient_types);
+
+  const handleGenerateBoxSku = async () => {
+    const headers = authHeaders();
+    if (!headers) return;
+    setSkuGenBusy(true);
+    try {
+      const prefix = buildGiftBoxSkuPrefix(boxForm.occasion_types, boxForm.recipient_types);
+      const extra = boxForm.sku.trim() ? [boxForm.sku.trim()] : [];
+      const res = await fetch(`${functionsBase}/product-sku-next`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ prefix, extra_skus: extra }),
+      });
+      const raw = await res.text();
+      let json: { success?: boolean; error?: string; data?: { next_sku?: string } };
+      try {
+        json = JSON.parse(raw);
+      } catch {
+        throw new Error(raw.slice(0, 120) || 'Could not generate SKU');
+      }
+      if (!res.ok || !json.success) throw new Error(json.error || 'Could not generate SKU');
+      const nextSku = json.data?.next_sku;
+      if (!nextSku) throw new Error('Server did not return a SKU');
+      setBoxForm({ ...boxForm, sku: nextSku });
+    } catch (err) {
+      notification.error('Generate SKU', err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setSkuGenBusy(false);
+    }
+  };
+
+  const refresh = async () => {
+    await loadHubs();
+    await loadBoxes();
+    if (selectedBox) await loadBoxDetail(selectedBox.id);
+  };
+
+  const openCreate = () => {
+    setEditingBox(null);
+    setBoxForm(emptyBoxForm);
+    setShowOptionalFields(false);
+    setFormOpen(true);
+  };
+
+  const openEdit = (box: GiftBox) => {
+    setEditingBox(box);
+    setBoxForm({
+      name: box.name,
+      slug: box.slug,
+      sku: box.sku || '',
+      description: box.description || '',
+      image_url: box.image_url || '',
+      gallery_urls: box.gallery_urls || [],
+      list_price: String(box.list_price),
+      sort_order: String(box.sort_order),
+      active: box.active,
+      occasion_types: box.occasion_types || [],
+      recipient_types: box.recipient_types || [],
+    });
+    setFormOpen(true);
+    setSelectedBox(null);
+  };
+
+  const saveBox = async () => {
+    const headers = authHeaders();
+    if (!headers || !selectedHubId) return;
+    if (!boxForm.name.trim()) {
+      notification.error('Box name is required');
+      return;
+    }
+    if (!boxForm.list_price || Number(boxForm.list_price) < 0) {
+      notification.error('List price is required');
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        ...boxForm,
+        slug: editingBox ? boxForm.slug : slugPreview,
+        sku: boxForm.sku.trim() ? boxForm.sku.trim().toUpperCase() : undefined,
+        list_price: Number(boxForm.list_price),
+        sort_order: Number(boxForm.sort_order) || 0,
+        gift_fulfilment_centre_id: selectedHubId,
+      };
+      const url = editingBox
+        ? `${functionsBase}/admin-gift-boxes?id=${editingBox.id}`
+        : `${functionsBase}/admin-gift-boxes`;
+      const res = await fetch(url, {
+        method: editingBox ? 'PUT' : 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Save failed');
+      notification.success(editingBox ? 'Box updated' : 'Box created');
+      setFormOpen(false);
+      setEditingBox(null);
+      await loadBoxes();
+      if (json.data?.id) {
+        const created = (json.data as GiftBox) || boxes.find((b) => b.id === json.data.id);
+        if (created) setSelectedBox(created);
+      }
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addItem = async (product: PoolProduct) => {
+    const headers = authHeaders();
+    if (!headers || !selectedBox) return;
+    const qty = Math.max(1, Number(addQty) || 1);
+    const cost =
+      addCost !== ''
+        ? Number(addCost)
+        : product.gift_program_cost != null
+          ? Number(product.gift_program_cost)
+          : null;
+    const isSourced = product.line_source === 'jlo_sourced';
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-boxes`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          action: 'add_item',
+          gift_box_id: selectedBox.id,
+          product_id: isSourced ? undefined : product.id,
+          pool_sourced_item_id: isSourced ? product.id : undefined,
+          quantity: qty,
+          component_cost: cost,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Add failed');
+      notification.success(`Added ${product.name}`);
+      await loadBoxDetail(selectedBox.id);
+      setAddItemOpen(false);
+      setPoolSearch('');
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Add failed');
+    }
+  };
+
+  const removeItem = async (itemId: string) => {
+    const headers = authHeaders();
+    if (!headers || !selectedBox) return;
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-boxes`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action: 'remove_item', item_id: itemId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Remove failed');
+      notification.success('Item removed');
+      await loadBoxDetail(selectedBox.id);
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Remove failed');
+    }
+  };
+
+  const deactivateBox = async (box: GiftBox) => {
+    const headers = authHeaders();
+    if (!headers) return;
+    if (!confirm(`Deactivate "${box.name}"? It will be hidden from the gift shop.`)) return;
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-boxes?id=${encodeURIComponent(box.id)}`, {
+        method: 'PATCH',
+        headers,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed');
+      notification.success('Box deactivated');
+      setSelectedBox(null);
+      await loadBoxes();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Failed');
+    }
+  };
+
+  const reactivateBox = async (box: GiftBox) => {
+    const headers = authHeaders();
+    if (!headers) return;
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-boxes?id=${encodeURIComponent(box.id)}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ active: true }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed');
+      notification.success('Box reactivated');
+      setSelectedBox({ ...box, active: true });
+      await loadBoxes();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Failed');
+    }
+  };
+
+  const deleteBox = async (box: GiftBox) => {
+    const headers = authHeaders();
+    if (!headers) return;
+    if (
+      !confirm(
+        `Permanently delete "${box.name}"? This cannot be undone. Only for test boxes with no orders.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-boxes?id=${encodeURIComponent(box.id)}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Delete failed');
+      notification.success('Box deleted');
+      setSelectedBox(null);
+      await loadBoxes();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Delete failed');
+    }
+  };
+
+  const componentTotal = boxItems.reduce((s, i) => s + boxItemUnitCost(i) * i.quantity, 0);
+  const suggestedListPrice = computeGiftCustomerPrice(componentTotal, commercial);
+
+  const applySuggestedPrice = async () => {
+    const headers = authHeaders();
+    if (!headers || !selectedBox) return;
+    setPriceApplyBusy(true);
+    try {
+      const res = await fetch(`${functionsBase}/admin-gift-boxes?id=${encodeURIComponent(selectedBox.id)}`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ list_price: suggestedListPrice }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Could not set customer price');
+      notification.success('Customer price set', formatNaira(suggestedListPrice));
+      await loadBoxes();
+      setSelectedBox((prev) => (prev ? { ...prev, list_price: suggestedListPrice } : prev));
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Could not set customer price');
+    } finally {
+      setPriceApplyBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <PullToRefresh onRefresh={refresh}>
+        <div style={{ paddingBottom: TABBAR_SPACE }}>
+          <div className="sticky top-0 z-10 bg-gray-50 px-4 pb-3 pt-3">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Gift className="h-5 w-5 text-primary-600" />
+                  <h1 className="text-lg font-bold text-gray-900">Gift Boxes</h1>
+                </div>
+                <p className="text-xs text-gray-500">Ready-made Mode A boxes per hub</p>
+              </div>
+              <button
+                type="button"
+                onClick={openCreate}
+                className="flex shrink-0 items-center gap-1 rounded-xl bg-primary-600 px-3 py-2 text-xs font-semibold text-white"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                New
+              </button>
+            </div>
+
+            <Field label="Hub">
+              <select
+                value={selectedHubId}
+                onChange={(e) => {
+                  setSelectedHubId(e.target.value);
+                  setSelectedBox(null);
+                }}
+                className={inputCls}
+              >
+                {hubs.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.name} ({h.code})
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
+          <div className="space-y-2 px-4 pt-1">
+            {loading ? (
+              <div className="flex justify-center py-16">
+                <Loader className="h-7 w-7 animate-spin text-primary-600" />
+              </div>
+            ) : boxes.length === 0 ? (
+              <div className="rounded-2xl bg-white px-6 py-12 text-center ring-1 ring-gray-100">
+                <Package className="mx-auto mb-3 h-10 w-10 text-gray-300" />
+                <p className="font-semibold text-gray-900">No boxes for this hub</p>
+                <button type="button" onClick={openCreate} className="mt-3 text-sm font-semibold text-primary-600">
+                  Create first box
+                </button>
+              </div>
+            ) : (
+              boxes.map((box) => (
+                <button
+                  key={box.id}
+                  type="button"
+                  onClick={() => setSelectedBox(box)}
+                  className={`flex w-full items-center gap-3 rounded-2xl bg-white p-3.5 text-left ring-1 ring-gray-100 active:bg-gray-50 ${!box.active ? 'opacity-60' : ''}`}
+                >
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-100 text-violet-700">
+                    <Package className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <p className="truncate font-semibold text-gray-900">{box.name}</p>
+                      {!box.active && (
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700">
+                          Inactive
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      /{box.slug} · {formatNaira(Number(box.list_price))}
+                    </p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" />
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      </PullToRefresh>
+
+      <Sheet open={!!selectedBox} onClose={() => setSelectedBox(null)} ariaLabel="Gift box details">
+        {selectedBox && (
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900">{selectedBox.name}</h2>
+                <p className="text-sm text-gray-500">/{selectedBox.slug}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => openEdit(selectedBox)}
+                className="rounded-lg p-2 text-gray-500 active:bg-gray-100"
+                aria-label="Edit box"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-600">
+              List {formatNaira(Number(selectedBox.list_price))} · items {formatNaira(componentTotal)} ·
+              suggested {formatNaira(suggestedListPrice)}
+            </p>
+            {boxItems.length > 0 && (
+              <button
+                type="button"
+                disabled={priceApplyBusy}
+                onClick={() => void applySuggestedPrice()}
+                className="mt-2 w-full rounded-xl bg-primary-600 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                {priceApplyBusy ? 'Saving…' : `Set customer price to ${formatNaira(suggestedListPrice)}`}
+              </button>
+            )}
+
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-sm font-semibold text-gray-900">Contents ({boxItems.length})</p>
+                <button
+                  type="button"
+                  onClick={() => setAddItemOpen(true)}
+                  className="text-xs font-semibold text-primary-600"
+                >
+                  + Add from pool
+                </button>
+              </div>
+              {itemsLoading ? (
+                <div className="flex justify-center py-6">
+                  <Loader className="h-5 w-5 animate-spin text-primary-600" />
+                </div>
+              ) : boxItems.length === 0 ? (
+                <p className="text-sm text-gray-500">No items yet.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {boxItems.map((item) => (
+                    <li
+                      key={item.id}
+                      className="flex items-center justify-between gap-2 rounded-xl bg-gray-50 px-3 py-2.5 ring-1 ring-gray-100"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{boxItemName(item)}</p>
+                        <p className="text-xs text-gray-500">
+                          Qty {item.quantity} · {formatNaira(boxItemUnitCost(item))}
+                          {item.line_source === 'jlo_sourced' ? ' · sourced' : ''}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeItem(item.id)}
+                        className="shrink-0 p-1.5 text-red-600"
+                        aria-label="Remove item"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="flex gap-2">
+              {selectedBox.active ? (
+                <button
+                  type="button"
+                  onClick={() => deactivateBox(selectedBox)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-red-50 py-3 text-sm font-semibold text-red-700"
+                >
+                  <Ban className="h-4 w-4" />
+                  Deactivate
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => reactivateBox(selectedBox)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl bg-primary-600 py-3 text-sm font-semibold text-white"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  Reactivate
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => deleteBox(selectedBox)}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-2xl border border-red-200 py-3 text-sm font-semibold text-red-800"
+              >
+                <Trash2 className="h-4 w-4" />
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
+      </Sheet>
+
+      <Sheet
+        open={formOpen}
+        onClose={() => {
+          setFormOpen(false);
+          setEditingBox(null);
+        }}
+        ariaLabel="Gift box form"
+      >
+        <h2 className="text-lg font-bold text-gray-900">{editingBox ? 'Edit box' : 'New gift box'}</h2>
+        <p className="text-xs text-gray-500">
+          {editingBox ? 'Update name, price, and tags.' : 'We auto-create the shop URL from the name.'}
+        </p>
+        <div className="max-h-[62vh] space-y-3 overflow-y-auto">
+          <Field label="Box name *">
+            <input
+              value={boxForm.name}
+              onChange={(e) => setBoxForm({ ...boxForm, name: e.target.value })}
+              placeholder="Birthday Surprise Box"
+              className={inputCls}
+            />
+            {!editingBox && boxForm.name.trim() ? (
+              <p className="mt-1 text-[11px] text-gray-500 font-mono">/gifts/boxes/{slugPreview}</p>
+            ) : null}
+            {editingBox ? (
+              <p className="mt-1 text-[11px] text-gray-500 font-mono">/{boxForm.slug}</p>
+            ) : null}
+          </Field>
+          <Field label="Customer price ₦ *">
+            <input
+              value={boxForm.list_price}
+              onChange={(e) => setBoxForm({ ...boxForm, list_price: e.target.value })}
+              className={inputCls}
+              inputMode="numeric"
+              placeholder="After items + markup"
+            />
+          </Field>
+          <Field label="Short description">
+            <textarea
+              value={boxForm.description}
+              onChange={(e) => setBoxForm({ ...boxForm, description: e.target.value })}
+              rows={2}
+              className={inputCls}
+              placeholder="What makes this box special?"
+            />
+          </Field>
+          <GiftBoxImageFields
+            coverUrl={boxForm.image_url}
+            galleryUrls={boxForm.gallery_urls}
+            onCoverChange={(url) => setBoxForm({ ...boxForm, image_url: url })}
+            onGalleryChange={(urls) => setBoxForm({ ...boxForm, gallery_urls: urls })}
+            onError={(msg) => notification.error('Image upload failed', msg)}
+          />
+          <button
+            type="button"
+            className="text-xs text-gray-500 underline"
+            onClick={() => setShowOptionalFields((v) => !v)}
+          >
+            {showOptionalFields ? 'Hide sort order' : 'Sort order (optional)'}
+          </button>
+          {showOptionalFields && (
+            <Field label="Sort order">
+              <input
+                value={boxForm.sort_order}
+                onChange={(e) => setBoxForm({ ...boxForm, sort_order: e.target.value })}
+                className={inputCls}
+                inputMode="numeric"
+              />
+            </Field>
+          )}
+          <Field label="Occasions">
+            <div className="flex flex-wrap gap-2">
+              {GIFT_OCCASION_TAGS.map((t) => {
+                const checked = boxForm.occasion_types.includes(t.slug);
+                return (
+                  <button
+                    key={t.slug}
+                    type="button"
+                    onClick={() => {
+                      const next = checked
+                        ? boxForm.occasion_types.filter((s) => s !== t.slug)
+                        : [...boxForm.occasion_types, t.slug];
+                      setBoxForm({ ...boxForm, occasion_types: next });
+                    }}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+                      checked ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-700'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+          <Field label="Recipients">
+            <div className="flex flex-wrap gap-2">
+              {GIFT_RECIPIENT_TAGS.map((t) => {
+                const checked = boxForm.recipient_types.includes(t.slug);
+                return (
+                  <button
+                    key={t.slug}
+                    type="button"
+                    onClick={() => {
+                      const next = checked
+                        ? boxForm.recipient_types.filter((s) => s !== t.slug)
+                        : [...boxForm.recipient_types, t.slug];
+                      setBoxForm({ ...boxForm, recipient_types: next });
+                    }}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+                      checked ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700'
+                    }`}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+          <Field label="SKU">
+            <div className="flex gap-2">
+              <input
+                value={boxForm.sku}
+                onChange={(e) => setBoxForm({ ...boxForm, sku: e.target.value.toUpperCase() })}
+                placeholder={`${skuPrefixPreview}001`}
+                className={`${inputCls} font-mono uppercase`}
+              />
+              <button
+                type="button"
+                disabled={skuGenBusy}
+                onClick={() => void handleGenerateBoxSku()}
+                className="shrink-0 rounded-xl bg-gray-900 px-3 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                {skuGenBusy ? '…' : 'Gen'}
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] text-gray-500">GBX-occasion-recipient-### — pick tags first</p>
+          </Field>
+        </div>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={saveBox}
+          className="w-full rounded-2xl bg-primary-600 py-3.5 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save box'}
+        </button>
+      </Sheet>
+
+      <Sheet
+        open={addItemOpen}
+        onClose={() => {
+          setAddItemOpen(false);
+          setPoolSearch('');
+        }}
+        ariaLabel="Add box item"
+      >
+        <h2 className="text-lg font-bold text-gray-900">Add from gift pool</h2>
+        <p className="text-xs text-gray-500">{poolCatalog.length} SKU(s) available at this hub</p>
+        <div className="space-y-3">
+          <Field label="Filter by name or SKU">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                value={poolSearch}
+                onChange={(e) => setPoolSearch(e.target.value)}
+                placeholder="Start typing to filter…"
+                className={`${inputCls} pl-9`}
+              />
+            </div>
+          </Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Qty">
+              <input value={addQty} onChange={(e) => setAddQty(e.target.value)} className={inputCls} inputMode="numeric" />
+            </Field>
+            <Field label="Cost ₦ (opt.)">
+              <input
+                value={addCost}
+                onChange={(e) => setAddCost(e.target.value)}
+                className={inputCls}
+                inputMode="numeric"
+                placeholder="Pool cost"
+              />
+            </Field>
+          </div>
+          {poolLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader className="h-6 w-6 animate-spin text-primary-600" />
+            </div>
+          ) : poolCatalog.length === 0 ? (
+            <p className="rounded-xl bg-amber-50 px-3 py-3 text-sm text-amber-800 ring-1 ring-amber-100">
+              No pool SKUs yet. Add products under Gift Hubs &amp; Pool first.
+            </p>
+          ) : poolResults.length === 0 ? (
+            <p className="text-sm text-gray-500 py-4 text-center">
+              {poolSearch.trim()
+                ? 'No matches — try another name or SKU.'
+                : 'All pool items are already in this box.'}
+            </p>
+          ) : (
+            <ul className="max-h-64 space-y-2 overflow-y-auto">
+              {poolResults.map((p) => (
+                <li
+                  key={p.id}
+                  className="flex items-center justify-between gap-2 rounded-xl bg-gray-50 px-3 py-2.5 text-sm ring-1 ring-gray-100"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{p.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {p.sku ? p.sku : 'No SKU'}
+                      {p.available_qty != null ? ` · ${p.available_qty} avail.` : ''}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => addItem(p)}
+                    className="shrink-0 rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white"
+                  >
+                    Add
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Sheet>
+    </>
+  );
+}

@@ -1,0 +1,14 @@
+-- CRITICAL: the shipments table (added in the unification migration) was
+-- created without RLS. anon/authenticated had been granted full SELECT,
+-- INSERT, UPDATE, DELETE, and TRUNCATE by Postgres/Supabase's default
+-- public-schema grants, with nothing blocking them — meaning the public
+-- anon key (embedded client-side in every app) could read every shipment,
+-- forge rows, tamper with delivery status, or wipe the table entirely via
+-- the REST API, completely bypassing every auth check in rider-jobs.js /
+-- assign-rider.js / manual-shipment-assign-rider.js.
+--
+-- Fix matches the riders table's existing pattern: enable RLS with no
+-- policies at all. That's a default-deny for anon/authenticated; the
+-- service-role key used by every Netlify function bypasses RLS entirely
+-- regardless, so this doesn't break any real access path.
+alter table shipments enable row level security;

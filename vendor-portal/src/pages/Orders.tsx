@@ -41,6 +41,7 @@ export default function Orders() {
   const [statusFilter, setStatus]         = useState('');
   const [page, setPage]                   = useState(1);
   const [dispatching, setDispatching]     = useState(false);
+  const [reservationBusy, setReservationBusy] = useState(false);
   const fulfillment = useMemo(() => resolveVendorFulfillment(vendor), [vendor]);
 
   useEffect(() => {
@@ -60,6 +61,31 @@ export default function Orders() {
       setSelected(detail);
     } catch (e: any) { setError(e.message); }
     finally { setDetailLoading(false); }
+  };
+
+  const updateReservation = async (action: 'ready' | 'collected') => {
+    const orderId = selected?.orders?.id;
+    if (!orderId || reservationBusy) return;
+    setReservationBusy(true);
+    setError('');
+    try {
+      const result = await api.updateReservation(orderId, action);
+      setSelected((prev: any) =>
+        prev
+          ? {
+              ...prev,
+              orders: {
+                ...prev.orders,
+                reservation_status: result.reservation_status,
+              },
+            }
+          : prev
+      );
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setReservationBusy(false);
+    }
   };
 
   const markReadyOrSentToHub = async () => {
@@ -392,7 +418,39 @@ export default function Orders() {
                   </div>
                 )}
 
-                {selectedPaid && selected.status === 'pending' && (
+                {selected.orders?.fulfillment_method === 'reservation' && (
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 space-y-2">
+                    <p className="text-sm font-semibold text-emerald-900">Reserve & collect</p>
+                    <p className="text-xs text-emerald-800">
+                      Status: <strong>{selected.orders?.reservation_status || 'reserved'}</strong>
+                      {selected.orders?.reserved_until && (
+                        <> · hold until {new Date(selected.orders.reserved_until).toLocaleString()}</>
+                      )}
+                    </p>
+                    {selectedPaid && selected.orders?.reservation_status === 'reserved' && (
+                      <button
+                        type="button"
+                        className="btn-primary w-full"
+                        disabled={reservationBusy}
+                        onClick={() => updateReservation('ready')}
+                      >
+                        {reservationBusy ? 'Updating…' : 'Mark ready for collection'}
+                      </button>
+                    )}
+                    {selectedPaid && selected.orders?.reservation_status === 'ready' && (
+                      <button
+                        type="button"
+                        className="btn-primary w-full"
+                        disabled={reservationBusy}
+                        onClick={() => updateReservation('collected')}
+                      >
+                        {reservationBusy ? 'Updating…' : 'Mark collected'}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {selectedPaid && selected.status === 'pending' && selected.orders?.fulfillment_method !== 'reservation' && (
                   <div className="space-y-2">
                     <button
                       onClick={markReadyOrSentToHub}

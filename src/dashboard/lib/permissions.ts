@@ -30,6 +30,10 @@ import {
   FolderTree,
   Send,
   GitBranch,
+  Shield,
+  Gift,
+  Sparkles,
+  Bike,
 } from 'lucide-react';
 import type { User } from '../contexts/AuthContext';
 
@@ -64,8 +68,11 @@ export const navigationSections: NavSection[] = [
     label: 'Operations',
     items: [
       { name: 'Orders', href: '/admin/orders', icon: Package, roles: ['admin', 'agent', 'manager', 'viewer'] },
+      { name: 'Custom Orders', href: '/admin/custom-orders', icon: Sparkles, roles: ['admin', 'manager', 'staff'] },
       { name: 'Manual Shipments', href: '/admin/manual-shipments', icon: Send, roles: ['admin', 'agent', 'manager', 'viewer'] },
       { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent', 'manager', 'viewer'] },
+      { name: 'Rider Verifications', href: '/admin/rider-verifications', icon: Bike, roles: ['admin', 'manager'] },
+      { name: 'Rider Roster', href: '/admin/rider-roster', icon: MapPin, roles: ['admin', 'manager'] },
       { name: 'Live Support', href: '/admin/support', icon: Headphones, roles: ['admin', 'agent', 'manager', 'viewer'] },
       { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent', 'manager', 'viewer'] },
     ],
@@ -88,6 +95,7 @@ export const navigationSections: NavSection[] = [
     label: 'Vendors',
     items: [
       { name: 'Vendors', href: '/admin/vendors', icon: Store, roles: ['admin', 'manager'] },
+      { name: 'Seller Verifications', href: '/admin/seller-verifications', icon: Shield, roles: ['admin', 'manager'] },
       { name: 'Vendor Payouts', href: '/admin/vendor-withdrawals', icon: Wallet, roles: ['admin', 'manager'] },
       { name: 'Vendor Debits', href: '/admin/vendor-debits', icon: AlertCircle, roles: ['admin', 'manager'] },
       { name: 'Vendor Locations', href: '/admin/vendor-locations', icon: MapPin, roles: ['admin', 'manager'] },
@@ -98,11 +106,23 @@ export const navigationSections: NavSection[] = [
     label: 'Marketing',
     items: [
       { name: 'Campaigns', href: '/admin/campaigns', icon: Megaphone, roles: ['admin', 'manager', 'social_media_manager'] },
+      { name: 'Vendor campaigns', href: '/admin/vendor-campaign-approvals', icon: Megaphone, roles: ['admin', 'manager'] },
       { name: 'Vouchers', href: '/admin/vouchers', icon: Ticket, roles: ['admin'] },
       { name: 'Shipping Discounts', href: '/admin/discounts', icon: Percent, roles: ['admin'] },
       { name: 'Influencers', href: '/admin/influencers', icon: Megaphone, roles: ['admin'] },
       { name: 'Meta Ads', href: '/admin/meta-ads', icon: TrendingUp, roles: ['admin', 'manager', 'social_media_manager'] },
       { name: 'Google Ads', href: '/admin/google-ads', icon: Search, roles: ['admin', 'manager', 'social_media_manager'] },
+    ],
+  },
+  {
+    id: 'gifts',
+    label: 'Gifts',
+    items: [
+      { name: 'Gift Hubs & Pool', href: '/admin/gift-fulfilment-centres', icon: Gift, roles: ['admin', 'manager'] },
+      { name: 'Gift Boxes', href: '/admin/gift-boxes', icon: Gift, roles: ['admin', 'manager'] },
+      { name: 'Gift Ops', href: '/admin/gift-ops', icon: Package, roles: ['admin', 'manager', 'staff'] },
+      { name: 'Gift Box Reviews', href: '/admin/gift-box-reviews', icon: Star, roles: ['admin', 'manager', 'staff'] },
+      { name: 'Packaging Tiers', href: '/admin/gift-packaging', icon: Package, roles: ['admin', 'manager'] },
     ],
   },
   {

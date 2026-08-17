@@ -1,5 +1,7 @@
 // Netlify Function: /api/orders and /api/orders/:id
 import { createClient } from '@supabase/supabase-js';
+import { loadApprovedLocations, resolveApprovedLocation } from './services/locationResolver.js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -12,6 +14,13 @@ const headers = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS'
 };
+
+// List/create/update/delete are staff-only, matching this project's local
+// dev Express server (src/api/index.ts's requireRole('admin', 'agent')) and
+// the dashboard's own documented API reference (settingsDeveloperContent.ts)
+// — the Netlify function running in production was the only place that
+// check was never actually implemented.
+const STAFF_ROLES = ['admin', 'agent'];
 
 // =========================================================
 // HELPER – Fetch order with all nested relationships
@@ -110,6 +119,27 @@ export async function handler(event) {
 
       if (error) throw error;
 
+      // Two ways in: staff (Bearer token), or the customer who placed the
+      // order (proves it by passing the email on the order) -- the customer
+      // PWA's order-detail page uses the latter. Anyone else gets the same
+      // 404 as a nonexistent order, not a 401/403, so this can't be used to
+      // probe which order ids exist.
+      const url = new URL(event.rawUrl);
+      const requestedEmail = (url.searchParams.get('email') || '').trim().toLowerCase();
+      const orderEmail = (data?.customer_email || '').trim().toLowerCase();
+      const emailMatches = Boolean(requestedEmail) && requestedEmail === orderEmail;
+
+      if (!emailMatches) {
+        const auth = await requireAdmin(event, STAFF_ROLES);
+        if (auth.errorResponse) {
+          return {
+            statusCode: 404,
+            headers,
+            body: JSON.stringify({ success: false, error: 'Order not found' })
+          };
+        }
+      }
+
       return {
         statusCode: 200,
         headers,
@@ -118,9 +148,12 @@ export async function handler(event) {
     }
 
     // =====================================================
-    // GET /api/orders — list orders
+    // GET /api/orders — list orders (staff only)
     // =====================================================
     if (event.httpMethod === 'GET') {
+      const auth = await requireAdmin(event, STAFF_ROLES);
+      if (auth.errorResponse) return auth.errorResponse;
+
       const url = new URL(event.rawUrl);
       const limit = Number(url.searchParams.get('limit') || 50);
       const offset = Number(url.searchParams.get('offset') || 0);
@@ -145,10 +178,36 @@ export async function handler(event) {
     }
 
     // =====================================================
-    // POST /api/orders — create WC → JLO order
+    // POST /api/orders — create WC → JLO order (staff only)
     // =====================================================
     if (event.httpMethod === 'POST') {
+      const auth = await requireAdmin(event, STAFF_ROLES);
+      if (auth.errorResponse) return auth.errorResponse;
+
       const payload = JSON.parse(event.body || '{}');
+
+      // Validate up front — these columns are NOT NULL with no default, so
+      // an omitted field previously reached Postgres as a raw, unhandled
+      // constraint violation (500, leaking internal schema details) instead
+      // of a clean error. Mirrors create-order.js's validation.
+      const missing = [];
+      if (!String(payload.customer_name || '').trim()) missing.push('customer_name');
+      if (!String(payload.customer_email || '').trim()) missing.push('customer_email');
+      if (!String(payload.customer_phone || '').trim()) missing.push('customer_phone');
+      if (!String(payload.delivery_address || '').trim()) missing.push('delivery_address');
+      if (!String(payload.delivery_city || '').trim()) missing.push('delivery_city');
+      if (!String(payload.delivery_state || '').trim()) missing.push('delivery_state');
+      if (!String(payload.delivery_zone || '').trim()) missing.push('delivery_zone');
+      if (!Number.isFinite(Number(payload.subtotal))) missing.push('subtotal');
+      if (!Number.isFinite(Number(payload.total_amount))) missing.push('total_amount');
+      if (!Number.isFinite(Number(payload.shipping_fee_paid))) missing.push('shipping_fee_paid');
+      if (missing.length > 0) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ success: false, error: `Missing required fields: ${missing.join(', ')}` })
+        };
+      }
 
       const orderInsert = {
         woocommerce_order_id: payload.woocommerce_order_id,
@@ -185,29 +244,82 @@ export async function handler(event) {
         ];
 
         let hubCourierMap = {};
+        const hubCityMap = {};
+        const vendorCityMap = {};
+        const vendorLocationMap = {};
 
         if (hubIds.length > 0) {
-          const { data: hubCouriers } = await supabase
-            .from('hub_couriers')
-            .select('hub_id, courier_id')
-            .in('hub_id', hubIds)
-            .order('is_primary', { ascending: false })
-            .order('priority', { ascending: false });
+          const [{ data: hubCouriers }, { data: hubRows }] = await Promise.all([
+            supabase
+              .from('hub_couriers')
+              .select('hub_id, courier_id')
+              .in('hub_id', hubIds)
+              .order('is_primary', { ascending: false })
+              .order('priority', { ascending: false }),
+            supabase.from('hubs').select('id, city').in('id', hubIds),
+          ]);
 
           (hubCouriers || []).forEach((row) => {
             if (row.hub_id && row.courier_id && !hubCourierMap[row.hub_id]) {
               hubCourierMap[row.hub_id] = row.courier_id;
             }
           });
+          for (const h of (hubRows || [])) {
+            hubCityMap[h.id] = (h.city || '').trim().toLowerCase();
+          }
         }
+
+        const vendorIds = [
+          ...new Set(shippingBreakdown.map((b) => b.vendorId || b.vendor_id).filter(Boolean))
+        ];
+        if (vendorIds.length > 0) {
+          const { data: vendorRows } = await supabase
+            .from('vendors')
+            .select('id, city, approved_location_id')
+            .in('id', vendorIds);
+          for (const v of (vendorRows || [])) {
+            vendorCityMap[v.id] = (v.city || '').trim().toLowerCase();
+            vendorLocationMap[v.id] = v.approved_location_id || null;
+          }
+        }
+
+        const custCity = (payload.delivery_city || '').trim().toLowerCase();
+
+        // Same structural resolution as the PWA checkout path — reconcile
+        // through approved_vendor_locations rather than a raw city compare.
+        const approvedLocations = await loadApprovedLocations(supabase);
+        const custLocation = resolveApprovedLocation(
+          approvedLocations,
+          payload.delivery_city,
+          payload.delivery_lga
+        );
+        const custHubId = custLocation?.hub_id || null;
+        const custSupportsLocal = Boolean(custLocation?.supports_local_delivery);
 
         const subOrdersData = shippingBreakdown.map((b) => {
           const hubId = b.hubId || b.hub_id;
+          const vendorId = b.vendorId || b.vendor_id;
           const courierId =
             b.courierId ||
             b.courier_id ||
             hubCourierMap[hubId] ||
             null;
+
+          // Local rider requires vendor and customer to resolve to the same
+          // town — not a JLO hub to exist there. A town with no hub_id at
+          // all can still qualify once it has rider coverage
+          // (approved_vendor_locations.supports_local_delivery).
+          const hubMatch = custSupportsLocal && custHubId && custHubId === hubId;
+          const sameLocationMatch =
+            custSupportsLocal &&
+            custLocation?.id &&
+            vendorLocationMap[vendorId] &&
+            custLocation.id === vendorLocationMap[vendorId];
+          const hubCity = hubCityMap[hubId] || '';
+          const vendorCity = vendorCityMap[vendorId] || '';
+          const legacyMatch =
+            hubCity && custCity && vendorCity && hubCity === custCity && vendorCity === custCity;
+          const isLocalEligible = hubMatch || sameLocationMatch || legacyMatch;
 
           return {
             main_order_id: order.id,
@@ -224,8 +336,8 @@ export async function handler(event) {
             real_shipping_cost: b.totalShippingFee || 0,
             allocated_shipping_fee: b.totalShippingFee || 0,
             metadata: {
-              selected_lane: 'fez',
-              eligible_lanes: ['fez', 'local_rider'],
+              selected_lane: isLocalEligible ? 'local_rider' : 'fez',
+              eligible_lanes: isLocalEligible ? ['local_rider', 'fez'] : ['fez'],
             },
           };
         });
@@ -261,9 +373,12 @@ export async function handler(event) {
     }
 
     // =====================================================
-    // PUT /api/orders/:id/status — update status
+    // PUT /api/orders/:id/status — update status (staff only)
     // =====================================================
     if (event.httpMethod === 'PUT' && id && tail === 'status') {
+      const auth = await requireAdmin(event, STAFF_ROLES);
+      if (auth.errorResponse) return auth.errorResponse;
+
       const payload = JSON.parse(event.body || '{}');
       const updateData = {};
 
@@ -296,9 +411,12 @@ export async function handler(event) {
     }
 
     // =====================================================
-    // DELETE order + suborders + tracking events
+    // DELETE order + suborders + tracking events (staff only)
     // =====================================================
     if (event.httpMethod === 'DELETE' && id) {
+      const auth = await requireAdmin(event, STAFF_ROLES);
+      if (auth.errorResponse) return auth.errorResponse;
+
       const { data: subOrders, error: subOrdersError } = await supabase
         .from('sub_orders')
         .select('id')

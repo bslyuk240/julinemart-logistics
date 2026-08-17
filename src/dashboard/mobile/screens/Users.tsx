@@ -5,6 +5,7 @@ import {
   EyeOff,
   Loader,
   Mail,
+  Pencil,
   Plus,
   Search,
   Trash2,
@@ -318,35 +319,38 @@ export default function MobileUsers() {
               )}
             </div>
 
-            <button type="button" onClick={() => openEdit(selected)} className="w-full rounded-2xl bg-primary-600 py-3.5 text-sm font-semibold text-white">
-              Edit user
-            </button>
-            <button
-              type="button"
-              onClick={() => handleReset(selected)}
-              disabled={resetting}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3.5 text-sm font-semibold text-gray-800 ring-1 ring-gray-200 disabled:opacity-60"
-            >
-              <Mail className="h-4 w-4" />
-              {resetting ? 'Sending…' : 'Send password reset'}
-            </button>
-            <button
-              type="button"
-              onClick={() => toggleActive(selected)}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-white py-3.5 text-sm font-semibold text-gray-800 ring-1 ring-gray-200"
-            >
-              {selected.is_active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              {selected.is_active ? 'Deactivate account' : 'Activate account'}
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDelete(selected)}
-              disabled={deleting}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-50 py-3.5 text-sm font-semibold text-red-700 ring-1 ring-red-100 disabled:opacity-60"
-            >
-              <Trash2 className="h-4 w-4" />
-              {deleting ? 'Removing…' : 'Remove account'}
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => openEdit(selected)} className="flex items-center justify-center gap-1.5 rounded-2xl bg-primary-600 py-3 text-sm font-semibold text-white">
+                <Pencil className="h-4 w-4" />
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => handleReset(selected)}
+                disabled={resetting}
+                className="flex items-center justify-center gap-1.5 rounded-2xl bg-white py-3 text-sm font-semibold text-gray-800 ring-1 ring-gray-200 disabled:opacity-60"
+              >
+                <Mail className="h-4 w-4" />
+                {resetting ? 'Sending…' : 'Reset password'}
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleActive(selected)}
+                className="flex items-center justify-center gap-1.5 rounded-2xl bg-white py-3 text-sm font-semibold text-gray-800 ring-1 ring-gray-200"
+              >
+                {selected.is_active ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                {selected.is_active ? 'Deactivate' : 'Activate'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(selected)}
+                disabled={deleting}
+                className="flex items-center justify-center gap-1.5 rounded-2xl bg-red-50 py-3 text-sm font-semibold text-red-700 ring-1 ring-red-100 disabled:opacity-60"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deleting ? 'Removing…' : 'Remove'}
+              </button>
+            </div>
           </div>
         )}
       </Sheet>

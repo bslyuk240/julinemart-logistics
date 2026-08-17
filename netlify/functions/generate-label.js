@@ -574,7 +574,8 @@ exports.handler = async (event) => {
           phone,
           approved_vendor_locations (
             fez_hub_name,
-            fez_hub_address
+            fez_hub_address,
+            courier_hubs ( name, address, city, state, phone )
           )
         )
       `)

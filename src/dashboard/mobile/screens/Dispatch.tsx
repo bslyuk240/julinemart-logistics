@@ -6,6 +6,7 @@ import { Sheet } from '../Sheet';
 import { PullToRefresh } from '../PullToRefresh';
 import { Scanner } from '../Scanner';
 import { SectionLabel } from '../components/MobileDetailParts';
+import RiderPicker from '../../components/RiderPicker';
 import { TABBAR_SPACE, functionsAuthHeader, functionsBase } from '../lib/functionsAuth';
 import { formatNaira } from '../lib/displayUtils';
 import { normalizeScanCode } from '../lib/scanCode';
@@ -89,7 +90,7 @@ export default function MobileDispatch() {
   const [dispatching, setDispatching] = useState(false);
   const [force, setForce] = useState(false);
   const [riderTarget, setRiderTarget] = useState<SubOrderRow | null>(null);
-  const [riderInfo, setRiderInfo] = useState({ name: '', phone: '', vehicle: '' });
+  const [riderId, setRiderId] = useState('');
   const [assigningRider, setAssigningRider] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scanResult, setScanResult] = useState<{
@@ -263,7 +264,7 @@ export default function MobileDispatch() {
   };
 
   const assignRider = async () => {
-    if (!riderTarget || !riderInfo.name || !riderInfo.phone) return;
+    if (!riderTarget || !riderId) return;
     setAssigningRider(true);
     try {
       const res = await fetch(`${functionsBase}/assign-rider`, {
@@ -271,16 +272,14 @@ export default function MobileDispatch() {
         headers: { 'Content-Type': 'application/json', ...(await functionsAuthHeader()) },
         body: JSON.stringify({
           sub_order_id: riderTarget.id,
-          rider_name: riderInfo.name.trim(),
-          rider_phone: riderInfo.phone.trim(),
-          rider_vehicle: riderInfo.vehicle || null,
+          rider_id: riderId,
         }),
       });
       const payload = await res.json();
       if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Failed to assign rider');
       notification.success('Rider Assigned', 'Local rider saved for this shipment');
       setRiderTarget(null);
-      setRiderInfo({ name: '', phone: '', vehicle: '' });
+      setRiderId('');
       await fetchSubOrders(selectedHubId);
     } catch (err) {
       notification.error('Assignment Failed', err instanceof Error ? err.message : 'Unable to assign rider');
@@ -432,7 +431,7 @@ export default function MobileDispatch() {
                         type="button"
                         onClick={() => {
                           setRiderTarget(row);
-                          setRiderInfo({ name: '', phone: '', vehicle: '' });
+                          setRiderId('');
                         }}
                         className="w-full rounded-lg border border-primary-200 bg-primary-50 py-2 text-xs font-semibold text-primary-700"
                       >
@@ -465,35 +464,12 @@ export default function MobileDispatch() {
           <Sheet open={!!riderTarget} onClose={() => setRiderTarget(null)} ariaLabel="Assign local rider">
             <h3 className="text-base font-bold text-gray-900">Assign local rider</h3>
             <div className="space-y-3">
-              <input
-                type="text"
-                placeholder="Rider name"
-                value={riderInfo.name}
-                onChange={(event) => setRiderInfo((prev) => ({ ...prev, name: event.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm"
-                style={{ fontSize: '16px' }}
-              />
-              <input
-                type="tel"
-                placeholder="Rider phone"
-                value={riderInfo.phone}
-                onChange={(event) => setRiderInfo((prev) => ({ ...prev, phone: event.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm"
-                style={{ fontSize: '16px' }}
-              />
-              <input
-                type="text"
-                placeholder="Vehicle (optional)"
-                value={riderInfo.vehicle}
-                onChange={(event) => setRiderInfo((prev) => ({ ...prev, vehicle: event.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm"
-                style={{ fontSize: '16px' }}
-              />
+              <RiderPicker value={riderId} onChange={setRiderId} />
             </div>
             <button
               type="button"
               onClick={assignRider}
-              disabled={assigningRider || !riderInfo.name || !riderInfo.phone}
+              disabled={assigningRider || !riderId}
               className="rounded-lg bg-primary-600 py-3 text-sm font-semibold text-white disabled:opacity-60"
             >
               {assigningRider ? 'Saving…' : 'Save rider'}

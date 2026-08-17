@@ -208,6 +208,10 @@
   timeout = 120
   schedule = "@weekly"
 
+[functions."compute-seller-metrics-scheduled"]
+  timeout = 120
+  schedule = "0 2 * * *"
+
 [functions."process-scheduled-push"]
   timeout = 120
   schedule = "*/5 * * * *"
@@ -255,6 +259,6 @@
 # -------------------------------------------------
 
 [dev]
-  command = "npm run dev -- --host 0.0.0.0 --port 3000"
-  targetPort = 3000
+  command = "npm run dev -- --host 0.0.0.0 --port 5173"
+  targetPort = 5173
   port = 8888

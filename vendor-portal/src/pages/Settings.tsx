@@ -1,5 +1,5 @@
-import { useState, FormEvent, useRef, useMemo } from 'react';
-import { Settings as SettingsIcon, Store, CreditCard, CheckCircle, AlertCircle, Upload, Truck, MapPin } from 'lucide-react';
+import { useState, FormEvent, useRef, useMemo, useEffect } from 'react';
+import { Settings as SettingsIcon, Store, CreditCard, CheckCircle, AlertCircle, Upload, Truck, MapPin, QrCode, Share2, MessageCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
 import { formatVendorAddressForDisplay } from '../lib/formatVendorAddress';
@@ -7,6 +7,8 @@ import { ensureSupabaseStoragePublicUrl } from '../lib/supabase';
 import { resolveVendorFulfillment } from '../lib/vendorFulfillment';
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024; // 4 MB
+const JLO_BASE = (import.meta.env.VITE_JLO_API_URL as string || '').replace(/\/$/, '');
+const STOREFRONT = (import.meta.env.VITE_STOREFRONT_URL || 'https://julinemart.com').replace(/\/$/, '');
 
 export default function Settings() {
   const { vendor, refreshVendor } = useAuth();
@@ -17,6 +19,7 @@ export default function Settings() {
     description: vendor?.description || '',
     logo_url:    vendor?.logo_url    || '',
     banner_url:  vendor?.banner_url  || '',
+    intro_video_url: (vendor as { intro_video_url?: string })?.intro_video_url || '',
   });
 
   const [bankForm, setBankForm] = useState({
@@ -30,6 +33,16 @@ export default function Settings() {
   const [error, setError]     = useState<string | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [storeQrDataUrl, setStoreQrDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    const wooId = vendor?.woocommerce_vendor_id;
+    if (!wooId || !JLO_BASE) return;
+    fetch(`${JLO_BASE}/.netlify/functions/vendor-store-qr?vendor_id=${encodeURIComponent(wooId)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setStoreQrDataUrl(data?.data?.png_data_url ?? null))
+      .catch(() => setStoreQrDataUrl(null));
+  }, [vendor?.woocommerce_vendor_id]);
 
   // Fez collection method toggle
   const currentMethod = vendor?.fez_collection_method ?? null;
@@ -198,6 +211,16 @@ export default function Settings() {
                   value={storeForm.description}
                   onChange={e => setStoreForm(p => ({ ...p, description: e.target.value }))}
                   placeholder="Tell customers about your store…"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1.5">Intro video URL (optional)</label>
+                <input
+                  className="input"
+                  type="url"
+                  value={storeForm.intro_video_url}
+                  onChange={e => setStoreForm(p => ({ ...p, intro_video_url: e.target.value }))}
+                  placeholder="YouTube or MP4 link — shows on your storefront"
                 />
               </div>
               <div>
@@ -423,6 +446,87 @@ export default function Settings() {
               </button>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Marketing toolkit */}
+      <div className="card mt-6">
+        <div className="flex items-center gap-2 mb-3">
+          <Share2 className="w-5 h-5 text-primary-600" />
+          <h2 className="font-semibold text-gray-900">Marketing toolkit</h2>
+        </div>
+        <p className="text-sm text-gray-600 mb-4">
+          Share your store on WhatsApp or copy a tracked link for Instagram bio and flyers.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {vendor?.woocommerce_vendor_id && (
+            <>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(`Shop ${vendor.store_name} on JulineMart: ${STOREFRONT}/vendor/${vendor.woocommerce_vendor_id}?utm_source=whatsapp&utm_medium=vendor`)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 text-sm font-semibold text-white"
+              >
+                <MessageCircle className="h-4 w-4" />
+                WhatsApp store card
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  const url = `${STOREFRONT}/vendor/${vendor.woocommerce_vendor_id}?utm_source=vendor&utm_medium=share`;
+                  void navigator.clipboard.writeText(url);
+                  setSuccess('link');
+                  setTimeout(() => setSuccess(null), 2000);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-800"
+              >
+                <Share2 className="h-4 w-4" />
+                Copy store link
+              </button>
+            </>
+          )}
+        </div>
+        {success === 'link' && (
+          <p className="mt-2 text-sm text-green-600">Link copied to clipboard</p>
+        )}
+      </div>
+
+      {/* Store QR code */}
+      <div className="card mt-6">
+        <div className="flex items-center gap-2 mb-3">
+          <QrCode className="w-5 h-5 text-primary-600" />
+          <h2 className="font-semibold text-gray-900">In-store QR code</h2>
+        </div>
+        <p className="text-sm text-gray-600 mb-4">
+          Print or display this QR in your shop so customers can open your JulineMart storefront on their phone.
+        </p>
+        <div className="flex flex-col sm:flex-row items-start gap-4">
+          <div className="w-[140px] h-[140px] flex items-center justify-center rounded-xl border border-gray-200 bg-gray-50 flex-shrink-0">
+            {storeQrDataUrl ? (
+              <img src={storeQrDataUrl} alt="Store QR code" className="w-32 h-32" />
+            ) : (
+              <QrCode className="w-10 h-10 text-gray-300" />
+            )}
+          </div>
+          <div className="text-sm text-gray-600 space-y-2">
+            <p>
+              Store link:{' '}
+              <span className="font-mono text-xs break-all">
+                {vendor?.woocommerce_vendor_id
+                  ? `https://julinemart.com/vendor/${vendor.woocommerce_vendor_id}?qr=1`
+                  : '—'}
+              </span>
+            </p>
+            {storeQrDataUrl && (
+              <a
+                href={storeQrDataUrl}
+                download={`${vendor?.store_name || 'store'}-qr.png`}
+                className="inline-flex items-center gap-2 text-primary-600 font-medium hover:underline"
+              >
+                Download QR image
+              </a>
+            )}
+          </div>
         </div>
       </div>
     </div>

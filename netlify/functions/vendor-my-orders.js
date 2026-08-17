@@ -28,7 +28,8 @@ export async function handler(event) {
         couriers(name, code),
         hubs(name, city, state),
         orders(id, order_number, overall_status, payment_status, customer_name, customer_email,
-               delivery_address, created_at)
+               delivery_address, created_at, fulfillment_method, reservation_status,
+               reserved_until, reservation_ready_at, reservation_collected_at)
       `)
       .eq('id', qs.id)
       .single();
@@ -74,7 +75,8 @@ export async function handler(event) {
     .from('sub_orders')
     .select(`
       id, status, tracking_number, created_at, subtotal,
-      orders(id, order_number, overall_status, payment_status, customer_name, created_at, total_amount)
+      orders(id, order_number, overall_status, payment_status, customer_name, created_at, total_amount,
+             fulfillment_method, reservation_status, reserved_until)
     `, { count: 'exact' })
     .eq('vendor_id', vendor.id)
     .order('created_at', { ascending: false })
@@ -102,6 +104,9 @@ export async function handler(event) {
       vendor_amount:   isPaid ? potential : 0,
       potential_payout: potential,
       created_at:      so.created_at,
+      fulfillment_method: so.orders?.fulfillment_method || 'delivery',
+      reservation_status: so.orders?.reservation_status || null,
+      reserved_until: so.orders?.reserved_until || null,
     };
   });
 

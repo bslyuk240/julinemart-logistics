@@ -4,8 +4,10 @@ import {
   Calendar, Users, DollarSign, Package, TrendingUp, AlertCircle,
   CheckCircle, XCircle, Clock, Megaphone
 } from 'lucide-react';
+import { GIFT_OCCASION_TAGS, GIFT_RECIPIENT_TAGS } from '../lib/giftDiscoveryTags';
 import { supabase, useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
+import { logActivity } from '../lib/logActivity';
 
 interface CampaignVoucher {
   id: string;
@@ -19,6 +21,9 @@ interface CampaignVoucher {
   product_skus: string[] | null;
   vendor_ids: string[] | null;
   category_ids: string[] | null;
+  gift_box_skus: string[] | null;
+  gift_occasion_slugs: string[] | null;
+  gift_recipient_slugs: string[] | null;
   max_uses: number;
   current_uses: number;
   max_uses_per_customer: number;
@@ -56,6 +61,9 @@ interface FormState {
   product_skus: string;
   vendor_ids: string;
   category_ids: string;
+  gift_box_skus: string;
+  gift_occasion_slugs: string;
+  gift_recipient_slugs: string;
   max_uses: number;
   max_uses_per_customer: number;
   valid_from: string;
@@ -73,6 +81,9 @@ const emptyForm: FormState = {
   product_skus: '',
   vendor_ids: '',
   category_ids: '',
+  gift_box_skus: '',
+  gift_occasion_slugs: '',
+  gift_recipient_slugs: '',
   max_uses: 1,
   max_uses_per_customer: 1,
   valid_from: new Date().toISOString().slice(0, 16),
@@ -179,6 +190,9 @@ export function VouchersPage() {
       product_skus: (voucher.product_skus || []).join(', '),
       vendor_ids: (voucher.vendor_ids || []).join(', '),
       category_ids: (voucher.category_ids || []).join(', '),
+      gift_box_skus: (voucher.gift_box_skus || []).join(', '),
+      gift_occasion_slugs: (voucher.gift_occasion_slugs || []).join(', '),
+      gift_recipient_slugs: (voucher.gift_recipient_slugs || []).join(', '),
       max_uses: voucher.max_uses,
       max_uses_per_customer: voucher.max_uses_per_customer,
       valid_from: new Date(voucher.valid_from).toISOString().slice(0, 16),
@@ -227,6 +241,9 @@ export function VouchersPage() {
       product_skus: parseArray(formData.product_skus).map((sku) => sku.toUpperCase()),
       vendor_ids: parseArray(formData.vendor_ids),
       category_ids: parseArray(formData.category_ids),
+      gift_box_skus: parseArray(formData.gift_box_skus).map((sku) => sku.toUpperCase()),
+      gift_occasion_slugs: parseArray(formData.gift_occasion_slugs).map((slug) => slug.toLowerCase()),
+      gift_recipient_slugs: parseArray(formData.gift_recipient_slugs).map((slug) => slug.toLowerCase()),
       max_uses: Number(formData.max_uses),
       max_uses_per_customer: Number(formData.max_uses_per_customer),
       valid_from: new Date(formData.valid_from).toISOString(),
@@ -243,10 +260,32 @@ export function VouchersPage() {
           .update(payload)
           .eq('id', editingId);
         if (error) throw error;
+        void logActivity({
+          action: 'VOUCHER_UPDATED',
+          resource_type: 'campaign_vouchers',
+          resource_id: editingId,
+          details: {
+            code: payload.code,
+            gift_box_skus: payload.gift_box_skus,
+            gift_occasion_slugs: payload.gift_occasion_slugs,
+            gift_recipient_slugs: payload.gift_recipient_slugs,
+          },
+        });
         notification.success('Updated', 'Voucher updated successfully');
       } else {
-        const { error } = await supabase.from('campaign_vouchers').insert(payload);
+        const { data: created, error } = await supabase.from('campaign_vouchers').insert(payload).select('id').single();
         if (error) throw error;
+        void logActivity({
+          action: 'VOUCHER_CREATED',
+          resource_type: 'campaign_vouchers',
+          resource_id: created?.id,
+          details: {
+            code: payload.code,
+            gift_box_skus: payload.gift_box_skus,
+            gift_occasion_slugs: payload.gift_occasion_slugs,
+            gift_recipient_slugs: payload.gift_recipient_slugs,
+          },
+        });
         notification.success('Created', 'Voucher created successfully');
       }
       setFormOpen(false);
@@ -269,6 +308,11 @@ export function VouchersPage() {
     try {
       const { error } = await supabase.from('campaign_vouchers').delete().eq('id', id);
       if (error) throw error;
+      void logActivity({
+        action: 'VOUCHER_DELETED',
+        resource_type: 'campaign_vouchers',
+        resource_id: id,
+      });
       notification.success('Deleted', 'Voucher removed');
       await loadVouchers();
     } catch (err: any) {
@@ -289,6 +333,11 @@ export function VouchersPage() {
         .update({ status: 'cancelled' })
         .eq('id', id);
       if (error) throw error;
+      void logActivity({
+        action: 'VOUCHER_CANCELLED',
+        resource_type: 'campaign_vouchers',
+        resource_id: id,
+      });
       notification.success('Cancelled', 'Voucher cancelled');
       await loadVouchers();
     } catch (err: any) {
@@ -690,6 +739,54 @@ export function VouchersPage() {
                     placeholder="UUIDs (leave empty for all categories)"
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 font-mono text-sm"
                   />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-purple-100 bg-purple-50/60 p-4 space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-purple-900">Gift restrictions (optional)</h3>
+                  <p className="mt-1 text-xs text-purple-800">
+                    Gift vouchers discount the box price only — vendors inside the box are still paid in full.
+                    Leave empty to allow any gift order (when marketplace product/vendor/category fields are also empty).
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Gift box SKUs (comma-separated)
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.gift_box_skus}
+                      onChange={(e) => setFormData({ ...formData, gift_box_skus: e.target.value.toUpperCase() })}
+                      placeholder="e.g. GBX-BIRTHDAY-HER-001, GBX-ROMANTIC-ANY-002"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 font-mono text-sm uppercase"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Gift occasions (slugs)
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.gift_occasion_slugs}
+                      onChange={(e) => setFormData({ ...formData, gift_occasion_slugs: e.target.value })}
+                      placeholder={GIFT_OCCASION_TAGS.map((t) => t.slug).join(', ')}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 font-mono text-sm"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Gift recipients (slugs)
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.gift_recipient_slugs}
+                      onChange={(e) => setFormData({ ...formData, gift_recipient_slugs: e.target.value })}
+                      placeholder={GIFT_RECIPIENT_TAGS.map((t) => t.slug).join(', ')}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 font-mono text-sm"
+                    />
+                  </div>
                 </div>
               </div>
 

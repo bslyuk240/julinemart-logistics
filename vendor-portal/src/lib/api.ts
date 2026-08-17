@@ -11,6 +11,16 @@ async function getToken(): Promise<string> {
   return data.session?.access_token || '';
 }
 
+type VendorCampaignRow = {
+  id: string;
+  slug: string;
+  public_title: string;
+  status: string;
+  approval_status: string | null;
+  review_notes?: string | null;
+  storefront_url?: string;
+};
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
@@ -79,6 +89,12 @@ export const api = {
     return request<any>(`vendor-my-orders${qs}`);
   },
   getOrder: (id: string) => request<any>(`vendor-my-orders?id=${id}`),
+
+  updateReservation: (orderId: string, action: 'ready' | 'collected') =>
+    request<{ order_id: string; reservation_status: string }>('vendor-reservation', {
+      method: 'POST',
+      body: JSON.stringify({ order_id: orderId, action }),
+    }),
 
   getEarnings: (period?: string) => {
     const qs = period ? `?period=${period}` : '';
@@ -186,4 +202,30 @@ export const api = {
   requestWithdrawal:  (body: object) => request<any>('vendor-withdrawals', { method: 'POST', body: JSON.stringify(body) }),
   updateWithdrawal:   (id: string, body: object) =>
     request<any>(`vendor-withdrawals/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+
+  getCampaigns: () => request<VendorCampaignRow[]>('vendor-campaigns'),
+  createCampaign: (body: object) =>
+    request<{ message?: string }>('vendor-campaigns', { method: 'POST', body: JSON.stringify(body) }),
+  updateCampaign: (body: object) =>
+    request<{ message?: string }>('vendor-campaigns', { method: 'PUT', body: JSON.stringify(body) }),
+
+  getProductCustomisation: (productId: string) =>
+    request<unknown | null>(`vendor-product-customisation?product_id=${productId}`),
+
+  saveProductCustomisation: (productId: string, body: object) =>
+    request<unknown>(`vendor-product-customisation?product_id=${productId}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
+  deleteProductCustomisation: (productId: string) =>
+    request<unknown>(`vendor-product-customisation?product_id=${productId}`, { method: 'DELETE' }),
+
+  getCustomOrders: () => request<any[]>('vendor-custom-orders'),
+
+  updateCustomOrder: (specId: string, body: object) =>
+    request<unknown>('vendor-custom-orders', {
+      method: 'PATCH',
+      body: JSON.stringify({ spec_id: specId, ...body }),
+    }),
 };

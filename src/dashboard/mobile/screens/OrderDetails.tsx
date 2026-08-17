@@ -18,6 +18,7 @@ import { supabase } from '../../contexts/AuthContext';
 import { buildSupabaseFunctionUrl } from '../../utils/supabaseFunctions';
 import { openLabelPrint, openWaybillPrint } from '../../lib/waybillPrint';
 import { ContactSection, DetailRow, SectionLabel } from '../components/MobileDetailParts';
+import RiderPicker from '../../components/RiderPicker';
 import { Sheet } from '../Sheet';
 import { TABBAR_SPACE } from '../lib/functionsAuth';
 import { formatNaira } from '../lib/displayUtils';
@@ -180,7 +181,7 @@ export default function MobileOrderDetails() {
   const [statusUpdating, setStatusUpdating] = useState<Identifier | null>(null);
   const [dispatchTarget, setDispatchTarget] = useState<SubOrder | null>(null);
   const [riderTarget, setRiderTarget] = useState<Identifier | null>(null);
-  const [riderInfo, setRiderInfo] = useState({ name: '', phone: '', vehicle: '' });
+  const [riderId, setRiderId] = useState('');
 
   const derivedStatus = useMemo(() => deriveOrderStatus(order, subOrders), [order, subOrders]);
 
@@ -251,13 +252,13 @@ export default function MobileOrderDetails() {
       const response = await fetch(`${functionsBase}/assign-rider`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ sub_order_id: riderTarget, rider_name: riderInfo.name.trim(), rider_phone: riderInfo.phone.trim(), rider_vehicle: riderInfo.vehicle || null }),
+        body: JSON.stringify({ sub_order_id: riderTarget, rider_id: riderId }),
       });
       const data = await response.json();
       if (!response.ok || !data?.success) throw new Error(data?.error || data?.message || 'Failed to assign local rider');
       notification.success('Rider assigned', 'Local rider saved for this shipment');
       setRiderTarget(null);
-      setRiderInfo({ name: '', phone: '', vehicle: '' });
+      setRiderId('');
       await fetchOrderDetails();
     } catch (err) {
       notification.error('Assignment failed', err instanceof Error ? err.message : 'Unable to assign local rider');
@@ -654,7 +655,7 @@ export default function MobileOrderDetails() {
                 if (!target) return;
                 const ok = await updateShipmentLane(target, 'local_rider');
                 if (!ok) return;
-                setRiderInfo({ name: '', phone: '', vehicle: '' });
+                setRiderId('');
                 setRiderTarget(target.id);
               }}
               className="w-full rounded-lg border border-gray-200 p-3 text-left disabled:opacity-40"
@@ -669,14 +670,12 @@ export default function MobileOrderDetails() {
       <Sheet open={!!riderTarget} onClose={() => setRiderTarget(null)} ariaLabel="Assign local rider">
         <h3 className="text-base font-bold text-gray-900">Assign local rider</h3>
         <div className="space-y-3">
-          <input type="text" placeholder="Rider name" value={riderInfo.name} onChange={(e) => setRiderInfo((p) => ({ ...p, name: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm" style={{ fontSize: '16px' }} />
-          <input type="tel" placeholder="Rider phone" value={riderInfo.phone} onChange={(e) => setRiderInfo((p) => ({ ...p, phone: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm" style={{ fontSize: '16px' }} />
-          <input type="text" placeholder="Vehicle (optional)" value={riderInfo.vehicle} onChange={(e) => setRiderInfo((p) => ({ ...p, vehicle: e.target.value }))} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm" style={{ fontSize: '16px' }} />
+          <RiderPicker value={riderId} onChange={setRiderId} />
         </div>
         <button
           type="button"
           onClick={assignLocalRider}
-          disabled={!riderInfo.name || !riderInfo.phone}
+          disabled={!riderId}
           className="rounded-lg bg-primary-600 py-3 text-sm font-semibold text-white disabled:opacity-60"
         >
           Save rider

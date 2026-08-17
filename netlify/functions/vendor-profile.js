@@ -26,7 +26,7 @@ export async function handler(event) {
   // ── PUT ──────────────────────────────────────────────────────────────────
   if (event.httpMethod === 'PUT') {
     const body = event.body ? JSON.parse(event.body) : {};
-    const allowed = ['phone', 'description', 'bank_name', 'bank_account_number', 'bank_account_name', 'logo_url', 'banner_url', 'fez_collection_method'];
+    const allowed = ['phone', 'description', 'bank_name', 'bank_account_number', 'bank_account_name', 'logo_url', 'banner_url', 'fez_collection_method', 'intro_video_url'];
     const updates = {};
     for (const key of allowed) {
       if (body[key] !== undefined) updates[key] = body[key];

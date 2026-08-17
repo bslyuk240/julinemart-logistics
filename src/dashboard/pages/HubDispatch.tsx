@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Loader, RefreshCw, Truck, User } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { supabase } from '../../lib/supabase';
+import RiderPicker from '../components/RiderPicker';
 
 type Hub = { id: string; name: string; city?: string | null };
 
@@ -61,7 +62,7 @@ export function HubDispatchPage() {
   const [dispatching, setDispatching] = useState(false);
   const [force, setForce] = useState(false);
   const [riderModal, setRiderModal] = useState<string | null>(null);
-  const [riderInfo, setRiderInfo] = useState({ name: '', phone: '', vehicle: '' });
+  const [riderId, setRiderId] = useState('');
   const [assigningRider, setAssigningRider] = useState(false);
 
   const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
@@ -201,7 +202,7 @@ export function HubDispatchPage() {
   };
 
   const assignRider = async (subOrderId: string) => {
-    if (!riderInfo.name || !riderInfo.phone) return;
+    if (!riderId) return;
     setAssigningRider(true);
     try {
       const res = await fetch(`${functionsBase}/assign-rider`, {
@@ -209,16 +210,14 @@ export function HubDispatchPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sub_order_id: subOrderId,
-          rider_name: riderInfo.name.trim(),
-          rider_phone: riderInfo.phone.trim(),
-          rider_vehicle: riderInfo.vehicle || null,
+          rider_id: riderId,
         }),
       });
       const payload = await res.json();
       if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Failed to assign rider');
       notification.success('Rider Assigned', 'Local rider saved for this shipment');
       setRiderModal(null);
-      setRiderInfo({ name: '', phone: '', vehicle: '' });
+      setRiderId('');
       await refreshAll();
     } catch (err) {
       notification.error('Assignment Failed', err instanceof Error ? err.message : 'Unable to assign rider');
@@ -399,7 +398,7 @@ export function HubDispatchPage() {
                       <td className="py-2 pr-3">₦{Number(row.subtotal || 0).toLocaleString()}</td>
                       <td className="py-2">
                         <button
-                          onClick={() => { setRiderModal(row.id); setRiderInfo({ name: '', phone: '', vehicle: '' }); }}
+                          onClick={() => { setRiderModal(row.id); setRiderId(''); }}
                           className="btn-secondary text-xs px-3 py-1"
                         >
                           Assign Rider
@@ -421,50 +420,20 @@ export function HubDispatchPage() {
             <h3 className="text-lg font-bold mb-4">Assign Local Rider</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Rider Name <span className="text-red-500">*</span></label>
-                <input
-                  type="text"
-                  value={riderInfo.name}
-                  onChange={(e) => setRiderInfo({ ...riderInfo, name: e.target.value })}
-                  className="w-full px-3 py-2 border rounded"
-                  placeholder="Enter rider name"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Phone Number <span className="text-red-500">*</span></label>
-                <input
-                  type="tel"
-                  value={riderInfo.phone}
-                  onChange={(e) => setRiderInfo({ ...riderInfo, phone: e.target.value })}
-                  className="w-full px-3 py-2 border rounded"
-                  placeholder="+234 800 000 0000"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Vehicle Type</label>
-                <select
-                  value={riderInfo.vehicle}
-                  onChange={(e) => setRiderInfo({ ...riderInfo, vehicle: e.target.value })}
-                  className="w-full px-3 py-2 border rounded"
-                >
-                  <option value="">Select vehicle</option>
-                  <option value="Motorcycle">Motorcycle</option>
-                  <option value="Bicycle">Bicycle</option>
-                  <option value="Van">Van</option>
-                  <option value="Car">Car</option>
-                </select>
+                <label className="block text-sm font-medium mb-1">Rider <span className="text-red-500">*</span></label>
+                <RiderPicker value={riderId} onChange={setRiderId} />
               </div>
             </div>
             <div className="flex gap-2 mt-6">
               <button
-                onClick={() => { setRiderModal(null); setRiderInfo({ name: '', phone: '', vehicle: '' }); }}
+                onClick={() => { setRiderModal(null); setRiderId(''); }}
                 className="flex-1 px-4 py-2 border rounded hover:bg-gray-50"
               >
                 Cancel
               </button>
               <button
                 onClick={() => assignRider(riderModal)}
-                disabled={!riderInfo.name || !riderInfo.phone || assigningRider}
+                disabled={!riderId || assigningRider}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {assigningRider && <Loader className="w-4 h-4 animate-spin" />}

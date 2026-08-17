@@ -27,6 +27,11 @@ import {
 } from './services/global-sourcing-utils.js';
 // CJ auto-ordering removed — supplier orders are placed manually via Global Sourcing → Inbound Shipments
 import { computeInfluencerShippingDiscount } from './services/influencer-order-sale.js';
+import {
+  computeCustomisationAdjustment,
+  validateCustomisation,
+} from './services/custom-order-utils.js';
+import { loadApprovedLocations, resolveApprovedLocation } from './services/locationResolver.js';
 function generateRef() {
   const ts = Date.now().toString(36).toUpperCase();
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -72,6 +77,7 @@ export async function handler(event) {
     influencer_coupon_code,
     special_instructions,
     order_notes,
+    fulfillment_method = 'delivery',
   } = body;
 
   // ── Validate required fields ──────────────────────────────────────────────
@@ -84,6 +90,9 @@ export async function handler(event) {
   if (!delivery_state?.trim()) missing.push('delivery_state');
   if (!delivery_zone?.trim()) missing.push('delivery_zone');
   if (!Array.isArray(items) || items.length === 0) missing.push('items');
+  const isStorePickup = fulfillment_method === 'store_pickup';
+  const isReservation = fulfillment_method === 'reservation';
+  const isLocalCollection = isStorePickup || isReservation;
   if (missing.length > 0) {
     return jsonResponse(400, { error: `Missing required fields: ${missing.join(', ')}` });
   }
@@ -109,7 +118,7 @@ export async function handler(event) {
     const variationWooIds = variationIds.filter((id) => !isUuid(id) && Number(id) > 0).map(Number);
 
     const productSelect =
-      'id, woo_product_id, name, slug, sku, regular_price, sale_price, cost_price, stock_status, vendor_id, hub_id, type, sourcing_meta, ships_from_abroad';
+      'id, woo_product_id, name, slug, sku, regular_price, sale_price, cost_price, stock_status, vendor_id, hub_id, type, sourcing_meta, ships_from_abroad, warranty_type, warranty_months';
     const variationSelect =
       'id, woo_variation_id, product_id, sku, regular_price, sale_price, cost_price, stock_status, attributes, vendor_id, hub_id, sourcing_meta';
 
@@ -143,6 +152,24 @@ export async function handler(event) {
     for (const v of [...(variationsByUuid || []), ...(variationsByWoo || [])]) {
       variationMap.set(v.id, v);
       if (v.woo_variation_id) variationMap.set(String(v.woo_variation_id), v);
+    }
+
+    // ── Custom order schemas (when line carries customisation) ───────────────
+    const customProductIds = [
+      ...new Set(
+        items
+          .filter((i) => i.customisation?.schema_id)
+          .map((i) => i.product_id)
+          .filter((id) => /^[0-9a-f-]{36}$/i.test(String(id)))
+      ),
+    ];
+    const schemaMap = new Map();
+    if (customProductIds.length > 0) {
+      const { data: schemas } = await adminClient
+        .from('product_customisation_schemas')
+        .select('*')
+        .in('product_id', customProductIds);
+      for (const s of schemas || []) schemaMap.set(s.product_id, s);
     }
 
     // ── Build resolved line items ───────────────────────────────────────────
@@ -184,6 +211,33 @@ export async function handler(event) {
         return jsonResponse(400, { error: `Product "${product.name}" has no price set` });
       }
 
+      let customisationSnapshot = null;
+      if (item.customisation?.schema_id) {
+        const schema = schemaMap.get(product.id);
+        if (!schema || schema.id !== item.customisation.schema_id) {
+          return jsonResponse(400, { error: `Invalid customisation for "${product.name}"` });
+        }
+        if (!Array.isArray(schema.fields) || schema.fields.length === 0) {
+          return jsonResponse(400, { error: `"${product.name}" is not a custom order product` });
+        }
+        const fieldValues = item.customisation.field_values || {};
+        const validationError = validateCustomisation(schema, fieldValues);
+        if (validationError) {
+          return jsonResponse(400, { error: validationError });
+        }
+        const serverAdjustment = computeCustomisationAdjustment(schema, fieldValues);
+        const clientAdjustment = Number(item.customisation.price_adjustment || 0);
+        if (Math.abs(serverAdjustment - clientAdjustment) > 0.02) {
+          return jsonResponse(400, { error: 'Customisation price mismatch — refresh and try again' });
+        }
+        unitPrice += serverAdjustment;
+        customisationSnapshot = {
+          schema_id: schema.id,
+          field_values: fieldValues,
+          price_adjustment: serverAdjustment,
+        };
+      }
+
       // source may be the resolved variation, fallback variation, or product
       const effectiveVariation = variation || (source !== product ? source : null);
       const hubFallback = effectiveVariation?.hub_id || product.hub_id || null;
@@ -208,6 +262,12 @@ export async function handler(event) {
         cost_price: costPrice,
         quantity: item.quantity,
         subtotal: unitPrice * item.quantity,
+        warranty_type:
+          product.warranty_type && product.warranty_type !== 'none' ? product.warranty_type : null,
+        warranty_months:
+          product.warranty_months && Number(product.warranty_months) > 0
+            ? Number(product.warranty_months)
+            : null,
         globalSourcing,
         // for sub_order items JSONB
         _name: product.name,
@@ -215,10 +275,47 @@ export async function handler(event) {
         _vendorId: effectiveVariation?.vendor_id || product.vendor_id || null,
         _hubId: effectiveVariation?.hub_id || product.hub_id || null,
         _variationAttributes: effectiveVariation?.attributes || [],
+        _customisation: customisationSnapshot,
       });
     }
 
     const subtotal = resolvedItems.reduce((s, i) => s + i.subtotal, 0);
+
+    if (isLocalCollection) {
+      const vendorIds = [...new Set(resolvedItems.map((i) => i.vendor_id).filter(Boolean))];
+      if (vendorIds.length !== 1) {
+        return jsonResponse(400, {
+          error: 'Store pickup and reservation are only available for single-vendor orders',
+        });
+      }
+      const vendorId = vendorIds[0];
+      const { data: vendorRow } = await adminClient
+        .from('vendors')
+        .select('id, approved_location_id')
+        .eq('id', vendorId)
+        .maybeSingle();
+      if (!vendorRow?.approved_location_id) {
+        return jsonResponse(400, { error: 'This seller does not support store pickup or reservation' });
+      }
+      const { data: loc } = await adminClient
+        .from('approved_vendor_locations')
+        .select('supports_customer_pickup')
+        .eq('id', vendorRow.approved_location_id)
+        .maybeSingle();
+      if (!loc?.supports_customer_pickup) {
+        return jsonResponse(400, { error: 'This seller does not support store pickup or reservation' });
+      }
+      const { data: verification } = await adminClient
+        .from('seller_verifications')
+        .select('id')
+        .eq('vendor_id', vendorId)
+        .eq('verification_type', 'physical_store')
+        .eq('status', 'approved')
+        .maybeSingle();
+      if (!verification) {
+        return jsonResponse(400, { error: 'This seller is not verified for in-store collection' });
+      }
+    }
 
     // ── Voucher check ──────────────────────────────────────────────────────
     let discountAmount = 0;
@@ -251,7 +348,9 @@ export async function handler(event) {
     }
 
     // ── Influencer shipping code (Supabase / PWA — not WooCommerce) ─────────
-    const shippingFeeBase = Math.max(Number(shipping_fee) || 0, 0);
+    const shippingFeeBase = isLocalCollection
+      ? 0
+      : Math.max(Number(shipping_fee) || 0, 0);
     let influencerMeta = null;
     let influencerShippingDiscount = 0;
     if (influencer_coupon_code?.trim()) {
@@ -311,9 +410,17 @@ export async function handler(event) {
         payment_reference: paymentReference,
         special_instructions: special_instructions?.trim() || null,
         order_notes: order_notes?.trim() || null,
+        fulfillment_method: isReservation ? 'reservation' : isStorePickup ? 'store_pickup' : 'delivery',
+        ...(isReservation
+          ? {
+              reservation_status: 'reserved',
+              reserved_until: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+            }
+          : {}),
         metadata: {
           voucher_code: voucherRow ? voucherRow.code : null,
           source: 'pwa',
+          fulfillment_method: isReservation ? 'reservation' : isStorePickup ? 'store_pickup' : 'delivery',
           /** DB webhook skips duplicate confirmation when this is set */
           order_confirmation_handler: 'netlify_create_order',
           ...(influencerMeta ? { influencer: influencerMeta } : {}),
@@ -362,23 +469,50 @@ export async function handler(event) {
       });
 
     // ── Insert order items ─────────────────────────────────────────────────
-    const { error: itemsErr } = await adminClient.from('order_items').insert(
-      resolvedItems.map((i) => ({
-        order_id: orderId,
-        product_id: i.product_id,
-        product_name: i.product_name,
-        product_sku: i.product_sku,
-        variation_id: i.variation_id,
-        variation_details: i.variation_details,
-        vendor_id: i.vendor_id,
-        hub_id: i.hub_id,
-        unit_price: i.unit_price,
-        cost_price: i.cost_price,
-        quantity: i.quantity,
-        subtotal: i.subtotal,
-      }))
-    );
+    const { data: insertedItems, error: itemsErr } = await adminClient
+      .from('order_items')
+      .insert(
+        resolvedItems.map((i) => ({
+          order_id: orderId,
+          product_id: i.product_id,
+          product_name: i.product_name,
+          product_sku: i.product_sku,
+          variation_id: i.variation_id,
+          variation_details: i.variation_details,
+          vendor_id: i.vendor_id,
+          hub_id: i.hub_id,
+          unit_price: i.unit_price,
+          cost_price: i.cost_price,
+          quantity: i.quantity,
+          subtotal: i.subtotal,
+          warranty_type: i.warranty_type || null,
+          warranty_months: i.warranty_months || null,
+        }))
+      )
+      .select('id, product_id, variation_id');
     if (itemsErr) return jsonResponse(500, { error: 'Failed to save order items', detail: itemsErr.message });
+
+    const customSpecs = [];
+    for (let idx = 0; idx < resolvedItems.length; idx++) {
+      const ri = resolvedItems[idx];
+      const inserted = insertedItems?.[idx];
+      if (ri._customisation && inserted?.id) {
+        customSpecs.push({
+          order_id: orderId,
+          order_item_id: inserted.id,
+          schema_id: ri._customisation.schema_id,
+          field_values: ri._customisation.field_values,
+          price_adjustment: ri._customisation.price_adjustment,
+          status: 'submitted',
+        });
+      }
+    }
+    if (customSpecs.length > 0) {
+      const { error: specErr } = await adminClient.from('custom_order_specs').insert(customSpecs);
+      if (specErr) {
+        console.error('[create-order] custom_order_specs insert failed:', specErr.message);
+      }
+    }
 
     // ── Group into sub-orders by vendor ────────────────────────────────────
     const vendorGroups = new Map();
@@ -415,9 +549,13 @@ export async function handler(event) {
     const hubIds = [...new Set(
       Array.from(vendorGroups.values()).map((g) => g.hub_id).filter(Boolean)
     )];
+    const vendorIds = [...new Set(
+      Array.from(vendorGroups.values()).map((g) => g.vendor_id).filter(Boolean)
+    )];
 
     const hubCourierMap = {};
     const hubCityMap = {};
+    const vendorCityMap = {};
 
     if (hubIds.length > 0) {
       const [{ data: hcRows }, { data: hubRows }] = await Promise.all([
@@ -449,7 +587,32 @@ export async function handler(event) {
       }
     }
 
+    const vendorLocationMap = {};
+    if (vendorIds.length > 0) {
+      const { data: vendorRows } = await adminClient
+        .from('vendors')
+        .select('id, city, approved_location_id')
+        .in('id', vendorIds);
+      for (const v of (vendorRows || [])) {
+        vendorCityMap[v.id] = (v.city || '').trim().toLowerCase();
+        vendorLocationMap[v.id] = v.approved_location_id || null;
+      }
+    }
+
     const custCity = (delivery_city || '').trim().toLowerCase();
+
+    // Resolve the customer's town through the same admin-curated
+    // approved_vendor_locations table vendors are already tied to (their
+    // hub_id was set from this table at approval — see vendor-approve.js).
+    // That reconciles vendor, hub, and customer through one canonical
+    // location mapping instead of three independent city strings, and
+    // means an LGA the customer picks (or types where a city was expected,
+    // e.g. "Effurun" for Warri) resolves correctly as long as it's listed
+    // under that hub's location row on the Vendor Locations admin page.
+    const approvedLocations = await loadApprovedLocations(adminClient);
+    const custLocation = resolveApprovedLocation(approvedLocations, delivery_city, delivery_lga);
+    const custHubId = custLocation?.hub_id || null;
+    const custSupportsLocal = Boolean(custLocation?.supports_local_delivery);
 
     const subOrderRows = Array.from(vendorGroups.values()).map((g) => {
       const sourcedItems = g.items.filter(
@@ -457,8 +620,31 @@ export async function handler(event) {
       );
       const sourceSeed = sourcedItems[0]?.globalSourcing || null;
 
+      // Local rider requires vendor and customer to resolve to the same
+      // town — it does NOT require a JLO hub to exist there. A town with no
+      // hub_id at all can still qualify once it has rider coverage
+      // (approved_vendor_locations.supports_local_delivery), which is what
+      // lets local rider expand into towns outside the hub network.
+      //
+      // Two structural match strategies, since either side's hub_id can be
+      // missing/diverge from the location row (e.g. a product's own hub_id
+      // vs the vendor's):
+      //  - hubMatch: customer's resolved hub_id equals the item's dispatch hub
+      //  - sameLocationMatch: vendor and customer resolve to the exact same
+      //    approved_vendor_locations row, hub or no hub
+      // Falls back to a plain city-string match for locations not yet
+      // curated there so we don't regress eligibility that already worked.
+      const hubMatch = custSupportsLocal && custHubId && custHubId === g.hub_id;
+      const sameLocationMatch =
+        custSupportsLocal &&
+        custLocation?.id &&
+        vendorLocationMap[g.vendor_id] &&
+        custLocation.id === vendorLocationMap[g.vendor_id];
       const hubCity = hubCityMap[g.hub_id] || '';
-      const isLocalEligible = hubCity && custCity && hubCity === custCity;
+      const vendorCity = vendorCityMap[g.vendor_id] || '';
+      const legacyMatch =
+        hubCity && custCity && vendorCity && hubCity === custCity && vendorCity === custCity;
+      const isLocalEligible = hubMatch || sameLocationMatch || legacyMatch;
       const eligible_lanes = isLocalEligible ? ['local_rider', 'fez'] : ['fez'];
       const selected_lane = isLocalEligible ? 'local_rider' : 'fez';
 

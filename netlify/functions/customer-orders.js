@@ -53,10 +53,13 @@ export async function handler(event) {
           id, order_number, overall_status, payment_method, payment_status,
           payment_reference, customer_name, customer_email, customer_phone,
           delivery_address, delivery_city, delivery_state,
+          fulfillment_method, reservation_status, reserved_until,
+          reservation_ready_at, reservation_collected_at,
           subtotal, shipping_fee_paid, discount_amount, total_amount,
           created_at, paid_at, updated_at,
           order_items (
-            id, product_name, product_sku, variation_id, unit_price, quantity, subtotal
+            id, product_id, product_name, product_sku, variation_id, unit_price, quantity, subtotal,
+            warranty_type, warranty_months
           ),
           sub_orders (
             id, status, tracking_number, courier_waybill, delivered_at,

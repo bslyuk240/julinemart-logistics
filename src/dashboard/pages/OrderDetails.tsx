@@ -20,6 +20,7 @@ import { supabase } from '../contexts/AuthContext';
 import { buildSupabaseFunctionUrl } from '../utils/supabaseFunctions';
 import { openLabelPrint, openWaybillPrint } from '../lib/waybillPrint';
 import { TrackingTimeline, trackingVariantForShipment } from '../../shared/TrackingTimeline';
+import RiderPicker from '../components/RiderPicker';
 
 type Identifier = string | number;
 type KnownStatus =
@@ -243,7 +244,7 @@ export function OrderDetailsPage() {
   const [fetchingTracking, setFetchingTracking] = useState<Identifier | null>(null);
   const [showDispatchMenu, setShowDispatchMenu] = useState<Identifier | null>(null);
   const [showRiderModal, setShowRiderModal] = useState<Identifier | null>(null);
-  const [riderInfo, setRiderInfo] = useState({ name: '', phone: '', vehicle: '' });
+  const [riderId, setRiderId] = useState('');
   const [statusUpdating, setStatusUpdating] = useState<Identifier | null>(null);
   const derivedStatus = useMemo(
     () => deriveOrderStatus(order, subOrders),
@@ -443,9 +444,7 @@ export function OrderDetailsPage() {
         },
         body: JSON.stringify({
           sub_order_id: subOrderId,
-          rider_name: riderInfo.name.trim(),
-          rider_phone: riderInfo.phone.trim(),
-          rider_vehicle: riderInfo.vehicle || null,
+          rider_id: riderId,
         }),
       });
 
@@ -457,7 +456,7 @@ export function OrderDetailsPage() {
 
       notification.success('Rider assigned', 'Local rider saved for this shipment');
       setShowRiderModal(null);
-      setRiderInfo({ name: '', phone: '', vehicle: '' });
+      setRiderId('');
       await fetchOrderDetails();
     } catch (error) {
       console.error('Assign rider error', error);
@@ -1064,7 +1063,7 @@ export function OrderDetailsPage() {
                                     );
                                     if (!laneUpdated) return;
                                     setShowRiderModal(subOrder.id);
-                                    setRiderInfo({ name: '', phone: '', vehicle: '' });
+                                    setRiderId('');
                                   }}
                                   disabled={!localLaneEligible || localDisabledByLane}
                                   className={`w-full px-4 py-3 text-left flex items-start gap-3 ${
@@ -1312,43 +1311,9 @@ export function OrderDetailsPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  Rider Name <span className="text-red-500">*</span>
+                  Rider <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={riderInfo.name}
-                  onChange={(e) => setRiderInfo({ ...riderInfo, name: e.target.value })}
-                  className="w-full px-3 py-2 border rounded"
-                  placeholder="Enter rider name"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Phone Number <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="tel"
-                  value={riderInfo.phone}
-                  onChange={(e) => setRiderInfo({ ...riderInfo, phone: e.target.value })}
-                  className="w-full px-3 py-2 border rounded"
-                  placeholder="+234 800 000 0000"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-1">Vehicle Type</label>
-                <select
-                  value={riderInfo.vehicle}
-                  onChange={(e) => setRiderInfo({ ...riderInfo, vehicle: e.target.value })}
-                  className="w-full px-3 py-2 border rounded"
-                >
-                  <option value="">Select vehicle</option>
-                  <option value="Motorcycle">Motorcycle</option>
-                  <option value="Bicycle">Bicycle</option>
-                  <option value="Van">Van</option>
-                  <option value="Car">Car</option>
-                </select>
+                <RiderPicker value={riderId} onChange={setRiderId} />
               </div>
             </div>
 
@@ -1356,7 +1321,7 @@ export function OrderDetailsPage() {
               <button
                 onClick={() => {
                   setShowRiderModal(null);
-                  setRiderInfo({ name: '', phone: '', vehicle: '' });
+                  setRiderId('');
                 }}
                 className="flex-1 px-4 py-2 border rounded hover:bg-gray-50"
               >
@@ -1364,7 +1329,7 @@ export function OrderDetailsPage() {
               </button>
               <button
                 onClick={() => assignLocalRider(showRiderModal)}
-                disabled={!riderInfo.name || !riderInfo.phone}
+                disabled={!riderId}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Assign Rider

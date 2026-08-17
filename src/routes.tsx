@@ -49,6 +49,14 @@ import MobileTags from './dashboard/mobile/screens/Tags';
 import MobileCategories from './dashboard/mobile/screens/Categories';
 import MobileHomepageContent from './dashboard/mobile/screens/HomepageContent';
 import MobileVendors from './dashboard/mobile/screens/Vendors';
+import MobileSellerVerifications from './dashboard/mobile/screens/SellerVerifications';
+import MobileGiftFulfilmentCentres from './dashboard/mobile/screens/GiftFulfilmentCentres';
+import MobileGiftBoxes from './dashboard/mobile/screens/GiftBoxes';
+import MobileGiftOps from './dashboard/mobile/screens/GiftOps';
+import MobileGiftPackaging from './dashboard/mobile/screens/GiftPackaging';
+import MobileGiftBoxReviews from './dashboard/mobile/screens/GiftBoxReviews';
+import MobileCustomOrders from './dashboard/mobile/screens/CustomOrders';
+import MobileVendorCampaignApprovals from './dashboard/mobile/screens/VendorCampaignApprovals';
 import MobileVendorDetail from './dashboard/mobile/screens/VendorDetail';
 import MobileVendorWithdrawals from './dashboard/mobile/screens/VendorWithdrawals';
 import MobileVendorDebits from './dashboard/mobile/screens/VendorDebits';
@@ -120,6 +128,16 @@ import { VouchersPage } from './dashboard/pages/Vouchers';
 import { CampaignsPage } from './dashboard/pages/Campaigns';
 import { CustomersPage } from './dashboard/pages/Customers';
 import { VendorsPage } from './dashboard/pages/Vendors';
+import SellerVerificationsPage from './dashboard/pages/SellerVerifications';
+import RiderVerificationsPage from './dashboard/pages/RiderVerifications';
+import RiderRosterPage from './dashboard/pages/RiderRoster';
+import VendorCampaignApprovalsPage from './dashboard/pages/VendorCampaignApprovals';
+import GiftFulfilmentCentresPage from './dashboard/pages/GiftFulfilmentCentres';
+import GiftBoxesPage from './dashboard/pages/GiftBoxes';
+import GiftOpsPage from './dashboard/pages/GiftOps';
+import GiftBoxReviewsPage from './dashboard/pages/GiftBoxReviews';
+import GiftPackagingPage from './dashboard/pages/GiftPackaging';
+import CustomOrdersPage from './dashboard/pages/CustomOrders';
 import VendorDetail from './dashboard/pages/VendorDetail';
 import VendorWithdrawals from './dashboard/pages/VendorWithdrawals';
 import VendorDebits from './dashboard/pages/VendorDebits';
@@ -313,6 +331,46 @@ function PWAMonitoringRoute() {
 function VendorsRoute() {
   const isMobile = useIsMobile();
   return isMobile ? <MobileVendors /> : <VendorsPage />;
+}
+
+function SellerVerificationsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileSellerVerifications /> : <SellerVerificationsPage />;
+}
+
+function VendorCampaignApprovalsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileVendorCampaignApprovals /> : <VendorCampaignApprovalsPage />;
+}
+
+function GiftFulfilmentCentresRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileGiftFulfilmentCentres /> : <GiftFulfilmentCentresPage />;
+}
+
+function GiftBoxesRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileGiftBoxes /> : <GiftBoxesPage />;
+}
+
+function GiftOpsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileGiftOps /> : <GiftOpsPage />;
+}
+
+function GiftPackagingRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileGiftPackaging /> : <GiftPackagingPage />;
+}
+
+function GiftBoxReviewsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileGiftBoxReviews /> : <GiftBoxReviewsPage />;
+}
+
+function CustomOrdersRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileCustomOrders /> : <CustomOrdersPage />;
 }
 
 function VendorDetailRoute() {
@@ -549,6 +607,16 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'vouchers', element: <VouchersRoute /> },
   { path: 'campaigns', element: <CampaignsRoute />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
   { path: 'vendors', element: <VendorsRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'seller-verifications', element: <SellerVerificationsRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'rider-verifications', element: <RiderVerificationsPage />, allowedRoles: ['admin', 'manager'] },
+  { path: 'rider-roster', element: <RiderRosterPage />, allowedRoles: ['admin', 'manager'] },
+  { path: 'vendor-campaign-approvals', element: <VendorCampaignApprovalsRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'gift-fulfilment-centres', element: <GiftFulfilmentCentresRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'gift-boxes', element: <GiftBoxesRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'gift-ops', element: <GiftOpsRoute />, allowedRoles: ['admin', 'manager', 'staff'] },
+  { path: 'gift-box-reviews', element: <GiftBoxReviewsRoute />, allowedRoles: ['admin', 'manager', 'staff'] },
+  { path: 'gift-packaging', element: <GiftPackagingRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'custom-orders', element: <CustomOrdersRoute />, allowedRoles: ['admin', 'manager', 'staff'] },
   { path: 'vendors/:id', element: <VendorDetailRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-withdrawals', element: <VendorWithdrawalsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-debits', element: <VendorDebitsRoute />, allowedRoles: ['admin', 'manager'] },

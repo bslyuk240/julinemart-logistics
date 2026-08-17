@@ -44,6 +44,10 @@ function applyCatalogOrdering(query, orderbyRaw, orderRaw) {
     return query.order('created_at', { ascending: false });
   }
 
+  if (ob === 'seller_quality') {
+    return query.order('created_at', { ascending: false });
+  }
+
   return query.order('created_at', { ascending: asc });
 }
 
@@ -90,6 +94,7 @@ export async function handler(event) {
   try {
     let productIdFilter = null;
     let vendorIdResolved = null;
+    let nearVendorIds = null;
 
     if (q.category) {
       const categorySlug = decodeURIComponent(String(q.category).trim());
@@ -160,11 +165,72 @@ export async function handler(event) {
       vendorIdResolved = vendor.id;
     }
 
+    if (q.near_state || q.near_city || q.near_area || q.pickup_available === 'true' || q.pickup_available === '1') {
+      const { data: nearVendors, error: nearErr } = await adminClient
+        .from('vendors')
+        .select('id, city, state, approved_location_id')
+        .eq('is_active', true);
+      if (nearErr) throw nearErr;
+
+      const locIds = [...new Set((nearVendors || []).map((v) => v.approved_location_id).filter(Boolean))];
+      const locMap = new Map();
+      if (locIds.length) {
+        const { data: locs } = await adminClient
+          .from('approved_vendor_locations')
+          .select('id, state, city, public_area, supports_customer_pickup')
+          .in('id', locIds);
+        for (const l of locs || []) locMap.set(l.id, l);
+      }
+
+      let physicalVerified = new Set();
+      const vendorUuids = (nearVendors || []).map((v) => v.id);
+      if ((q.pickup_available === 'true' || q.pickup_available === '1') && vendorUuids.length) {
+        const { data: verifications } = await adminClient
+          .from('seller_verifications')
+          .select('vendor_id')
+          .in('vendor_id', vendorUuids)
+          .eq('verification_type', 'physical_store')
+          .eq('status', 'approved');
+        physicalVerified = new Set((verifications || []).map((r) => r.vendor_id));
+      }
+
+      const nearState = q.near_state ? String(q.near_state).trim().toLowerCase() : null;
+      const nearCity = q.near_city ? String(q.near_city).trim().toLowerCase() : null;
+      const nearArea = q.near_area ? String(q.near_area).trim().toLowerCase() : null;
+      const pickupOnly = q.pickup_available === 'true' || q.pickup_available === '1';
+
+      nearVendorIds = (nearVendors || [])
+        .filter((v) => {
+          const loc = v.approved_location_id ? locMap.get(v.approved_location_id) : null;
+          const state = (loc?.state || v.state || '').toLowerCase();
+          const city = (loc?.city || v.city || '').toLowerCase();
+          const area = (loc?.public_area || '').toLowerCase();
+          if (nearState && state !== nearState) return false;
+          if (nearCity && city !== nearCity) return false;
+          if (nearArea && !area.includes(nearArea)) return false;
+          if (pickupOnly) {
+            if (!physicalVerified.has(v.id)) return false;
+            if (!loc?.supports_customer_pickup) return false;
+          }
+          return true;
+        })
+        .map((v) => v.id);
+
+      if (vendorIdResolved && nearVendorIds.length) {
+        if (!nearVendorIds.includes(vendorIdResolved)) {
+          return jsonResponse(200, { success: true, data: [], meta: emptyListMeta(page, perPage) });
+        }
+      } else if (!vendorIdResolved && nearVendorIds.length === 0) {
+        return jsonResponse(200, { success: true, data: [], meta: emptyListMeta(page, perPage) });
+      }
+    }
+
     function applyRowFilters(builder) {
       let b = builder;
       if (status !== 'all') b = b.eq('status', status);
       if (productIdFilter?.length) b = b.in('id', productIdFilter);
       if (vendorIdResolved) b = b.eq('vendor_id', vendorIdResolved);
+      else if (nearVendorIds?.length) b = b.in('vendor_id', nearVendorIds);
       if (q.type) b = b.eq('type', q.type);
       if (q.search) {
         // Split into individual terms so "electric fan" matches any product
@@ -195,10 +261,11 @@ export async function handler(event) {
         `id, woo_product_id, name, slug, short_description, status, type,
          regular_price, sale_price, sku, stock_status, manage_stock, stock_quantity,
          ships_from_abroad, is_virtual, sourcing_meta, seo_title, created_at,
+         warranty_type, warranty_months,
          average_rating, rating_count, reviews_allowed,
-         vendors!vendor_id ( id, store_name, store_slug, woocommerce_vendor_id, logo_url, banner_url, description, email, phone ),
+         vendors!vendor_id ( id, store_name, store_slug, woocommerce_vendor_id, logo_url, banner_url, description, email, phone, intro_video_url, seller_quality_score ),
          hubs!hub_id ( id, name, code ),
-         product_images ( id, src, alt, position, is_thumbnail, variation_id ),
+         product_images ( id, src, alt, position, is_thumbnail, variation_id, photo_source ),
          product_variations ( id, regular_price, sale_price, is_active, attributes ),
          product_category_map ( categories ( id, name, slug ) ),
          product_tag_map ( tags ( id, name, slug ) )`
@@ -215,6 +282,16 @@ export async function handler(event) {
     }
 
     const products = (data || []).map(normalizeProduct);
+
+    const orderby = String(q.orderby || 'date').toLowerCase();
+    if (orderby === 'seller_quality') {
+      products.sort((a, b) => {
+        const aq = Number(a.vendor?.seller_quality_score ?? -1);
+        const bq = Number(b.vendor?.seller_quality_score ?? -1);
+        if (bq !== aq) return bq - aq;
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+      });
+    }
 
     return {
       statusCode: 200,

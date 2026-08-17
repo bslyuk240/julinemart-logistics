@@ -46,6 +46,10 @@ const ACTION_FILTERS = [
   { value: 'WITHDRAWAL_PAID', label: 'Withdrawal paid' },
   { value: 'CLIENT_ERROR', label: 'Client error' },
   { value: 'courier_shipment_created', label: 'Shipment created' },
+  { value: 'GIFT_BOX_SKU_GENERATED', label: 'Gift SKU' },
+  { value: 'GIFT_ORDER_PLACED', label: 'Gift order' },
+  { value: 'VOUCHER_CREATED', label: 'Voucher' },
+  { value: 'CUSTOMISATION_SCHEMA_SAVED', label: 'Customisation' },
 ];
 
 const SOURCE_AVATAR: Record<string, string> = {

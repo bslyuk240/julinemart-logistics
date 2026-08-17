@@ -34,6 +34,7 @@ export async function handler(event) {
       order_id,
       reason_code,
       reason_note,
+      complaint_type,
       images = [],
       hub_id,
       method,
@@ -84,6 +85,20 @@ export async function handler(event) {
 
     const returnCode = generateReturnCode();
 
+    const resolvedComplaintType = complaint_type || (
+      reason_code === 'wrong_item' ? 'wrong_product'
+        : reason_code === 'damaged' ? 'damaged'
+          : reason_code === 'not_as_described' ? 'not_as_described'
+            : 'other'
+    );
+
+    const timelineEntry = {
+      at: new Date().toISOString(),
+      stage: 'complaint_submitted',
+      label: 'Complaint submitted',
+      actor: 'customer',
+    };
+
     // Insert return_request only — shipment created by admin on approval
     const { data: request, error: reqErr } = await supabase
       .from('return_requests')
@@ -97,7 +112,10 @@ export async function handler(event) {
         preferred_resolution: 'refund',
         reason_code,
         reason_note,
+        complaint_type: resolvedComplaintType,
         images: [],
+        evidence_urls: [],
+        resolution_timeline: [timelineEntry],
         status: 'pending_review',
         fez_method: 'dropoff',
       })

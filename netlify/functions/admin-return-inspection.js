@@ -175,13 +175,42 @@ export async function handler(event) {
     // ------------------------------
     // UPDATE REQUEST WITH INSPECTION OUTCOME
     // ------------------------------
+    const now = new Date();
+    const refundExpectedBy = new Date(now);
+    refundExpectedBy.setDate(refundExpectedBy.getDate() + 5);
+
+    const timeline = Array.isArray(request.resolution_timeline) ? [...request.resolution_timeline] : [];
+    if (status === 'approved') {
+      timeline.push({
+        at: now.toISOString(),
+        stage: 'refund_approved',
+        label: 'Refund approved',
+        actor: 'admin',
+      });
+    } else {
+      timeline.push({
+        at: now.toISOString(),
+        stage: 'rejected',
+        label: 'Complaint rejected',
+        actor: 'admin',
+      });
+    }
+
     await supabase
       .from("return_requests")
       .update({
         status: nextStatus,
         inspection_result,
         inspection_notes,
-        inspected_at: new Date().toISOString(),
+        inspected_at: now.toISOString(),
+        resolution_timeline: timeline,
+        ...(nextStatus === 'refund_processing'
+          ? {
+              refund_initiated_at: now.toISOString(),
+              refund_expected_by: refundExpectedBy.toISOString(),
+              refund_status: 'pending',
+            }
+          : {}),
       })
       .eq("id", returnId);
 

@@ -6,6 +6,8 @@
   'https://vendors.julinemart.com',
   'https://vendors-julinemart.netlify.app',
   'https://jlo.julinemart.com',
+  'https://riders.julinemart.com',
+  'https://riders-julinemart.netlify.app',
 ];
 
 function getCorsHeaders(origin) {

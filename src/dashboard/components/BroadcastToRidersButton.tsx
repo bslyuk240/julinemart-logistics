@@ -10,6 +10,8 @@ type Props = {
   status: string;
   onChanged: () => void;
   disabled?: boolean;
+  /** Stretch to the width of its container — mobile card layouts want this, desktop inline button rows don't. */
+  fullWidth?: boolean;
 };
 
 async function authHeader(): Promise<Record<string, string>> {
@@ -23,7 +25,7 @@ async function authHeader(): Promise<Record<string, string>> {
  * between desktop and mobile — same component, same two endpoints, only
  * the surrounding page differs.
  */
-export default function BroadcastToRidersButton({ manualShipmentId, subOrderId, status, onChanged, disabled }: Props) {
+export default function BroadcastToRidersButton({ manualShipmentId, subOrderId, status, onChanged, disabled, fullWidth }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endpoint = manualShipmentId ? 'manual-shipment-broadcast-rider' : 'broadcast-rider';
@@ -63,7 +65,7 @@ export default function BroadcastToRidersButton({ manualShipmentId, subOrderId, 
 
   if (status === 'broadcasting') {
     return (
-      <div className="flex items-center gap-2">
+      <div className={`flex items-center gap-2 ${fullWidth ? 'w-full justify-center rounded-lg border border-blue-200 bg-blue-50/60 py-2' : ''}`}>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700">
           <Radio className="w-3.5 h-3.5 animate-pulse" />
           Broadcasting to riders…
@@ -83,12 +85,12 @@ export default function BroadcastToRidersButton({ manualShipmentId, subOrderId, 
   }
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className={`flex flex-col gap-1 ${fullWidth ? 'w-full' : ''}`}>
       <button
         type="button"
         onClick={startBroadcast}
         disabled={busy || disabled}
-        className="btn-secondary flex items-center disabled:opacity-50"
+        className={`btn-secondary flex items-center disabled:opacity-50 ${fullWidth ? 'w-full justify-center' : ''}`}
       >
         <Radio className="w-4 h-4 mr-2" />
         {busy ? 'Broadcasting…' : 'Broadcast to Online Riders'}

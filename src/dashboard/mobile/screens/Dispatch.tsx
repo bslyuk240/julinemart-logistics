@@ -7,6 +7,7 @@ import { PullToRefresh } from '../PullToRefresh';
 import { Scanner } from '../Scanner';
 import { SectionLabel } from '../components/MobileDetailParts';
 import RiderPicker from '../../components/RiderPicker';
+import BroadcastToRidersButton from '../../components/BroadcastToRidersButton';
 import { TABBAR_SPACE, functionsAuthHeader, functionsBase } from '../lib/functionsAuth';
 import { formatNaira } from '../lib/displayUtils';
 import { normalizeScanCode } from '../lib/scanCode';
@@ -20,6 +21,7 @@ type SubOrderRow = {
   vendor_id: string | null;
   courier_shipment_id?: string | null;
   tracking_number?: string | null;
+  status?: string | null;
   metadata?: Record<string, any> | null;
   subtotal?: number | null;
   items?: Array<{ weight?: number; quantity?: number; name?: string }> | null;
@@ -426,17 +428,24 @@ export default function MobileDispatch() {
                       </div>
                       <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" />
                     </button>
-                    <div className="border-t border-gray-100 px-3 py-2">
+                    <div className="border-t border-gray-100 px-3 py-2 space-y-2">
                       <button
                         type="button"
+                        disabled={row.status === 'broadcasting'}
                         onClick={() => {
                           setRiderTarget(row);
                           setRiderId('');
                         }}
-                        className="w-full rounded-lg border border-primary-200 bg-primary-50 py-2 text-xs font-semibold text-primary-700"
+                        className="w-full rounded-lg border border-primary-200 bg-primary-50 py-2 text-xs font-semibold text-primary-700 disabled:opacity-50"
                       >
                         Assign rider
                       </button>
+                      <BroadcastToRidersButton
+                        subOrderId={row.id}
+                        status={row.status || 'pending'}
+                        onChanged={() => fetchSubOrders(selectedHubId)}
+                        fullWidth
+                      />
                     </div>
                   </div>
                 );

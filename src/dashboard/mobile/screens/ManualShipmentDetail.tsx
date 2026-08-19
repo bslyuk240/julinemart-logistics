@@ -391,7 +391,7 @@ export default function MobileManualShipmentDetail() {
                 </button>
               </div>
               <div className="mt-2">
-                <BroadcastToRidersButton manualShipmentId={id} status={shipment.status} disabled={dispatching} onChanged={fetchShipment} />
+                <BroadcastToRidersButton manualShipmentId={id} status={shipment.status} disabled={dispatching} onChanged={fetchShipment} fullWidth />
               </div>
             </div>
           </>

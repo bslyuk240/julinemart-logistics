@@ -3,6 +3,7 @@ import { Loader, RefreshCw, Truck, User } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { supabase } from '../../lib/supabase';
 import RiderPicker from '../components/RiderPicker';
+import BroadcastToRidersButton from '../components/BroadcastToRidersButton';
 
 type Hub = { id: string; name: string; city?: string | null };
 
@@ -13,6 +14,7 @@ type SubOrderRow = {
   vendor_id: string | null;
   courier_shipment_id?: string | null;
   tracking_number?: string | null;
+  status?: string | null;
   metadata?: Record<string, any> | null;
   subtotal?: number | null;
   items?: Array<{ weight?: number; quantity?: number; name?: string }> | null;
@@ -397,12 +399,20 @@ export function HubDispatchPage() {
                       <td className="py-2 pr-3 text-gray-700">{row.vendors?.store_name || '—'}</td>
                       <td className="py-2 pr-3">₦{Number(row.subtotal || 0).toLocaleString()}</td>
                       <td className="py-2">
-                        <button
-                          onClick={() => { setRiderModal(row.id); setRiderId(''); }}
-                          className="btn-secondary text-xs px-3 py-1"
-                        >
-                          Assign Rider
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => { setRiderModal(row.id); setRiderId(''); }}
+                            disabled={row.status === 'broadcasting'}
+                            className="btn-secondary text-xs px-3 py-1 disabled:opacity-50"
+                          >
+                            Assign Rider
+                          </button>
+                          <BroadcastToRidersButton
+                            subOrderId={row.id}
+                            status={row.status || 'pending'}
+                            onChanged={refreshAll}
+                          />
+                        </div>
                       </td>
                     </tr>
                   );

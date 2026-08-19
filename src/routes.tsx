@@ -50,6 +50,8 @@ import MobileCategories from './dashboard/mobile/screens/Categories';
 import MobileHomepageContent from './dashboard/mobile/screens/HomepageContent';
 import MobileVendors from './dashboard/mobile/screens/Vendors';
 import MobileSellerVerifications from './dashboard/mobile/screens/SellerVerifications';
+import MobileRiderVerifications from './dashboard/mobile/screens/RiderVerifications';
+import MobileRiderRoster from './dashboard/mobile/screens/RiderRoster';
 import MobileGiftFulfilmentCentres from './dashboard/mobile/screens/GiftFulfilmentCentres';
 import MobileGiftBoxes from './dashboard/mobile/screens/GiftBoxes';
 import MobileGiftOps from './dashboard/mobile/screens/GiftOps';
@@ -338,6 +340,16 @@ function SellerVerificationsRoute() {
   return isMobile ? <MobileSellerVerifications /> : <SellerVerificationsPage />;
 }
 
+function RiderVerificationsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileRiderVerifications /> : <RiderVerificationsPage />;
+}
+
+function RiderRosterRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileRiderRoster /> : <RiderRosterPage />;
+}
+
 function VendorCampaignApprovalsRoute() {
   const isMobile = useIsMobile();
   return isMobile ? <MobileVendorCampaignApprovals /> : <VendorCampaignApprovalsPage />;
@@ -608,8 +620,8 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'campaigns', element: <CampaignsRoute />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
   { path: 'vendors', element: <VendorsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'seller-verifications', element: <SellerVerificationsRoute />, allowedRoles: ['admin', 'manager'] },
-  { path: 'rider-verifications', element: <RiderVerificationsPage />, allowedRoles: ['admin', 'manager'] },
-  { path: 'rider-roster', element: <RiderRosterPage />, allowedRoles: ['admin', 'manager'] },
+  { path: 'rider-verifications', element: <RiderVerificationsRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'rider-roster', element: <RiderRosterRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendor-campaign-approvals', element: <VendorCampaignApprovalsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'gift-fulfilment-centres', element: <GiftFulfilmentCentresRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'gift-boxes', element: <GiftBoxesRoute />, allowedRoles: ['admin', 'manager'] },

@@ -209,6 +209,7 @@ async function handleGet(rider, adminClient) {
       available,
       today,
       online: Boolean(rider.is_online),
+      rider_name: rider.full_name,
       rider_area: riderArea ? { city: riderArea.city, state: riderArea.state } : null,
     },
   });

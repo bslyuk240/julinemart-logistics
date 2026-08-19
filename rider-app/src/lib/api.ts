@@ -74,6 +74,7 @@ export type JobsResponse = {
   available: Job[];
   today: { count: number; earnings: number };
   online: boolean;
+  rider_name: string;
   rider_area: { city: string; state: string } | null;
 };
 

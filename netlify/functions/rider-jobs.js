@@ -9,6 +9,7 @@ import {
 } from './services/pushNotifications.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
 import { normalizeScanCode } from './services/scanLookup.js';
+import { notifyRider, notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
 
 // picked up -> en route (out_for_delivery) -> delivered. Matches the
 // existing local-rider status set used by local-status.js — riders never
@@ -118,20 +119,41 @@ function summarizeShipment(s, subOrderMap, manualMap) {
   };
 }
 
+const SHIPMENT_LIST_SELECT =
+  'id, source_type, sub_order_id, manual_shipment_id, status, tracking_number, metadata, delivery_proof_url, picked_up_at, out_for_delivery_at, delivered_at, created_at';
+
 async function handleGet(rider, adminClient) {
-  const { data: shipmentRows, error } = await adminClient
-    .from('shipments')
-    .select('id, source_type, sub_order_id, manual_shipment_id, status, tracking_number, metadata, delivery_proof_url, picked_up_at, out_for_delivery_at, delivered_at, created_at')
-    .eq('assigned_rider_id', rider.id)
-    .in('status', ['assigned', 'picked_up', 'out_for_delivery'])
-    .order('created_at', { ascending: true });
+  const riderArea = rider.approved_vendor_locations || null;
+
+  const [{ data: shipmentRows, error }, availableResult] = await Promise.all([
+    adminClient
+      .from('shipments')
+      .select(SHIPMENT_LIST_SELECT)
+      .eq('assigned_rider_id', rider.id)
+      .in('status', ['assigned', 'picked_up', 'out_for_delivery'])
+      .order('created_at', { ascending: true }),
+    rider.is_online && riderArea?.city && riderArea?.state
+      ? adminClient
+          .from('shipments')
+          .select(SHIPMENT_LIST_SELECT)
+          .eq('status', 'broadcasting')
+          .is('assigned_rider_id', null)
+          .ilike('broadcast_city', riderArea.city)
+          .ilike('broadcast_state', riderArea.state)
+          .order('created_at', { ascending: true })
+      : Promise.resolve({ data: [] }),
+  ]);
 
   if (error) {
     console.error('rider-jobs GET error:', error);
     return jsonResponse(500, { success: false, error: 'Failed to load jobs' });
   }
 
-  const { subOrderMap, manualMap } = await fetchSourceDetails(adminClient, shipmentRows || []);
+  const declinedByRider = (metadata) =>
+    Array.isArray(metadata?.declined_by) && metadata.declined_by.some((d) => d.rider_id === rider.id);
+  const availableRows = (availableResult.data || []).filter((s) => !declinedByRider(s.metadata));
+
+  const { subOrderMap, manualMap } = await fetchSourceDetails(adminClient, [...(shipmentRows || []), ...availableRows]);
 
   const pending = [];
   let active = null;
@@ -146,6 +168,10 @@ async function handleGet(rider, adminClient) {
       active = summary;
     }
   }
+
+  const available = availableRows
+    .map((s) => summarizeShipment(s, subOrderMap, manualMap))
+    .filter(Boolean);
 
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
@@ -175,7 +201,17 @@ async function handleGet(rider, adminClient) {
     { count: 0, earnings: 0 }
   );
 
-  return jsonResponse(200, { success: true, data: { pending, active, today, online: Boolean(rider.is_online) } });
+  return jsonResponse(200, {
+    success: true,
+    data: {
+      pending,
+      active,
+      available,
+      today,
+      online: Boolean(rider.is_online),
+      rider_area: riderArea ? { city: riderArea.city, state: riderArea.state } : null,
+    },
+  });
 }
 
 async function loadOwnedShipment(adminClient, riderId, shipmentId) {
@@ -214,10 +250,96 @@ async function notifyCustomer(subOrder, status) {
   }
 }
 
+async function handleClaim(rider, adminClient, shipmentId) {
+  if (!rider.is_online) {
+    return jsonResponse(403, { success: false, error: 'go_online_required', message: 'Go online to claim deliveries' });
+  }
+
+  const { data: shipment, error } = await adminClient
+    .from('shipments')
+    .select('id, source_type, sub_order_id, manual_shipment_id, status, assigned_rider_id, broadcast_city, broadcast_state')
+    .eq('id', shipmentId)
+    .maybeSingle();
+
+  if (error || !shipment) return jsonResponse(404, { success: false, error: 'Job not found' });
+  if (shipment.status !== 'broadcasting' || shipment.assigned_rider_id) {
+    return jsonResponse(409, { success: false, error: 'already_claimed', message: 'This job is no longer available' });
+  }
+
+  const riderArea = rider.approved_vendor_locations;
+  const sameCity = riderArea?.city && shipment.broadcast_city && riderArea.city.toLowerCase() === shipment.broadcast_city.toLowerCase();
+  const sameState = riderArea?.state && shipment.broadcast_state && riderArea.state.toLowerCase() === shipment.broadcast_state.toLowerCase();
+  if (!sameCity || !sameState) {
+    return jsonResponse(403, { success: false, error: 'out_of_area', message: "This job isn't in your service area" });
+  }
+
+  const isSubOrder = shipment.source_type === 'sub_order';
+  const sourceTable = isSubOrder ? 'sub_orders' : 'manual_shipments';
+  const sourceId = isSubOrder ? shipment.sub_order_id : shipment.manual_shipment_id;
+  const riderVehicle = rider.vehicle_type ? `${rider.vehicle_type}${rider.vehicle_plate ? ` · ${rider.vehicle_plate}` : ''}` : null;
+
+  // Conditional update is the claim race's referee: only the request that
+  // still finds status='broadcasting' with no rider yet wins the row.
+  // Whoever loses gets zero rows back, not an error — that's how they know
+  // someone else got there first.
+  const { data: claimedRow, error: claimError } = await adminClient
+    .from(sourceTable)
+    .update({
+      assigned_rider_id: rider.id,
+      status: 'assigned',
+      delivery_person_name: rider.full_name,
+      delivery_person_phone: rider.phone,
+      delivery_person_vehicle: riderVehicle,
+      ...(isSubOrder ? { rider_name: rider.full_name, rider_phone: rider.phone } : {}),
+    })
+    .eq('id', sourceId)
+    .eq('status', 'broadcasting')
+    .is('assigned_rider_id', null)
+    .select()
+    .maybeSingle();
+
+  if (claimError) return jsonResponse(500, { success: false, error: claimError.message });
+  if (!claimedRow) return jsonResponse(409, { success: false, error: 'already_claimed', message: 'Another rider already grabbed this job' });
+
+  const syncKey = isSubOrder ? 'subOrderId' : 'manualShipmentId';
+  await syncShipmentBestEffort(
+    adminClient,
+    {
+      [syncKey]: sourceId,
+      fields: {
+        assigned_rider_id: rider.id,
+        status: 'assigned',
+        delivery_person_name: rider.full_name,
+        delivery_person_phone: rider.phone,
+        delivery_person_vehicle: riderVehicle,
+      },
+    },
+    'rider-jobs claim'
+  );
+
+  await adminClient.from('tracking_events').insert({
+    ...(isSubOrder ? { sub_order_id: sourceId } : { manual_shipment_id: sourceId }),
+    shipment_id: shipmentId,
+    status: 'assigned',
+    description: `${rider.full_name} claimed the delivery`,
+    actor_type: 'rider',
+    source: 'rider_app',
+  });
+
+  await notifyRiderArea(shipment.broadcast_city, shipment.broadcast_state, 'job_removed', { shipment_id: shipmentId });
+  await notifyDispatch(shipment.source_type, sourceId, 'updated', { status: 'assigned' });
+
+  return jsonResponse(200, { success: true, data: { claimed: true } });
+}
+
 async function handlePost(rider, adminClient, body) {
   const { shipment_id, action } = body;
   if (!shipment_id || !action) {
     return jsonResponse(400, { success: false, error: 'Missing required fields: shipment_id, action' });
+  }
+
+  if (action === 'claim') {
+    return handleClaim(rider, adminClient, shipment_id);
   }
 
   const owned = await loadOwnedShipment(adminClient, rider.id, shipment_id);
@@ -250,6 +372,8 @@ async function handlePost(rider, adminClient, body) {
       source: 'rider_app',
     });
 
+    await notifyDispatch(shipment.source_type, sourceId, 'updated', { status: shipment.status, accepted: true });
+
     return jsonResponse(200, { success: true, data: { accepted: true } });
   }
 
@@ -273,6 +397,8 @@ async function handlePost(rider, adminClient, body) {
       actor_type: 'rider',
       source: 'rider_app',
     });
+
+    await notifyDispatch(shipment.source_type, sourceId, 'updated', { status: shipment.status, declined: true });
 
     return jsonResponse(200, { success: true, data: { declined: true } });
   }
@@ -359,6 +485,8 @@ async function handlePost(rider, adminClient, body) {
         await notifyCustomer(subOrderForNotify, targetStatus);
       }
     }
+
+    await notifyDispatch(shipment.source_type, sourceId, 'updated', { status: targetStatus });
 
     return jsonResponse(200, { success: true, data: { status: targetStatus } });
   }

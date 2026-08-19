@@ -28,6 +28,7 @@ type Town = {
 type RosterResponse = {
   towns: Town[];
   gaps: Town[];
+  unassigned_riders: TownRider[];
   stats: {
     total_towns: number;
     covered_towns: number;
@@ -116,6 +117,28 @@ export default function RiderRosterPage() {
                     ))}
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {data.unassigned_riders.length > 0 && (
+            <div className="bg-white rounded-xl border shadow-sm p-4 mb-6">
+              <p className="text-sm font-semibold text-gray-900">
+                {data.unassigned_riders.length} active rider{data.unassigned_riders.length === 1 ? '' : 's'} with no assigned town
+              </p>
+              <p className="text-xs text-gray-500 mb-3">Counted in "Active riders" above, but not in any town row below — approve a service area for them in Rider Verifications.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {data.unassigned_riders.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between gap-2 text-xs border rounded-lg px-3 py-2">
+                    <div>
+                      <p className="font-medium text-gray-900">{r.full_name}</p>
+                      <p className="text-gray-500">{r.phone}</p>
+                    </div>
+                    <span className={r.is_online ? 'text-green-600 font-medium' : 'text-gray-400'}>
+                      {r.is_online ? 'Online' : 'Offline'}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           )}

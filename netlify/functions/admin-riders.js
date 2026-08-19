@@ -32,8 +32,12 @@ export async function handler(event) {
   }
 
   const ridersByLocation = new Map();
+  const unassignedRiderRows = [];
   for (const rider of riders || []) {
-    if (!rider.approved_location_id) continue;
+    if (!rider.approved_location_id) {
+      unassignedRiderRows.push(rider);
+      continue;
+    }
     const list = ridersByLocation.get(rider.approved_location_id) || [];
     list.push(rider);
     ridersByLocation.set(rider.approved_location_id, list);
@@ -62,11 +66,25 @@ export async function handler(event) {
 
   const gaps = towns.filter((t) => t.rider_count === 0);
 
+  // These riders are active but have no approved_location_id, so they
+  // can't appear in any town's breakdown above — surfaced separately
+  // rather than silently dropped, since they still count toward
+  // total_active_riders below.
+  const unassignedRiders = unassignedRiderRows.map((r) => ({
+    id: r.id,
+    full_name: r.full_name,
+    phone: r.phone,
+    vehicle_type: r.vehicle_type,
+    vehicle_plate: r.vehicle_plate,
+    is_online: r.is_online,
+  }));
+
   return jsonResponse(200, {
     success: true,
     data: {
       towns: towns.sort((a, b) => a.rider_count - b.rider_count),
       gaps,
+      unassigned_riders: unassignedRiders,
       stats: {
         total_towns: towns.length,
         covered_towns: towns.length - gaps.length,

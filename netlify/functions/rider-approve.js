@@ -30,8 +30,8 @@ export async function handler(event) {
   if (!rider_id || !action) {
     return jsonResponse(400, { success: false, error: 'rider_id and action required' });
   }
-  if (!['approve', 'reject'].includes(action)) {
-    return jsonResponse(400, { success: false, error: 'action must be approve or reject' });
+  if (!['approve', 'reject', 'suspend', 'reactivate'].includes(action)) {
+    return jsonResponse(400, { success: false, error: 'action must be approve, reject, suspend, or reactivate' });
   }
 
   const { data: rider, error: riderErr } = await adminClient
@@ -42,8 +42,49 @@ export async function handler(event) {
 
   if (riderErr) return jsonResponse(500, { success: false, error: riderErr.message });
   if (!rider) return jsonResponse(404, { success: false, error: 'Rider not found' });
-  if (rider.status !== 'pending_review') {
+
+  if (['approve', 'reject'].includes(action) && rider.status !== 'pending_review') {
     return jsonResponse(409, { success: false, error: `Rider is already ${rider.status}` });
+  }
+  if (action === 'suspend' && rider.status !== 'active') {
+    return jsonResponse(409, { success: false, error: `Only an active rider can be suspended (currently ${rider.status})` });
+  }
+  if (action === 'reactivate' && rider.status !== 'suspended') {
+    return jsonResponse(409, { success: false, error: `Only a suspended rider can be reactivated (currently ${rider.status})` });
+  }
+
+  if (action === 'suspend') {
+    const { error: updErr } = await adminClient
+      .from('riders')
+      .update({ status: 'suspended', reject_reason: reject_reason || null, updated_at: new Date().toISOString() })
+      .eq('id', rider_id);
+    if (updErr) return jsonResponse(500, { success: false, error: updErr.message });
+
+    await recordStaffAudit(event, authUser, {
+      action: 'RIDER_SUSPENDED',
+      resource_type: 'riders',
+      resource_id: rider_id,
+      details: { full_name: rider.full_name, email: rider.email, reason: reject_reason || null },
+    });
+
+    return jsonResponse(200, { success: true, message: `${rider.full_name} suspended` });
+  }
+
+  if (action === 'reactivate') {
+    const { error: updErr } = await adminClient
+      .from('riders')
+      .update({ status: 'active', reject_reason: null, updated_at: new Date().toISOString() })
+      .eq('id', rider_id);
+    if (updErr) return jsonResponse(500, { success: false, error: updErr.message });
+
+    await recordStaffAudit(event, authUser, {
+      action: 'RIDER_REACTIVATED',
+      resource_type: 'riders',
+      resource_id: rider_id,
+      details: { full_name: rider.full_name, email: rider.email },
+    });
+
+    return jsonResponse(200, { success: true, message: `${rider.full_name} reactivated` });
   }
 
   if (action === 'reject') {

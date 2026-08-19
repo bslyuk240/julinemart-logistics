@@ -9,6 +9,7 @@ import { notifyManualShipmentRiderAssigned } from './services/manualShipmentNoti
 import { insertTrackingEvent } from './services/fezTracking.js';
 import { sendPushToCustomer } from './services/pushNotifications.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
+import { notifyRider, notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -132,6 +133,9 @@ exports.handler = async (event) => {
         delivery_person_vehicle: rider_vehicle || null,
         status: 'assigned',
         assigned_rider_id: rider.id,
+        broadcast_city: null,
+        broadcast_state: null,
+        broadcast_started_at: null,
         ...(waybillNumber ? { waybill_number: waybillNumber } : {}),
         metadata: {
           ...existingMetadata,
@@ -178,6 +182,12 @@ exports.handler = async (event) => {
     });
     if (!riderPushResult.success && !riderPushResult.skipped) {
       console.warn('manual-shipment-assign-rider push (to rider) failed:', riderPushResult);
+    }
+
+    await notifyRider(rider.id, 'job_assigned', { manual_shipment_id: shipment_id });
+    await notifyDispatch('manual_shipment', shipment_id, 'updated', { status: 'assigned' });
+    if (existingShipment.status === 'broadcasting' && existingShipment.broadcast_city && existingShipment.broadcast_state) {
+      await notifyRiderArea(existingShipment.broadcast_city, existingShipment.broadcast_state, 'job_removed', { manual_shipment_id: shipment_id });
     }
 
     try {

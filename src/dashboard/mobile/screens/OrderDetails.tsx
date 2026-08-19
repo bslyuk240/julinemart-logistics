@@ -265,6 +265,25 @@ export default function MobileOrderDetails() {
     }
   };
 
+  const broadcastToRiders = async (subOrderId: Identifier | null) => {
+    if (!subOrderId) return;
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await fetch(`${functionsBase}/broadcast-rider`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ sub_order_id: subOrderId }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.success) throw new Error(data?.error || data?.message || 'Failed to broadcast to riders');
+      const n = data.riders_notified ?? 0;
+      notification.success('Broadcasting to riders', n === 0 ? 'No online riders currently cover this area' : `Notified ${n} online rider${n === 1 ? '' : 's'}`);
+      await fetchOrderDetails();
+    } catch (err) {
+      notification.error('Broadcast failed', err instanceof Error ? err.message : 'Unable to broadcast to riders');
+    }
+  };
+
   const updateLocalDeliveryStatus = async (subOrderId: Identifier, targetStatus: 'picked_up' | 'out_for_delivery' | 'delivered') => {
     setStatusUpdating(subOrderId);
     try {
@@ -662,6 +681,22 @@ export default function MobileOrderDetails() {
             >
               <div className="text-sm font-semibold text-gray-900">Assign local rider</div>
               <div className="text-xs text-gray-500">Manual delivery (same state)</div>
+            </button>
+            <button
+              type="button"
+              disabled={!getEligibleLanes(dispatchTarget).includes('local_rider') || getSelectedLane(dispatchTarget) === 'fez'}
+              onClick={async () => {
+                const target = dispatchTarget;
+                setDispatchTarget(null);
+                if (!target) return;
+                const ok = await updateShipmentLane(target, 'local_rider');
+                if (!ok) return;
+                await broadcastToRiders(target.id);
+              }}
+              className="w-full rounded-lg border border-gray-200 p-3 text-left disabled:opacity-40"
+            >
+              <div className="text-sm font-semibold text-gray-900">Broadcast to online riders</div>
+              <div className="text-xs text-gray-500">First rider nearby to claim it wins</div>
             </button>
           </div>
         )}

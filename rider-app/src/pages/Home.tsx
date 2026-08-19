@@ -1,14 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, Clock, MapPin, Package, Power, RefreshCw, Wallet, X } from 'lucide-react';
+import { Camera, Clock, MapPin, Package, Power, RefreshCw, Wallet, X, Zap } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { useInstallPrompt } from '../hooks/useInstallPrompt';
 import { api, Job } from '../lib/api';
 import { uploadRiderDocument } from '../lib/storage';
+import { supabase } from '../lib/supabase';
 import { BottomNav } from '../components/BottomNav';
 import { InstallPrompt } from '../components/InstallPrompt';
 import { NotificationPrompt } from '../components/NotificationPrompt';
+
+// Mirrors netlify/functions/services/riderRealtime.js's channel naming —
+// must stay in sync so the client subscribes to the same channel names
+// the backend broadcasts to.
+function normalizeChannelPart(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+}
+function riderAreaChannelName(city: string, state: string) {
+  return `rider-area-${normalizeChannelPart(state)}-${normalizeChannelPart(city)}`;
+}
+function riderChannelName(riderId: string) {
+  return `rider-${riderId}`;
+}
 
 const NOTIFICATION_DISMISS_KEY = 'jlr_notification_dismissed_session';
 
@@ -47,10 +61,13 @@ function RiderHome() {
   const [online, setOnlineState] = useState(false);
   const [togglingOnline, setTogglingOnline] = useState(false);
   const [pending, setPending] = useState<Job[]>([]);
+  const [available, setAvailable] = useState<Job[]>([]);
   const [active, setActive] = useState<Job | null>(null);
   const [today, setToday] = useState({ count: 0, earnings: 0 });
+  const [riderArea, setRiderArea] = useState<{ city: string; state: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [actingOn, setActingOn] = useState<string | null>(null);
+  const [claimingOn, setClaimingOn] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showSelfiePrompt, setShowSelfiePrompt] = useState(false);
   const [checkingInSelfie, setCheckingInSelfie] = useState(false);
@@ -78,9 +95,11 @@ function RiderHome() {
     try {
       const data = await api.getJobs();
       setPending(data.pending);
+      setAvailable(data.available);
       setActive(data.active);
       setToday(data.today);
       setOnlineState(data.online);
+      setRiderArea(data.rider_area);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load jobs');
@@ -91,9 +110,39 @@ function RiderHome() {
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 20000);
+    // Realtime carries the load; this is just a safety net in case a
+    // broadcast signal is missed (dropped socket, backgrounded tab).
+    const interval = setInterval(load, 45000);
     return () => clearInterval(interval);
   }, [load]);
+
+  // Personal channel: direct assignments land here immediately instead of
+  // waiting for the next poll.
+  useEffect(() => {
+    if (!riderId) return;
+    const channel = supabase
+      .channel(riderChannelName(riderId))
+      .on('broadcast', { event: 'job_assigned' }, () => load())
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [riderId, load]);
+
+  // Area channel: only relevant once we know the rider's own service town
+  // (from the first successful load) and while online — a broadcast job
+  // posted elsewhere shouldn't wake up a rider who can't reach it anyway.
+  useEffect(() => {
+    if (!online || !riderArea?.city || !riderArea?.state) return;
+    const channel = supabase
+      .channel(riderAreaChannelName(riderArea.city, riderArea.state))
+      .on('broadcast', { event: 'new_job' }, () => load())
+      .on('broadcast', { event: 'job_removed' }, () => load())
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [online, riderArea?.city, riderArea?.state, load]);
 
   useEffect(() => {
     if (active) navigate('/delivery', { replace: true });
@@ -131,6 +180,22 @@ function RiderHome() {
       setError(err instanceof Error ? err.message : 'Could not verify selfie');
     } finally {
       setCheckingInSelfie(false);
+    }
+  };
+
+  const claim = async (job: Job) => {
+    setClaimingOn(job.id);
+    try {
+      await api.claimJob(job.id);
+      await load();
+    } catch (err) {
+      // A 409 here just means another rider claimed it first — refresh so
+      // it drops off this rider's list rather than treating it as a hard
+      // failure.
+      setError(err instanceof Error ? err.message : 'Could not claim this job');
+      await load();
+    } finally {
+      setClaimingOn(null);
     }
   };
 
@@ -206,11 +271,55 @@ function RiderHome() {
           </div>
         )}
 
-        {online && !loading && pending.length === 0 && (
+        {online && !loading && pending.length === 0 && available.length === 0 && (
           <div className="rounded-2xl border border-dashed border-gray-300 p-6 text-center">
             <Package className="w-6 h-6 text-gray-300 mx-auto mb-2" />
             <p className="text-sm font-semibold text-gray-900">No deliveries yet</p>
             <p className="mt-1 text-xs text-gray-500">We'll notify you the moment one comes in.</p>
+          </div>
+        )}
+
+        {online && available.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+              Available near you{riderArea ? ` · ${riderArea.city}` : ''}
+            </p>
+            <div className="space-y-3">
+              {available.map((job) => (
+                <div key={job.id} className="rounded-2xl border border-purple-200 bg-purple-50/40 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wide text-purple-700 flex items-center gap-1">
+                        <Zap className="w-3 h-3" />
+                        First to claim wins
+                      </p>
+                      <p className="text-sm text-gray-900 mt-1">{job.tracking_number || `Order ${job.order_number ?? ''}`}</p>
+                    </div>
+                    <p className="text-base font-bold text-gray-900 shrink-0">{formatNaira(job.fee)}</p>
+                  </div>
+
+                  <div className="mt-3 space-y-2 text-xs text-gray-600">
+                    <div className="flex items-start gap-2">
+                      <MapPin className="w-3.5 h-3.5 mt-0.5 text-gray-400 shrink-0" />
+                      <span>Pickup: {job.pickup.name ? `${job.pickup.name}, ` : ''}{job.pickup.city || job.pickup.address || '—'}</span>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <MapPin className="w-3.5 h-3.5 mt-0.5 text-gray-400 shrink-0" />
+                      <span>Drop-off: {job.dropoff.city || job.dropoff.address || '—'}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={claimingOn === job.id}
+                    onClick={() => claim(job)}
+                    className="mt-4 w-full rounded-xl bg-purple-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {claimingOn === job.id ? 'Claiming…' : 'Claim this delivery'}
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

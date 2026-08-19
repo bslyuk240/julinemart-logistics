@@ -26,6 +26,7 @@ type Identifier = string | number;
 type KnownStatus =
   | 'pending'
   | 'vendor_dispatched'
+  | 'broadcasting'
   | 'assigned'
   | 'picked_up'
   | 'in_transit'
@@ -314,6 +315,21 @@ export function OrderDetailsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // Live refresh when a rider claims, accepts, declines, or a broadcast
+  // otherwise changes state on any sub-order in this order.
+  useEffect(() => {
+    if (subOrders.length === 0) return;
+    const channels = subOrders.map((subOrder) =>
+      supabase.channel(`dispatch-sub-order-${subOrder.id}`).on('broadcast', { event: 'updated' }, () => {
+        fetchOrderDetails();
+      }).subscribe()
+    );
+    return () => {
+      channels.forEach((channel) => supabase.removeChannel(channel));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subOrders.map((s) => s.id).join(',')]);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (showDispatchMenu && !(event.target as Element).closest('.dispatch-dropdown')) {
@@ -467,6 +483,37 @@ export function OrderDetailsPage() {
     }
   };
 
+  const broadcastToRiders = async (subOrderId: Identifier | null) => {
+    if (!subOrderId) return;
+
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      const response = await fetch(`${functionsBase}/broadcast-rider`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ sub_order_id: subOrderId }),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || data?.message || 'Failed to broadcast to riders');
+      }
+
+      const n = data.riders_notified ?? 0;
+      notification.success(
+        'Broadcasting to riders',
+        n === 0 ? 'No online riders currently cover this area' : `Notified ${n} online rider${n === 1 ? '' : 's'}`
+      );
+      await fetchOrderDetails();
+    } catch (error) {
+      console.error('Broadcast rider error', error);
+      notification.error('Broadcast failed', error instanceof Error ? error.message : 'Unable to broadcast to riders');
+    }
+  };
+
   const updateLocalDeliveryStatus = async (subOrderId: Identifier, targetStatus: 'picked_up' | 'out_for_delivery' | 'delivered') => {
     setStatusUpdating(subOrderId);
     try {
@@ -599,6 +646,7 @@ export function OrderDetailsPage() {
     const colors: Record<KnownStatus, string> = {
       pending: 'bg-yellow-100 text-yellow-800',
       vendor_dispatched: 'bg-amber-100 text-amber-800',
+      broadcasting: 'bg-purple-100 text-purple-800',
       assigned: 'bg-blue-100 text-blue-800',
       picked_up: 'bg-blue-100 text-blue-800',
       processing: 'bg-blue-100 text-blue-800',
@@ -1093,6 +1141,51 @@ export function OrderDetailsPage() {
                                     </div>
                                     <div className="text-xs text-gray-600">
                                       Manual delivery (same state)
+                                    </div>
+                                  </div>
+                                </button>
+
+                                <button
+                                  onClick={async () => {
+                                    setShowDispatchMenu(null);
+                                    if (!localLaneEligible || localDisabledByLane) {
+                                      return;
+                                    }
+                                    const laneUpdated = await updateShipmentLane(
+                                      subOrder,
+                                      'local_rider'
+                                    );
+                                    if (!laneUpdated) return;
+                                    await broadcastToRiders(subOrder.id);
+                                  }}
+                                  disabled={!localLaneEligible || localDisabledByLane}
+                                  className={`w-full px-4 py-3 text-left flex items-start gap-3 ${
+                                    !localLaneEligible || localDisabledByLane
+                                      ? 'opacity-50 cursor-not-allowed bg-gray-50'
+                                      : 'hover:bg-gray-50'
+                                  }`}
+                                >
+                                  <div className="mt-1">
+                                    <svg
+                                      className="w-5 h-5 text-purple-600"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      viewBox="0 0 24 24"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01M5.5 13a10 10 0 0113 0"
+                                      />
+                                    </svg>
+                                  </div>
+                                  <div>
+                                    <div className="font-semibold">
+                                      Broadcast to Online Riders
+                                    </div>
+                                    <div className="text-xs text-gray-600">
+                                      First rider nearby to claim it wins
                                     </div>
                                   </div>
                                 </button>

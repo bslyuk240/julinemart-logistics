@@ -6,6 +6,7 @@ import { supabase } from '../contexts/AuthContext';
 import { openLabelPrint, openWaybillPrint } from '../lib/waybillPrint';
 import { ShipmentTrackingEvents } from '../../shared/ShipmentTrackingEvents';
 import RiderPicker from '../components/RiderPicker';
+import BroadcastToRidersButton from '../components/BroadcastToRidersButton';
 
 const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
@@ -102,6 +103,20 @@ export function ManualShipmentDetailPage() {
 
   useEffect(() => {
     fetchShipment();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  // Live refresh when a rider claims, accepts, declines, or the broadcast
+  // otherwise changes state — so the dispatcher isn't stuck manually
+  // refreshing to see if anyone took the job yet.
+  useEffect(() => {
+    if (!id) return;
+    const channel = supabase.channel(`dispatch-manual-shipment-${id}`).on('broadcast', { event: 'updated' }, () => {
+      fetchShipment();
+    }).subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -303,10 +318,11 @@ export function ManualShipmentDetailPage() {
               <Send className="w-4 h-4 mr-2" />
               {dispatching ? 'Sending…' : 'Send to Fez'}
             </button>
-            <button onClick={() => setShowRiderModal(true)} disabled={dispatching} className="btn-secondary flex items-center disabled:opacity-50">
+            <button onClick={() => setShowRiderModal(true)} disabled={dispatching || shipment.status === 'broadcasting'} className="btn-secondary flex items-center disabled:opacity-50">
               <Truck className="w-4 h-4 mr-2" />
               Assign Local Rider
             </button>
+            <BroadcastToRidersButton manualShipmentId={id} status={shipment.status} disabled={dispatching} onChanged={fetchShipment} />
           </div>
         </div>
       ) : (

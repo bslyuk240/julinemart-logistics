@@ -71,8 +71,10 @@ export type Job = {
 export type JobsResponse = {
   pending: Job[];
   active: Job | null;
+  available: Job[];
   today: { count: number; earnings: number };
   online: boolean;
+  rider_area: { city: string; state: string } | null;
 };
 
 export type EarningsDelivery = {
@@ -119,6 +121,11 @@ export const api = {
     request<{ accepted: boolean }>('rider-jobs', { method: 'POST', body: JSON.stringify({ shipment_id, action: 'accept' }) }),
   declineJob: (shipment_id: string) =>
     request<{ declined: boolean }>('rider-jobs', { method: 'POST', body: JSON.stringify({ shipment_id, action: 'decline' }) }),
+  // Claiming a broadcast job races every other online rider in the same
+  // area — the server resolves the race, so a 409 here just means someone
+  // else got there first, not a real error.
+  claimJob: (shipment_id: string) =>
+    request<{ claimed: boolean }>('rider-jobs', { method: 'POST', body: JSON.stringify({ shipment_id, action: 'claim' }) }),
   advanceJob: (shipment_id: string, target_status: string, opts: { delivery_proof_url?: string; scanned_code?: string } = {}) =>
     request<{ status: string }>('rider-jobs', {
       method: 'POST',

@@ -15,8 +15,10 @@ import {
   Truck,
 } from 'lucide-react';
 import { useNotification } from '../../contexts/NotificationContext';
+import { supabase } from '../../contexts/AuthContext';
 import { ContactSection, DetailRow, SectionLabel } from '../components/MobileDetailParts';
 import RiderPicker from '../../components/RiderPicker';
+import BroadcastToRidersButton from '../../components/BroadcastToRidersButton';
 import { Sheet } from '../Sheet';
 import { TABBAR_SPACE, functionsAuthHeader, functionsBase } from '../lib/functionsAuth';
 import { openLabelPrint, openWaybillPrint } from '../../lib/waybillPrint';
@@ -97,6 +99,18 @@ export default function MobileManualShipmentDetail() {
   useEffect(() => {
     fetchShipment();
   }, [fetchShipment]);
+
+  // Live refresh when a rider claims, accepts, declines, or the broadcast
+  // otherwise changes state.
+  useEffect(() => {
+    if (!id) return;
+    const channel = supabase.channel(`dispatch-manual-shipment-${id}`).on('broadcast', { event: 'updated' }, () => {
+      fetchShipment();
+    }).subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [id, fetchShipment]);
 
   const dispatchViaFez = async () => {
     if (!id) return;
@@ -368,13 +382,16 @@ export default function MobileManualShipmentDetail() {
                 </button>
                 <button
                   type="button"
-                  disabled={dispatching}
+                  disabled={dispatching || shipment.status === 'broadcasting'}
                   onClick={() => setRiderOpen(true)}
                   className="flex flex-col items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-4 disabled:opacity-50"
                 >
                   <Truck className="h-5 w-5 text-gray-600" />
-                  <span className="text-xs font-semibold text-gray-700">Local rider</span>
+                  <span className="text-xs font-semibold text-gray-700">Pick a rider</span>
                 </button>
+              </div>
+              <div className="mt-2">
+                <BroadcastToRidersButton manualShipmentId={id} status={shipment.status} disabled={dispatching} onChanged={fetchShipment} />
               </div>
             </div>
           </>

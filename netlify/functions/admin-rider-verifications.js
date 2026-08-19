@@ -30,7 +30,11 @@ export async function handler(event) {
   const status = (event.queryStringParameters?.status || 'pending_review').toLowerCase();
   const locationId = event.queryStringParameters?.location_id || null;
 
-  let query = adminClient.from('riders').select(SELECT).order('created_at', { ascending: false }).limit(200);
+  // No row cap here — this list is the admin's source of truth for how
+  // many riders are in a given status, and a silent cap previously made it
+  // undercount against admin-riders.js's uncapped roster total once a
+  // status passed 200 rows.
+  let query = adminClient.from('riders').select(SELECT).order('created_at', { ascending: false });
   if (status !== 'all') query = query.eq('status', status);
   if (locationId) query = query.eq('approved_location_id', locationId);
 

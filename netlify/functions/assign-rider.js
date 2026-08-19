@@ -8,6 +8,7 @@ import {
 } from './services/pushNotifications.js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
+import { notifyRider, notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -129,7 +130,7 @@ exports.handler = async (event) => {
 
     const { data: existingSubOrder, error: existingSubOrderError } = await supabase
       .from('sub_orders')
-      .select('id, tracking_number, metadata, main_order_id, waybill_number')
+      .select('id, tracking_number, metadata, main_order_id, waybill_number, status, broadcast_city, broadcast_state')
       .eq('id', sub_order_id)
       .single();
 
@@ -179,6 +180,9 @@ exports.handler = async (event) => {
         rider_name: rider_name,
         rider_phone: rider_phone,
         assigned_rider_id: rider.id,
+        broadcast_city: null,
+        broadcast_state: null,
+        broadcast_started_at: null,
         ...(waybillNumber ? { waybill_number: waybillNumber } : {}),
         metadata: {
           ...existingMetadata,
@@ -243,6 +247,12 @@ exports.handler = async (event) => {
     });
     if (!riderPushResult.success && !riderPushResult.skipped) {
       console.warn('Assign rider push (to rider) failed:', riderPushResult);
+    }
+
+    await notifyRider(rider.id, 'job_assigned', { sub_order_id });
+    await notifyDispatch('sub_order', sub_order_id, 'updated', { status: 'assigned' });
+    if (existingSubOrder.status === 'broadcasting' && existingSubOrder.broadcast_city && existingSubOrder.broadcast_state) {
+      await notifyRiderArea(existingSubOrder.broadcast_city, existingSubOrder.broadcast_state, 'job_removed', { sub_order_id });
     }
 
     if (existingSubOrder.main_order_id) {

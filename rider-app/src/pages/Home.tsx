@@ -64,6 +64,7 @@ function RiderHome() {
   const [available, setAvailable] = useState<Job[]>([]);
   const [active, setActive] = useState<Job | null>(null);
   const [today, setToday] = useState({ count: 0, earnings: 0 });
+  const [riderName, setRiderName] = useState('');
   const [riderArea, setRiderArea] = useState<{ city: string; state: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [actingOn, setActingOn] = useState<string | null>(null);
@@ -99,6 +100,7 @@ function RiderHome() {
       setActive(data.active);
       setToday(data.today);
       setOnlineState(data.online);
+      setRiderName(data.rider_name);
       setRiderArea(data.rider_area);
       setError(null);
     } catch (err) {
@@ -222,7 +224,7 @@ function RiderHome() {
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs text-gray-500">Welcome back</p>
-            <h1 className="text-lg font-bold text-gray-900 truncate max-w-[200px]">{user?.email}</h1>
+            <h1 className="text-lg font-bold text-gray-900 truncate max-w-[200px]">{riderName || user?.email}</h1>
           </div>
           <button
             type="button"

@@ -144,8 +144,20 @@ export default function Activity() {
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         {loading ? (
-          <div className="flex items-center justify-center py-16 text-gray-400">
-            <RefreshCw className="w-5 h-5 animate-spin" />
+          <div className="space-y-3">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="rounded-2xl border border-gray-200 p-4 flex items-start gap-3">
+                <div className="skeleton w-9 h-9 rounded-xl shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="skeleton h-4 w-28" />
+                    <div className="skeleton h-4 w-14" />
+                  </div>
+                  <div className="skeleton h-3 w-36" />
+                  <div className="skeleton h-4 w-20 rounded-full" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : items.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-gray-300 p-6 text-center">

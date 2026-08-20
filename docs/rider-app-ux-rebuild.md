@@ -65,10 +65,30 @@ optimization. Not started, not planned until P0/P1 are done.
   `netlify dev` (port 8888) is slow to cold-start (each function compiles on first hit, ~30s–2min)
   but fast afterward. The local dev backend hits the **real production database** — there is no
   sandboxed dev data.
-- **PWA service worker caching**: after a prod deploy, the installed/cached PWA can keep serving
-  the old bundle until the service worker cycles — confirmed by having to manually unregister SW +
-  clear caches to see a fresh deploy during testing. Not something this pass changed; worth
-  watching if riders report not seeing updates.
+- **PWA service worker caching — fixed**: after a prod deploy, the installed/cached PWA kept
+  serving the old bundle until every tab fully closed — confirmed by having to manually unregister
+  the SW + clear caches to see fresh deploys while testing. Added `skipWaiting`/`clientsClaim`/
+  `cleanupOutdatedCaches` to the Workbox config (`vite.config.ts`) so a new version now takes over
+  on the very next reload. Verified the generated `dist/sw.js` contains the new config after a
+  production build; the actual take-over behavior needs confirming on the next real deploy (can't
+  be tested in dev — no service worker registers in `vite dev` at all).
+- **A rider can now only commit to one delivery at a time — fixed a real gap.** Traced this while
+  answering a question about it: broadcast and direct-assign never checked whether a rider already
+  had an active job, and a live example of the resulting confusion was sitting on the test account
+  (a second job assigned and pending-accept while the first was already in progress). Per
+  direction: keep broadcasting/assigning to busy riders (so they can see and queue up what's next)
+  but block the commitment — `accept` and `claim` in `rider-jobs.js` now both check for an existing
+  active job (`hasActiveJob`) and return `active_job_exists` → "Finish your current delivery before
+  accepting another." Verified live against the real pending job on the test account: the accept
+  call was correctly rejected with that exact message, no state changed.
+- **Motion**: the app had zero transitions/animations anywhere. Added tap/press feedback to
+  `.btn-primary`/`.btn-secondary` (`active:scale-[0.98]`, centralized in `index.css` so it applies
+  everywhere those classes are used), a page-level fade-in keyed to the route path (`App.tsx`,
+  opacity-only — a translate/slide would have broken the `fixed` bottom nav and CTA bars that
+  several screens have as direct children), skeleton loaders replacing plain spinners on Home's
+  and Activity's list-loading states, and a global `prefers-reduced-motion` override. This is a
+  light first pass (shared classes + the two highest-traffic screens), not a per-screen pass across
+  the whole app.
 
 ## Build log (chronological)
 
@@ -123,3 +143,10 @@ optimization. Not started, not planned until P0/P1 are done.
     matching mockup screen 3 and all four of brief §15's exact error strings. Verified live against
     a real active job (failure path only — the test shipment has no valid code to scan
     successfully).
+14. Three cross-cutting fixes from a user Q&A pass: (a) service worker `skipWaiting`/
+    `clientsClaim`/`cleanupOutdatedCaches` so deploys take over on next reload instead of needing a
+    manual unregister; (b) one-active-job-at-a-time guard on `accept`/`claim` — broadcasting/
+    assignment to busy riders is unchanged, only the commitment is blocked, verified live against a
+    real pending job that was sitting on the test account; (c) a first motion pass — tap feedback
+    on shared buttons, a route-keyed page fade-in, skeleton loaders on Home/Activity. See
+    "Cross-cutting notes" above for detail on each.

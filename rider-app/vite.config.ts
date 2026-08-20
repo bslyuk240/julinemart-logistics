@@ -27,6 +27,14 @@ export default defineConfig({
       workbox: {
         navigateFallback: '/index.html',
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Without these, a new deploy's service worker installs but waits
+        // for every tab to fully close before it takes over — riders would
+        // keep seeing the old build until they force-quit the PWA. This
+        // makes a new version activate and take control on the very next
+        // reload instead.
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
       },
     }),
   ],

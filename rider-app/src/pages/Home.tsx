@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, CheckCircle2, Lock, MapPin, Package, Power, RefreshCw, Users, Wallet, X } from 'lucide-react';
+import { Camera, CheckCircle2, Lock, MapPin, Package, Power, Users, Wallet, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { useInstallPrompt } from '../hooks/useInstallPrompt';
@@ -211,6 +211,7 @@ function RiderHome() {
         already_claimed: 'Another rider accepted this delivery.',
         out_of_area: "This job isn't in your service area anymore.",
         go_online_required: 'Go online to claim deliveries.',
+        active_job_exists: 'Finish your current delivery before accepting another.',
       };
       setError(friendly[code] || 'Could not claim this job');
       await load();
@@ -230,7 +231,11 @@ function RiderHome() {
         await load();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+      const code = err instanceof Error ? err.message : '';
+      const friendly: Record<string, string> = {
+        active_job_exists: 'Finish your current delivery before accepting another.',
+      };
+      setError(friendly[code] || code || 'Action failed');
     } finally {
       setActingOn(null);
     }
@@ -339,8 +344,22 @@ function RiderHome() {
         )}
 
         {online && loading && (
-          <div className="flex items-center justify-center py-10 text-gray-400">
-            <RefreshCw className="w-5 h-5 animate-spin" />
+          <div className="space-y-3">
+            {[0, 1].map((i) => (
+              <div key={i} className="rounded-2xl border border-gray-200 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 space-y-2">
+                    <div className="skeleton h-3 w-24" />
+                    <div className="skeleton h-4 w-40" />
+                  </div>
+                  <div className="skeleton h-5 w-14" />
+                </div>
+                <div className="mt-3 space-y-1.5">
+                  <div className="skeleton h-3 w-32" />
+                  <div className="skeleton h-3 w-28" />
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

@@ -21,6 +21,21 @@ const NEXT_STATUS = {
   out_for_delivery: 'delivered',
 };
 
+// A rider works one delivery at a time in this build (see handleGet's
+// "active" selection below) — broadcasts and direct assignments still reach
+// a busy rider, so they can see and queue up what's next, but committing to
+// a second job before finishing the first would leave it with nowhere to go
+// in the UI, since only one job is ever tracked as "active". Gates accept
+// and claim (see handlePost/handleClaim) — not assignment/broadcast itself.
+async function hasActiveJob(adminClient, riderId) {
+  const { data } = await adminClient
+    .from('shipments')
+    .select('status, metadata')
+    .eq('assigned_rider_id', riderId)
+    .in('status', ['assigned', 'picked_up', 'out_for_delivery']);
+  return (data || []).some((s) => s.status !== 'assigned' || isAccepted(s.metadata));
+}
+
 // shipments carries the shared dispatch fields (status, tracking, courier,
 // rider, timestamps) for both sub_orders and manual_shipments — see
 // shipmentSync.js. This file reads shipments as the list of "what's
@@ -170,6 +185,9 @@ async function handleClaim(rider, adminClient, shipmentId) {
   if (!rider.is_online) {
     return jsonResponse(403, { success: false, error: 'go_online_required', message: 'Go online to claim deliveries' });
   }
+  if (await hasActiveJob(adminClient, rider.id)) {
+    return jsonResponse(409, { success: false, error: 'active_job_exists', message: 'Finish your current delivery before accepting another.' });
+  }
 
   const { data: shipment, error } = await adminClient
     .from('shipments')
@@ -271,6 +289,9 @@ async function handlePost(rider, adminClient, body) {
   if (action === 'accept') {
     if (shipment.status !== 'assigned' || isAccepted(shipment.metadata)) {
       return jsonResponse(409, { success: false, error: 'Job is not awaiting acceptance' });
+    }
+    if (await hasActiveJob(adminClient, rider.id)) {
+      return jsonResponse(409, { success: false, error: 'active_job_exists', message: 'Finish your current delivery before accepting another.' });
     }
     const acceptedMetadata = { ...existingMetadata, rider_accepted_at: new Date().toISOString() };
 

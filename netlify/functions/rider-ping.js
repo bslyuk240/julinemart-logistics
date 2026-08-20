@@ -1,13 +1,16 @@
 /**
- * Proof-of-life endpoint — confirms a rider's session resolves to an
- * approved riders row. Also doubles as the new-device check-in point: it
- * fires on every app load, so a client-persisted device_id passed here
- * that isn't in the rider's known list gets recorded and flagged to staff
- * via activity_logs (no dedicated admin UI yet — reuses Activity Logs).
+ * Proof-of-life endpoint — confirms a rider's session resolves to a
+ * riders row (any status, not just active) and reports which one, so the
+ * client can render a dedicated screen for pending_review/rejected/
+ * suspended instead of a single generic message. Also doubles as the
+ * new-device check-in point: it fires on every app load, so a
+ * client-persisted device_id passed here that isn't in the rider's known
+ * list gets recorded and flagged to staff via activity_logs (no dedicated
+ * admin UI yet — reuses Activity Logs).
  *
  * GET /api/rider-ping?device_id=...
  */
-import { requireActiveRider, jsonResponse, headers } from './services/requireRider.js';
+import { requireRider, jsonResponse, headers } from './services/requireRider.js';
 import { checkRateLimit } from './services/rate-limit.js';
 
 async function flagIfNewDevice(adminClient, rider, deviceId, userAgent) {
@@ -44,7 +47,7 @@ export async function handler(event) {
   });
   if (limited) return response;
 
-  const auth = await requireActiveRider(event);
+  const auth = await requireRider(event);
   if (auth.errorResponse) return auth.errorResponse;
   const { rider, adminClient } = auth;
 
@@ -57,6 +60,11 @@ export async function handler(event) {
 
   return jsonResponse(200, {
     success: true,
-    data: { rider_id: rider.id, status: rider.status },
+    data: {
+      rider_id: rider.id,
+      status: rider.status,
+      reject_reason: rider.reject_reason || null,
+      created_at: rider.created_at,
+    },
   });
 }

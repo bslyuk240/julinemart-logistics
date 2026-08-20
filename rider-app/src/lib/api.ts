@@ -135,8 +135,13 @@ export type RiderProfile = {
   pending_bank_change: PendingBankChange | null;
 };
 
+export type RiderStatus = 'pending_review' | 'active' | 'rejected' | 'suspended';
+
 export const api = {
-  ping: () => request<{ rider_id: string; status: string }>(`rider-ping?device_id=${encodeURIComponent(getDeviceId())}`),
+  ping: () =>
+    request<{ rider_id: string; status: RiderStatus; reject_reason: string | null; created_at: string }>(
+      `rider-ping?device_id=${encodeURIComponent(getDeviceId())}`
+    ),
   register: (payload: RiderApplicationPayload) =>
     request<{ rider_id: string; status: string }>('rider-register', {
       method: 'POST',

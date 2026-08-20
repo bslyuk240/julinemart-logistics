@@ -242,6 +242,13 @@ export default function Activity() {
                   </div>
                 )}
 
+                {detail.signature_url && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Customer signature</p>
+                    <img src={detail.signature_url} alt="Customer signature" className="w-full rounded-xl border border-gray-200 bg-white" />
+                  </div>
+                )}
+
                 <div className="rounded-xl border border-gray-200 p-3">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Deliver to</p>
                   <p className="text-sm font-medium text-gray-900 mt-0.5">{detail.dropoff.customer_name || 'Customer'}</p>

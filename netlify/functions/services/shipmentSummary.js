@@ -24,10 +24,19 @@ function pickupKindFor(resolveSenderKind) {
 // rider, timestamps) for both sub_orders and manual_shipments — see
 // shipmentSync.js.
 export const SHIPMENT_LIST_SELECT =
-  'id, source_type, sub_order_id, manual_shipment_id, status, tracking_number, metadata, delivery_proof_url, picked_up_at, out_for_delivery_at, delivered_at, failed_at, created_at, rider_payout';
+  'id, source_type, sub_order_id, manual_shipment_id, status, tracking_number, metadata, delivery_proof_url, signature_url, picked_up_at, out_for_delivery_at, delivered_at, failed_at, created_at, rider_payout';
+
+// Orders/shipments at or above this value require a customer signature in
+// addition to the delivery photo (brief's "verified" Proof of Delivery
+// level — "high_value" and its extra requirements aren't built yet).
+export const POD_VERIFIED_THRESHOLD_NGN = 50000;
+
+export function podLevelForValue(value) {
+  return (Number(value) || 0) >= POD_VERIFIED_THRESHOLD_NGN ? 'verified' : 'standard';
+}
 
 const SUB_ORDER_DETAIL_SELECT = `
-  id, main_order_id, allocated_shipping_fee, courier_charge,
+  id, main_order_id, subtotal, allocated_shipping_fee, courier_charge,
   vendors ( store_name, address, city, state, phone, fez_collection_method,
     approved_vendor_locations ( fez_hub_name, fez_hub_address, courier_hubs ( name, address, city, state, phone ) ) ),
   hubs ( name, address, city, state, phone ),
@@ -44,7 +53,7 @@ export async function fetchSourceDetails(adminClient, shipmentRows) {
       ? adminClient.from('sub_orders').select(SUB_ORDER_DETAIL_SELECT).in('id', subOrderIds)
       : Promise.resolve({ data: [] }),
     manualIds.length
-      ? adminClient.from('manual_shipments').select('id, sender, sender_hub_id, recipient, item_description').in('id', manualIds)
+      ? adminClient.from('manual_shipments').select('id, sender, sender_hub_id, recipient, item_description, item_value').in('id', manualIds)
       : Promise.resolve({ data: [] }),
   ]);
 
@@ -61,6 +70,7 @@ export function summarizeShipment(s, subOrderMap, manualMap) {
     status: s.status,
     accepted: isAccepted(s.metadata),
     delivery_proof_url: s.delivery_proof_url || null,
+    signature_url: s.signature_url || null,
     assigned_at: s.created_at,
     picked_up_at: s.picked_up_at,
     out_for_delivery_at: s.out_for_delivery_at,
@@ -81,6 +91,7 @@ export function summarizeShipment(s, subOrderMap, manualMap) {
       // read only for shipments assigned before rider_payout existed.
       fee: s.rider_payout ?? (Number(subOrder.allocated_shipping_fee ?? subOrder.courier_charge ?? 0) || 0),
       order_number: order.order_number || null,
+      pod_level: podLevelForValue(subOrder.subtotal),
       pickup: {
         name: pickup.name,
         address: pickup.address,
@@ -112,6 +123,7 @@ export function summarizeShipment(s, subOrderMap, manualMap) {
     ...base,
     fee: s.rider_payout ?? 0,
     order_number: null,
+    pod_level: podLevelForValue(manual.item_value),
     pickup: {
       name: sender.name || null,
       address: sender.address || null,

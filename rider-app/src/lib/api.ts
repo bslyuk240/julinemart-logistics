@@ -109,6 +109,8 @@ export type ScanVerification = {
   pickup_name: string | null;
 };
 
+export type PodLevel = 'standard' | 'verified';
+
 export type Job = {
   id: string;
   tracking_number: string | null;
@@ -119,6 +121,8 @@ export type Job = {
   pickup: JobLocation;
   dropoff: JobDropoff;
   delivery_proof_url: string | null;
+  signature_url: string | null;
+  pod_level: PodLevel;
   assigned_at: string | null;
   picked_up_at: string | null;
   out_for_delivery_at: string | null;
@@ -158,6 +162,8 @@ export type ActivityDetail = {
   pickup: JobLocation;
   dropoff: JobDropoff;
   delivery_proof_url: string | null;
+  signature_url: string | null;
+  pod_level: PodLevel;
   assigned_at: string | null;
   picked_up_at: string | null;
   out_for_delivery_at: string | null;
@@ -250,7 +256,11 @@ export const api = {
   // else got there first, not a real error.
   claimJob: (shipment_id: string) =>
     request<{ claimed: boolean }>('rider-jobs', { method: 'POST', body: JSON.stringify({ shipment_id, action: 'claim' }) }),
-  advanceJob: (shipment_id: string, target_status: string, opts: { delivery_proof_url?: string; scanned_code?: string } = {}) =>
+  advanceJob: (
+    shipment_id: string,
+    target_status: string,
+    opts: { delivery_proof_url?: string; signature_url?: string; scanned_code?: string } = {}
+  ) =>
     request<{ status: string }>('rider-jobs', {
       method: 'POST',
       body: JSON.stringify({ shipment_id, action: 'advance', target_status, ...opts }),

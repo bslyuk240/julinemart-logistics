@@ -1,7 +1,7 @@
 import { requireActiveRider, jsonResponse, headers } from './services/requireRider.js';
 import { checkRateLimit } from './services/rate-limit.js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
-import { isAccepted, SHIPMENT_LIST_SELECT, fetchSourceDetails, summarizeShipment } from './services/shipmentSummary.js';
+import { isAccepted, SHIPMENT_LIST_SELECT, fetchSourceDetails, summarizeShipment, podLevelForValue } from './services/shipmentSummary.js';
 import { ensureTrackingAndWaybill } from './services/trackingNumbers.js';
 import {
   buildOrderDeepLink,
@@ -464,6 +464,21 @@ async function handlePost(rider, adminClient, body) {
     if (targetStatus === 'delivered' && !body.delivery_proof_url) {
       return jsonResponse(400, { success: false, error: 'A delivery photo is required to confirm delivery' });
     }
+    // High-value orders also require a customer signature — see
+    // shipmentSummary.js's podLevelForValue. Checked server-side (not just
+    // trusted from the client) against the same source-table value column
+    // the rider-facing summary computes pod_level from.
+    if (targetStatus === 'delivered' && !body.signature_url) {
+      const valueColumn = isSubOrder ? 'subtotal' : 'item_value';
+      const { data: valueRow } = await adminClient.from(sourceTable).select(valueColumn).eq('id', sourceId).maybeSingle();
+      if (podLevelForValue(valueRow?.[valueColumn]) === 'verified') {
+        return jsonResponse(400, {
+          success: false,
+          error: 'signature_required',
+          message: 'A customer signature is required to confirm delivery for this order',
+        });
+      }
+    }
 
     // Pickup requires scanning the package's own printed label — a chain-
     // of-custody check that the rider actually has the right package in
@@ -489,6 +504,7 @@ async function handlePost(rider, adminClient, body) {
     const timestampColumn = { picked_up: 'picked_up_at', out_for_delivery: 'out_for_delivery_at', delivered: 'delivered_at' }[targetStatus];
     const update = { status: targetStatus, [timestampColumn]: new Date().toISOString() };
     if (targetStatus === 'delivered' && body.delivery_proof_url) update.delivery_proof_url = body.delivery_proof_url;
+    if (targetStatus === 'delivered' && body.signature_url) update.signature_url = body.signature_url;
 
     // manual_shipments has no picked_up_at/out_for_delivery_at/delivered_at/
     // delivery_proof_url columns — those timestamps live only on the unified

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, Building2, Camera, Check, Navigation, Phone, ScanLine, User, X, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Building2, Camera, Check, Navigation, PenLine, Phone, ScanLine, User, X, XCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api, Job, pickupLabel, PROBLEM_REASON_LABEL, ProblemReason, ScanVerification } from '../lib/api';
 import { uploadRiderDocument } from '../lib/storage';
 import { Scanner } from '../components/Scanner';
+import { SignaturePad } from '../components/SignaturePad';
 
 // verify_scan reports short codes (see rider-jobs.js), not sentences — the
 // server's own `message` for these is already rider-friendly, but the
@@ -16,6 +17,10 @@ const SCAN_ERROR_MESSAGE: Record<string, string> = {
   not_accepted: 'Accept the job before scanning for pickup.',
   empty_scan: 'Scan the label on this package to confirm pickup.',
   not_your_job: "This shipment isn't assigned to you.",
+};
+
+const ADVANCE_ERROR_MESSAGE: Record<string, string> = {
+  signature_required: 'A customer signature is required to confirm delivery for this order.',
 };
 
 const TIMELINE: { status: Job['status']; label: string; at: (job: Job) => string | null }[] = [
@@ -63,6 +68,8 @@ export default function ActiveDelivery() {
   const [error, setError] = useState<string | null>(null);
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [uploadingProof, setUploadingProof] = useState(false);
+  const [signatureFile, setSignatureFile] = useState<File | null>(null);
+  const [showSignaturePad, setShowSignaturePad] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [scanResult, setScanResult] = useState<ScanVerification | null>(null);
@@ -139,23 +146,35 @@ export default function ActiveDelivery() {
       return;
     }
 
+    // High-value orders (job.pod_level from services/shipmentSummary.js's
+    // POD_VERIFIED_THRESHOLD_NGN) need a customer signature in addition to
+    // the photo — the server enforces this independently, this is just the
+    // client-side prompt so the rider isn't surprised by a rejected submit.
+    if (targetStatus === 'delivered' && job.pod_level === 'verified' && !signatureFile) {
+      setShowSignaturePad(true);
+      return;
+    }
+
     setAdvancing(true);
     setError(null);
     try {
       let proofUrl: string | undefined;
+      let signatureUrl: string | undefined;
       if (targetStatus === 'delivered' && proofFile && user) {
         setUploadingProof(true);
         proofUrl = await uploadRiderDocument(user.id, proofFile, 'delivery_proof');
+        if (signatureFile) signatureUrl = await uploadRiderDocument(user.id, signatureFile, 'delivery_signature');
         setUploadingProof(false);
       }
-      await api.advanceJob(job.id, targetStatus, { delivery_proof_url: proofUrl });
+      await api.advanceJob(job.id, targetStatus, { delivery_proof_url: proofUrl, signature_url: signatureUrl });
       if (targetStatus === 'delivered') {
         navigate('/', { replace: true });
       } else {
         await load();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not update status');
+      const code = err instanceof Error ? err.message : '';
+      setError(ADVANCE_ERROR_MESSAGE[code] || (err instanceof Error ? err.message : 'Could not update status'));
     } finally {
       setAdvancing(false);
       setUploadingProof(false);
@@ -399,6 +418,27 @@ export default function ActiveDelivery() {
             )}
           </div>
         )}
+
+        {job.status === 'out_for_delivery' && job.pod_level === 'verified' && (
+          <div className="rounded-2xl border border-dashed border-gray-300 p-4 text-center">
+            {signatureFile ? (
+              <div className="flex items-center justify-center gap-2 text-sm text-gray-900">
+                <Check className="w-4 h-4 text-primary-600" />
+                Customer signature captured
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowSignaturePad(true)}
+                className="inline-flex items-center gap-2 text-sm font-semibold text-primary-600"
+              >
+                <PenLine className="w-4 h-4" />
+                Get customer signature
+              </button>
+            )}
+            <p className="mt-1 text-[11px] text-gray-400">Required for this order's value</p>
+          </div>
+        )}
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 px-6 py-4 bg-white border-t border-gray-100">
@@ -411,6 +451,18 @@ export default function ActiveDelivery() {
           {advancing ? (uploadingProof ? 'Uploading photo…' : 'Saving…') : ACTION_LABEL[job.status] || 'Done'}
         </button>
       </div>
+
+      {showSignaturePad && (
+        <SignaturePad
+          title="Customer signature"
+          hint="Hand your phone to the customer to sign below"
+          onCapture={(file) => {
+            setSignatureFile(file);
+            setShowSignaturePad(false);
+          }}
+          onClose={() => setShowSignaturePad(false)}
+        />
+      )}
 
       {showScanner && (
         <Scanner

@@ -8,7 +8,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
-import { sendPushToCustomer } from './services/pushNotifications.js';
+import { sendRiderPush } from './services/riderNotifications.js';
 import { notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
 import { lookupShippingRate, computeDispatchCostBreakdown, getLocalRidersCourierId } from './services/shippingRateLookup.js';
 
@@ -186,7 +186,7 @@ exports.handler = async (event) => {
 
     const riders = eligibleRiders || [];
     for (const rider of riders) {
-      const pushResult = await sendPushToCustomer(rider.id, {
+      const pushResult = await sendRiderPush(supabase, rider.id, {
         title: 'New delivery near you',
         message: `A delivery is available for pickup in ${area.city}. Open the app to claim it.`,
         type: 'rider_job_broadcast',

@@ -5,7 +5,7 @@
  * (docs/rider-app-ux-rebuild.md #17).
  */
 import { createClient } from '@supabase/supabase-js';
-import { sendPushToCustomer } from './services/pushNotifications.js';
+import { sendRiderPush } from './services/riderNotifications.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SERVICE_ROLE_KEY =
@@ -41,7 +41,7 @@ export const handler = async () => {
       if (!doc.riders) continue;
       const daysLeft = Math.ceil((new Date(doc.expiry_date).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
       const label = DOC_LABEL[doc.type] || 'document';
-      const pushResult = await sendPushToCustomer(doc.rider_id, {
+      const pushResult = await sendRiderPush(adminClient, doc.rider_id, {
         title: 'Document expiring soon',
         message:
           daysLeft > 0

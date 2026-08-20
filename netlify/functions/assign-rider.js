@@ -6,6 +6,7 @@ import {
   extractOrderReference,
   sendPushToCustomer,
 } from './services/pushNotifications.js';
+import { sendRiderPush } from './services/riderNotifications.js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
 import { notifyRider, notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
@@ -249,7 +250,7 @@ exports.handler = async (event) => {
       source: 'manual_assignment',
     });
 
-    const riderPushResult = await sendPushToCustomer(rider.id, {
+    const riderPushResult = await sendRiderPush(supabase, rider.id, {
       title: 'New delivery assigned',
       message: `You've been assigned tracking #${nextTrackingNumber}. Open the app to accept.`,
       type: 'rider_job_assigned',

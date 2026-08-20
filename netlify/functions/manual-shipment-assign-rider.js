@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { notifyManualShipmentRiderAssigned } from './services/manualShipmentNotify.js';
 import { insertTrackingEvent } from './services/fezTracking.js';
-import { sendPushToCustomer } from './services/pushNotifications.js';
+import { sendRiderPush } from './services/riderNotifications.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
 import { notifyRider, notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
 import { lookupShippingRate, lookupHubOrZoneRate, computeDispatchCostBreakdown } from './services/shippingRateLookup.js';
@@ -186,7 +186,7 @@ exports.handler = async (event) => {
       'manual-shipment-assign-rider'
     );
 
-    const riderPushResult = await sendPushToCustomer(rider.id, {
+    const riderPushResult = await sendRiderPush(supabase, rider.id, {
       title: 'New delivery assigned',
       message: `You've been assigned tracking #${nextTrackingNumber}. Open the app to accept.`,
       type: 'rider_job_assigned',

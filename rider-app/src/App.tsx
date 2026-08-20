@@ -9,6 +9,7 @@ import Activity from './pages/Activity';
 import Earnings from './pages/Earnings';
 import Profile from './pages/Profile';
 import Documents from './pages/Documents';
+import Notifications from './pages/Notifications';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -75,6 +76,14 @@ function AppRoutes() {
         element={
           <PrivateRoute>
             <Documents />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/notifications"
+        element={
+          <PrivateRoute>
+            <Notifications />
           </PrivateRoute>
         }
       />

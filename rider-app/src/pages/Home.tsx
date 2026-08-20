@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, CheckCircle2, Lock, MapPin, Package, Power, Users, Wallet, X } from 'lucide-react';
+import { Bell, Camera, CheckCircle2, Lock, MapPin, Package, Power, Users, Wallet, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { useInstallPrompt } from '../hooks/useInstallPrompt';
@@ -90,6 +90,14 @@ function RiderHome() {
   // it first).
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const visibleAvailable = available.filter((job) => !dismissed.has(job.id));
+
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  useEffect(() => {
+    api
+      .getNotifications()
+      .then((res) => setUnreadNotifications(res.unread_count))
+      .catch(() => {});
+  }, []);
 
   const install = useInstallPrompt();
   const { permission: notificationPermission, requestPermission: requestNotificationPermission } =
@@ -266,16 +274,31 @@ function RiderHome() {
 
   return (
     <div className="min-h-screen pb-24 bg-gray-50">
-      <div className="px-6 pt-4 pb-3 bg-white border-b border-gray-100">
-        <p className="text-lg font-bold text-gray-900">
-          {greeting()}, {(riderName || user?.email || '').split(' ')[0]} 👋
-        </p>
-        {riderArea && (
-          <p className="mt-0.5 text-xs text-gray-500 flex items-center gap-1">
-            <MapPin className="w-3.5 h-3.5" />
-            {riderArea.city}, {riderArea.state}
+      <div className="px-6 pt-4 pb-3 bg-white border-b border-gray-100 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-lg font-bold text-gray-900">
+            {greeting()}, {(riderName || user?.email || '').split(' ')[0]} 👋
           </p>
-        )}
+          {riderArea && (
+            <p className="mt-0.5 text-xs text-gray-500 flex items-center gap-1">
+              <MapPin className="w-3.5 h-3.5" />
+              {riderArea.city}, {riderArea.state}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => navigate('/notifications')}
+          aria-label="Notifications"
+          className="relative shrink-0 w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center text-gray-500"
+        >
+          <Bell className="w-4 h-4" />
+          {unreadNotifications > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+              {unreadNotifications > 9 ? '9+' : unreadNotifications}
+            </span>
+          )}
+        </button>
       </div>
 
       <div className="px-6 pt-4 space-y-4">

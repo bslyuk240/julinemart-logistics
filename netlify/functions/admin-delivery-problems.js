@@ -21,7 +21,7 @@
 import { requireAdmin, jsonResponse, headers } from './services/global-sourcing-utils.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
 import { notifyRider } from './services/riderRealtime.js';
-import { sendPushToCustomer } from './services/pushNotifications.js';
+import { sendRiderPush } from './services/riderNotifications.js';
 
 // 'failed' stays open (needs a staff call); once staff acts (return_required)
 // it's the rider's turn next, so it drops off this queue same as delivered.
@@ -71,7 +71,7 @@ async function handleRequireReturn(event) {
 
   if (shipment.assigned_rider_id) {
     await notifyRider(shipment.assigned_rider_id, 'return_required', { shipment_id });
-    const pushResult = await sendPushToCustomer(shipment.assigned_rider_id, {
+    const pushResult = await sendRiderPush(adminClient, shipment.assigned_rider_id, {
       title: 'Return required',
       message: 'A package needs to go back — open the app for details.',
       type: 'rider_job_assigned',

@@ -70,6 +70,21 @@ export type RiderDocumentsResponse = {
   history: RiderDocument[];
 };
 
+export type RiderNotification = {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  data: { targetPath?: string; [key: string]: unknown };
+  read_at: string | null;
+  created_at: string;
+};
+
+export type RiderNotificationsResponse = {
+  items: RiderNotification[];
+  unread_count: number;
+};
+
 // vendor: the vendor's own shop. hub: a JLO/courier hub or depot. sender:
 // a manual shipment's free-text sender — could be anyone, not a vendor.
 export type PickupKind = 'vendor' | 'hub' | 'sender';
@@ -355,6 +370,11 @@ export const api = {
     request<Withdrawal>('rider-withdrawals', { method: 'POST', body: JSON.stringify({ amount }) }),
   getProfile: () => request<RiderProfile>('rider-profile'),
   getDocuments: () => request<RiderDocumentsResponse>('rider-documents'),
+  getNotifications: () => request<RiderNotificationsResponse>('rider-notifications'),
+  markNotificationRead: (id: string) =>
+    request<{ marked: boolean }>('rider-notifications', { method: 'POST', body: JSON.stringify({ action: 'mark_read', id }) }),
+  markAllNotificationsRead: () =>
+    request<{ marked: boolean }>('rider-notifications', { method: 'POST', body: JSON.stringify({ action: 'mark_all_read' }) }),
   requestBankChange: (bank_name: string, bank_account_number: string, bank_account_name: string) =>
     request<void>('rider-profile-update', {
       method: 'POST',

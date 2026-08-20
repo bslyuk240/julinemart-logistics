@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Camera, Check, Navigation, Phone } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Building2, Camera, Check, Navigation, Phone, User } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { api, Job } from '../lib/api';
+import { api, Job, PROBLEM_REASON_LABEL, ProblemReason } from '../lib/api';
 import { uploadRiderDocument } from '../lib/storage';
 import { Scanner } from '../components/Scanner';
 
@@ -52,6 +52,11 @@ export default function ActiveDelivery() {
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [uploadingProof, setUploadingProof] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [showProblemSheet, setShowProblemSheet] = useState(false);
+  const [problemReason, setProblemReason] = useState<ProblemReason | ''>('');
+  const [problemNote, setProblemNote] = useState('');
+  const [reportingProblem, setReportingProblem] = useState(false);
+  const [problemReported, setProblemReported] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -138,6 +143,23 @@ export default function ActiveDelivery() {
     }
   };
 
+  const handleReportProblem = async () => {
+    if (!job || !problemReason) return;
+    setReportingProblem(true);
+    setError(null);
+    try {
+      await api.reportProblem(job.id, problemReason, problemNote.trim() || undefined);
+      setShowProblemSheet(false);
+      setProblemReason('');
+      setProblemNote('');
+      setProblemReported(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not report the problem');
+    } finally {
+      setReportingProblem(false);
+    }
+  };
+
   const handleScanDetect = async (code: string) => {
     if (!job) return;
     setShowScanner(false);
@@ -181,6 +203,72 @@ export default function ActiveDelivery() {
 
       <div className="px-6 pt-5 space-y-4">
         {error && <p className="text-sm text-red-600">{error}</p>}
+        {problemReported && <p className="text-sm text-emerald-600">Problem reported — dispatch has been notified.</p>}
+
+        {/* Deliver to (dropoff) */}
+        <div className="rounded-2xl border border-gray-200 p-4">
+          <div className="flex items-start gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-primary-50 flex items-center justify-center shrink-0">
+              <User className="w-4 h-4 text-primary-600" />
+            </div>
+            <div className="flex-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Deliver to</p>
+              <p className="text-sm font-semibold text-gray-900 mt-0.5">{job.dropoff.customer_name || 'Customer'}</p>
+              <p className="text-sm text-gray-600 mt-0.5">{job.dropoff.address || '—'}</p>
+              <p className="text-xs text-gray-400">{[job.dropoff.landmark, job.dropoff.city, job.dropoff.state].filter(Boolean).join(', ')}</p>
+            </div>
+            {job.dropoff.customer_phone && (
+              <a
+                href={`tel:${job.dropoff.customer_phone}`}
+                className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center shrink-0 text-primary-600"
+              >
+                <Phone className="w-4 h-4" />
+              </a>
+            )}
+          </div>
+        </div>
+
+        {/* From (pickup) */}
+        <div className="rounded-2xl border border-gray-200 p-4">
+          <div className="flex items-start gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-primary-50 flex items-center justify-center shrink-0">
+              <Building2 className="w-4 h-4 text-primary-600" />
+            </div>
+            <div className="flex-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">From</p>
+              <p className="text-sm font-semibold text-gray-900 mt-0.5">{job.pickup.name || 'JulineMart'}</p>
+              <p className="text-sm text-gray-600 mt-0.5">{job.pickup.address || '—'}</p>
+              <p className="text-xs text-gray-400">{[job.pickup.city, job.pickup.state].filter(Boolean).join(', ')}</p>
+            </div>
+            {job.pickup.phone && (
+              <a
+                href={`tel:${job.pickup.phone}`}
+                className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center shrink-0 text-primary-600"
+              >
+                <Phone className="w-4 h-4" />
+              </a>
+            )}
+          </div>
+        </div>
+
+        {/* Waybill status */}
+        {job.tracking_number && (
+          <div className="rounded-2xl border border-gray-200 p-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Waybill {job.tracking_number}</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {currentStepIndex >= 1 ? '1 of 1 package' : 'Not yet collected'}
+              </p>
+            </div>
+            <span
+              className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                currentStepIndex >= 1 ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
+              }`}
+            >
+              {currentStepIndex >= 1 ? 'Verified' : 'Pending scan'}
+            </span>
+          </div>
+        )}
 
         {/* Timeline */}
         <div className="rounded-2xl border border-gray-200 p-4">
@@ -200,7 +288,7 @@ export default function ActiveDelivery() {
                   </div>
                   {i < TIMELINE.length - 1 && <div className={`w-0.5 flex-1 min-h-[20px] ${reached ? 'bg-emerald-500' : 'bg-gray-200'}`} />}
                 </div>
-                <div className="pb-4 -mt-0.5">
+                <div className="flex-1 flex items-center justify-between pb-4 -mt-0.5">
                   <p className={`text-sm ${reached ? 'font-semibold text-gray-900' : 'text-gray-400'}`}>{step.label}</p>
                   {time && <p className="text-[11px] text-gray-400">{time}</p>}
                 </div>
@@ -209,52 +297,34 @@ export default function ActiveDelivery() {
           })}
         </div>
 
-        {/* From (pickup) */}
-        <div className="rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">From</p>
-          <p className="text-sm font-semibold text-gray-900">{job.pickup.name || 'JulineMart'}</p>
-          <p className="text-sm text-gray-600 mt-0.5">{job.pickup.address || '—'}</p>
-          <p className="text-xs text-gray-400">{[job.pickup.city, job.pickup.state].filter(Boolean).join(', ')}</p>
-          {job.pickup.phone && (
-            <a href={`tel:${job.pickup.phone}`} className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-primary-600">
-              <Phone className="w-3.5 h-3.5" /> {job.pickup.phone}
-            </a>
-          )}
-        </div>
-
-        {/* Deliver to (dropoff) */}
-        <div className="rounded-2xl border border-gray-200 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Deliver to</p>
-          <p className="text-sm font-semibold text-gray-900">{job.dropoff.customer_name || 'Customer'}</p>
-          <p className="text-sm text-gray-600 mt-0.5">{job.dropoff.address || '—'}</p>
-          <p className="text-xs text-gray-400">{[job.dropoff.landmark, job.dropoff.city, job.dropoff.state].filter(Boolean).join(', ')}</p>
-          {job.dropoff.customer_phone && (
-            <a href={`tel:${job.dropoff.customer_phone}`} className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-primary-600">
-              <Phone className="w-3.5 h-3.5" /> {job.dropoff.customer_phone}
-            </a>
-          )}
-        </div>
-
-        {/* Navigate / Call action row */}
+        {/* Navigate / Call / Report action row */}
         <div className="flex gap-2">
           <a
             href={navTarget}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-700 bg-white"
+            className="flex-1 flex flex-col items-center justify-center gap-1 rounded-xl border border-gray-200 py-2.5 text-[11px] font-semibold text-gray-700 bg-white"
           >
             <Navigation className="w-4 h-4" />
-            Navigate to {headingToPickup ? 'Pickup' : 'Customer'}
+            Navigate
           </a>
           {(headingToPickup ? job.pickup.phone : job.dropoff.customer_phone) && (
             <a
               href={`tel:${headingToPickup ? job.pickup.phone : job.dropoff.customer_phone}`}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-700 bg-white"
+              className="flex-1 flex flex-col items-center justify-center gap-1 rounded-xl border border-gray-200 py-2.5 text-[11px] font-semibold text-gray-700 bg-white"
             >
               <Phone className="w-4 h-4" />
               Call {headingToPickup ? 'Vendor' : 'Customer'}
             </a>
           )}
+          <button
+            type="button"
+            onClick={() => setShowProblemSheet(true)}
+            className="flex-1 flex flex-col items-center justify-center gap-1 rounded-xl border border-gray-200 py-2.5 text-[11px] font-semibold text-red-600 bg-white"
+          >
+            <AlertTriangle className="w-4 h-4" />
+            Report Problem
+          </button>
         </div>
 
         {job.status === 'out_for_delivery' && (
@@ -304,6 +374,57 @@ export default function ActiveDelivery() {
           onDetect={handleScanDetect}
           onClose={() => setShowScanner(false)}
         />
+      )}
+
+      {showProblemSheet && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 px-6 pb-6 sm:pb-0">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6">
+            <h3 className="text-base font-bold text-gray-900">Report a problem</h3>
+            <p className="mt-1 text-sm text-gray-500">This lets dispatch know right away — it doesn't change your delivery status.</p>
+
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {(Object.keys(PROBLEM_REASON_LABEL) as ProblemReason[]).map((reason) => (
+                <button
+                  key={reason}
+                  type="button"
+                  onClick={() => setProblemReason(reason)}
+                  className={`rounded-xl border py-2.5 px-2 text-xs font-semibold ${
+                    problemReason === reason ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-gray-200 text-gray-600'
+                  }`}
+                >
+                  {PROBLEM_REASON_LABEL[reason]}
+                </button>
+              ))}
+            </div>
+
+            <textarea
+              value={problemNote}
+              onChange={(e) => setProblemNote(e.target.value)}
+              placeholder="Add a note (optional)"
+              rows={2}
+              className="mt-3 w-full rounded-xl border border-gray-200 p-3 text-sm"
+            />
+
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowProblemSheet(false)}
+                disabled={reportingProblem}
+                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleReportProblem}
+                disabled={!problemReason || reportingProblem}
+                className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {reportingProblem ? 'Reporting…' : 'Report'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

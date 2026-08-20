@@ -56,6 +56,31 @@ export type JobDropoff = {
   landmark: string | null;
 };
 
+export type ProblemReason =
+  | 'vendor_not_ready'
+  | 'vendor_closed'
+  | 'package_unavailable'
+  | 'wrong_address'
+  | 'customer_unreachable'
+  | 'customer_refused'
+  | 'package_damaged'
+  | 'vehicle_breakdown'
+  | 'safety_issue'
+  | 'other';
+
+export const PROBLEM_REASON_LABEL: Record<ProblemReason, string> = {
+  vendor_not_ready: 'Vendor not ready',
+  vendor_closed: 'Vendor closed',
+  package_unavailable: 'Package unavailable',
+  wrong_address: 'Wrong address',
+  customer_unreachable: 'Customer unreachable',
+  customer_refused: 'Customer refused delivery',
+  package_damaged: 'Package damaged',
+  vehicle_breakdown: 'Vehicle breakdown',
+  safety_issue: 'Safety issue',
+  other: 'Other',
+};
+
 export type Job = {
   id: string;
   tracking_number: string | null;
@@ -164,6 +189,11 @@ export const api = {
     request<{ status: string }>('rider-jobs', {
       method: 'POST',
       body: JSON.stringify({ shipment_id, action: 'advance', target_status, ...opts }),
+    }),
+  reportProblem: (shipment_id: string, reason: ProblemReason, note?: string) =>
+    request<{ reported: boolean }>('rider-jobs', {
+      method: 'POST',
+      body: JSON.stringify({ shipment_id, action: 'report_problem', reason, note }),
     }),
   setOnline: (online: boolean) =>
     request<{ online: boolean }>('rider-online', { method: 'POST', body: JSON.stringify({ online }) }),

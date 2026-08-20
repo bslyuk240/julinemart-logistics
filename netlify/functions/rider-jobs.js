@@ -416,6 +416,56 @@ async function handlePost(rider, adminClient, body) {
     return jsonResponse(200, { success: true, data: { declined: true } });
   }
 
+  // Logs a problem for staff visibility on this delivery — it does not
+  // change shipment status or drive any workflow. Distinct incident types
+  // that actually change what happens next (return required, reassign,
+  // etc.) are a bigger, separate piece — see docs/rider-app-ux-rebuild.md.
+  if (action === 'report_problem') {
+    const REASONS = [
+      'vendor_not_ready',
+      'vendor_closed',
+      'package_unavailable',
+      'wrong_address',
+      'customer_unreachable',
+      'customer_refused',
+      'package_damaged',
+      'vehicle_breakdown',
+      'safety_issue',
+      'other',
+    ];
+    const { reason, note } = body;
+    if (!REASONS.includes(reason)) {
+      return jsonResponse(400, { success: false, error: `reason must be one of: ${REASONS.join(', ')}` });
+    }
+
+    const REASON_LABEL = {
+      vendor_not_ready: 'Vendor not ready',
+      vendor_closed: 'Vendor closed',
+      package_unavailable: 'Package unavailable',
+      wrong_address: 'Wrong address',
+      customer_unreachable: 'Customer unreachable',
+      customer_refused: 'Customer refused delivery',
+      package_damaged: 'Package damaged',
+      vehicle_breakdown: 'Vehicle breakdown',
+      safety_issue: 'Safety issue',
+      other: 'Other',
+    };
+
+    await adminClient.from('tracking_events').insert({
+      ...trackingEventSourceField,
+      shipment_id,
+      status: shipment.status,
+      description: `${rider.full_name} reported a problem: ${REASON_LABEL[reason]}${note ? ` — ${note}` : ''}`,
+      actor_type: 'rider',
+      source: 'rider_app',
+      metadata: { reason, note: note || null },
+    });
+
+    await notifyDispatch(shipment.source_type, sourceId, 'problem_reported', { status: shipment.status, reason });
+
+    return jsonResponse(200, { success: true, data: { reported: true } });
+  }
+
   if (action === 'advance') {
     if (!isAccepted(shipment.metadata)) {
       return jsonResponse(409, { success: false, error: 'Accept the job before updating its status' });

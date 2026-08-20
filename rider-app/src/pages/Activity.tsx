@@ -249,6 +249,32 @@ export default function Activity() {
                   <p className="text-lg font-bold text-gray-900">{formatNaira(detail.fee)}</p>
                 </div>
 
+                {detail.fee_breakdown && (
+                  <div className="rounded-xl border border-gray-200 p-3 space-y-1.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-0.5">Earning breakdown</p>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-500">Base rate</span>
+                      <span className="font-medium text-gray-900">{formatNaira(detail.fee_breakdown.base_rate)}</span>
+                    </div>
+                    {detail.fee_breakdown.weight_charge > 0 && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-500">Weight</span>
+                        <span className="font-medium text-gray-900">{formatNaira(detail.fee_breakdown.weight_charge)}</span>
+                      </div>
+                    )}
+                    {detail.fee_breakdown.pickup_surcharge > 0 && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-500">Pickup surcharge</span>
+                        <span className="font-medium text-gray-900">{formatNaira(detail.fee_breakdown.pickup_surcharge)}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between text-xs pt-1.5 border-t border-gray-100">
+                      <span className="font-semibold text-gray-900">Total</span>
+                      <span className="font-bold text-primary-600">{formatNaira(detail.fee_breakdown.total)}</span>
+                    </div>
+                  </div>
+                )}
+
                 {detail.delivery_proof_url && (
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Proof of delivery</p>

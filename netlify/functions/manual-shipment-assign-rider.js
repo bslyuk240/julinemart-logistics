@@ -10,7 +10,7 @@ import { insertTrackingEvent } from './services/fezTracking.js';
 import { sendPushToCustomer } from './services/pushNotifications.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
 import { notifyRider, notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
-import { lookupShippingRate, lookupHubOrZoneRate, computeDispatchCost } from './services/shippingRateLookup.js';
+import { lookupShippingRate, lookupHubOrZoneRate, computeDispatchCostBreakdown } from './services/shippingRateLookup.js';
 import { ensureTrackingAndWaybill } from './services/trackingNumbers.js';
 
 const supabase = createClient(
@@ -92,6 +92,7 @@ exports.handler = async (event) => {
     // zone_id (and hub_id, if hub-mode) already resolved and stored on this
     // shipment at creation, just filtered to the Local Riders courier.
     let riderPayout = null;
+    let riderPayoutBreakdown = null;
     if (existingShipment.zone_id) {
       try {
         const riderRate = existingShipment.sender_hub_id
@@ -104,7 +105,10 @@ exports.handler = async (event) => {
               zoneId: existingShipment.zone_id,
               courierId: localCourier.id,
             });
-        if (riderRate) riderPayout = computeDispatchCost(riderRate, existingShipment.item_weight || 1);
+        if (riderRate) {
+          riderPayoutBreakdown = computeDispatchCostBreakdown(riderRate, existingShipment.item_weight || 1);
+          riderPayout = riderPayoutBreakdown.total;
+        }
       } catch (payoutErr) {
         console.error('manual-shipment-assign-rider payout lookup failed:', payoutErr);
       }
@@ -172,6 +176,7 @@ exports.handler = async (event) => {
           delivery_person_phone: rider_phone,
           delivery_person_vehicle: rider_vehicle || null,
           rider_payout: riderPayout,
+          rider_payout_breakdown: riderPayoutBreakdown,
           metadata: updatedShipment.metadata,
           courier_tracking_url: null,
           courier_waybill: null,

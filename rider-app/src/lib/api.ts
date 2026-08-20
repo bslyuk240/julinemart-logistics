@@ -111,12 +111,23 @@ export type ScanVerification = {
 
 export type PodLevel = 'standard' | 'verified';
 
+// Frozen at the same moment `fee` (rider_payout) itself gets frozen — see
+// assign-rider.js/broadcast-rider.js. Only present for jobs dispatched after
+// this existed; older/legacy ones just show the total with no breakdown.
+export type FeeBreakdown = {
+  base_rate: number;
+  weight_charge: number;
+  pickup_surcharge: number;
+  total: number;
+};
+
 export type Job = {
   id: string;
   tracking_number: string | null;
   status: 'assigned' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'return_required' | 'returning';
   accepted: boolean;
   fee: number;
+  fee_breakdown: FeeBreakdown | null;
   order_number: string | null;
   pickup: JobLocation;
   dropoff: JobDropoff;
@@ -167,6 +178,7 @@ export type ActivityDetail = {
   order_number: string | null;
   status: ActivityStatus;
   fee: number;
+  fee_breakdown: FeeBreakdown | null;
   pickup: JobLocation;
   dropoff: JobDropoff;
   delivery_proof_url: string | null;

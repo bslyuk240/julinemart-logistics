@@ -24,7 +24,7 @@ function pickupKindFor(resolveSenderKind) {
 // rider, timestamps) for both sub_orders and manual_shipments — see
 // shipmentSync.js.
 export const SHIPMENT_LIST_SELECT =
-  'id, source_type, sub_order_id, manual_shipment_id, status, tracking_number, metadata, delivery_proof_url, signature_url, picked_up_at, out_for_delivery_at, delivered_at, failed_at, created_at, rider_payout';
+  'id, source_type, sub_order_id, manual_shipment_id, status, tracking_number, metadata, delivery_proof_url, signature_url, picked_up_at, out_for_delivery_at, delivered_at, failed_at, created_at, rider_payout, rider_payout_breakdown';
 
 // Orders/shipments at or above this value require a customer signature in
 // addition to the delivery photo (brief's "verified" Proof of Delivery
@@ -71,6 +71,11 @@ export function summarizeShipment(s, subOrderMap, manualMap) {
     accepted: isAccepted(s.metadata),
     delivery_proof_url: s.delivery_proof_url || null,
     signature_url: s.signature_url || null,
+    // Frozen at assign/broadcast time (see assign-rider.js et al.) — null for
+    // any shipment dispatched before this existed, or where the zone/rate
+    // lookup failed and rider_payout itself fell back to the legacy full-fee
+    // value. The client only shows a breakdown section when this is present.
+    fee_breakdown: s.rider_payout_breakdown || null,
     assigned_at: s.created_at,
     picked_up_at: s.picked_up_at,
     out_for_delivery_at: s.out_for_delivery_at,

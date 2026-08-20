@@ -10,7 +10,7 @@ import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
 import { sendPushToCustomer } from './services/pushNotifications.js';
 import { notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
-import { lookupShippingRate, computeDispatchCost, getLocalRidersCourierId } from './services/shippingRateLookup.js';
+import { lookupShippingRate, computeDispatchCostBreakdown, getLocalRidersCourierId } from './services/shippingRateLookup.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -66,7 +66,7 @@ exports.handler = async (event) => {
 
       await syncShipmentBestEffort(
         supabase,
-        { subOrderId: sub_order_id, fields: { status: 'pending', broadcast_city: null, broadcast_state: null, broadcast_started_at: null, rider_payout: null } },
+        { subOrderId: sub_order_id, fields: { status: 'pending', broadcast_city: null, broadcast_state: null, broadcast_started_at: null, rider_payout: null, rider_payout_breakdown: null } },
         'broadcast-rider cancel'
       );
       if (existingSubOrder.broadcast_city && existingSubOrder.broadcast_state) {
@@ -99,6 +99,7 @@ exports.handler = async (event) => {
     // weight (same gap fez-create-shipment.js already has), so there's no
     // more accurate number available yet.
     let riderPayout = null;
+    let riderPayoutBreakdown = null;
     if (area.zone_id) {
       try {
         const localRidersCourierId = await getLocalRidersCourierId(supabase);
@@ -107,7 +108,10 @@ exports.handler = async (event) => {
             zoneId: area.zone_id,
             courierId: localRidersCourierId,
           });
-          if (riderRate) riderPayout = computeDispatchCost(riderRate, 1, area.vendor_pickup_surcharge || 0);
+          if (riderRate) {
+            riderPayoutBreakdown = computeDispatchCostBreakdown(riderRate, 1, area.vendor_pickup_surcharge || 0);
+            riderPayout = riderPayoutBreakdown.total;
+          }
         }
       } catch (payoutErr) {
         console.error('broadcast-rider payout lookup failed:', payoutErr);
@@ -165,6 +169,7 @@ exports.handler = async (event) => {
           delivery_person_phone: null,
           delivery_person_vehicle: null,
           rider_payout: riderPayout,
+          rider_payout_breakdown: riderPayoutBreakdown,
           metadata: updatedSubOrder.metadata,
         },
       },

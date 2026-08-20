@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, Building2, Camera, Check, Navigation, PenLine, Phone, ScanLine, User, X, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Building2, Camera, Check, ChevronDown, Navigation, PenLine, Phone, ScanLine, User, X, XCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api, Job, pickupLabel, PROBLEM_REASON_LABEL, ProblemReason, ScanVerification } from '../lib/api';
 import { uploadRiderDocument } from '../lib/storage';
@@ -87,6 +87,7 @@ export default function ActiveDelivery() {
   const [reportingProblem, setReportingProblem] = useState(false);
   const [problemReported, setProblemReported] = useState(false);
   const [handlingReturn, setHandlingReturn] = useState(false);
+  const [showFeeBreakdown, setShowFeeBreakdown] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -378,9 +379,47 @@ export default function ActiveDelivery() {
         </button>
         <div className="flex-1">
           <h1 className="text-base font-bold text-gray-900">{job.tracking_number || `Order ${job.order_number ?? ''}`}</h1>
-          <p className="text-xs font-semibold text-primary-600">{formatNaira(job.fee)}</p>
+          {job.fee_breakdown ? (
+            <button
+              type="button"
+              onClick={() => setShowFeeBreakdown((v) => !v)}
+              className="flex items-center gap-1 text-xs font-semibold text-primary-600"
+            >
+              {formatNaira(job.fee)}
+              <ChevronDown className={`w-3 h-3 transition-transform ${showFeeBreakdown ? 'rotate-180' : ''}`} />
+            </button>
+          ) : (
+            <p className="text-xs font-semibold text-primary-600">{formatNaira(job.fee)}</p>
+          )}
         </div>
       </div>
+
+      {job.fee_breakdown && showFeeBreakdown && (
+        <div className="px-6 pb-4 -mt-2">
+          <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-gray-500">Base rate</span>
+              <span className="font-medium text-gray-900">{formatNaira(job.fee_breakdown.base_rate)}</span>
+            </div>
+            {job.fee_breakdown.weight_charge > 0 && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-500">Weight</span>
+                <span className="font-medium text-gray-900">{formatNaira(job.fee_breakdown.weight_charge)}</span>
+              </div>
+            )}
+            {job.fee_breakdown.pickup_surcharge > 0 && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-500">Pickup surcharge</span>
+                <span className="font-medium text-gray-900">{formatNaira(job.fee_breakdown.pickup_surcharge)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between text-xs pt-1.5 border-t border-gray-100">
+              <span className="font-semibold text-gray-900">Your earning</span>
+              <span className="font-bold text-primary-600">{formatNaira(job.fee_breakdown.total)}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="px-6 pt-5 space-y-4">
         {error && <p className="text-sm text-red-600">{error}</p>}

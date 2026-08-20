@@ -70,3 +70,25 @@ export function computeDispatchCost(rate, weight, pickupSurcharge = 0) {
   const cost = baseRate + Number(weight || 0) * perKgRate + Number(pickupSurcharge || 0);
   return Math.round(cost * 100) / 100;
 }
+
+/**
+ * Same inputs as computeDispatchCost, but returns the three line items
+ * behind the total instead of just the total — so callers that freeze
+ * `rider_payout` can also freeze what it's made of (rider-app's Commission
+ * Transparency — see docs/rider-app-ux-rebuild.md #14). `total` is computed
+ * identically to computeDispatchCost (single final rounding, not a sum of
+ * pre-rounded parts) so it always exactly matches whatever was actually
+ * charged/paid — the individual line items are rounded only for display and
+ * may not sum to `total` to the last kobo in edge cases.
+ */
+export function computeDispatchCostBreakdown(rate, weight, pickupSurcharge = 0) {
+  const base_rate = Number(rate?.flat_rate || 0);
+  const weight_charge = Number(weight || 0) * Number(rate?.per_kg_rate || 0);
+  const pickup_surcharge = Number(pickupSurcharge || 0);
+  return {
+    base_rate: Math.round(base_rate * 100) / 100,
+    weight_charge: Math.round(weight_charge * 100) / 100,
+    pickup_surcharge: Math.round(pickup_surcharge * 100) / 100,
+    total: computeDispatchCost(rate, weight, pickupSurcharge),
+  };
+}

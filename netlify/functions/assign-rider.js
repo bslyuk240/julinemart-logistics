@@ -9,7 +9,7 @@ import {
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
 import { notifyRider, notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
-import { lookupShippingRate, computeDispatchCost } from './services/shippingRateLookup.js';
+import { lookupShippingRate, computeDispatchCostBreakdown } from './services/shippingRateLookup.js';
 import { ensureTrackingAndWaybill } from './services/trackingNumbers.js';
 
 const supabase = createClient(
@@ -136,13 +136,17 @@ exports.handler = async (event) => {
     // fez-create-shipment.js already has).
     const area = existingSubOrder.vendors?.approved_vendor_locations;
     let riderPayout = null;
+    let riderPayoutBreakdown = null;
     if (area?.zone_id) {
       try {
         const riderRate = await lookupShippingRate(supabase, {
           zoneId: area.zone_id,
           courierId: localCourier.id,
         });
-        if (riderRate) riderPayout = computeDispatchCost(riderRate, 1, area.vendor_pickup_surcharge || 0);
+        if (riderRate) {
+          riderPayoutBreakdown = computeDispatchCostBreakdown(riderRate, 1, area.vendor_pickup_surcharge || 0);
+          riderPayout = riderPayoutBreakdown.total;
+        }
       } catch (payoutErr) {
         console.error('assign-rider payout lookup failed:', payoutErr);
       }
@@ -223,6 +227,7 @@ exports.handler = async (event) => {
           delivery_person_phone: rider_phone,
           delivery_person_vehicle: rider_vehicle || null,
           rider_payout: riderPayout,
+          rider_payout_breakdown: riderPayoutBreakdown,
           metadata: updatedSubOrder.metadata,
           courier_tracking_url: null,
           courier_waybill: null,

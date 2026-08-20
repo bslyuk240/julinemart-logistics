@@ -46,7 +46,26 @@ export type RiderApplicationPayload = {
   bank_account_name: string;
 };
 
-export type JobLocation = { name?: string; address: string | null; city: string | null; state: string | null; phone?: string };
+// vendor: the vendor's own shop. hub: a JLO/courier hub or depot. sender:
+// a manual shipment's free-text sender — could be anyone, not a vendor.
+export type PickupKind = 'vendor' | 'hub' | 'sender';
+
+// A pickup isn't always a marketplace vendor — showing "Vendor:"/"Call
+// Vendor" for all of them was misleading. Shared by Home.tsx and
+// ActiveDelivery.tsx.
+export function pickupLabel(kind: PickupKind | undefined): string {
+  if (kind === 'hub') return 'Hub';
+  if (kind === 'sender') return 'Pickup';
+  return 'Vendor';
+}
+export type JobLocation = {
+  name?: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  phone?: string;
+  kind?: PickupKind;
+};
 export type JobDropoff = {
   customer_name: string | null;
   customer_phone: string | null;

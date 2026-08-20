@@ -10,6 +10,16 @@ export function isAccepted(metadata) {
   return Boolean(metadata && typeof metadata === 'object' && metadata.rider_accepted_at);
 }
 
+// resolveSender() distinguishes vendor_pickup/hub/courier_hub/fez_hub for
+// internal routing (see resolveSender.js) — riders don't need that level of
+// detail, just whether they're collecting from the vendor's own shop or
+// some kind of hub/depot. "Vendor" was being shown for every pickup
+// regardless of actual source; this is what lets the client show the right
+// word instead.
+function pickupKindFor(resolveSenderKind) {
+  return resolveSenderKind === 'vendor_pickup' ? 'vendor' : 'hub';
+}
+
 // shipments carries the shared dispatch fields (status, tracking, courier,
 // rider, timestamps) for both sub_orders and manual_shipments — see
 // shipmentSync.js.
@@ -34,7 +44,7 @@ export async function fetchSourceDetails(adminClient, shipmentRows) {
       ? adminClient.from('sub_orders').select(SUB_ORDER_DETAIL_SELECT).in('id', subOrderIds)
       : Promise.resolve({ data: [] }),
     manualIds.length
-      ? adminClient.from('manual_shipments').select('id, sender, recipient, item_description').in('id', manualIds)
+      ? adminClient.from('manual_shipments').select('id, sender, sender_hub_id, recipient, item_description').in('id', manualIds)
       : Promise.resolve({ data: [] }),
   ]);
 
@@ -71,7 +81,14 @@ export function summarizeShipment(s, subOrderMap, manualMap) {
       // read only for shipments assigned before rider_payout existed.
       fee: s.rider_payout ?? (Number(subOrder.allocated_shipping_fee ?? subOrder.courier_charge ?? 0) || 0),
       order_number: order.order_number || null,
-      pickup: { name: pickup.name, address: pickup.address, city: pickup.city, state: pickup.state, phone: pickup.phone },
+      pickup: {
+        name: pickup.name,
+        address: pickup.address,
+        city: pickup.city,
+        state: pickup.state,
+        phone: pickup.phone,
+        kind: pickupKindFor(pickup.kind),
+      },
       dropoff: {
         customer_name: order.customer_name || null,
         customer_phone: order.customer_phone || null,
@@ -95,7 +112,14 @@ export function summarizeShipment(s, subOrderMap, manualMap) {
     ...base,
     fee: s.rider_payout ?? 0,
     order_number: null,
-    pickup: { name: sender.name || null, address: sender.address || null, city: sender.city || null, state: sender.state || null, phone: sender.phone || null },
+    pickup: {
+      name: sender.name || null,
+      address: sender.address || null,
+      city: sender.city || null,
+      state: sender.state || null,
+      phone: sender.phone || null,
+      kind: manual.sender_hub_id ? 'hub' : 'sender',
+    },
     dropoff: {
       customer_name: recipient.name || null,
       customer_phone: recipient.phone || null,

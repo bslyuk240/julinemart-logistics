@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, Building2, Camera, Check, Navigation, Phone, ScanLine, User, X, XCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { api, Job, PROBLEM_REASON_LABEL, ProblemReason, ScanVerification } from '../lib/api';
+import { api, Job, pickupLabel, PROBLEM_REASON_LABEL, ProblemReason, ScanVerification } from '../lib/api';
 import { uploadRiderDocument } from '../lib/storage';
 import { Scanner } from '../components/Scanner';
 
@@ -359,7 +359,7 @@ export default function ActiveDelivery() {
               className="flex-1 flex flex-col items-center justify-center gap-1 rounded-xl border border-gray-200 py-2.5 text-[11px] font-semibold text-gray-700 bg-white"
             >
               <Phone className="w-4 h-4" />
-              Call {headingToPickup ? 'Vendor' : 'Customer'}
+              Call {headingToPickup ? pickupLabel(job.pickup.kind) : 'Customer'}
             </a>
           )}
           <button

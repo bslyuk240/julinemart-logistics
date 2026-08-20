@@ -4,7 +4,7 @@ import { Camera, CheckCircle2, Lock, MapPin, Package, Power, Users, Wallet, X } 
 import { useAuth } from '../contexts/AuthContext';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { useInstallPrompt } from '../hooks/useInstallPrompt';
-import { api, Job } from '../lib/api';
+import { api, Job, pickupLabel } from '../lib/api';
 import { uploadRiderDocument } from '../lib/storage';
 import { supabase } from '../lib/supabase';
 import { BottomNav } from '../components/BottomNav';
@@ -383,7 +383,7 @@ function RiderHome() {
                       <Lock className="w-3.5 h-3.5 mt-0.5 text-gray-400 shrink-0" />
                       <div>
                         <p className="text-sm font-semibold text-gray-900">{job.tracking_number || `Order ${job.order_number ?? ''}`}</p>
-                        <p className="text-xs text-gray-500">Vendor: {job.pickup.name || '—'}</p>
+                        <p className="text-xs text-gray-500">{pickupLabel(job.pickup.kind)}: {job.pickup.name || '—'}</p>
                       </div>
                     </div>
                     <div className="text-right shrink-0">
@@ -434,7 +434,7 @@ function RiderHome() {
                           Available to nearby riders
                         </span>
                         <p className="text-sm font-semibold text-gray-900 mt-1.5">{job.tracking_number || `Order ${job.order_number ?? ''}`}</p>
-                        <p className="text-xs text-gray-500">Vendor: {job.pickup.name || '—'}</p>
+                        <p className="text-xs text-gray-500">{pickupLabel(job.pickup.kind)}: {job.pickup.name || '—'}</p>
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-base font-bold text-gray-900">{formatNaira(job.fee)}</p>

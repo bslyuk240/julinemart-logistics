@@ -5,7 +5,7 @@
  */
 import crypto from 'crypto';
 
-const encryptionKey = process.env.ENCRYPTION_KEY || 'your-32-character-encryption-key-here-change-this!';
+const encryptionKey = process.env.ENCRYPTION_KEY;
 
 export function isProductionDeploy() {
   if (process.env.CONTEXT === 'production' || process.env.NETLIFY_CONTEXT === 'production') return true;
@@ -17,24 +17,24 @@ export function fezTargetEnvironment() {
   return isProductionDeploy() ? 'production' : 'sandbox';
 }
 
+// Matches save-courier-credentials.js's encrypt() — AES-256-GCM, stored as
+// "gcm:<iv hex>:<authTag hex>:<ciphertext hex>".
 function decryptCourierSecret(value) {
   if (!value || typeof value !== 'string') return value;
-  // Encrypted format: "<32-char iv hex>:<ciphertext hex>"
-  if (!/^[0-9a-f]{32}:[0-9a-f]+$/i.test(value)) return value;
+  if (!value.startsWith('gcm:')) return value;
 
-  try {
-    const [ivHex, encryptedHex] = value.split(':');
-    const algorithm = 'aes-256-cbc';
-    const key = Buffer.from(encryptionKey.padEnd(32, '0').slice(0, 32));
-    const iv = Buffer.from(ivHex, 'hex');
-    const decipher = crypto.createDecipheriv(algorithm, key, iv);
-    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch (err) {
-    console.warn('Fez password decrypt failed, using stored value as-is:', err?.message);
-    return value;
+  if (!encryptionKey) {
+    throw new Error('ENCRYPTION_KEY is not configured — cannot decrypt stored courier credentials');
   }
+
+  const [, ivHex, authTagHex, encryptedHex] = value.split(':');
+  const key = Buffer.from(encryptionKey.padEnd(32, '0').slice(0, 32));
+  const iv = Buffer.from(ivHex, 'hex');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(Buffer.from(authTagHex, 'hex'));
+  let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
 }
 
 function normalizeBaseUrl(url) {

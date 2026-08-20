@@ -99,7 +99,45 @@ optimization. Not started, not planned until P0/P1 are done.
   and Activity's list-loading states, and a global `prefers-reduced-motion` override. This is a
   light first pass (shared classes + the two highest-traffic screens), not a per-screen pass across
   the whole app.
-
+- **Broadcast-claimed shipments could end up with no tracking number and no waybill number at
+  all — fixed.** Traced per a direct question about tracking-number generation. Real Fez shipments
+  use Fez's own order id as `tracking_number` (`fez-create-shipment.js`). Local-rider direct-assign
+  (`assign-rider.js`, `manual-shipment-assign-rider.js`) generates a `JLO-XXXXXXXX` tracking number
+  and a `JLO-WB-######` waybill (via a Postgres sequence, `next_waybill_number()`) if one doesn't
+  already exist — but broadcast+claim (`rider-jobs.js`'s shared `handleClaim`) never called that
+  logic at all. `sub_orders` get a placeholder tracking number at creation so they're merely
+  incomplete; `manual_shipments` get **no** tracking_number column default, so a broadcast-claimed
+  manual shipment had genuinely nothing — no code for the rider to scan, nothing to show as
+  "Waybill" on Active Delivery. This is exactly why the test shipments used throughout this session
+  had null tracking/waybill and why the scan-verification success path couldn't be tested live.
+  Extracted the duplicated generation logic (byte-identical in `assign-rider.js` and
+  `manual-shipment-assign-rider.js`) into `services/trackingNumbers.js` and had all three dispatch
+  paths use it. **Found and fixed a second bug while verifying live**: the initial fix generated
+  the numbers on the source table (`manual_shipments`/`sub_orders`) correctly, but `handleClaim`'s
+  `syncShipmentBestEffort` call didn't include `tracking_number`/`waybill_number` in the fields it
+  mirrors into the unified `shipments` table — which is what the rider app actually reads from — so
+  the source table had the real values while the client still saw null. Fixed by adding both fields
+  to that sync call. Verified live end-to-end with explicit go-ahead to use real test data: cleared
+  the account's active job, claimed a real broadcasting shipment via the actual endpoint, confirmed
+  both `manual_shipments` and `shipments` now agree (`JLO-R9LVD5A2` / `JLO-WB-000017`), and confirmed
+  the rider-app itself renders the real tracking number instead of a blank "Order" title.
+- **Customer "Track on courier site" button pointed at Fez for local-rider deliveries — fixed.**
+  Reported live: assigning a rider and following the confirmation email's tracking link, the
+  customer-portal Track page's "Track on courier site" button led to Fez's tracking site even
+  though the shipment was on a local rider. Root cause in `Track.tsx`'s `getCourierTrackingUrl`:
+  it only special-cases `fez`/`gigl`/`kwik` by courier code, and for anything else (including
+  `local-rider`) falls back to the stored `courier_tracking_url` column. That column is Fez-API-
+  specific — populated by `fez-create-shipment.js` — and neither `assign-rider.js`,
+  `manual-shipment-assign-rider.js`, nor `rider-jobs.js`'s `handleClaim` ever cleared it (or its
+  siblings `courier_waybill`/`courier_shipment_id`) when assigning/claiming for a local rider, so a
+  shipment that had ever been dispatched-or-attempted via Fez before being reassigned kept showing
+  its old Fez URL forever. Fixed by nulling all three fields in all three assignment/claim paths,
+  in both the source-table update and the corresponding `syncShipmentBestEffort` call (same
+  source/unified-table sync pattern as the tracking-number fix above). Could not pin down the
+  exact historical order the user hit this on via live-DB search — no `sub_orders` currently have
+  `assigned_rider_id` set, and the newest `manual_shipments` rows don't carry the stale-field
+  signature — likely because it's since moved to a different state; the fix applies going forward
+  regardless.
 ## Build log (chronological)
 
 1. Application-status screens + `rider-ping.js` opened up to any rider status (not just active) —
@@ -172,3 +210,18 @@ optimization. Not started, not planned until P0/P1 are done.
     `pickup.kind` to the shared summarizer and a `pickupLabel()` helper so the label actually
     matches the source instead of always saying "Vendor". Verified live against the real test
     shipment (manual, no hub) — now correctly shows "Pickup:" instead of "Vendor:".
+17. Traced tracking/waybill number generation end to end per a direct question. Found broadcast+
+    claim (`rider-jobs.js`'s `handleClaim`) never generated either, unlike direct-assign — a real
+    gap explaining why every manual-shipment test job this session had null tracking/waybill.
+    Extracted the duplicated generation logic out of `assign-rider.js` and
+    `manual-shipment-assign-rider.js` into `services/trackingNumbers.js`, all three dispatch paths
+    now use it. Given explicit go-ahead to use real test data: cleared the active test job,
+    claimed a real broadcasting shipment via the actual endpoint — caught and fixed a second bug
+    in the process (the new numbers weren't being synced from the source table into the unified
+    `shipments` table the rider app reads from), then re-verified clean. Confirmed live in the
+    rider app: the job now shows its real tracking number instead of a blank "Order" title.
+18. Fixed the customer Track page's "Track on courier site" button pointing at Fez for local-rider
+    deliveries. Cause: `courier_tracking_url`/`courier_waybill`/`courier_shipment_id` are Fez-only
+    fields that survive a reassignment to a local rider untouched. Nulled all three in
+    `assign-rider.js`, `manual-shipment-assign-rider.js`, and `rider-jobs.js`'s `handleClaim`,
+    in both the source-table update and the unified-table sync call.

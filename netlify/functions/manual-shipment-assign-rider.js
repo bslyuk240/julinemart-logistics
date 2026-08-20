@@ -11,6 +11,7 @@ import { sendPushToCustomer } from './services/pushNotifications.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
 import { notifyRider, notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
 import { lookupShippingRate, lookupHubOrZoneRate, computeDispatchCost } from './services/shippingRateLookup.js';
+import { ensureTrackingAndWaybill } from './services/trackingNumbers.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -22,25 +23,6 @@ const headers = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Content-Type': 'application/json',
 };
-
-function generateJloTracking() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let value = 'JLO-';
-  for (let i = 0; i < 8; i++) {
-    value += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return value;
-}
-
-function shouldGenerateLocalTracking(value) {
-  if (!value || typeof value !== 'string') return true;
-  const trimmed = value.trim();
-  if (!trimmed) return true;
-  if (/^(FEZ|CR)-/i.test(trimmed)) return true;
-  if (/^[0-9a-f-]{36}$/i.test(trimmed)) return true;
-  if (/error|cannot|failed|invalid|wrong|already exists/i.test(trimmed)) return true;
-  return false;
-}
 
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
@@ -128,23 +110,14 @@ exports.handler = async (event) => {
       }
     }
 
-    const nextTrackingNumber = shouldGenerateLocalTracking(existingShipment.tracking_number)
-      ? generateJloTracking()
-      : existingShipment.tracking_number;
+    const { trackingNumber: nextTrackingNumber, waybillNumber } = await ensureTrackingAndWaybill(supabase, {
+      trackingNumber: existingShipment.tracking_number,
+      waybillNumber: existingShipment.waybill_number,
+    });
     const existingMetadata =
       existingShipment.metadata && typeof existingShipment.metadata === 'object' && !Array.isArray(existingShipment.metadata)
         ? existingShipment.metadata
         : {};
-
-    let waybillNumber = existingShipment.waybill_number || null;
-    if (!waybillNumber) {
-      const { data: nextNumber, error: wbError } = await supabase.rpc('next_waybill_number');
-      if (wbError) {
-        console.error('waybill number generation failed:', wbError);
-      } else {
-        waybillNumber = nextNumber;
-      }
-    }
 
     const { data: updatedShipment, error } = await supabase
       .from('manual_shipments')
@@ -160,6 +133,13 @@ exports.handler = async (event) => {
         broadcast_state: null,
         broadcast_started_at: null,
         ...(waybillNumber ? { waybill_number: waybillNumber } : {}),
+        // Fez-specific leftovers from a prior dispatch attempt, if any — see
+        // assign-rider.js for why these must be cleared on reassignment to
+        // a local rider (stale courier_tracking_url makes the customer
+        // tracking page's "Track on courier site" button point at Fez).
+        courier_tracking_url: null,
+        courier_waybill: null,
+        courier_shipment_id: null,
         metadata: {
           ...existingMetadata,
           selected_lane: 'local_rider',
@@ -193,6 +173,9 @@ exports.handler = async (event) => {
           delivery_person_vehicle: rider_vehicle || null,
           rider_payout: riderPayout,
           metadata: updatedShipment.metadata,
+          courier_tracking_url: null,
+          courier_waybill: null,
+          courier_shipment_id: null,
         },
       },
       'manual-shipment-assign-rider'

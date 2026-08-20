@@ -2,6 +2,7 @@ import { requireActiveRider, jsonResponse, headers } from './services/requireRid
 import { checkRateLimit } from './services/rate-limit.js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
 import { isAccepted, SHIPMENT_LIST_SELECT, fetchSourceDetails, summarizeShipment } from './services/shipmentSummary.js';
+import { ensureTrackingAndWaybill } from './services/trackingNumbers.js';
 import {
   buildOrderDeepLink,
   extractCustomerIdFromOrder,
@@ -191,7 +192,7 @@ async function handleClaim(rider, adminClient, shipmentId) {
 
   const { data: shipment, error } = await adminClient
     .from('shipments')
-    .select('id, source_type, sub_order_id, manual_shipment_id, status, assigned_rider_id, broadcast_city, broadcast_state')
+    .select('id, source_type, sub_order_id, manual_shipment_id, status, assigned_rider_id, broadcast_city, broadcast_state, tracking_number, waybill_number')
     .eq('id', shipmentId)
     .maybeSingle();
 
@@ -212,6 +213,15 @@ async function handleClaim(rider, adminClient, shipmentId) {
   const sourceId = isSubOrder ? shipment.sub_order_id : shipment.manual_shipment_id;
   const riderVehicle = rider.vehicle_type ? `${rider.vehicle_type}${rider.vehicle_plate ? ` · ${rider.vehicle_plate}` : ''}` : null;
 
+  // Broadcast+claim was the one dispatch path that never generated a
+  // tracking/waybill number — only direct-assign did (assign-rider.js /
+  // manual-shipment-assign-rider.js). A claimed manual_shipment could end
+  // up with neither ever set, i.e. nothing for the rider to scan.
+  const { trackingNumber, waybillNumber } = await ensureTrackingAndWaybill(adminClient, {
+    trackingNumber: shipment.tracking_number,
+    waybillNumber: shipment.waybill_number,
+  });
+
   // Conditional update is the claim race's referee: only the request that
   // still finds status='broadcasting' with no rider yet wins the row.
   // Whoever loses gets zero rows back, not an error — that's how they know
@@ -224,7 +234,16 @@ async function handleClaim(rider, adminClient, shipmentId) {
       delivery_person_name: rider.full_name,
       delivery_person_phone: rider.phone,
       delivery_person_vehicle: riderVehicle,
+      tracking_number: trackingNumber,
+      ...(waybillNumber ? { waybill_number: waybillNumber } : {}),
       ...(isSubOrder ? { rider_name: rider.full_name, rider_phone: rider.phone } : {}),
+      // Fez-specific leftovers from a prior dispatch attempt, if any — see
+      // assign-rider.js for why these must be cleared on assignment to a
+      // local rider (stale courier_tracking_url makes the customer tracking
+      // page's "Track on courier site" button point at Fez).
+      courier_tracking_url: null,
+      courier_waybill: null,
+      courier_shipment_id: null,
     })
     .eq('id', sourceId)
     .eq('status', 'broadcasting')
@@ -246,6 +265,11 @@ async function handleClaim(rider, adminClient, shipmentId) {
         delivery_person_name: rider.full_name,
         delivery_person_phone: rider.phone,
         delivery_person_vehicle: riderVehicle,
+        tracking_number: trackingNumber,
+        ...(waybillNumber ? { waybill_number: waybillNumber } : {}),
+        courier_tracking_url: null,
+        courier_waybill: null,
+        courier_shipment_id: null,
       },
     },
     'rider-jobs claim'

@@ -307,6 +307,7 @@ export const handler = async (event) => {
           .eq('hub_id', actualHubId)
           .eq('zone_id', zone.id)
           .eq('is_active', true)
+          .order('priority', { ascending: false })
           .limit(1);
         rate = hubRates?.[0] || null;
 
@@ -316,6 +317,7 @@ export const handler = async (event) => {
             .select('*, couriers(id, name, code)')
             .eq('zone_id', zone.id)
             .eq('is_active', true)
+            .order('priority', { ascending: false })
             .limit(1);
           rate = fallbackRates?.[0] || null;
         }

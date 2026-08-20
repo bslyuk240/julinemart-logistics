@@ -138,6 +138,37 @@ optimization. Not started, not planned until P0/P1 are done.
   `assigned_rider_id` set, and the newest `manual_shipments` rows don't carry the stale-field
   signature — likely because it's since moved to a different state; the fix applies going forward
   regardless.
+- **Email/push notification trigger audit (2026-08-20) — full inventory requested, then every gap
+  found in it fixed.** Rider-account-lifecycle actions (`rider-approve.js`'s approve/reject/
+  suspend/reactivate/bank-change/vehicle-change/document verify-reject — 10 branches), a new
+  application landing (`rider-register.js`), and withdrawal approve/reject/paid
+  (`rider-withdrawals.js`) all had push-only wiring at best, several had **nothing at all**. And the
+  rider app's own delivery-status transitions (`rider-jobs.js`'s `advance`) had never sent customer
+  *email* — only push — for `picked_up`/`out_for_delivery`/`delivered`; the only place that ever
+  emailed customers on local-rider status changes was `local-status.js`, a separate, older,
+  admin-driven endpoint the rider app doesn't go through. Fixed by extending
+  `shared/riderAssignedEmail.js`'s existing self-contained-HTML pattern (chosen over the
+  DB-template-driven `sendTransactionalEmail` path, which would require blind-authoring new
+  `email_templates` rows with no template editor visible) rather than the DB-template system:
+  exported its internal `loadMailTransport`/`escapeHtml`/`logOrderEmail` helpers, fixed a real bug
+  in `sendLocalDeliveryStatusEmail` where a `picked_up` transition fell through to "out for
+  delivery" copy (binary ternary branching replaced with a `LOCAL_DELIVERY_PHASE_COPY` lookup table
+  covering all 7 phases, including the four return-workflow ones it never covered before), and added
+  a new `shared/riderLifecycleEmail.js` (`sendRiderAccountEmail` for rider-facing account emails,
+  `sendStaffAlertEmail(s)` for staff fan-out, mirroring `support-notify.js`'s role-query pattern but
+  with self-contained HTML). Every rider-approve.js branch, rider-withdrawals.js's three admin
+  actions, and rider-register.js's new-application submission now push **and** email. rider-jobs.js's
+  `notifyCustomer` now also emails (not just pushes) on every status it already pushed for, plus
+  newly covers `failed`/`returning`/`returned`; `admin-delivery-problems.js`'s `require_return` now
+  notifies the customer too (previously rider-only) and its push `type` was corrected from a reused
+  `rider_job_assigned` to its own `rider_return_required`. New staff pushes/emails added for
+  `report_problem`, `fail_delivery`, and `confirm_returned` — none of these reached staff before
+  except by manually opening the Delivery Problems queue. All modified/new backend files verified
+  with `node --check`; all five touched Netlify functions confirmed to bundle and load cleanly under
+  `netlify dev` (OPTIONS preflight 204, no import errors) — a live authenticated POST test hit a
+  pre-existing hang in this dev environment's admin-auth path (reproduced on an untouched endpoint
+  too, so unrelated to these changes) and couldn't be completed.
+
 ## Build log (chronological)
 
 1. Application-status screens + `rider-ping.js` opened up to any rider status (not just active) —
@@ -317,3 +348,13 @@ optimization. Not started, not planned until P0/P1 are done.
     + unread badge on Home matching the mockup. Verified live end to end: badge showed the real
     count, tapping navigated to the notification's actual `targetPath`, `read_at` persisted
     server-side, badge cleared correctly after.
+27. Audited every email/push trigger tied to rider activity on request, then fixed every gap found
+    (cross-cutting, not tied to a single tracker item — see the note above). Added
+    `shared/riderLifecycleEmail.js`, fixed a real phase-mislabeling bug in
+    `sendLocalDeliveryStatusEmail` and extended it to the return-workflow phases, wired push+email
+    into all 10 `rider-approve.js` branches, `rider-register.js`'s new-application staff alert,
+    `rider-withdrawals.js`'s three admin actions, and `rider-jobs.js`'s customer/staff notifications
+    (including two new phases it never covered: `failed`/`returning`/`returned`, plus staff alerts on
+    `report_problem`/`fail_delivery`/`confirm_returned`). `admin-delivery-problems.js`'s
+    `require_return` gained a customer-facing notification and a corrected push `type`. All files
+    `node --check`ed and confirmed to bundle cleanly under `netlify dev`.

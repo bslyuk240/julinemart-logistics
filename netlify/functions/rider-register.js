@@ -20,6 +20,8 @@
  */
 import { verifySession, jsonResponse, headers } from './services/requireRider.js';
 import { checkRateLimit } from './services/rate-limit.js';
+import { sendPushToAllStaff } from './services/pushNotifications.js';
+import { sendStaffAlertEmails } from '../../shared/riderLifecycleEmail.js';
 
 const REQUIRED_FIELDS = [
   'full_name',
@@ -170,6 +172,27 @@ export async function handler(event) {
     await adminClient.from('rider_documents').insert(docs);
   } catch (docErr) {
     console.error('rider-register rider_documents insert failed:', docErr);
+  }
+
+  // Staff need to know a new application landed so they actually go review
+  // it — nothing else surfaces this (rider-approve.js's list is pull-only).
+  try {
+    const adminBaseUrl = process.env.URL || process.env.JLO_BASE_URL || '';
+    await sendPushToAllStaff({
+      title: 'New rider application',
+      message: `${row.full_name} applied to become a rider.`,
+      type: 'rider_application_submitted',
+      data: { targetPath: '/rider-verifications' },
+    });
+    await sendStaffAlertEmails(adminClient, {
+      subject: 'JulineMart: New rider application',
+      headline: 'New rider application submitted',
+      message: `${row.full_name} (${row.phone}) applied to become a rider and is awaiting review.`,
+      actionUrl: adminBaseUrl ? `${adminBaseUrl}/rider-verifications` : undefined,
+      actionLabel: 'Review application',
+    });
+  } catch (notifyErr) {
+    console.error('rider-register staff notify failed:', notifyErr);
   }
 
   return jsonResponse(201, {

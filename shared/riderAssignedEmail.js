@@ -6,7 +6,7 @@ import nodemailer from 'nodemailer';
 import { decryptEmailConfigSecrets } from './emailSecretsCrypto.js';
 import { buildCustomSmtpTransportOptions } from './smtpTransport.js';
 
-async function logOrderEmail(supabase, { orderId, recipient, subject, status, errorMessage }) {
+export async function logOrderEmail(supabase, { orderId, recipient, subject, status, errorMessage }) {
   try {
     await supabase.from('email_logs').insert({
       order_id: orderId || null,
@@ -33,7 +33,7 @@ function customerTrackUrl() {
 /**
  * @returns {Promise<{ transporter: import('nodemailer').Transporter; from: string } | { error: string }>}
  */
-async function loadMailTransport(supabase) {
+export async function loadMailTransport(supabase) {
   const { data: rawCfg, error: cfgErr } = await supabase.from('email_config').select('*').limit(1).maybeSingle();
   if (cfgErr) console.error('[localDeliveryEmail] email_config:', cfgErr.message);
   const cfg = rawCfg ? decryptEmailConfigSecrets(rawCfg) : null;
@@ -155,9 +155,68 @@ export async function sendLocalRiderAssignedEmail(supabase, params) {
   }
 }
 
-/**
- * @param {'out_for_delivery' | 'delivered'} params.phase
- */
+// One entry per phase this function actually knows how to render. Every
+// call site's phase MUST be a key here — sendLocalDeliveryStatusEmail
+// used to fall back to "out for delivery" copy for any unrecognized
+// phase (including 'picked_up', which local-status.js has always sent),
+// silently mislabeling that email. Fixed by making every phase explicit
+// instead of a binary delivered/else branch.
+const LOCAL_DELIVERY_PHASE_COPY = {
+  picked_up: {
+    subjectSuffix: 'picked up',
+    headTitle: 'Picked up',
+    headSub: 'Your rider has your package',
+    bodyLead: `Our local rider has <strong>picked up</strong> your package and will be on the way shortly.`,
+    textLead: 'Your JulineMart package has been picked up by your local rider.',
+  },
+  out_for_delivery: {
+    subjectSuffix: 'out for delivery',
+    headTitle: 'Out for delivery',
+    headSub: 'Your order is on the way',
+    bodyLead: `Your package is <strong>out for delivery</strong> with our local rider.`,
+    textLead: 'Your JulineMart package is out for delivery with your local rider.',
+  },
+  delivered: {
+    subjectSuffix: 'delivered',
+    headTitle: 'Delivered',
+    headSub: 'Your order has arrived',
+    bodyLead: `Your order has been marked <strong>delivered</strong>. We hope you enjoy your purchase!`,
+    textLead: 'Your JulineMart order has been marked delivered. Thank you for shopping with us.',
+  },
+  // Return workflow (rider-app-ux-rebuild.md #10) — the customer was
+  // never told about any of this before; every other status transition
+  // already emails them, so this closes that gap rather than being new
+  // scope on its own.
+  failed: {
+    subjectSuffix: 'delivery attempt unsuccessful',
+    headTitle: 'Delivery unsuccessful',
+    headSub: "We couldn't complete this delivery",
+    bodyLead: `Our rider wasn't able to complete this delivery. Our team is reviewing what happens next and will keep you updated.`,
+    textLead: "We weren't able to complete your JulineMart delivery. Our team is reviewing next steps.",
+  },
+  return_required: {
+    subjectSuffix: 'package being returned',
+    headTitle: 'Package being returned',
+    headSub: 'Your package is heading back',
+    bodyLead: `Your package is being <strong>returned</strong> to where it was dispatched from. We'll be in touch about next steps.`,
+    textLead: 'Your JulineMart package is being returned to where it was dispatched from.',
+  },
+  returning: {
+    subjectSuffix: 'package on its way back',
+    headTitle: 'On its way back',
+    headSub: 'Your rider is returning the package',
+    bodyLead: `Our rider is currently returning your package.`,
+    textLead: 'Our rider is currently returning your JulineMart package.',
+  },
+  returned: {
+    subjectSuffix: 'package returned',
+    headTitle: 'Package returned',
+    headSub: 'Your package has been returned',
+    bodyLead: `Your package has been <strong>returned</strong>. Contact JulineMart support if you have any questions.`,
+    textLead: 'Your JulineMart package has been returned. Contact support if you have any questions.',
+  },
+};
+
 export async function sendLocalDeliveryStatusEmail(supabase, params) {
   const {
     phase: phaseRaw,
@@ -173,11 +232,13 @@ export async function sendLocalDeliveryStatusEmail(supabase, params) {
   } = params;
 
   const phase = String(phaseRaw || '').trim().toLowerCase();
+  const copy = LOCAL_DELIVERY_PHASE_COPY[phase];
+  if (!copy) {
+    console.warn(`[sendLocalDeliveryStatusEmail] Unknown phase "${phase}", skipping`);
+    return;
+  }
   const to = (customer_email && String(customer_email).trim()) || '';
-  const subject =
-    phase === 'delivered'
-      ? `JulineMart: Order #${orderNumber} delivered (local rider)`
-      : `JulineMart: Order #${orderNumber} out for delivery (local rider)`;
+  const subject = `JulineMart: Order #${orderNumber} ${copy.subjectSuffix} (local rider)`;
 
   try {
     if (!to) {
@@ -213,19 +274,12 @@ export async function sendLocalDeliveryStatusEmail(supabase, params) {
     </div>`
         : '';
 
-    const headTitle = phase === 'delivered' ? 'Delivered' : 'Out for delivery';
-    const headSub = phase === 'delivered' ? 'Your order has arrived' : 'Your order is on the way';
-    const bodyLead =
-      phase === 'delivered'
-        ? `Your order has been marked <strong>delivered</strong>. We hope you enjoy your purchase!`
-        : `Your package is <strong>out for delivery</strong> with our local rider.`;
+    const { headTitle, headSub, bodyLead } = copy;
 
     const textLines = [
       `Hi ${customer_name || 'there'},`,
       '',
-      phase === 'delivered'
-        ? 'Your JulineMart order has been marked delivered. Thank you for shopping with us.'
-        : 'Your JulineMart package is out for delivery with your local rider.',
+      copy.textLead,
       '',
       `Order: #${orderNumber}`,
       `Tracking: ${tracking_number || '—'}`,
@@ -283,7 +337,7 @@ export async function sendLocalDeliveryStatusEmail(supabase, params) {
   }
 }
 
-function escapeHtml(s) {
+export function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

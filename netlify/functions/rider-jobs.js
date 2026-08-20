@@ -8,10 +8,48 @@ import {
   extractCustomerIdFromOrder,
   extractOrderReference,
   sendPushToCustomer,
+  sendPushToAllStaff,
 } from './services/pushNotifications.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
 import { normalizeScanCode } from './services/scanLookup.js';
 import { notifyRider, notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
+import { sendLocalDeliveryStatusEmail } from '../../shared/riderAssignedEmail.js';
+import { sendStaffAlertEmails } from '../../shared/riderLifecycleEmail.js';
+
+const ADMIN_BASE_URL = process.env.URL || process.env.JLO_BASE_URL || '';
+
+// Best-effort push+email to staff for rider-reported problems — nothing else
+// surfaces these; admin-delivery-problems.js's queue is pull-only.
+async function notifyStaffOfRiderEvent(adminClient, { title, message, type, targetPath }) {
+  try {
+    await sendPushToAllStaff({ title, message, type, data: targetPath ? { targetPath } : undefined });
+  } catch (err) {
+    console.error('rider-jobs staff push failed:', err?.message || err);
+  }
+  try {
+    await sendStaffAlertEmails(adminClient, {
+      subject: `JulineMart: ${title}`,
+      headline: title,
+      message,
+      actionUrl: ADMIN_BASE_URL && targetPath ? `${ADMIN_BASE_URL}${targetPath}` : undefined,
+      actionLabel: 'View in dashboard',
+    });
+  } catch (err) {
+    console.error('rider-jobs staff email failed:', err?.message || err);
+  }
+}
+
+// Loads the customer-facing order fields notifyCustomer needs — only
+// sub_orders have a linked marketplace order/customer account; a manual
+// shipment has neither, so callers only invoke this when isSubOrder.
+async function loadSubOrderForCustomerNotify(adminClient, sourceId) {
+  const { data } = await adminClient
+    .from('sub_orders')
+    .select('main_order_id, orders:main_order_id ( id, order_number, customer_name, customer_phone, customer_email, delivery_city, delivery_state )')
+    .eq('id', sourceId)
+    .maybeSingle();
+  return data;
+}
 
 // picked up -> en route (out_for_delivery) -> delivered. Matches the
 // existing local-rider status set used by local-status.js — riders never
@@ -196,7 +234,7 @@ async function loadOwnedShipment(adminClient, riderId, shipmentId) {
   return { shipment };
 }
 
-async function notifyCustomer(subOrder, status) {
+async function notifyCustomer(adminClient, subOrder, status, extra = {}) {
   const order = subOrder.orders;
   if (!order) return;
 
@@ -209,12 +247,36 @@ async function notifyCustomer(subOrder, status) {
     picked_up: { title: 'Order picked up', message: `Your order ${orderRef} has been picked up by our rider.` },
     out_for_delivery: { title: 'Order out for delivery', message: `Your order ${orderRef} is on the way.` },
     delivered: { title: 'Order delivered', message: `Your order ${orderRef} has been delivered.` },
+    failed: { title: 'Delivery attempt unsuccessful', message: `We couldn't complete delivery for order ${orderRef}. Our team will be in touch.` },
+    returning: { title: 'Order on its way back', message: `Order ${orderRef} is being returned to us.` },
+    returned: { title: 'Order returned', message: `Order ${orderRef} has been returned to us.` },
   }[status];
   if (!copy) return;
 
   const pushResult = await sendPushToCustomer(customerId, { ...copy, type: 'order_update', data: pushMeta });
   if (!pushResult.success && !pushResult.skipped) {
     console.warn('rider-jobs push failed:', pushResult);
+  }
+
+  // Push only ever reaches a device with the PWA installed and notifications
+  // granted — email is the one channel every customer with an email on the
+  // order actually gets. This previously only existed on the separate,
+  // admin-driven local-status.js path; the rider app itself never sent it.
+  try {
+    await sendLocalDeliveryStatusEmail(adminClient, {
+      phase: status,
+      orderId: order.id,
+      orderNumber: order.order_number ?? orderRef,
+      customer_name: order.customer_name,
+      customer_email: order.customer_email,
+      tracking_number: extra.trackingNumber || '',
+      rider_name: extra.riderName || '',
+      rider_phone: extra.riderPhone || '',
+      delivery_city: order.delivery_city,
+      delivery_state: order.delivery_state,
+    });
+  } catch (err) {
+    console.error('rider-jobs sendLocalDeliveryStatusEmail failed:', err?.message || err);
   }
 }
 
@@ -422,6 +484,13 @@ async function handlePost(rider, adminClient, body) {
 
     await notifyDispatch(shipment.source_type, sourceId, 'problem_reported', { status: shipment.status, reason });
 
+    await notifyStaffOfRiderEvent(adminClient, {
+      title: 'Rider reported a problem',
+      message: `${rider.full_name} reported: ${INCIDENT_REASON_LABEL[reason]}${note ? ` — ${note}` : ''}`,
+      type: 'rider_problem_reported',
+      targetPath: '/delivery-problems',
+    });
+
     return jsonResponse(200, { success: true, data: { reported: true } });
   }
 
@@ -467,6 +536,24 @@ async function handlePost(rider, adminClient, body) {
 
     await notifyDispatch(shipment.source_type, sourceId, 'updated', { status: 'failed', reason });
 
+    await notifyStaffOfRiderEvent(adminClient, {
+      title: 'Delivery failed — needs a decision',
+      message: `${rider.full_name} could not complete a delivery: ${INCIDENT_REASON_LABEL[reason]}${note ? ` — ${note}` : ''}. Review it in Delivery Problems.`,
+      type: 'rider_delivery_failed',
+      targetPath: '/delivery-problems',
+    });
+
+    if (isSubOrder) {
+      const subOrderForNotify = await loadSubOrderForCustomerNotify(adminClient, sourceId);
+      if (subOrderForNotify?.main_order_id) {
+        await notifyCustomer(adminClient, subOrderForNotify, 'failed', {
+          trackingNumber: shipment.tracking_number,
+          riderName: rider.full_name,
+          riderPhone: rider.phone,
+        });
+      }
+    }
+
     return jsonResponse(200, { success: true, data: { status: 'failed' } });
   }
 
@@ -494,6 +581,17 @@ async function handlePost(rider, adminClient, body) {
 
     await notifyDispatch(shipment.source_type, sourceId, 'updated', { status: 'returning' });
 
+    if (isSubOrder) {
+      const subOrderForNotify = await loadSubOrderForCustomerNotify(adminClient, sourceId);
+      if (subOrderForNotify?.main_order_id) {
+        await notifyCustomer(adminClient, subOrderForNotify, 'returning', {
+          trackingNumber: shipment.tracking_number,
+          riderName: rider.full_name,
+          riderPhone: rider.phone,
+        });
+      }
+    }
+
     return jsonResponse(200, { success: true, data: { status: 'returning' } });
   }
 
@@ -517,6 +615,24 @@ async function handlePost(rider, adminClient, body) {
     });
 
     await notifyDispatch(shipment.source_type, sourceId, 'updated', { status: 'returned' });
+
+    await notifyStaffOfRiderEvent(adminClient, {
+      title: 'Return confirmed by rider',
+      message: `${rider.full_name} confirmed the returned package is back.`,
+      type: 'rider_return_confirmed',
+      targetPath: '/delivery-problems',
+    });
+
+    if (isSubOrder) {
+      const subOrderForNotify = await loadSubOrderForCustomerNotify(adminClient, sourceId);
+      if (subOrderForNotify?.main_order_id) {
+        await notifyCustomer(adminClient, subOrderForNotify, 'returned', {
+          trackingNumber: shipment.tracking_number,
+          riderName: rider.full_name,
+          riderPhone: rider.phone,
+        });
+      }
+    }
 
     return jsonResponse(200, { success: true, data: { status: 'returned' } });
   }
@@ -643,11 +759,7 @@ async function handlePost(rider, adminClient, body) {
     // only apply to marketplace orders — manual shipments have no
     // customer account or main_order_id to notify.
     if (isSubOrder) {
-      const { data: subOrderForNotify } = await adminClient
-        .from('sub_orders')
-        .select('main_order_id, orders:main_order_id ( id, order_number, customer_name, customer_phone, customer_email, delivery_city, delivery_state )')
-        .eq('id', sourceId)
-        .maybeSingle();
+      const subOrderForNotify = await loadSubOrderForCustomerNotify(adminClient, sourceId);
 
       if (subOrderForNotify?.main_order_id) {
         try {
@@ -655,7 +767,11 @@ async function handlePost(rider, adminClient, body) {
         } catch (refreshErr) {
           console.error('rider-jobs refreshOverallOrderStatus failed:', refreshErr);
         }
-        await notifyCustomer(subOrderForNotify, targetStatus);
+        await notifyCustomer(adminClient, subOrderForNotify, targetStatus, {
+          trackingNumber: shipment.tracking_number,
+          riderName: rider.full_name,
+          riderPhone: rider.phone,
+        });
       }
     }
 

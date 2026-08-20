@@ -22,6 +22,8 @@ import { requireAdmin, jsonResponse, headers } from './services/global-sourcing-
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
 import { notifyRider } from './services/riderRealtime.js';
 import { sendRiderPush } from './services/riderNotifications.js';
+import { sendPushToCustomer, extractCustomerIdFromOrder, extractOrderReference, buildOrderDeepLink } from './services/pushNotifications.js';
+import { sendLocalDeliveryStatusEmail } from '../../shared/riderAssignedEmail.js';
 
 // 'failed' stays open (needs a staff call); once staff acts (return_required)
 // it's the rider's turn next, so it drops off this queue same as delivered.
@@ -41,7 +43,7 @@ async function handleRequireReturn(event) {
 
   const { data: shipment, error: loadError } = await adminClient
     .from('shipments')
-    .select('id, source_type, sub_order_id, manual_shipment_id, status, assigned_rider_id')
+    .select('id, source_type, sub_order_id, manual_shipment_id, status, assigned_rider_id, tracking_number, riders ( full_name, phone )')
     .eq('id', shipment_id)
     .maybeSingle();
   if (loadError || !shipment) return jsonResponse(404, { success: false, error: 'Shipment not found' });
@@ -74,11 +76,52 @@ async function handleRequireReturn(event) {
     const pushResult = await sendRiderPush(adminClient, shipment.assigned_rider_id, {
       title: 'Return required',
       message: 'A package needs to go back — open the app for details.',
-      type: 'rider_job_assigned',
+      type: 'rider_return_required',
       data: { shipment_id, targetPath: '/' },
     });
     if (!pushResult.success && !pushResult.skipped) {
       console.warn('require_return push failed:', pushResult);
+    }
+  }
+
+  // Customer-facing side of the same event — sub_orders only, since a
+  // manual_shipment has no linked marketplace order/customer account.
+  if (isSubOrder) {
+    const { data: subOrderForNotify } = await adminClient
+      .from('sub_orders')
+      .select('main_order_id, orders:main_order_id ( id, order_number, customer_name, customer_phone, customer_email, delivery_city, delivery_state )')
+      .eq('id', sourceId)
+      .maybeSingle();
+    const order = subOrderForNotify?.orders;
+    if (order) {
+      const customerId = extractCustomerIdFromOrder(order);
+      const orderRef = extractOrderReference(order) || subOrderForNotify.main_order_id;
+      const deepLink = buildOrderDeepLink(orderRef);
+      const pushResult = await sendPushToCustomer(customerId, {
+        title: 'Package being returned',
+        message: `Order ${orderRef} could not be delivered and is being sent back to us.`,
+        type: 'order_update',
+        data: { status: 'return_required', orderReference: String(orderRef), ...(deepLink ? { targetPath: deepLink } : {}) },
+      });
+      if (!pushResult.success && !pushResult.skipped) {
+        console.warn('require_return customer push failed:', pushResult);
+      }
+      try {
+        await sendLocalDeliveryStatusEmail(adminClient, {
+          phase: 'return_required',
+          orderId: order.id,
+          orderNumber: order.order_number ?? orderRef,
+          customer_name: order.customer_name,
+          customer_email: order.customer_email,
+          tracking_number: shipment.tracking_number || '',
+          rider_name: shipment.riders?.full_name || '',
+          rider_phone: shipment.riders?.phone || '',
+          delivery_city: order.delivery_city,
+          delivery_state: order.delivery_state,
+        });
+      } catch (err) {
+        console.error('require_return customer email failed:', err?.message || err);
+      }
     }
   }
 

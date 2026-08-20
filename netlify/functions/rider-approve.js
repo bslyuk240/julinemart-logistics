@@ -10,6 +10,33 @@
  */
 import { requireAdmin, jsonResponse, headers } from './services/global-sourcing-utils.js';
 import { recordStaffAudit } from './services/auditLog.js';
+import { sendRiderPush } from './services/riderNotifications.js';
+import { sendRiderAccountEmail } from '../../shared/riderLifecycleEmail.js';
+
+// Best-effort push+email to the rider after an account-lifecycle action.
+// Never let notification failure block the action itself — the DB update
+// already committed by the time this runs.
+async function notifyRiderOfAction(adminClient, rider, riderId, { type, title, message, subject, headline, reason, targetPath }) {
+  try {
+    await sendRiderPush(adminClient, riderId, { type, title, message, data: { targetPath: targetPath || '/' } });
+  } catch (err) {
+    console.error('notifyRiderOfAction push failed:', err?.message || err);
+  }
+  if (rider?.email) {
+    try {
+      await sendRiderAccountEmail(adminClient, {
+        to: rider.email,
+        riderName: rider.full_name,
+        subject,
+        headline: headline || title,
+        message,
+        reason,
+      });
+    } catch (err) {
+      console.error('notifyRiderOfAction email failed:', err?.message || err);
+    }
+  }
+}
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
@@ -52,7 +79,7 @@ export async function handler(event) {
 
     const { data: doc, error: docErr } = await adminClient
       .from('rider_documents')
-      .select('id, rider_id, type, status')
+      .select('id, rider_id, type, status, riders ( full_name, email )')
       .eq('id', document_id)
       .maybeSingle();
     if (docErr) return jsonResponse(500, { success: false, error: docErr.message });
@@ -75,6 +102,19 @@ export async function handler(event) {
       resource_type: 'rider_documents',
       resource_id: document_id,
       details: { rider_id: doc.rider_id, type: doc.type, reason: rejection_reason || null },
+    });
+
+    const docLabel = String(doc.type || 'document').replace(/_/g, ' ');
+    await notifyRiderOfAction(adminClient, doc.riders, doc.rider_id, {
+      type: nextStatus === 'verified' ? 'rider_document_verified' : 'rider_document_rejected',
+      title: nextStatus === 'verified' ? 'Document verified' : 'Document needs resubmission',
+      message:
+        nextStatus === 'verified'
+          ? `Your ${docLabel} has been verified.`
+          : `Your ${docLabel} was rejected and needs to be resubmitted.`,
+      subject: nextStatus === 'verified' ? 'JulineMart Rider: Document verified' : 'JulineMart Rider: Document needs resubmission',
+      reason: nextStatus === 'rejected' ? rejection_reason || null : null,
+      targetPath: '/documents',
     });
 
     return jsonResponse(200, { success: true, message: `Document ${nextStatus}` });
@@ -125,6 +165,14 @@ export async function handler(event) {
       details: { full_name: rider.full_name, email: rider.email, reason: reject_reason || null },
     });
 
+    await notifyRiderOfAction(adminClient, rider, rider_id, {
+      type: 'rider_suspended',
+      title: 'Account suspended',
+      message: 'Your rider account has been suspended. You will not receive new deliveries until it is reactivated.',
+      subject: 'JulineMart Rider: Account suspended',
+      reason: reject_reason || null,
+    });
+
     return jsonResponse(200, { success: true, message: `${rider.full_name} suspended` });
   }
 
@@ -140,6 +188,13 @@ export async function handler(event) {
       resource_type: 'riders',
       resource_id: rider_id,
       details: { full_name: rider.full_name, email: rider.email },
+    });
+
+    await notifyRiderOfAction(adminClient, rider, rider_id, {
+      type: 'rider_reactivated',
+      title: 'Account reactivated',
+      message: 'Your rider account has been reactivated. You can go online and receive deliveries again.',
+      subject: 'JulineMart Rider: Account reactivated',
     });
 
     return jsonResponse(200, { success: true, message: `${rider.full_name} reactivated` });
@@ -162,6 +217,14 @@ export async function handler(event) {
       resource_type: 'riders',
       resource_id: rider_id,
       details: { full_name: rider.full_name, email: rider.email, reject_reason: reject_reason || null },
+    });
+
+    await notifyRiderOfAction(adminClient, rider, rider_id, {
+      type: 'rider_application_rejected',
+      title: 'Application not approved',
+      message: 'Your rider application was not approved this time.',
+      subject: 'JulineMart Rider: Application update',
+      reason: reject_reason || null,
     });
 
     return jsonResponse(200, { success: true, message: 'Application rejected' });
@@ -190,6 +253,14 @@ export async function handler(event) {
       details: { full_name: rider.full_name, email: rider.email, bank_name: rider.pending_bank_name },
     });
 
+    await notifyRiderOfAction(adminClient, rider, rider_id, {
+      type: 'rider_bank_change_approved',
+      title: 'Payout account updated',
+      message: 'Your new bank details have been approved and are now active for payouts.',
+      subject: 'JulineMart Rider: Payout account updated',
+      targetPath: '/profile',
+    });
+
     return jsonResponse(200, { success: true, message: `Payout account updated for ${rider.full_name}` });
   }
 
@@ -211,6 +282,15 @@ export async function handler(event) {
       resource_type: 'riders',
       resource_id: rider_id,
       details: { full_name: rider.full_name, email: rider.email, reason: reject_reason || null },
+    });
+
+    await notifyRiderOfAction(adminClient, rider, rider_id, {
+      type: 'rider_bank_change_rejected',
+      title: 'Bank change request rejected',
+      message: 'Your requested bank detail change was not approved.',
+      subject: 'JulineMart Rider: Bank change not approved',
+      reason: reject_reason || null,
+      targetPath: '/profile',
     });
 
     return jsonResponse(200, { success: true, message: 'Bank change request rejected' });
@@ -237,6 +317,14 @@ export async function handler(event) {
       details: { full_name: rider.full_name, email: rider.email, vehicle_type: rider.pending_vehicle_type, vehicle_plate: rider.pending_vehicle_plate },
     });
 
+    await notifyRiderOfAction(adminClient, rider, rider_id, {
+      type: 'rider_vehicle_change_approved',
+      title: 'Vehicle details updated',
+      message: 'Your new vehicle details have been approved and are now active on your profile.',
+      subject: 'JulineMart Rider: Vehicle details updated',
+      targetPath: '/profile',
+    });
+
     return jsonResponse(200, { success: true, message: `Vehicle details updated for ${rider.full_name}` });
   }
 
@@ -257,6 +345,15 @@ export async function handler(event) {
       resource_type: 'riders',
       resource_id: rider_id,
       details: { full_name: rider.full_name, email: rider.email, reason: reject_reason || null },
+    });
+
+    await notifyRiderOfAction(adminClient, rider, rider_id, {
+      type: 'rider_vehicle_change_rejected',
+      title: 'Vehicle change request rejected',
+      message: 'Your requested vehicle detail change was not approved.',
+      subject: 'JulineMart Rider: Vehicle change not approved',
+      reason: reject_reason || null,
+      targetPath: '/profile',
     });
 
     return jsonResponse(200, { success: true, message: 'Vehicle change request rejected' });
@@ -280,6 +377,13 @@ export async function handler(event) {
     resource_type: 'riders',
     resource_id: rider_id,
     details: { full_name: rider.full_name, email: rider.email },
+  });
+
+  await notifyRiderOfAction(adminClient, rider, rider_id, {
+    type: 'rider_application_approved',
+    title: 'Application approved',
+    message: "You're approved! Go online in the app to start receiving deliveries.",
+    subject: 'JulineMart Rider: Application approved',
   });
 
   return jsonResponse(200, { success: true, message: `${rider.full_name} approved` });

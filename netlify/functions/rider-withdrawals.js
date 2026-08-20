@@ -17,6 +17,8 @@ import { requireActiveRider, jsonResponse, headers } from './services/requireRid
 import { requireAdmin } from './services/global-sourcing-utils.js';
 import { checkRateLimit } from './services/rate-limit.js';
 import { recordAudit, recordStaffAudit, requestMeta } from './services/auditLog.js';
+import { sendRiderPush } from './services/riderNotifications.js';
+import { sendRiderAccountEmail } from '../../shared/riderLifecycleEmail.js';
 
 function extractId(path) {
   const parts = (path || '').split('/');
@@ -45,7 +47,7 @@ export async function handler(event) {
 
     const { data: withdrawal, error: lookupErr } = await adminClient
       .from('rider_withdrawals')
-      .select('id, rider_id, amount, status, riders ( full_name )')
+      .select('id, rider_id, amount, status, riders ( full_name, email )')
       .eq('id', id)
       .maybeSingle();
     if (lookupErr) return jsonResponse(500, { success: false, error: lookupErr.message });
@@ -112,6 +114,56 @@ export async function handler(event) {
       resource_id: id,
       details: { action, amount: data?.amount, rider_id: data?.rider_id },
     });
+
+    const amountLabel = `₦${Number(data?.amount || 0).toLocaleString()}`;
+    const WITHDRAWAL_COPY = {
+      approve: {
+        type: 'rider_withdrawal_approved',
+        title: 'Withdrawal approved',
+        message: `Your withdrawal request of ${amountLabel} has been approved and is being processed.`,
+        subject: 'JulineMart Rider: Withdrawal approved',
+      },
+      reject: {
+        type: 'rider_withdrawal_rejected',
+        title: 'Withdrawal rejected',
+        message: `Your withdrawal request of ${amountLabel} was rejected.`,
+        subject: 'JulineMart Rider: Withdrawal rejected',
+        reason: rejection_reason || null,
+      },
+      paid: {
+        type: 'rider_withdrawal_paid',
+        title: 'Withdrawal paid',
+        message: `Your withdrawal of ${amountLabel} has been paid out to your bank account.`,
+        subject: 'JulineMart Rider: Withdrawal paid',
+      },
+    };
+    const copy = WITHDRAWAL_COPY[action];
+    if (copy) {
+      try {
+        await sendRiderPush(adminClient, withdrawal.rider_id, {
+          type: copy.type,
+          title: copy.title,
+          message: copy.message,
+          data: { targetPath: '/earnings' },
+        });
+      } catch (err) {
+        console.error('rider-withdrawals push failed:', err?.message || err);
+      }
+      if (withdrawal.riders?.email) {
+        try {
+          await sendRiderAccountEmail(adminClient, {
+            to: withdrawal.riders.email,
+            riderName: withdrawal.riders.full_name,
+            subject: copy.subject,
+            headline: copy.title,
+            message: copy.message,
+            reason: copy.reason,
+          });
+        } catch (err) {
+          console.error('rider-withdrawals email failed:', err?.message || err);
+        }
+      }
+    }
 
     return jsonResponse(200, { success: true, data });
   }

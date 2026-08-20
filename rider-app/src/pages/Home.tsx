@@ -82,6 +82,12 @@ function RiderHome() {
   const [showSelfiePrompt, setShowSelfiePrompt] = useState(false);
   const [checkingInSelfie, setCheckingInSelfie] = useState(false);
   const selfieInputRef = useRef<HTMLInputElement>(null);
+  // Broadcast jobs aren't assigned to any one rider, so there's nothing on
+  // the server to "decline" — this just hides the offer from this rider's
+  // own list until the next refresh brings it back (or someone else claims
+  // it first).
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+  const visibleAvailable = available.filter((job) => !dismissed.has(job.id));
 
   const install = useInstallPrompt();
   const { permission: notificationPermission, requestPermission: requestNotificationPermission } =
@@ -232,7 +238,7 @@ function RiderHome() {
 
   return (
     <div className="min-h-screen pb-24 bg-gray-50">
-      <div className="px-6 pt-8 pb-5 bg-white border-b border-gray-100">
+      <div className="px-6 pt-4 pb-3 bg-white border-b border-gray-100">
         <p className="text-lg font-bold text-gray-900">
           {greeting()}, {(riderName || user?.email || '').split(' ')[0]} 👋
         </p>
@@ -244,7 +250,7 @@ function RiderHome() {
         )}
       </div>
 
-      <div className="px-6 pt-5 space-y-4">
+      <div className="px-6 pt-4 space-y-4">
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         {/* Online status */}
@@ -338,7 +344,7 @@ function RiderHome() {
           </div>
         )}
 
-        {online && !loading && !active && pending.length === 0 && available.length === 0 && (
+        {online && !loading && !active && pending.length === 0 && visibleAvailable.length === 0 && (
           <div className="rounded-2xl border border-dashed border-gray-300 p-6 text-center">
             <Package className="w-6 h-6 text-gray-300 mx-auto mb-2" />
             <p className="text-sm font-semibold text-gray-900">No deliveries yet</p>
@@ -346,7 +352,7 @@ function RiderHome() {
           </div>
         )}
 
-        {online && (pending.length > 0 || available.length > 0) && (
+        {online && (pending.length > 0 || visibleAvailable.length > 0) && (
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Available Job Offers</p>
             <div className="space-y-3">
@@ -399,44 +405,54 @@ function RiderHome() {
                 </div>
               ))}
 
-              {available.map((job) => (
-                <div key={job.id} className="rounded-2xl border border-gray-200 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                        <Users className="w-3 h-3" />
-                        Available to nearby riders
-                      </span>
-                      <p className="text-sm font-semibold text-gray-900 mt-1.5">{job.tracking_number || `Order ${job.order_number ?? ''}`}</p>
-                      <p className="text-xs text-gray-500">Vendor: {job.pickup.name || '—'}</p>
+              {visibleAvailable.map((job) => (
+                  <div key={job.id} className="rounded-2xl border border-gray-200 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                          <Users className="w-3 h-3" />
+                          Available to nearby riders
+                        </span>
+                        <p className="text-sm font-semibold text-gray-900 mt-1.5">{job.tracking_number || `Order ${job.order_number ?? ''}`}</p>
+                        <p className="text-xs text-gray-500">Vendor: {job.pickup.name || '—'}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-base font-bold text-gray-900">{formatNaira(job.fee)}</p>
+                        <p className="text-[10px] text-gray-400">Earning</p>
+                      </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-base font-bold text-gray-900">{formatNaira(job.fee)}</p>
-                      <p className="text-[10px] text-gray-400">Earning</p>
+
+                    <div className="mt-3 space-y-1.5 text-xs text-gray-600">
+                      <div className="flex items-start gap-2">
+                        <MapPin className="w-3.5 h-3.5 mt-0.5 text-gray-400 shrink-0" />
+                        <span>Pickup: {job.pickup.city || job.pickup.address || '—'}</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <MapPin className="w-3.5 h-3.5 mt-0.5 text-gray-400 shrink-0" />
+                        <span>Drop-off: {job.dropoff.city || job.dropoff.address || '—'}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDismissed((prev) => new Set(prev).add(job.id))}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600"
+                      >
+                        <X className="w-4 h-4" />
+                        Decline
+                      </button>
+                      <button
+                        type="button"
+                        disabled={claimingOn === job.id}
+                        onClick={() => claim(job)}
+                        className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                      >
+                        {claimingOn === job.id ? 'Accepting…' : 'Accept Delivery'}
+                      </button>
                     </div>
                   </div>
-
-                  <div className="mt-3 space-y-1.5 text-xs text-gray-600">
-                    <div className="flex items-start gap-2">
-                      <MapPin className="w-3.5 h-3.5 mt-0.5 text-gray-400 shrink-0" />
-                      <span>Pickup: {job.pickup.city || job.pickup.address || '—'}</span>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <MapPin className="w-3.5 h-3.5 mt-0.5 text-gray-400 shrink-0" />
-                      <span>Drop-off: {job.dropoff.city || job.dropoff.address || '—'}</span>
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    disabled={claimingOn === job.id}
-                    onClick={() => claim(job)}
-                    className="mt-4 w-full rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    {claimingOn === job.id ? 'Accepting…' : 'Accept Delivery'}
-                  </button>
-                </div>
-              ))}
+                ))}
             </div>
           </div>
         )}

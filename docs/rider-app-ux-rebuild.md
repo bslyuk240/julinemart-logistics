@@ -232,3 +232,28 @@ optimization. Not started, not planned until P0/P1 are done.
     shipment; the final delivered-completion write path itself relies on code review (mirrors
     `delivery_proof_url`'s existing, proven pattern) since neither a camera nor the rider's raw
     auth token were available/permitted in this environment to drive it end to end.
+20. Two bugs reported directly by the user, both fixed:
+    (a) **Rider-app Activity detail drawer didn't reveal all content on mobile.** Root cause: the
+    delivery-proof photo had no height cap, so a single full-resolution photo alone could eat the
+    entire 690px-tall drawer, leaving the rest (From, Timeline) effectively unreachable — the
+    scroll container itself was never actually broken (confirmed via `scrollTop`), there was just
+    ~300px more content than fit. Fixed by bounding both the proof photo and signature to fixed
+    thumbnail heights (tap to view full-size in a new lightbox) plus `-webkit-overflow-scrolling:
+    touch` for iOS. Verified live: scrollHeight dropped from 985px to 774px, full timeline
+    (all 4 timestamps) now visible with only ~84px of scroll, and the lightbox opens/closes
+    correctly.
+    (b) **Admin had no way to see delivery evidence (photo/signature) at all — a real, separate
+    bug, not just a missing feature.** `orders.js`'s `loadFullOrder` (powers the admin Order
+    Details page, desktop + mobile) never selected `delivery_person_name/phone/vehicle`,
+    `waybill_number`, `delivery_proof_url`, or `signature_url` on `sub_orders`, even though the
+    frontend already referenced `delivery_person_name` — that whole info box was silently never
+    rendering. Fixed the select and added a proof/signature image section (desktop + mobile). For
+    manual shipments, `delivery_proof_url`/`signature_url` aren't columns on `manual_shipments` at
+    all (same asymmetry as everywhere else this session — they only exist on the unified
+    `shipments` table for that source type), so `manual-shipments.js`'s GET-by-id now also queries
+    `shipments` by `manual_shipment_id` and merges those two fields in. Added the same image
+    section to `ManualShipmentDetail.tsx` (desktop + mobile). **Not visually verified in a
+    browser** — the dashboard's dev server (port 3000) was denied at the browser-tool permission
+    level in this environment; verification here is `tsc --noEmit` (clean) plus direct mirroring
+    of the already-verified rider-app Activity pattern (same field names, same conditional
+    rendering), not a live screenshot.

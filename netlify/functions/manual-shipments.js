@@ -69,6 +69,15 @@ export async function handler(event) {
           .eq('manual_shipment_id', id)
           .order('event_time', { ascending: true, nullsFirst: false });
 
+        // delivery_proof_url/signature_url aren't manual_shipments columns —
+        // they only exist on the unified shipments table for this source
+        // type (see shipmentSync.js), same as picked_up_at/delivered_at/etc.
+        const { data: shipmentRow } = await supabase
+          .from('shipments')
+          .select('delivery_proof_url, signature_url')
+          .eq('manual_shipment_id', id)
+          .maybeSingle();
+
         return {
           statusCode: 200,
           headers,
@@ -76,6 +85,8 @@ export async function handler(event) {
             success: true,
             data: {
               ...data,
+              delivery_proof_url: shipmentRow?.delivery_proof_url || null,
+              signature_url: shipmentRow?.signature_url || null,
               tracking_events: (events || []).map((e) => ({
                 status: e.status,
                 description: e.description,

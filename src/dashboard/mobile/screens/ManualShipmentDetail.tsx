@@ -55,6 +55,8 @@ interface ManualShipment {
   delivery_person_name: string | null;
   delivery_person_phone: string | null;
   waybill_number: string | null;
+  delivery_proof_url?: string | null;
+  signature_url?: string | null;
   last_tracking_update: string | null;
   metadata: { selected_lane?: 'fez' | 'local_rider' } | null;
   created_at: string;
@@ -356,6 +358,34 @@ export default function MobileManualShipmentDetail() {
                 />
               )}
             </div>
+
+            {(shipment.delivery_proof_url || shipment.signature_url) && (
+              <>
+                <SectionLabel>Delivery evidence</SectionLabel>
+                <div className="mx-4 grid grid-cols-2 gap-3">
+                  {shipment.delivery_proof_url && (
+                    <a href={shipment.delivery_proof_url} target="_blank" rel="noopener noreferrer" className="block">
+                      <p className="mb-1 text-xs font-semibold text-gray-500">Proof of delivery</p>
+                      <img
+                        src={shipment.delivery_proof_url}
+                        alt="Delivery proof"
+                        className="h-28 w-full rounded-lg border border-gray-200 object-cover"
+                      />
+                    </a>
+                  )}
+                  {shipment.signature_url && (
+                    <a href={shipment.signature_url} target="_blank" rel="noopener noreferrer" className="block">
+                      <p className="mb-1 text-xs font-semibold text-gray-500">Customer signature</p>
+                      <img
+                        src={shipment.signature_url}
+                        alt="Customer signature"
+                        className="h-28 w-full rounded-lg border border-gray-200 bg-white object-contain"
+                      />
+                    </a>
+                  )}
+                </div>
+              </>
+            )}
 
             <div className="mx-4 mt-3">
               <ShipmentTrackingEvents

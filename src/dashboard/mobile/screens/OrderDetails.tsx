@@ -76,6 +76,8 @@ type SubOrder = {
   delivery_person_name?: string | null;
   delivery_person_phone?: string | null;
   delivery_person_vehicle?: string | null;
+  delivery_proof_url?: string | null;
+  signature_url?: string | null;
   tracking_events?: { status: string; description: string | null; location_name: string | null; event_time: string | null; created_at: string }[];
 };
 
@@ -588,6 +590,31 @@ export default function MobileOrderDetails() {
 
                 {subOrder.last_tracking_update && (
                   <p className="text-[11px] text-gray-500">Last updated: {new Date(subOrder.last_tracking_update).toLocaleString()}</p>
+                )}
+
+                {(subOrder.delivery_proof_url || subOrder.signature_url) && (
+                  <div className="grid grid-cols-2 gap-2">
+                    {subOrder.delivery_proof_url && (
+                      <a href={subOrder.delivery_proof_url} target="_blank" rel="noopener noreferrer" className="block">
+                        <p className="text-[11px] font-semibold text-gray-500 mb-1">Proof of delivery</p>
+                        <img
+                          src={subOrder.delivery_proof_url}
+                          alt="Delivery proof"
+                          className="w-full h-24 object-cover rounded-lg border border-gray-200"
+                        />
+                      </a>
+                    )}
+                    {subOrder.signature_url && (
+                      <a href={subOrder.signature_url} target="_blank" rel="noopener noreferrer" className="block">
+                        <p className="text-[11px] font-semibold text-gray-500 mb-1">Customer signature</p>
+                        <img
+                          src={subOrder.signature_url}
+                          alt="Customer signature"
+                          className="w-full h-24 object-contain rounded-lg border border-gray-200 bg-white"
+                        />
+                      </a>
+                    )}
+                  </div>
                 )}
 
                 <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pt-1">

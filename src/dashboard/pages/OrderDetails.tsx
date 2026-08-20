@@ -105,6 +105,8 @@ type SubOrder = {
   delivery_person_name?: string | null;
   delivery_person_phone?: string | null;
   delivery_person_vehicle?: string | null;
+  delivery_proof_url?: string | null;
+  signature_url?: string | null;
   tracking_events?: { status: string; description: string | null; location_name: string | null; event_time: string | null; created_at: string }[];
 };
 
@@ -1296,6 +1298,41 @@ export function OrderDetailsPage() {
                             subOrder.last_tracking_update
                           ).toLocaleString()}
                         </p>
+                      )}
+
+                      {(subOrder.delivery_proof_url || subOrder.signature_url) && (
+                        <div className="grid grid-cols-2 gap-3">
+                          {subOrder.delivery_proof_url && (
+                            <a
+                              href={subOrder.delivery_proof_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block"
+                            >
+                              <p className="text-xs font-semibold text-gray-500 mb-1">Proof of delivery</p>
+                              <img
+                                src={subOrder.delivery_proof_url}
+                                alt="Delivery proof"
+                                className="w-full h-32 object-cover rounded-lg border border-gray-200 hover:opacity-90"
+                              />
+                            </a>
+                          )}
+                          {subOrder.signature_url && (
+                            <a
+                              href={subOrder.signature_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block"
+                            >
+                              <p className="text-xs font-semibold text-gray-500 mb-1">Customer signature</p>
+                              <img
+                                src={subOrder.signature_url}
+                                alt="Customer signature"
+                                className="w-full h-32 object-contain rounded-lg border border-gray-200 bg-white hover:opacity-90"
+                              />
+                            </a>
+                          )}
+                        </div>
                       )}
 
                       {/* Tracking Timeline - Horizontal Progress Stepper */}

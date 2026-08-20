@@ -68,6 +68,7 @@ export default function Activity() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   const load = useCallback(async (status: ActivityStatusFilter) => {
     setLoading(true);
@@ -205,7 +206,14 @@ export default function Activity() {
 
       {sheetOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50">
-          <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm max-h-[85vh] overflow-y-auto p-6">
+          <div
+            className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm max-h-[85vh] overflow-y-auto overscroll-contain p-6"
+            style={{ WebkitOverflowScrolling: 'touch' }}
+          >
+            {/* Photo evidence renders as a bounded thumbnail (not full-bleed) — an
+                unconstrained delivery photo used to eat almost the whole 85vh sheet on
+                mobile, leaving no room to see (or scroll to) the rest of the details. Tap
+                to view full-size instead of losing that space permanently. */}
             <div className="flex items-start justify-between gap-3 mb-4">
               <h3 className="text-base font-bold text-gray-900">Delivery details</h3>
               <button type="button" onClick={closeSheet} className="text-gray-400">
@@ -238,14 +246,26 @@ export default function Activity() {
                 {detail.delivery_proof_url && (
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Proof of delivery</p>
-                    <img src={detail.delivery_proof_url} alt="Delivery proof" className="w-full rounded-xl border border-gray-200" />
+                    <button type="button" onClick={() => setLightboxUrl(detail.delivery_proof_url)} className="block w-full">
+                      <img
+                        src={detail.delivery_proof_url}
+                        alt="Delivery proof"
+                        className="w-full h-56 object-cover rounded-xl border border-gray-200"
+                      />
+                    </button>
                   </div>
                 )}
 
                 {detail.signature_url && (
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5">Customer signature</p>
-                    <img src={detail.signature_url} alt="Customer signature" className="w-full rounded-xl border border-gray-200 bg-white" />
+                    <button type="button" onClick={() => setLightboxUrl(detail.signature_url)} className="block w-full">
+                      <img
+                        src={detail.signature_url}
+                        alt="Customer signature"
+                        className="w-full h-40 object-contain rounded-xl border border-gray-200 bg-white"
+                      />
+                    </button>
                   </div>
                 )}
 
@@ -283,6 +303,23 @@ export default function Activity() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 bg-black/90 flex items-center justify-center z-[60] p-4"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxUrl(null)}
+            aria-label="Close image"
+            className="absolute top-4 right-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <img src={lightboxUrl} alt="Full size evidence" className="max-w-full max-h-full object-contain rounded-lg" />
         </div>
       )}
 

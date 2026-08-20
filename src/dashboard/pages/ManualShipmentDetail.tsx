@@ -45,6 +45,8 @@ interface ManualShipment {
   delivery_person_name: string | null;
   delivery_person_phone: string | null;
   waybill_number: string | null;
+  delivery_proof_url?: string | null;
+  signature_url?: string | null;
   last_tracking_update: string | null;
   metadata: { selected_lane?: 'fez' | 'local_rider' } | null;
   created_at: string;
@@ -358,6 +360,32 @@ export function ManualShipmentDetailPage() {
               <span className="font-mono font-semibold">{shipment.waybill_number}</span>
             </div>
           )}
+
+          {(shipment.delivery_proof_url || shipment.signature_url) && (
+            <div className="grid grid-cols-2 gap-3">
+              {shipment.delivery_proof_url && (
+                <a href={shipment.delivery_proof_url} target="_blank" rel="noopener noreferrer" className="block">
+                  <p className="text-xs font-semibold text-gray-500 mb-1">Proof of delivery</p>
+                  <img
+                    src={shipment.delivery_proof_url}
+                    alt="Delivery proof"
+                    className="w-full h-32 object-cover rounded-lg border border-gray-200 hover:opacity-90"
+                  />
+                </a>
+              )}
+              {shipment.signature_url && (
+                <a href={shipment.signature_url} target="_blank" rel="noopener noreferrer" className="block">
+                  <p className="text-xs font-semibold text-gray-500 mb-1">Customer signature</p>
+                  <img
+                    src={shipment.signature_url}
+                    alt="Customer signature"
+                    className="w-full h-32 object-contain rounded-lg border border-gray-200 bg-white hover:opacity-90"
+                  />
+                </a>
+              )}
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2 mt-2">
             {fezTracking && (
               <button

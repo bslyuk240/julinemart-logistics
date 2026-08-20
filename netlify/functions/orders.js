@@ -51,6 +51,12 @@ async function loadFullOrder(id) {
         courier_notes,
         metadata,
         created_at,
+        waybill_number,
+        delivery_person_name,
+        delivery_person_phone,
+        delivery_person_vehicle,
+        delivery_proof_url,
+        signature_url,
         
         hubs (
           id,

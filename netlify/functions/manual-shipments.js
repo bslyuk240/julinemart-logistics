@@ -5,6 +5,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { assertStaffCanCreateShipment, assertStaffCanReadShipments } from './services/shipmentAccess.js';
+import { resolveZoneForState, lookupHubOrZoneRate, lookupShippingRate, computeDispatchCost } from './services/shippingRateLookup.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
@@ -167,6 +168,40 @@ export async function handler(event) {
         if (authData?.user) createdBy = authData.user.id;
       }
 
+      // Price it now, same as an order gets priced at checkout — a manual
+      // shipment shouldn't exist without a real shipping_fee to charge the
+      // sender. Hub-mode prices by the destination zone (mirrors a
+      // sub-order's hub-based dispatch); no-hub "manual" mode prices by the
+      // sender's own pickup zone instead (mirrors calc-shipping.js's
+      // vendor_direct branch, which prices by the pickup point's zone).
+      const itemWeight = body.item_weight ? Number(body.item_weight) : 1;
+      let priceZone;
+      let rate;
+      try {
+        if (senderHubId) {
+          priceZone = await resolveZoneForState(supabase, recipient.state);
+          if (priceZone) rate = await lookupHubOrZoneRate(supabase, { zoneId: priceZone.id, hubId: senderHubId });
+        } else {
+          priceZone = await resolveZoneForState(supabase, sender.state);
+          if (priceZone) rate = await lookupShippingRate(supabase, { zoneId: priceZone.id });
+        }
+      } catch (rateErr) {
+        console.error('Manual shipment rate lookup error:', rateErr);
+        return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Failed to price shipment' }) };
+      }
+
+      if (!priceZone || !rate) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'No shipping rate configured for this zone yet — add one via Admin → Rates before creating this shipment.',
+          }),
+        };
+      }
+
+      const shippingFee = computeDispatchCost(rate, itemWeight);
       const shipmentCode = generateShipmentCode();
 
       const { data: shipment, error: insertError } = await supabase
@@ -184,8 +219,10 @@ export async function handler(event) {
             ...(recipientEmail ? { email: recipientEmail } : {}),
           },
           item_description: body.item_description,
-          item_weight: body.item_weight ? Number(body.item_weight) : 1,
+          item_weight: itemWeight,
           item_value: body.item_value ? Number(body.item_value) : 0,
+          zone_id: priceZone.id,
+          shipping_fee: shippingFee,
           created_by: createdBy,
         })
         .select()

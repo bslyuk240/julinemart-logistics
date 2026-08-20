@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, Building2, Camera, Check, ChevronDown, Navigation, PenLine, Phone, ScanLine, User, X, XCircle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Building2, Camera, Check, ChevronDown, Navigation, Package, PenLine, Phone, ScanLine, ShieldCheck, User, X, XCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api, Job, pickupLabel, PROBLEM_REASON_LABEL, ProblemReason, ScanVerification } from '../lib/api';
 import { uploadRiderDocument } from '../lib/storage';
@@ -36,10 +36,11 @@ const NEXT_STATUS: Record<string, Job['status']> = {
   out_for_delivery: 'delivered',
 };
 
+// 'out_for_delivery' isn't here — it always renders the dedicated Complete
+// Delivery screen (its own "Confirm Delivery" CTA), never this generic one.
 const ACTION_LABEL: Record<string, string> = {
   assigned: 'Scan Waybill',
   picked_up: 'Start Delivery',
-  out_for_delivery: "I've Reached the Customer",
 };
 
 function formatNaira(amount: number) {
@@ -286,6 +287,261 @@ export default function ActiveDelivery() {
   }
 
   if (!job) return null;
+
+  // Complete Delivery — its own dedicated screen (mockup screen 4), not
+  // folded into the general delivery-flow layout below. Navigate/Call stay
+  // available since there's no separate "I've Arrived" sub-state yet (the
+  // rider could still be en route when this renders) — everything else
+  // here (Recipient, Proof of Delivery, Shipment Summary) matches the
+  // mockup's own sections.
+  if (job.status === 'out_for_delivery') {
+    const dropoffTarget = mapsUrl(job.dropoff.address, job.dropoff.city, job.dropoff.state);
+    const proofTiles = job.pod_level === 'verified' ? 'grid-cols-2' : 'grid-cols-1';
+    return (
+      <div className="min-h-screen pb-32 bg-gray-50">
+        <div className="px-6 pt-4 pb-4 bg-white border-b border-gray-100 flex items-center gap-3">
+          <button type="button" onClick={() => navigate('/')} className="text-gray-400">
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="flex-1">
+            <h1 className="text-base font-bold text-gray-900">Complete Delivery</h1>
+            <p className="text-xs font-semibold text-primary-600">{formatNaira(job.fee)}</p>
+          </div>
+        </div>
+
+        <div className="px-6 pt-5 space-y-4">
+          {error && <p className="text-sm text-red-600">{error}</p>}
+
+          {/* Recipient */}
+          <div className="rounded-2xl border border-gray-200 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Recipient</p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">{job.dropoff.customer_name || 'Customer'}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{job.dropoff.address || '—'}</p>
+              </div>
+              {job.dropoff.customer_phone && (
+                <a
+                  href={`tel:${job.dropoff.customer_phone}`}
+                  className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center shrink-0 text-primary-600"
+                >
+                  <Phone className="w-4 h-4" />
+                </a>
+              )}
+            </div>
+          </div>
+
+          {/* Proof of Delivery */}
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Proof of Delivery</p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+            />
+            <div className={`grid ${proofTiles} gap-3`}>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className={`relative rounded-2xl border p-4 text-center ${
+                  proofFile ? 'border-emerald-300 bg-emerald-50' : 'border-dashed border-gray-300'
+                }`}
+              >
+                {proofFile && (
+                  <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center">
+                    <Check className="w-2.5 h-2.5 text-white" />
+                  </span>
+                )}
+                <Camera className={`w-5 h-5 mx-auto ${proofFile ? 'text-emerald-600' : 'text-gray-400'}`} />
+                <p className="mt-2 text-xs font-semibold text-gray-900">{proofFile ? 'Photo captured' : 'Take delivery photo'}</p>
+              </button>
+
+              {job.pod_level === 'verified' && (
+                <button
+                  type="button"
+                  onClick={() => setShowSignaturePad(true)}
+                  className={`relative rounded-2xl border p-4 text-center ${
+                    signatureFile ? 'border-emerald-300 bg-emerald-50' : 'border-dashed border-gray-300'
+                  }`}
+                >
+                  {signatureFile && (
+                    <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center">
+                      <Check className="w-2.5 h-2.5 text-white" />
+                    </span>
+                  )}
+                  <PenLine className={`w-5 h-5 mx-auto ${signatureFile ? 'text-emerald-600' : 'text-gray-400'}`} />
+                  <p className="mt-2 text-xs font-semibold text-gray-900">{signatureFile ? 'Signature captured' : 'Recipient signature'}</p>
+                </button>
+              )}
+            </div>
+            {job.pod_level === 'verified' && (
+              <p className="mt-1.5 text-[11px] text-gray-400">Signature required for this order's value</p>
+            )}
+          </div>
+
+          {/* Shipment Summary */}
+          <div className="rounded-2xl border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-bold text-gray-900">Shipment Summary</p>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+                <ShieldCheck className="w-3 h-3" />
+                Verified
+              </span>
+            </div>
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Waybill</span>
+                <span className="font-medium text-gray-900">{job.tracking_number || '—'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">Package</span>
+                <span className="font-medium text-gray-900 flex items-center gap-1">
+                  <Package className="w-3 h-3" /> 1 of 1
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">From</span>
+                <span className="font-medium text-gray-900">{job.pickup.name || pickupLabel(job.pickup.kind)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500">To</span>
+                <span className="font-medium text-gray-900 text-right max-w-[60%]">
+                  {job.dropoff.customer_name || 'Customer'}, {job.dropoff.address || '—'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Navigate / Call — still useful, no separate "arrived" sub-state exists */}
+          <div className="flex gap-2">
+            <a
+              href={dropoffTarget}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 flex flex-col items-center justify-center gap-1 rounded-xl border border-gray-200 py-2.5 text-[11px] font-semibold text-gray-700 bg-white"
+            >
+              <Navigation className="w-4 h-4" />
+              Navigate
+            </a>
+            {job.dropoff.customer_phone && (
+              <a
+                href={`tel:${job.dropoff.customer_phone}`}
+                className="flex-1 flex flex-col items-center justify-center gap-1 rounded-xl border border-gray-200 py-2.5 text-[11px] font-semibold text-gray-700 bg-white"
+              >
+                <Phone className="w-4 h-4" />
+                Call Customer
+              </a>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setProblemSheetMode('report')}
+            className="w-full flex items-center justify-center gap-2 rounded-xl border border-red-200 py-2.5 text-sm font-semibold text-red-600 bg-white"
+          >
+            <AlertTriangle className="w-4 h-4" />
+            Report Issue
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setProblemSheetMode('fail')}
+            className="w-full text-center text-xs font-semibold text-red-600 underline underline-offset-2"
+          >
+            Can't complete this delivery?
+          </button>
+        </div>
+
+        <div className="fixed bottom-0 left-0 right-0 px-6 py-4 bg-white border-t border-gray-100">
+          <button type="button" onClick={handleAdvance} disabled={advancing || uploadingProof} className="btn-primary">
+            {advancing ? (uploadingProof ? 'Uploading photo…' : 'Saving…') : 'Confirm Delivery'}
+          </button>
+        </div>
+
+        {showSignaturePad && (
+          <SignaturePad
+            title="Customer signature"
+            hint="Hand your phone to the customer to sign below"
+            onCapture={(file) => {
+              setSignatureFile(file);
+              setShowSignaturePad(false);
+            }}
+            onClose={() => setShowSignaturePad(false)}
+          />
+        )}
+
+        {problemSheetMode && (
+          <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 px-6 pb-6 sm:pb-0">
+            <div className="bg-white rounded-2xl w-full max-w-sm p-6">
+              <h3 className="text-base font-bold text-gray-900">
+                {problemSheetMode === 'fail' ? 'Mark this delivery as failed' : 'Report an issue'}
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                {problemSheetMode === 'fail'
+                  ? "This ends the delivery attempt — dispatch will review and decide next steps, including whether you'll need to return the package."
+                  : "This lets dispatch know right away — it doesn't change your delivery status."}
+              </p>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                {(Object.keys(PROBLEM_REASON_LABEL) as ProblemReason[]).map((reason) => (
+                  <button
+                    key={reason}
+                    type="button"
+                    onClick={() => setProblemReason(reason)}
+                    className={`rounded-xl border py-2.5 px-2 text-xs font-semibold ${
+                      problemReason === reason ? 'border-primary-600 bg-primary-50 text-primary-700' : 'border-gray-200 text-gray-600'
+                    }`}
+                  >
+                    {PROBLEM_REASON_LABEL[reason]}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                value={problemNote}
+                onChange={(e) => setProblemNote(e.target.value)}
+                placeholder="Add a note (optional)"
+                rows={2}
+                className="mt-3 w-full rounded-xl border border-gray-200 p-3 text-sm"
+              />
+
+              <div className="mt-5 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProblemSheetMode(null);
+                    setProblemReason('');
+                    setProblemNote('');
+                  }}
+                  disabled={reportingProblem}
+                  className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReportProblem}
+                  disabled={!problemReason || reportingProblem}
+                  className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {reportingProblem
+                    ? problemSheetMode === 'fail'
+                      ? 'Saving…'
+                      : 'Reporting…'
+                    : problemSheetMode === 'fail'
+                      ? 'Mark Failed'
+                      : 'Report'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // Staff called for this package to come back — a genuinely different
   // phase of the job (heading back to the pickup point, not the customer),
@@ -547,7 +803,7 @@ export default function ActiveDelivery() {
           </button>
         </div>
 
-        {(job.status === 'picked_up' || job.status === 'out_for_delivery') && (
+        {job.status === 'picked_up' && (
           <button
             type="button"
             onClick={() => setProblemSheetMode('fail')}
@@ -556,65 +812,11 @@ export default function ActiveDelivery() {
             Can't complete this delivery?
           </button>
         )}
-
-        {job.status === 'out_for_delivery' && (
-          <div className="rounded-2xl border border-dashed border-gray-300 p-4 text-center">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={(e) => setProofFile(e.target.files?.[0] || null)}
-            />
-            {proofFile ? (
-              <div className="flex items-center justify-center gap-2 text-sm text-gray-900">
-                <Check className="w-4 h-4 text-primary-600" />
-                Delivery photo ready
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="inline-flex items-center gap-2 text-sm font-semibold text-primary-600"
-              >
-                <Camera className="w-4 h-4" />
-                Take delivery photo
-              </button>
-            )}
-          </div>
-        )}
-
-        {job.status === 'out_for_delivery' && job.pod_level === 'verified' && (
-          <div className="rounded-2xl border border-dashed border-gray-300 p-4 text-center">
-            {signatureFile ? (
-              <div className="flex items-center justify-center gap-2 text-sm text-gray-900">
-                <Check className="w-4 h-4 text-primary-600" />
-                Customer signature captured
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setShowSignaturePad(true)}
-                className="inline-flex items-center gap-2 text-sm font-semibold text-primary-600"
-              >
-                <PenLine className="w-4 h-4" />
-                Get customer signature
-              </button>
-            )}
-            <p className="mt-1 text-[11px] text-gray-400">Required for this order's value</p>
-          </div>
-        )}
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 px-6 py-4 bg-white border-t border-gray-100">
-        <button
-          type="button"
-          onClick={handleAdvance}
-          disabled={advancing || (job.status === 'out_for_delivery' && uploadingProof)}
-          className="btn-primary"
-        >
-          {advancing ? (uploadingProof ? 'Uploading photo…' : 'Saving…') : ACTION_LABEL[job.status] || 'Done'}
+        <button type="button" onClick={handleAdvance} disabled={advancing} className="btn-primary">
+          {advancing ? 'Saving…' : ACTION_LABEL[job.status] || 'Done'}
         </button>
       </div>
 

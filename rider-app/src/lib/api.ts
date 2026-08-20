@@ -202,6 +202,8 @@ export type EarningsDelivery = {
 export type EarningsResponse = {
   weekly_total: number;
   delivery_count: number;
+  today_total: number;
+  today_count: number;
   breakdown: EarningsDelivery[];
   sparkline: { date: string; amount: number }[];
   available_balance: number;

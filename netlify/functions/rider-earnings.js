@@ -6,6 +6,13 @@
  */
 import { requireActiveRider, jsonResponse, headers } from './services/requireRider.js';
 
+// UTC throughout — mixing a local-time-of-day reset with a UTC-labeled key
+// (the previous version did `setHours(0,0,0,0)`, which resets in the
+// server process's local timezone, then read the key back via
+// `toISOString()`, which is always UTC) shifts every bucket by a day
+// whenever the server's local timezone isn't UTC, silently mislabeling the
+// sparkline. Found while adding the "Today" card below — it read back 0
+// for a day that had real deliveries.
 function dayKey(date) {
   return date.toISOString().slice(0, 10);
 }
@@ -18,9 +25,9 @@ export async function handler(event) {
   if (session.errorResponse) return session.errorResponse;
   const { rider, adminClient } = session;
 
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-  sevenDaysAgo.setHours(0, 0, 0, 0);
+  const now = new Date();
+  const todayKey = dayKey(now);
+  const sevenDaysAgo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 6));
 
   const [{ data: deliveries, error }, { data: summary }] = await Promise.all([
     adminClient
@@ -48,6 +55,8 @@ export async function handler(event) {
   }
 
   let weeklyTotal = 0;
+  let todayTotal = 0;
+  let todayCount = 0;
   const breakdown = (deliveries || []).map((row) => {
     // rider_payout is the commission-adjusted amount; fall back to the old
     // full-fee read for shipments delivered before it existed (sub_order
@@ -56,6 +65,10 @@ export async function handler(event) {
     weeklyTotal += fee;
     const key = dayKey(new Date(row.delivered_at));
     if (sparklineMap.has(key)) sparklineMap.set(key, sparklineMap.get(key) + fee);
+    if (key === todayKey) {
+      todayTotal += fee;
+      todayCount += 1;
+    }
     return {
       id: row.id,
       tracking_number: row.tracking_number,
@@ -72,6 +85,8 @@ export async function handler(event) {
     data: {
       weekly_total: weeklyTotal,
       delivery_count: breakdown.length,
+      today_total: todayTotal,
+      today_count: todayCount,
       breakdown,
       sparkline,
       available_balance: Number(summary?.available_balance || 0),

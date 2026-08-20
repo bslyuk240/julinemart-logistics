@@ -33,7 +33,7 @@ Status legend: ✅ done · 🟡 partial / reduced scope · ⬜ not started · �
 | 13 | Wallet (pending/available/withdrawn, backend-authoritative) | ✅ | `rider_earnings_summary` view + `available_balance`, built earlier this session. |
 | 14 | Commission Transparency (fare / bonus / deduction / net breakdown shown to rider) | ⬜ | Not started. Backend (`rider-jobs.js`, `rider-earnings.js`) only exposes a single final `fee`/`rider_payout` number — the underlying commission math exists (two-rate-lookup mechanism, see [rider-commission-design.md](rider-commission-design.md) §4) but there's no fare/bonus/deduction line-item breakdown to surface. |
 | 15 | Withdrawal System (states: requested/processing/paid/failed/cancelled) | 🟡 | Built earlier this session — `rider_withdrawals` table, `rider-withdrawals.js`, Earnings.tsx UI. States are `pending/approved/rejected/paid`, not an exact match to the brief's naming — functionally equivalent, not renamed. |
-| 16 | Editable Profile (phone/address/vehicle/operating info editable; sensitive/KYC changes go through a pending-verification state) | 🟡 | Bank details done this pattern (`pending_bank_*` fields, staff approve/reject). Phone, vehicle, address are **not yet editable** at all. |
+| 16 | Editable Profile (phone/address/vehicle/operating info editable; sensitive/KYC changes go through a pending-verification state) | 🟡 | Phone is now an instant self-edit (low risk — just a contact detail). Vehicle type/plate now follows the exact same pending-review pattern as bank details (`pending_vehicle_type`/`pending_vehicle_plate`/`pending_vehicle_requested_at`, staff approve/reject in `rider-approve.js`, surfaced on `admin-rider-list.js`/`Riders.tsx` desktop+mobile) — it's a KYC-verified fact (what the rider was approved to ride), same reasoning as why bank details can't be an instant edit. Verified live: submitted a real vehicle-change request, confirmed the pending-review banner rendered correctly with the original vehicle still active, then cleaned up the test data. **Still not editable, and not planned to be:** operating-zone/`approved_location_id` — that's a staff-assigned coverage area, not a rider self-service field, and there's no "address" concept for riders in this data model to begin with. |
 
 ## P1
 
@@ -111,3 +111,8 @@ optimization. Not started, not planned until P0/P1 are done.
     pickup/dropoff resolution logic into a shared `services/shipmentSummary.js` rather than
     duplicating it for the detail endpoint. Verified live: active-item tap correctly redirected,
     detail endpoint returned the full correct shape via a direct authenticated request.
+12. Editable Profile (#16): phone is now an instant self-edit; vehicle type/plate now follows the
+    same pending-review pattern as bank details, end to end (rider request → admin approve/reject
+    on both desktop and mobile Riders.tsx → takes effect). Verified live: submitted a real
+    vehicle-change request, confirmed the pending banner and unchanged current values, cleaned up
+    the test row afterward.

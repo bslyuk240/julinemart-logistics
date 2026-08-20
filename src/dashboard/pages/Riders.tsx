@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { Banknote, Bike, CheckCircle, Pause, Play, RefreshCw, Search, Wifi, WifiOff, XCircle } from 'lucide-react';
+import { Banknote, Bike, CheckCircle, Pause, Play, RefreshCw, Search, Truck, Wifi, WifiOff, XCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 
@@ -23,6 +23,11 @@ type Rider = {
     bank_name: string;
     bank_account_number: string;
     bank_account_name: string;
+    requested_at: string;
+  } | null;
+  pending_vehicle_change: {
+    vehicle_type: string;
+    vehicle_plate: string;
     requested_at: string;
   } | null;
 };
@@ -78,7 +83,7 @@ export default function RidersPage() {
 
   const runAction = async (
     rider: Rider,
-    action: 'suspend' | 'reactivate' | 'approve_bank_change' | 'reject_bank_change'
+    action: 'suspend' | 'reactivate' | 'approve_bank_change' | 'reject_bank_change' | 'approve_vehicle_change' | 'reject_vehicle_change'
   ) => {
     if (!session?.access_token) return;
     let reject_reason: string | undefined;
@@ -90,6 +95,12 @@ export default function RidersPage() {
     if (action === 'approve_bank_change') {
       const ok = window.confirm(
         `Update ${rider.full_name}'s payout account to ${rider.pending_bank_change?.bank_name} · ${rider.pending_bank_change?.bank_account_number}?`
+      );
+      if (!ok) return;
+    }
+    if (action === 'approve_vehicle_change') {
+      const ok = window.confirm(
+        `Update ${rider.full_name}'s vehicle to ${rider.pending_vehicle_change?.vehicle_type} · ${rider.pending_vehicle_change?.vehicle_plate}?`
       );
       if (!ok) return;
     }
@@ -286,6 +297,43 @@ export default function RidersPage() {
                               type="button"
                               disabled={actioning === r.id}
                               onClick={() => runAction(r, 'reject_bank_change')}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700 disabled:opacity-50"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {r.pending_vehicle_change && (
+                    <tr className="border-t bg-amber-50/60">
+                      <td colSpan={8} className="px-4 py-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <span className="inline-flex items-center gap-2 text-xs text-amber-900 capitalize">
+                            <Truck className="w-3.5 h-3.5 shrink-0" />
+                            Requested vehicle change: {r.pending_vehicle_change.vehicle_type} · {r.pending_vehicle_change.vehicle_plate}
+                            {r.pending_vehicle_change.requested_at && (
+                              <span className="text-amber-700 normal-case">
+                                ({new Date(r.pending_vehicle_change.requested_at).toLocaleDateString()})
+                              </span>
+                            )}
+                          </span>
+                          <div className="flex gap-2 shrink-0">
+                            <button
+                              type="button"
+                              disabled={actioning === r.id}
+                              onClick={() => runAction(r, 'approve_vehicle_change')}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-green-700 hover:text-green-800 disabled:opacity-50"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              disabled={actioning === r.id}
+                              onClick={() => runAction(r, 'reject_vehicle_change')}
                               className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700 disabled:opacity-50"
                             >
                               <XCircle className="w-3.5 h-3.5" />

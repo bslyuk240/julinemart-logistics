@@ -172,6 +172,12 @@ export type PendingBankChange = {
   requested_at: string;
 };
 
+export type PendingVehicleChange = {
+  vehicle_type: string;
+  vehicle_plate: string;
+  requested_at: string;
+};
+
 export type RiderProfile = {
   full_name: string;
   email: string;
@@ -189,6 +195,7 @@ export type RiderProfile = {
   bank_account_number: string | null;
   bank_account_name: string | null;
   pending_bank_change: PendingBankChange | null;
+  pending_vehicle_change: PendingVehicleChange | null;
 };
 
 export type RiderStatus = 'pending_review' | 'active' | 'rejected' | 'suspended';
@@ -242,7 +249,14 @@ export const api = {
   requestBankChange: (bank_name: string, bank_account_number: string, bank_account_name: string) =>
     request<void>('rider-profile-update', {
       method: 'POST',
-      body: JSON.stringify({ bank_name, bank_account_number, bank_account_name }),
+      body: JSON.stringify({ field: 'bank', bank_name, bank_account_number, bank_account_name }),
+    }),
+  updatePhone: (phone: string) =>
+    request<void>('rider-profile-update', { method: 'POST', body: JSON.stringify({ field: 'phone', phone }) }),
+  requestVehicleChange: (vehicle_type: string, vehicle_plate: string) =>
+    request<void>('rider-profile-update', {
+      method: 'POST',
+      body: JSON.stringify({ field: 'vehicle', vehicle_type, vehicle_plate }),
     }),
   registerPushToken: (fcm_token: string) =>
     request<{ success: boolean }>('rider-register-push', { method: 'POST', body: JSON.stringify({ fcm_token }) }),

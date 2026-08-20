@@ -30,16 +30,25 @@ export async function handler(event) {
   if (!rider_id || !action) {
     return jsonResponse(400, { success: false, error: 'rider_id and action required' });
   }
-  if (!['approve', 'reject', 'suspend', 'reactivate', 'approve_bank_change', 'reject_bank_change'].includes(action)) {
-    return jsonResponse(400, {
-      success: false,
-      error: 'action must be approve, reject, suspend, reactivate, approve_bank_change, or reject_bank_change',
-    });
+  const ACTIONS = [
+    'approve',
+    'reject',
+    'suspend',
+    'reactivate',
+    'approve_bank_change',
+    'reject_bank_change',
+    'approve_vehicle_change',
+    'reject_vehicle_change',
+  ];
+  if (!ACTIONS.includes(action)) {
+    return jsonResponse(400, { success: false, error: `action must be one of: ${ACTIONS.join(', ')}` });
   }
 
   const { data: rider, error: riderErr } = await adminClient
     .from('riders')
-    .select('id, full_name, email, status, pending_bank_name, pending_bank_account_number, pending_bank_account_name')
+    .select(
+      'id, full_name, email, status, pending_bank_name, pending_bank_account_number, pending_bank_account_name, pending_vehicle_type, pending_vehicle_plate'
+    )
     .eq('id', rider_id)
     .maybeSingle();
 
@@ -57,6 +66,9 @@ export async function handler(event) {
   }
   if (['approve_bank_change', 'reject_bank_change'].includes(action) && !rider.pending_bank_name) {
     return jsonResponse(409, { success: false, error: 'This rider has no pending bank-detail change' });
+  }
+  if (['approve_vehicle_change', 'reject_vehicle_change'].includes(action) && !rider.pending_vehicle_type) {
+    return jsonResponse(409, { success: false, error: 'This rider has no pending vehicle change' });
   }
 
   if (action === 'suspend') {
@@ -162,6 +174,52 @@ export async function handler(event) {
     });
 
     return jsonResponse(200, { success: true, message: 'Bank change request rejected' });
+  }
+
+  if (action === 'approve_vehicle_change') {
+    const { error: updErr } = await adminClient
+      .from('riders')
+      .update({
+        vehicle_type: rider.pending_vehicle_type,
+        vehicle_plate: rider.pending_vehicle_plate,
+        pending_vehicle_type: null,
+        pending_vehicle_plate: null,
+        pending_vehicle_requested_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', rider_id);
+    if (updErr) return jsonResponse(500, { success: false, error: updErr.message });
+
+    await recordStaffAudit(event, authUser, {
+      action: 'RIDER_VEHICLE_CHANGE_APPROVED',
+      resource_type: 'riders',
+      resource_id: rider_id,
+      details: { full_name: rider.full_name, email: rider.email, vehicle_type: rider.pending_vehicle_type, vehicle_plate: rider.pending_vehicle_plate },
+    });
+
+    return jsonResponse(200, { success: true, message: `Vehicle details updated for ${rider.full_name}` });
+  }
+
+  if (action === 'reject_vehicle_change') {
+    const { error: updErr } = await adminClient
+      .from('riders')
+      .update({
+        pending_vehicle_type: null,
+        pending_vehicle_plate: null,
+        pending_vehicle_requested_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', rider_id);
+    if (updErr) return jsonResponse(500, { success: false, error: updErr.message });
+
+    await recordStaffAudit(event, authUser, {
+      action: 'RIDER_VEHICLE_CHANGE_REJECTED',
+      resource_type: 'riders',
+      resource_id: rider_id,
+      details: { full_name: rider.full_name, email: rider.email, reason: reject_reason || null },
+    });
+
+    return jsonResponse(200, { success: true, message: 'Vehicle change request rejected' });
   }
 
   const { error: updErr } = await adminClient

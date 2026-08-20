@@ -19,6 +19,7 @@ export async function handler(event) {
        status, selfie_url, selfie_captured_at, created_at,
        bank_name, bank_account_number, bank_account_name,
        pending_bank_name, pending_bank_account_number, pending_bank_account_name, pending_bank_requested_at,
+       pending_vehicle_type, pending_vehicle_plate, pending_vehicle_requested_at,
        approved_vendor_locations ( city, state )`
     )
     .eq('id', rider.id)
@@ -51,6 +52,13 @@ export async function handler(event) {
             bank_account_number: full.pending_bank_account_number,
             bank_account_name: full.pending_bank_account_name,
             requested_at: full.pending_bank_requested_at,
+          }
+        : null,
+      pending_vehicle_change: full.pending_vehicle_type
+        ? {
+            vehicle_type: full.pending_vehicle_type,
+            vehicle_plate: full.pending_vehicle_plate,
+            requested_at: full.pending_vehicle_requested_at,
           }
         : null,
       town: full.approved_vendor_locations

@@ -18,6 +18,7 @@ const SELECT = `
   approved_location_id, status, is_online, last_online_at,
   created_at, approved_at,
   pending_bank_name, pending_bank_account_number, pending_bank_account_name, pending_bank_requested_at,
+  pending_vehicle_type, pending_vehicle_plate, pending_vehicle_requested_at,
   approved_vendor_locations ( city, state )
 `;
 
@@ -75,13 +76,21 @@ export async function handler(event) {
           requested_at: r.pending_bank_requested_at,
         }
       : null,
+    pending_vehicle_change: r.pending_vehicle_type
+      ? {
+          vehicle_type: r.pending_vehicle_type,
+          vehicle_plate: r.pending_vehicle_plate,
+          requested_at: r.pending_vehicle_requested_at,
+        }
+      : null,
   }));
 
-  const stats = { pending_review: 0, active: 0, suspended: 0, rejected: 0, online: 0, pending_bank_change: 0 };
+  const stats = { pending_review: 0, active: 0, suspended: 0, rejected: 0, online: 0, pending_bank_change: 0, pending_vehicle_change: 0 };
   for (const r of data) {
     if (r.status in stats) stats[r.status] += 1;
     if (r.is_online) stats.online += 1;
     if (r.pending_bank_change) stats.pending_bank_change += 1;
+    if (r.pending_vehicle_change) stats.pending_vehicle_change += 1;
   }
 
   return jsonResponse(200, { success: true, data, stats });

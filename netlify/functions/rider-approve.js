@@ -30,13 +30,16 @@ export async function handler(event) {
   if (!rider_id || !action) {
     return jsonResponse(400, { success: false, error: 'rider_id and action required' });
   }
-  if (!['approve', 'reject', 'suspend', 'reactivate'].includes(action)) {
-    return jsonResponse(400, { success: false, error: 'action must be approve, reject, suspend, or reactivate' });
+  if (!['approve', 'reject', 'suspend', 'reactivate', 'approve_bank_change', 'reject_bank_change'].includes(action)) {
+    return jsonResponse(400, {
+      success: false,
+      error: 'action must be approve, reject, suspend, reactivate, approve_bank_change, or reject_bank_change',
+    });
   }
 
   const { data: rider, error: riderErr } = await adminClient
     .from('riders')
-    .select('id, full_name, email, status')
+    .select('id, full_name, email, status, pending_bank_name, pending_bank_account_number, pending_bank_account_name')
     .eq('id', rider_id)
     .maybeSingle();
 
@@ -51,6 +54,9 @@ export async function handler(event) {
   }
   if (action === 'reactivate' && rider.status !== 'suspended') {
     return jsonResponse(409, { success: false, error: `Only a suspended rider can be reactivated (currently ${rider.status})` });
+  }
+  if (['approve_bank_change', 'reject_bank_change'].includes(action) && !rider.pending_bank_name) {
+    return jsonResponse(409, { success: false, error: 'This rider has no pending bank-detail change' });
   }
 
   if (action === 'suspend') {
@@ -107,6 +113,55 @@ export async function handler(event) {
     });
 
     return jsonResponse(200, { success: true, message: 'Application rejected' });
+  }
+
+  if (action === 'approve_bank_change') {
+    const { error: updErr } = await adminClient
+      .from('riders')
+      .update({
+        bank_name: rider.pending_bank_name,
+        bank_account_number: rider.pending_bank_account_number,
+        bank_account_name: rider.pending_bank_account_name,
+        pending_bank_name: null,
+        pending_bank_account_number: null,
+        pending_bank_account_name: null,
+        pending_bank_requested_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', rider_id);
+    if (updErr) return jsonResponse(500, { success: false, error: updErr.message });
+
+    await recordStaffAudit(event, authUser, {
+      action: 'RIDER_BANK_CHANGE_APPROVED',
+      resource_type: 'riders',
+      resource_id: rider_id,
+      details: { full_name: rider.full_name, email: rider.email, bank_name: rider.pending_bank_name },
+    });
+
+    return jsonResponse(200, { success: true, message: `Payout account updated for ${rider.full_name}` });
+  }
+
+  if (action === 'reject_bank_change') {
+    const { error: updErr } = await adminClient
+      .from('riders')
+      .update({
+        pending_bank_name: null,
+        pending_bank_account_number: null,
+        pending_bank_account_name: null,
+        pending_bank_requested_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', rider_id);
+    if (updErr) return jsonResponse(500, { success: false, error: updErr.message });
+
+    await recordStaffAudit(event, authUser, {
+      action: 'RIDER_BANK_CHANGE_REJECTED',
+      resource_type: 'riders',
+      resource_id: rider_id,
+      details: { full_name: rider.full_name, email: rider.email, reason: reject_reason || null },
+    });
+
+    return jsonResponse(200, { success: true, message: 'Bank change request rejected' });
   }
 
   const { error: updErr } = await adminClient

@@ -17,6 +17,8 @@ export async function handler(event) {
     .select(
       `full_name, email, phone, vehicle_type, vehicle_plate, guarantor_name, guarantor_phone,
        status, selfie_url, selfie_captured_at, created_at,
+       bank_name, bank_account_number, bank_account_name,
+       pending_bank_name, pending_bank_account_number, pending_bank_account_name, pending_bank_requested_at,
        approved_vendor_locations ( city, state )`
     )
     .eq('id', rider.id)
@@ -40,6 +42,17 @@ export async function handler(event) {
       selfie_url: full.selfie_url,
       selfie_captured_at: full.selfie_captured_at,
       member_since: full.created_at,
+      bank_name: full.bank_name,
+      bank_account_number: full.bank_account_number,
+      bank_account_name: full.bank_account_name,
+      pending_bank_change: full.pending_bank_name
+        ? {
+            bank_name: full.pending_bank_name,
+            bank_account_number: full.pending_bank_account_number,
+            bank_account_name: full.pending_bank_account_name,
+            requested_at: full.pending_bank_requested_at,
+          }
+        : null,
       town: full.approved_vendor_locations
         ? [full.approved_vendor_locations.city, full.approved_vendor_locations.state].filter(Boolean).join(', ')
         : null,

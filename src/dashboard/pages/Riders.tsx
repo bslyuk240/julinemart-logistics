@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bike, CheckCircle, Pause, Play, RefreshCw, Search, Wifi, WifiOff, XCircle } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Banknote, Bike, CheckCircle, Pause, Play, RefreshCw, Search, Wifi, WifiOff, XCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 
@@ -19,6 +19,12 @@ type Rider = {
   approved_at: string | null;
   area: { city: string; state: string } | null;
   current_job: { status: string; tracking_number: string | null } | null;
+  pending_bank_change: {
+    bank_name: string;
+    bank_account_number: string;
+    bank_account_name: string;
+    requested_at: string;
+  } | null;
 };
 
 const STATUS_FILTERS = [
@@ -70,13 +76,22 @@ export default function RidersPage() {
     return () => clearTimeout(t);
   }, [load, search]);
 
-  const runAction = async (rider: Rider, action: 'suspend' | 'reactivate') => {
+  const runAction = async (
+    rider: Rider,
+    action: 'suspend' | 'reactivate' | 'approve_bank_change' | 'reject_bank_change'
+  ) => {
     if (!session?.access_token) return;
     let reject_reason: string | undefined;
     if (action === 'suspend') {
       const reason = window.prompt(`Reason for suspending ${rider.full_name}? (optional)`);
       if (reason === null) return; // cancelled
       reject_reason = reason || undefined;
+    }
+    if (action === 'approve_bank_change') {
+      const ok = window.confirm(
+        `Update ${rider.full_name}'s payout account to ${rider.pending_bank_change?.bank_name} · ${rider.pending_bank_change?.bank_account_number}?`
+      );
+      if (!ok) return;
     }
     setActioning(rider.id);
     try {
@@ -87,7 +102,7 @@ export default function RidersPage() {
       });
       const payload = await res.json();
       if (!res.ok || !payload.success) throw new Error(payload?.error || 'Action failed');
-      notification.success(action === 'suspend' ? 'Rider suspended' : 'Rider reactivated');
+      notification.success(payload.message || 'Done');
       await load();
     } catch (err) {
       notification.error(err instanceof Error ? err.message : 'Action failed');
@@ -180,7 +195,8 @@ export default function RidersPage() {
                 </tr>
               ) : (
                 rows.map((r) => (
-                  <tr key={r.id} className="border-t">
+                  <Fragment key={r.id}>
+                  <tr className="border-t">
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-900">{r.full_name}</div>
                       <div className="text-xs text-gray-500">{r.email} · {r.phone}</div>
@@ -243,6 +259,44 @@ export default function RidersPage() {
                       )}
                     </td>
                   </tr>
+                  {r.pending_bank_change && (
+                    <tr className="border-t bg-amber-50/60">
+                      <td colSpan={8} className="px-4 py-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <span className="inline-flex items-center gap-2 text-xs text-amber-900">
+                            <Banknote className="w-3.5 h-3.5 shrink-0" />
+                            Requested payout account change: {r.pending_bank_change.bank_name} · {r.pending_bank_change.bank_account_number} · {r.pending_bank_change.bank_account_name}
+                            {r.pending_bank_change.requested_at && (
+                              <span className="text-amber-700">
+                                ({new Date(r.pending_bank_change.requested_at).toLocaleDateString()})
+                              </span>
+                            )}
+                          </span>
+                          <div className="flex gap-2 shrink-0">
+                            <button
+                              type="button"
+                              disabled={actioning === r.id}
+                              onClick={() => runAction(r, 'approve_bank_change')}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-green-700 hover:text-green-800 disabled:opacity-50"
+                            >
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              disabled={actioning === r.id}
+                              onClick={() => runAction(r, 'reject_bank_change')}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-700 disabled:opacity-50"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))
               )}
             </tbody>

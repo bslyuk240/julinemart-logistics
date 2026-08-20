@@ -17,6 +17,7 @@ const SELECT = `
   vehicle_type, vehicle_plate,
   approved_location_id, status, is_online, last_online_at,
   created_at, approved_at,
+  pending_bank_name, pending_bank_account_number, pending_bank_account_name, pending_bank_requested_at,
   approved_vendor_locations ( city, state )
 `;
 
@@ -66,12 +67,21 @@ export async function handler(event) {
     approved_at: r.approved_at,
     area: r.approved_vendor_locations ? { city: r.approved_vendor_locations.city, state: r.approved_vendor_locations.state } : null,
     current_job: currentJobByRider.get(r.id) || null,
+    pending_bank_change: r.pending_bank_name
+      ? {
+          bank_name: r.pending_bank_name,
+          bank_account_number: r.pending_bank_account_number,
+          bank_account_name: r.pending_bank_account_name,
+          requested_at: r.pending_bank_requested_at,
+        }
+      : null,
   }));
 
-  const stats = { pending_review: 0, active: 0, suspended: 0, rejected: 0, online: 0 };
+  const stats = { pending_review: 0, active: 0, suspended: 0, rejected: 0, online: 0, pending_bank_change: 0 };
   for (const r of data) {
     if (r.status in stats) stats[r.status] += 1;
     if (r.is_online) stats.online += 1;
+    if (r.pending_bank_change) stats.pending_bank_change += 1;
   }
 
   return jsonResponse(200, { success: true, data, stats });

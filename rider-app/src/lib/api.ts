@@ -96,6 +96,13 @@ export type EarningsResponse = {
   sparkline: { date: string; amount: number }[];
 };
 
+export type PendingBankChange = {
+  bank_name: string;
+  bank_account_number: string;
+  bank_account_name: string;
+  requested_at: string;
+};
+
 export type RiderProfile = {
   full_name: string;
   email: string;
@@ -109,6 +116,10 @@ export type RiderProfile = {
   selfie_captured_at: string | null;
   member_since: string;
   town: string | null;
+  bank_name: string | null;
+  bank_account_number: string | null;
+  bank_account_name: string | null;
+  pending_bank_change: PendingBankChange | null;
 };
 
 export const api = {
@@ -143,6 +154,11 @@ export const api = {
     request<void>('rider-location-ping', { method: 'POST', body: JSON.stringify({ lat, lng, accuracy }) }),
   getEarnings: () => request<EarningsResponse>('rider-earnings'),
   getProfile: () => request<RiderProfile>('rider-profile'),
+  requestBankChange: (bank_name: string, bank_account_number: string, bank_account_name: string) =>
+    request<void>('rider-profile-update', {
+      method: 'POST',
+      body: JSON.stringify({ bank_name, bank_account_number, bank_account_name }),
+    }),
   registerPushToken: (fcm_token: string) =>
     request<{ success: boolean }>('rider-register-push', { method: 'POST', body: JSON.stringify({ fcm_token }) }),
 };

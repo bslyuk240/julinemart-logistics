@@ -107,6 +107,19 @@ export type JobsResponse = {
   rider_area: { city: string; state: string } | null;
 };
 
+export type ActivityStatusFilter = 'all' | 'active' | 'delivered' | 'failed' | 'returned';
+
+export type ActivityItem = {
+  id: string;
+  tracking_number: string | null;
+  order_number: string | null;
+  status: 'assigned' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'failed' | 'returned';
+  fee: number;
+  customer_name: string | null;
+  dropoff_city: string | null;
+  timestamp: string;
+};
+
 export type EarningsDelivery = {
   id: string;
   tracking_number: string | null;
@@ -202,6 +215,8 @@ export const api = {
   pingLocation: (lat: number, lng: number, accuracy?: number) =>
     request<void>('rider-location-ping', { method: 'POST', body: JSON.stringify({ lat, lng, accuracy }) }),
   getEarnings: () => request<EarningsResponse>('rider-earnings'),
+  getActivity: (status: ActivityStatusFilter = 'all') =>
+    request<ActivityItem[]>(`rider-activity?status=${status}`),
   getWithdrawals: () => request<Withdrawal[]>('rider-withdrawals'),
   requestWithdrawal: (amount: number) =>
     request<Withdrawal>('rider-withdrawals', { method: 'POST', body: JSON.stringify({ amount }) }),

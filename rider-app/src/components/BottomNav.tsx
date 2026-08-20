@@ -1,8 +1,9 @@
 import { NavLink } from 'react-router-dom';
-import { Home, User, Wallet } from 'lucide-react';
+import { Clock, Home, User, Wallet } from 'lucide-react';
 
 const TABS = [
   { to: '/', label: 'Home', icon: Home, end: true },
+  { to: '/activity', label: 'Activity', icon: Clock, end: false },
   { to: '/earnings', label: 'Earnings', icon: Wallet, end: false },
   { to: '/profile', label: 'Profile', icon: User, end: false },
 ];

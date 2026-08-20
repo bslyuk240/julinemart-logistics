@@ -5,6 +5,7 @@ import SignUp from './pages/SignUp';
 import Apply from './pages/Apply';
 import Home from './pages/Home';
 import ActiveDelivery from './pages/ActiveDelivery';
+import Activity from './pages/Activity';
 import Earnings from './pages/Earnings';
 import Profile from './pages/Profile';
 
@@ -39,6 +40,14 @@ function AppRoutes() {
         element={
           <PrivateRoute>
             <ActiveDelivery />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/activity"
+        element={
+          <PrivateRoute>
+            <Activity />
           </PrivateRoute>
         }
       />

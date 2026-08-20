@@ -46,6 +46,7 @@ const MOBILE_NATIVE_PATHS = new Set([
   '/admin/riders',
   '/admin/rider-verifications',
   '/admin/rider-roster',
+  '/admin/delivery-problems',
   '/admin/vendor-campaign-approvals',
   '/admin/gift-fulfilment-centres',
   '/admin/gift-boxes',

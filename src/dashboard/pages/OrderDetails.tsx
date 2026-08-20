@@ -20,6 +20,7 @@ import { supabase } from '../contexts/AuthContext';
 import { buildSupabaseFunctionUrl } from '../utils/supabaseFunctions';
 import { openLabelPrint, openWaybillPrint } from '../lib/waybillPrint';
 import { TrackingTimeline, trackingVariantForShipment } from '../../shared/TrackingTimeline';
+import { ShipmentTrackingEvents } from '../../shared/ShipmentTrackingEvents';
 import RiderPicker from '../components/RiderPicker';
 
 type Identifier = string | number;
@@ -104,6 +105,7 @@ type SubOrder = {
   delivery_person_name?: string | null;
   delivery_person_phone?: string | null;
   delivery_person_vehicle?: string | null;
+  tracking_events?: { status: string; description: string | null; location_name: string | null; event_time: string | null; created_at: string }[];
 };
 
 type ShipmentLane = 'fez' | 'local_rider';
@@ -1301,6 +1303,19 @@ export function OrderDetailsPage() {
                         status={subOrder.status}
                         variant={trackingVariantForShipment({ isLocalRider })}
                       />
+
+                      {subOrder.tracking_events && subOrder.tracking_events.length > 0 && (
+                        <ShipmentTrackingEvents
+                          className="mt-4 !bg-gray-50 border border-gray-100"
+                          title="Tracking events"
+                          events={subOrder.tracking_events.map((e) => ({
+                            status: e.status,
+                            description: e.description,
+                            location: e.location_name,
+                            timestamp: e.event_time || e.created_at,
+                          }))}
+                        />
+                      )}
                     </div>
                   </div>
                 )}

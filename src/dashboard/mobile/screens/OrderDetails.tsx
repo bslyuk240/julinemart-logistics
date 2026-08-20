@@ -18,6 +18,7 @@ import { supabase } from '../../contexts/AuthContext';
 import { buildSupabaseFunctionUrl } from '../../utils/supabaseFunctions';
 import { openLabelPrint, openWaybillPrint } from '../../lib/waybillPrint';
 import { ContactSection, DetailRow, SectionLabel } from '../components/MobileDetailParts';
+import { ShipmentTrackingEvents } from '../../../shared/ShipmentTrackingEvents';
 import RiderPicker from '../../components/RiderPicker';
 import { Sheet } from '../Sheet';
 import { TABBAR_SPACE } from '../lib/functionsAuth';
@@ -75,6 +76,7 @@ type SubOrder = {
   delivery_person_name?: string | null;
   delivery_person_phone?: string | null;
   delivery_person_vehicle?: string | null;
+  tracking_events?: { status: string; description: string | null; location_name: string | null; event_time: string | null; created_at: string }[];
 };
 
 type Order = {
@@ -596,6 +598,19 @@ export default function MobileOrderDetails() {
                     </div>
                   ))}
                 </div>
+
+                {subOrder.tracking_events && subOrder.tracking_events.length > 0 && (
+                  <ShipmentTrackingEvents
+                    className="mt-3 !bg-gray-50 border border-gray-100"
+                    title="Tracking events"
+                    events={subOrder.tracking_events.map((e) => ({
+                      status: e.status,
+                      description: e.description,
+                      location: e.location_name,
+                      timestamp: e.event_time || e.created_at,
+                    }))}
+                  />
+                )}
               </div>
             )}
 

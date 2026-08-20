@@ -7,6 +7,7 @@ import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
 import { insertTrackingEvent, mapFezStatus } from './services/fezTracking.js';
 import { notifyManualShipmentCourierStatus } from './services/manualShipmentNotify.js';
+import { checkRateLimit } from './services/rate-limit.js';
 import {
   buildOrderDeepLink,
   extractCustomerIdFromOrder,
@@ -105,6 +106,21 @@ exports.handler = async (event) => {
       body: JSON.stringify({ success: false, error: 'Method not allowed' }),
     };
   }
+
+  // NOTE: this only rate-limits by IP — it does not verify the request
+  // actually came from Fez. Unlike paystack-webhook.js (which checks
+  // x-paystack-signature), there's no signature/secret verification here,
+  // so anyone who finds this URL can currently POST a fake status update
+  // that gets trusted as genuine. Fez's webhook delivery would need to
+  // support a signing header or a shared secret for a real fix — flagging
+  // this rather than silently treating the rate limit as sufficient.
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'fez-webhook',
+    max: 60,
+    window: '1 m',
+    retryAfterSeconds: 60,
+  });
+  if (limited) return response;
 
   try {
     const webhookData = JSON.parse(event.body || '{}');

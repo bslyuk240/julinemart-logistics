@@ -8,6 +8,7 @@
  * No location history is kept, just the rider's last-known position.
  */
 import { requireActiveRider, jsonResponse, headers } from './services/requireRider.js';
+import { checkRateLimit } from './services/rate-limit.js';
 
 function isAccepted(metadata) {
   return Boolean(metadata && typeof metadata === 'object' && metadata.rider_accepted_at);
@@ -16,6 +17,16 @@ function isAccepted(metadata) {
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
   if (event.httpMethod !== 'POST') return jsonResponse(405, { success: false, error: 'Method not allowed' });
+
+  // Client throttles GPS pings to at most one per 20s (ActiveDelivery.tsx),
+  // so ~3/min under normal use — this caps well above that, only against abuse.
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'rider-location-ping',
+    max: 10,
+    window: '1 m',
+    retryAfterSeconds: 60,
+  });
+  if (limited) return response;
 
   const session = await requireActiveRider(event);
   if (session.errorResponse) return session.errorResponse;

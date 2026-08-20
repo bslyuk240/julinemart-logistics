@@ -25,6 +25,7 @@ import {
   mergeGlobalSourcingMetadata,
   extractGlobalSourcingFromSupabaseMeta,
 } from './services/global-sourcing-utils.js';
+import { checkRateLimit } from './services/rate-limit.js';
 // CJ auto-ordering removed — supplier orders are placed manually via Global Sourcing → Inbound Shipments
 import { computeInfluencerShippingDiscount } from './services/influencer-order-sale.js';
 import {
@@ -56,6 +57,14 @@ export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
   if (event.httpMethod !== 'POST') return jsonResponse(405, { error: 'Method not allowed' });
   if (!adminClient) return jsonResponse(503, { error: 'Database not configured' });
+
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'create-order',
+    max: 8,
+    window: '5 m',
+    retryAfterSeconds: 300,
+  });
+  if (limited) return response;
 
   let body;
   try { body = JSON.parse(event.body || '{}'); }

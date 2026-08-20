@@ -4,6 +4,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { authenticateCustomer } from './services/customerAuth.js';
+import { checkRateLimit } from './services/rate-limit.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
@@ -45,6 +46,14 @@ export async function handler(event) {
       body: JSON.stringify({ success: false, error: 'Method not allowed' }),
     };
   }
+
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'customer-purchases',
+    max: 20,
+    window: '5 m',
+    retryAfterSeconds: 300,
+  });
+  if (limited) return response;
 
   try {
     const { email, error: authError } = await authenticateCustomer(event);

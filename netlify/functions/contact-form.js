@@ -7,6 +7,7 @@
  */
 import nodemailer from 'nodemailer';
 import { corsHeaders, preflightResponse } from './services/cors.js';
+import { checkRateLimit } from './services/rate-limit.js';
 
 function buildTransport() {
   const host = process.env.SMTP_HOST;
@@ -34,6 +35,14 @@ export async function handler(event) {
       body: JSON.stringify({ success: false, error: 'Method not allowed' }),
     };
   }
+
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'contact-form',
+    max: 5,
+    window: '10 m',
+    retryAfterSeconds: 600,
+  });
+  if (limited) return { ...response, headers: { ...response.headers, ...corsHeaders(origin) } };
 
   let body = {};
   try {

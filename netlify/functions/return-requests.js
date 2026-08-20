@@ -1,6 +1,7 @@
 // Create return requests via Netlify function
 
 import { createClient } from '@supabase/supabase-js';
+import { checkRateLimit } from './services/rate-limit.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
@@ -31,6 +32,14 @@ export async function handler(event) {
         body: JSON.stringify({ success: false, error: `${event.httpMethod} not supported` }),
       };
     }
+
+    const { limited, response } = await checkRateLimit(event, {
+      name: 'return-requests',
+      max: 10,
+      window: '10 m',
+      retryAfterSeconds: 600,
+    });
+    if (limited) return response;
 
     const body = event.body ? JSON.parse(event.body) : {};
     const { woo_order_id, order_id, reason, status } = body;

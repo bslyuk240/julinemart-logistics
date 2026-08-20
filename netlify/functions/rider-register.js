@@ -18,6 +18,7 @@
  * pending_review for re-review rather than leaving it stuck rejected.
  */
 import { verifySession, jsonResponse, headers } from './services/requireRider.js';
+import { checkRateLimit } from './services/rate-limit.js';
 
 const REQUIRED_FIELDS = [
   'full_name',
@@ -37,6 +38,14 @@ const VEHICLE_TYPES = ['okada', 'keke', 'car', 'foot'];
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
   if (event.httpMethod !== 'POST') return jsonResponse(405, { success: false, error: 'Method not allowed' });
+
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'rider-register',
+    max: 5,
+    window: '10 m',
+    retryAfterSeconds: 600,
+  });
+  if (limited) return response;
 
   const session = await verifySession(event);
   if (session.errorResponse) return session.errorResponse;

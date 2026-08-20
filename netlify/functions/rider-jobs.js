@@ -1,4 +1,5 @@
 import { requireActiveRider, jsonResponse, headers } from './services/requireRider.js';
+import { checkRateLimit } from './services/rate-limit.js';
 import { resolveSender } from './services/resolveSender.js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
 import {
@@ -497,6 +498,15 @@ async function handlePost(rider, adminClient, body) {
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
+
+  // Home.tsx polls GET every 45s (~1.3/min); POST actions are user-driven taps.
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'rider-jobs',
+    max: 20,
+    window: '1 m',
+    retryAfterSeconds: 60,
+  });
+  if (limited) return response;
 
   const session = await requireActiveRider(event);
   if (session.errorResponse) return session.errorResponse;

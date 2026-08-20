@@ -10,6 +10,7 @@ import {
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { createClient } from '@supabase/supabase-js';
+import { checkRateLimit } from './services/rate-limit.js';
 
 const adminClient = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -26,6 +27,14 @@ export async function handler(event) {
       body: JSON.stringify({ success: false, error: 'Method not allowed' })
     };
   }
+
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'returns-create',
+    max: 10,
+    window: '10 m',
+    retryAfterSeconds: 600,
+  });
+  if (limited) return { ...response, headers: { ...response.headers, ...corsHeaders() } };
 
   try {
     const body = event.body ? JSON.parse(event.body) : {};

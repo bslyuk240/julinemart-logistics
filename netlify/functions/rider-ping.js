@@ -8,6 +8,7 @@
  * GET /api/rider-ping?device_id=...
  */
 import { requireActiveRider, jsonResponse, headers } from './services/requireRider.js';
+import { checkRateLimit } from './services/rate-limit.js';
 
 async function flagIfNewDevice(adminClient, rider, deviceId, userAgent) {
   if (!deviceId) return;
@@ -34,6 +35,14 @@ async function flagIfNewDevice(adminClient, rider, deviceId, userAgent) {
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
   if (event.httpMethod !== 'GET') return jsonResponse(405, { success: false, error: 'Method not allowed' });
+
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'rider-ping',
+    max: 20,
+    window: '1 m',
+    retryAfterSeconds: 60,
+  });
+  if (limited) return response;
 
   const auth = await requireActiveRider(event);
   if (auth.errorResponse) return auth.errorResponse;

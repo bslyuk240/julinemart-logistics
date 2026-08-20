@@ -2,6 +2,7 @@
 // Location: /netlify/functions/helpers/voucherHelpers.js
 
 import { createClient } from '@supabase/supabase-js';
+import { checkRateLimit } from '../services/rate-limit.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE_KEY =
@@ -380,6 +381,14 @@ export async function handler(event) {
       body: JSON.stringify({ success: false, error: 'Supabase not configured' }),
     };
   }
+
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'voucher-validate',
+    max: 20,
+    window: '5 m',
+    retryAfterSeconds: 300,
+  });
+  if (limited) return { ...response, headers: { ...response.headers, ...headers } };
 
   let payload = {};
   try {

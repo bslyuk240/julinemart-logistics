@@ -3,6 +3,7 @@
 // GET ?email=...&order_id=... → single order + order_items
 
 import { createClient } from '@supabase/supabase-js';
+import { checkRateLimit } from './services/rate-limit.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
@@ -27,6 +28,14 @@ export async function handler(event) {
       body: JSON.stringify({ success: false, error: 'Method not allowed' }),
     };
   }
+
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'customer-orders',
+    max: 15,
+    window: '5 m',
+    retryAfterSeconds: 300,
+  });
+  if (limited) return response;
 
   try {
     const qs = event.queryStringParameters || {};

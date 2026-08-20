@@ -6,6 +6,7 @@
  */
 
 import { adminClient } from './services/global-sourcing-utils.js';
+import { checkRateLimit } from './services/rate-limit.js';
 
 const corsHeaders = {
   'Content-Type': 'application/json',
@@ -25,6 +26,14 @@ export async function handler(event) {
   if (!adminClient) {
     return { statusCode: 503, headers: corsHeaders, body: JSON.stringify({ success: false, error: 'Database not configured' }) };
   }
+
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'track-order',
+    max: 15,
+    window: '5 m',
+    retryAfterSeconds: 300,
+  });
+  if (limited) return response;
 
   if (!orderNumber || !email) {
     return {

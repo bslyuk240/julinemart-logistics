@@ -8,10 +8,19 @@
  * by rider-online.js's freshness window.
  */
 import { requireActiveRider, jsonResponse, headers } from './services/requireRider.js';
+import { checkRateLimit } from './services/rate-limit.js';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
   if (event.httpMethod !== 'POST') return jsonResponse(405, { success: false, error: 'Method not allowed' });
+
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'rider-selfie-checkin',
+    max: 5,
+    window: '10 m',
+    retryAfterSeconds: 600,
+  });
+  if (limited) return response;
 
   const session = await requireActiveRider(event);
   if (session.errorResponse) return session.errorResponse;

@@ -1,4 +1,5 @@
 import { requireActiveRider, jsonResponse, headers } from './services/requireRider.js';
+import { checkRateLimit } from './services/rate-limit.js';
 
 // Daily liveness gate — a rider going online more than this long since their
 // last selfie capture must recapture before they're allowed to see jobs.
@@ -7,6 +8,14 @@ const SELFIE_FRESHNESS_MS = 24 * 60 * 60 * 1000;
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
   if (event.httpMethod !== 'POST') return jsonResponse(405, { success: false, error: 'Method not allowed' });
+
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'rider-online',
+    max: 20,
+    window: '1 m',
+    retryAfterSeconds: 60,
+  });
+  if (limited) return response;
 
   const session = await requireActiveRider(event);
   if (session.errorResponse) return session.errorResponse;

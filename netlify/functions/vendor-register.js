@@ -16,6 +16,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 import { sendTransactionalEmail } from './services/emailNotifications.js';
+import { checkRateLimit } from './services/rate-limit.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
@@ -29,6 +30,14 @@ const cors = {
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: cors, body: '' };
   if (event.httpMethod !== 'POST') return { statusCode: 405, headers: cors, body: 'Method Not Allowed' };
+
+  const { limited, response } = await checkRateLimit(event, {
+    name: 'vendor-register',
+    max: 5,
+    window: '10 m',
+    retryAfterSeconds: 600,
+  });
+  if (limited) return response;
 
   const adminClient = createClient(supabaseUrl, serviceKey);
 

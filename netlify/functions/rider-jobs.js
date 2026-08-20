@@ -71,6 +71,7 @@ function summarizeShipment(s, subOrderMap, manualMap) {
     status: s.status,
     accepted: isAccepted(s.metadata),
     delivery_proof_url: s.delivery_proof_url || null,
+    assigned_at: s.created_at,
     picked_up_at: s.picked_up_at,
     out_for_delivery_at: s.out_for_delivery_at,
     delivered_at: s.delivered_at,

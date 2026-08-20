@@ -66,6 +66,7 @@ export type Job = {
   pickup: JobLocation;
   dropoff: JobDropoff;
   delivery_proof_url: string | null;
+  assigned_at: string | null;
   picked_up_at: string | null;
   out_for_delivery_at: string | null;
   delivered_at: string | null;

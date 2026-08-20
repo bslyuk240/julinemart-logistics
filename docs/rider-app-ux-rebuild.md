@@ -22,8 +22,8 @@ Status legend: ✅ done · 🟡 partial / reduced scope · ⬜ not started
 | 3 | Home screen recomposition (Header → Online/Readiness → Active Delivery → Today summary → Offers → Bottom nav) | ✅ | [Home.tsx](../rider-app/src/pages/Home.tsx). Active Delivery card no longer auto-redirects off Home — shows as a card with "Continue Delivery" per mockup. |
 | 4 | Delivery-offer card redesign (earning, distance, package count, job type; broadcast jobs say "Available to nearby riders" not internal terms; 409 → "Another rider accepted this delivery.") | 🟡 | Vendor name, fee, pickup/dropoff city, lock-icon (direct) vs amber badge (broadcast), Decline+Accept both shown. **Missing:** distance and package count — not computed anywhere server-side, didn't fabricate numbers. 409 claim conflicts now translate to friendly text. |
 | 5 | Waybill/custody architecture (Order vs Shipment vs Waybill vs Journey Leg vs Custodian vs Scan Event; scan-on-custody-change, not scan-on-every-status-change) | ⬜ | **Not started — biggest, riskiest item.** Existing QR scanner (`Scanner.tsx`) + server-side validation (`normalizeScanCode`/`scanLookup.js`, `rider-jobs.js`'s `advance` action) must be inspected and extended, not rebuilt, per the brief's explicit instruction. `tracking_events` already has `actor_type`/`source`/`metadata`/`description` that a custody trail could ride on without new columns — not yet confirmed sufficient. |
-| 6 | Active Delivery screen redesign, context-sensitive dynamic CTAs | ⬜ | Not started. Current `ActiveDelivery.tsx` not yet touched this pass. |
-| 7 | External navigation handoff (Google/Apple Maps, Waze intents) | ⬜ | Not started. |
+| 6 | Active Delivery screen redesign, context-sensitive dynamic CTAs | 🟡 | [ActiveDelivery.tsx](../rider-app/src/pages/ActiveDelivery.tsx). Vertical timestamped timeline (Assigned/Package collected/Out for delivery/Delivered — `assigned_at` is a new field, reusing `shipments.created_at` which was already selected but not exposed), From/Deliver-to cards, dynamic CTA label. **Not built:** the mockup's separate "I've Arrived" intermediate tap before Scan/Complete — current flow goes straight from Navigate to Scan/Complete, no local "arrived" sub-state. Report Problem button intentionally omitted — belongs to Delivery Exceptions (#9), didn't want a button that goes nowhere. |
+| 7 | External navigation handoff (Google/Apple Maps, Waze intents) | ✅ | "Navigate to Pickup"/"Navigate to Customer" opens a universal Google Maps directions link (works cross-platform, opens native app if installed). No in-app map, per the brief's own instruction not to build turn-by-turn. |
 | 8 | Proof of Delivery levels (standard / verified / high_value) | ⬜ | Not started. `delivery_proof_url` field already exists (pre-existing). |
 | 9 | Delivery Exceptions (structured incident types, distinct workflow actions) | ⬜ | Not started. |
 | 10 | Return Workflow (delivery_failed → return_required → returning → returned_to_hub/vendor) | ⬜ | Not started. |
@@ -77,3 +77,8 @@ optimization. Not started, not planned until P0/P1 are done.
    `0e618cc`).
 3. Header padding fix + Decline button on broadcast job cards — merged to `main` (commit
    `364a652`).
+4. Build tracker doc added; rider-app dev server port fixed to 5175 (CORS allowlist match) —
+   merged to `main` (commit `74e72a4`).
+5. Active Delivery screen redesign (timestamped timeline, From/Deliver-to cards, external maps
+   navigation) — verified live end-to-end against a real accepted job (timeline, scan-fallback
+   UI all confirmed working) before merge.

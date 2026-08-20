@@ -1,5 +1,6 @@
 /**
  * GET /.netlify/functions/rider-activity?status=all|active|delivered|failed|returned
+ * GET /.netlify/functions/rider-activity?id=<shipment_id>  — single-item detail
  *
  * A rider's full delivery history, not just this week's earnings
  * (rider-earnings.js) or the currently-active job (rider-jobs.js). Separate
@@ -7,6 +8,7 @@
  * no job-assignment actions, just "what has this rider done."
  */
 import { requireActiveRider, jsonResponse, headers } from './services/requireRider.js';
+import { SHIPMENT_LIST_SELECT, fetchSourceDetails, summarizeShipment } from './services/shipmentSummary.js';
 
 const ACTIVE_STATUSES = ['assigned', 'picked_up', 'out_for_delivery'];
 
@@ -27,6 +29,24 @@ export async function handler(event) {
   const session = await requireActiveRider(event);
   if (session.errorResponse) return session.errorResponse;
   const { rider, adminClient } = session;
+
+  const detailId = event.queryStringParameters?.id;
+  if (detailId) {
+    const { data: row, error: rowErr } = await adminClient
+      .from('shipments')
+      .select(SHIPMENT_LIST_SELECT)
+      .eq('id', detailId)
+      .eq('assigned_rider_id', rider.id)
+      .maybeSingle();
+    if (rowErr) return jsonResponse(500, { success: false, error: rowErr.message });
+    if (!row) return jsonResponse(404, { success: false, error: 'Delivery not found' });
+
+    const { subOrderMap, manualMap } = await fetchSourceDetails(adminClient, [row]);
+    const detail = summarizeShipment(row, subOrderMap, manualMap);
+    if (!detail) return jsonResponse(404, { success: false, error: 'Delivery not found' });
+
+    return jsonResponse(200, { success: true, data: detail });
+  }
 
   const statusFilter = (event.queryStringParameters?.status || 'all').toLowerCase();
 

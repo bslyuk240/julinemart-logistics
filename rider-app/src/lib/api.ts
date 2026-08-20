@@ -108,16 +108,33 @@ export type JobsResponse = {
 };
 
 export type ActivityStatusFilter = 'all' | 'active' | 'delivered' | 'failed' | 'returned';
+export type ActivityStatus = 'assigned' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'failed' | 'returned';
 
 export type ActivityItem = {
   id: string;
   tracking_number: string | null;
   order_number: string | null;
-  status: 'assigned' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'failed' | 'returned';
+  status: ActivityStatus;
   fee: number;
   customer_name: string | null;
   dropoff_city: string | null;
   timestamp: string;
+};
+
+export type ActivityDetail = {
+  id: string;
+  tracking_number: string | null;
+  order_number: string | null;
+  status: ActivityStatus;
+  fee: number;
+  pickup: JobLocation;
+  dropoff: JobDropoff;
+  delivery_proof_url: string | null;
+  assigned_at: string | null;
+  picked_up_at: string | null;
+  out_for_delivery_at: string | null;
+  delivered_at: string | null;
+  failed_at: string | null;
 };
 
 export type EarningsDelivery = {
@@ -217,6 +234,7 @@ export const api = {
   getEarnings: () => request<EarningsResponse>('rider-earnings'),
   getActivity: (status: ActivityStatusFilter = 'all') =>
     request<ActivityItem[]>(`rider-activity?status=${status}`),
+  getActivityDetail: (id: string) => request<ActivityDetail>(`rider-activity?id=${encodeURIComponent(id)}`),
   getWithdrawals: () => request<Withdrawal[]>('rider-withdrawals'),
   requestWithdrawal: (amount: number) =>
     request<Withdrawal>('rider-withdrawals', { method: 'POST', body: JSON.stringify({ amount }) }),

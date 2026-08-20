@@ -89,11 +89,16 @@ export async function handler(event) {
 
   const { data: events } = await adminClient
     .from('tracking_events')
-    .select('status, description, location_name, event_time, created_at')
+    .select('status, description, location_name, event_time, created_at, metadata')
     .eq('manual_shipment_id', shipment.id)
     .order('event_time', { ascending: true, nullsFirst: false });
 
-  const tracking_events = (events || []).map((e) => ({
+  // Rider-reported problems (report_problem in rider-jobs.js) are staff-only
+  // — they can carry things like "customer refused delivery" or a rider's
+  // private note, which must never reach the customer's own tracking page.
+  const tracking_events = (events || [])
+    .filter((e) => e.metadata?.type !== 'problem_report')
+    .map((e) => ({
     status: e.status,
     description: e.description,
     location: e.location_name || null,

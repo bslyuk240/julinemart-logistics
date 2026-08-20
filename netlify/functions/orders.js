@@ -74,7 +74,8 @@ async function loadFullOrder(id) {
           description,
           location_name,
           event_time,
-          created_at
+          created_at,
+          metadata
         )
       )
     `)
@@ -138,6 +139,14 @@ export async function handler(event) {
             body: JSON.stringify({ success: false, error: 'Order not found' })
           };
         }
+      } else if (Array.isArray(data?.sub_orders)) {
+        // Customer path (no staff auth) — rider-reported problems are
+        // staff-only, same as track-order.js. Strip them here too since
+        // this endpoint doubles as the customer PWA's order-detail fetch.
+        data.sub_orders = data.sub_orders.map((s) => ({
+          ...s,
+          tracking_events: (s.tracking_events || []).filter((e) => e.metadata?.type !== 'problem_report'),
+        }));
       }
 
       return {

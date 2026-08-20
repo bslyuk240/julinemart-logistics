@@ -105,13 +105,16 @@ export async function handler(event) {
   if (subOrderIds.length > 0) {
     const { data: events } = await adminClient
       .from('tracking_events')
-      .select('sub_order_id, status, description, location_name, event_time, created_at')
+      .select('sub_order_id, status, description, location_name, event_time, created_at, metadata')
       .in('sub_order_id', subOrderIds)
       .order('event_time', { ascending: true, nullsFirst: false });
 
     if (events) {
       const eventsBySubOrder = {};
       for (const e of events) {
+        // Rider-reported problems are staff-only — see the matching filter
+        // in track-manual-shipment.js for why.
+        if (e.metadata?.type === 'problem_report') continue;
         if (!eventsBySubOrder[e.sub_order_id]) eventsBySubOrder[e.sub_order_id] = [];
         eventsBySubOrder[e.sub_order_id].push({
           status:      e.status,

@@ -34,16 +34,40 @@ export type RiderApplicationPayload = {
   phone: string;
   nin: string;
   id_document_url: string;
+  id_document_issue_date?: string;
+  id_document_expiry_date?: string;
   selfie_url: string;
   vehicle_type: 'okada' | 'keke' | 'car' | 'foot';
   vehicle_plate: string;
   vehicle_document_url?: string;
+  vehicle_document_issue_date?: string;
+  vehicle_document_expiry_date?: string;
   guarantor_name: string;
   guarantor_phone: string;
   approved_location_id: string;
   bank_name: string;
   bank_account_number: string;
   bank_account_name: string;
+};
+
+export type DocumentType = 'id' | 'selfie' | 'vehicle';
+export type DocumentStatus = 'pending' | 'verified' | 'rejected';
+
+export type RiderDocument = {
+  id: string;
+  type: DocumentType;
+  file_url: string;
+  issue_date: string | null;
+  expiry_date: string | null;
+  status: DocumentStatus;
+  verified_at: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+};
+
+export type RiderDocumentsResponse = {
+  current: RiderDocument[];
+  history: RiderDocument[];
 };
 
 // vendor: the vendor's own shop. hub: a JLO/courier hub or depot. sender:
@@ -330,6 +354,7 @@ export const api = {
   requestWithdrawal: (amount: number) =>
     request<Withdrawal>('rider-withdrawals', { method: 'POST', body: JSON.stringify({ amount }) }),
   getProfile: () => request<RiderProfile>('rider-profile'),
+  getDocuments: () => request<RiderDocumentsResponse>('rider-documents'),
   requestBankChange: (bank_name: string, bank_account_number: string, bank_account_name: string) =>
     request<void>('rider-profile-update', {
       method: 'POST',

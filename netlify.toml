@@ -212,6 +212,10 @@
   timeout = 120
   schedule = "0 2 * * *"
 
+[functions."document-expiry-check-scheduled"]
+  timeout = 60
+  schedule = "0 6 * * *"
+
 [functions."process-scheduled-push"]
   timeout = 120
   schedule = "*/5 * * * *"

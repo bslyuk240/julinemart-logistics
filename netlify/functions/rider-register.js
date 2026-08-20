@@ -142,6 +142,36 @@ export async function handler(event) {
     return jsonResponse(500, { success: false, error: 'Failed to submit application' });
   }
 
+  // Per-document lifecycle tracking (docs/rider-app-ux-rebuild.md #17) —
+  // a new row per submission, not an update-in-place, so a resubmission
+  // after rejection keeps the old row as history instead of overwriting
+  // it. Best-effort: a failure here shouldn't block the application
+  // itself, which already succeeded above.
+  try {
+    const docs = [
+      {
+        rider_id: rider.id,
+        type: 'id',
+        file_url: body.id_document_url,
+        issue_date: body.id_document_issue_date || null,
+        expiry_date: body.id_document_expiry_date || null,
+      },
+      { rider_id: rider.id, type: 'selfie', file_url: body.selfie_url },
+    ];
+    if (body.vehicle_document_url) {
+      docs.push({
+        rider_id: rider.id,
+        type: 'vehicle',
+        file_url: body.vehicle_document_url,
+        issue_date: body.vehicle_document_issue_date || null,
+        expiry_date: body.vehicle_document_expiry_date || null,
+      });
+    }
+    await adminClient.from('rider_documents').insert(docs);
+  } catch (docErr) {
+    console.error('rider-register rider_documents insert failed:', docErr);
+  }
+
   return jsonResponse(201, {
     success: true,
     data: { rider_id: rider.id, status: rider.status },

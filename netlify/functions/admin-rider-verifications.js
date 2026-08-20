@@ -17,7 +17,8 @@ const SELECT = `
   guarantor_name, guarantor_phone,
   bank_name, bank_account_number, bank_account_name,
   approved_location_id, status, reject_reason, approved_at, created_at, is_online,
-  approved_vendor_locations ( city, state )
+  approved_vendor_locations ( city, state ),
+  rider_documents ( id, type, file_url, issue_date, expiry_date, status, verified_at, rejection_reason, created_at )
 `;
 
 export async function handler(event) {

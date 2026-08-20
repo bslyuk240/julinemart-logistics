@@ -26,10 +26,7 @@ export async function handler(event) {
     return jsonResponse(400, { success: false, error: 'Invalid JSON' });
   }
 
-  const { rider_id, action, reject_reason } = body;
-  if (!rider_id || !action) {
-    return jsonResponse(400, { success: false, error: 'rider_id and action required' });
-  }
+  const { rider_id, action, reject_reason, document_id, rejection_reason } = body;
   const ACTIONS = [
     'approve',
     'reject',
@@ -39,9 +36,52 @@ export async function handler(event) {
     'reject_bank_change',
     'approve_vehicle_change',
     'reject_vehicle_change',
+    'verify_document',
+    'reject_document',
   ];
-  if (!ACTIONS.includes(action)) {
+  if (!action || !ACTIONS.includes(action)) {
     return jsonResponse(400, { success: false, error: `action must be one of: ${ACTIONS.join(', ')}` });
+  }
+
+  // Per-document review — a distinct object from the application-level
+  // approve/reject above (see rider_documents, docs/rider-app-ux-rebuild.md
+  // #17). Keyed by document_id, not rider_id, since a rider can have
+  // several documents of the same type over time (resubmission history).
+  if (action === 'verify_document' || action === 'reject_document') {
+    if (!document_id) return jsonResponse(400, { success: false, error: 'document_id is required' });
+
+    const { data: doc, error: docErr } = await adminClient
+      .from('rider_documents')
+      .select('id, rider_id, type, status')
+      .eq('id', document_id)
+      .maybeSingle();
+    if (docErr) return jsonResponse(500, { success: false, error: docErr.message });
+    if (!doc) return jsonResponse(404, { success: false, error: 'Document not found' });
+
+    const nextStatus = action === 'verify_document' ? 'verified' : 'rejected';
+    const { error: updErr } = await adminClient
+      .from('rider_documents')
+      .update({
+        status: nextStatus,
+        verified_at: nextStatus === 'verified' ? new Date().toISOString() : null,
+        verified_by: nextStatus === 'verified' ? authUser.id : null,
+        rejection_reason: nextStatus === 'rejected' ? rejection_reason || null : null,
+      })
+      .eq('id', document_id);
+    if (updErr) return jsonResponse(500, { success: false, error: updErr.message });
+
+    await recordStaffAudit(event, authUser, {
+      action: nextStatus === 'verified' ? 'RIDER_DOCUMENT_VERIFIED' : 'RIDER_DOCUMENT_REJECTED',
+      resource_type: 'rider_documents',
+      resource_id: document_id,
+      details: { rider_id: doc.rider_id, type: doc.type, reason: rejection_reason || null },
+    });
+
+    return jsonResponse(200, { success: true, message: `Document ${nextStatus}` });
+  }
+
+  if (!rider_id) {
+    return jsonResponse(400, { success: false, error: 'rider_id is required' });
   }
 
   const { data: rider, error: riderErr } = await adminClient

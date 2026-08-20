@@ -7,6 +7,18 @@ import { Sheet } from '../Sheet';
 
 const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
+type RiderDocument = {
+  id: string;
+  type: 'id' | 'selfie' | 'vehicle';
+  file_url: string;
+  issue_date: string | null;
+  expiry_date: string | null;
+  status: 'pending' | 'verified' | 'rejected';
+  verified_at: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+};
+
 type RiderRow = {
   id: string;
   full_name: string;
@@ -27,7 +39,29 @@ type RiderRow = {
   reject_reason: string | null;
   created_at: string;
   approved_vendor_locations?: { city: string; state: string } | null;
+  rider_documents?: RiderDocument[];
 };
+
+const DOC_TYPE_LABEL: Record<RiderDocument['type'], string> = {
+  id: 'ID photo',
+  selfie: 'Selfie',
+  vehicle: 'Vehicle doc',
+};
+
+const DOC_STATUS_BADGE: Record<RiderDocument['status'], string> = {
+  pending: 'bg-amber-100 text-amber-800',
+  verified: 'bg-green-100 text-green-800',
+  rejected: 'bg-red-100 text-red-700',
+};
+
+function currentDocsByType(docs: RiderDocument[] | undefined): RiderDocument[] {
+  if (!docs?.length) return [];
+  const byType = new Map<string, RiderDocument>();
+  for (const doc of [...docs].sort((a, b) => b.created_at.localeCompare(a.created_at))) {
+    if (!byType.has(doc.type)) byType.set(doc.type, doc);
+  }
+  return Array.from(byType.values());
+}
 
 const STATUS_FILTERS = [
   { key: 'pending_review', label: 'Pending' },
@@ -54,9 +88,12 @@ export default function MobileRiderVerifications() {
   const [selected, setSelected] = useState<RiderRow | null>(null);
   const [rejecting, setRejecting] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [documentActioning, setDocumentActioning] = useState<string | null>(null);
+  const [rejectingDocId, setRejectingDocId] = useState<string | null>(null);
+  const [docRejectReason, setDocRejectReason] = useState('');
 
   const load = useCallback(async () => {
-    if (!session?.access_token) return;
+    if (!session?.access_token) return null;
     setLoading(true);
     try {
       const params = new URLSearchParams({ status: statusFilter });
@@ -65,9 +102,12 @@ export default function MobileRiderVerifications() {
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload?.error || 'Failed to load applications');
-      setRows(payload.data || []);
+      const nextRows: RiderRow[] = payload.data || [];
+      setRows(nextRows);
+      return nextRows;
     } catch (err) {
       notification.error(err instanceof Error ? err.message : 'Failed to load applications');
+      return null;
     } finally {
       setLoading(false);
     }
@@ -103,6 +143,32 @@ export default function MobileRiderVerifications() {
     }
   };
 
+  const runDocumentAction = async (documentId: string, action: 'verify_document' | 'reject_document', reason?: string) => {
+    if (!session?.access_token) return;
+    setDocumentActioning(documentId);
+    try {
+      const res = await fetch(`${functionsBase}/rider-approve`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ document_id: documentId, action, rejection_reason: reason }),
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload?.error || 'Action failed');
+      notification.success(action === 'verify_document' ? 'Document verified' : 'Document rejected');
+      setRejectingDocId(null);
+      setDocRejectReason('');
+      const nextRows = await load();
+      setSelected((prev) => (prev && nextRows ? nextRows.find((r) => r.id === prev.id) || prev : prev));
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setDocumentActioning(null);
+    }
+  };
+
   const closeSheet = () => {
     setSelected(null);
     setRejecting(false);
@@ -110,7 +176,7 @@ export default function MobileRiderVerifications() {
   };
 
   return (
-    <PullToRefresh onRefresh={load}>
+    <PullToRefresh onRefresh={async () => { await load(); }}>
       <div className="px-4 pt-4 pb-24">
         <div className="flex items-center gap-2 mb-1">
           <Bike className="w-5 h-5 text-primary-600" />
@@ -234,12 +300,86 @@ export default function MobileRiderVerifications() {
 
               <div className="pt-2 border-t">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-500 mb-2">Documents</p>
-                <div className="flex flex-wrap gap-2">
-                  {selected.id_document_url && <DocLink href={selected.id_document_url} label="ID photo" />}
-                  {selected.selfie_url && <DocLink href={selected.selfie_url} label="Selfie" />}
-                  {selected.vehicle_document_url && (
-                    <DocLink href={selected.vehicle_document_url} label="Vehicle doc" />
-                  )}
+                <div className="space-y-2">
+                  {currentDocsByType(selected.rider_documents).map((doc) => (
+                    <div key={doc.id} className="rounded-xl border border-gray-200 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <a
+                          href={doc.file_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 text-sm font-medium text-primary-700"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          {DOC_TYPE_LABEL[doc.type]}
+                        </a>
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${DOC_STATUS_BADGE[doc.status]}`}>
+                          {doc.status}
+                        </span>
+                      </div>
+                      {(doc.issue_date || doc.expiry_date) && (
+                        <p className="mt-1 text-[11px] text-gray-500">
+                          {doc.issue_date && <>Issued {new Date(doc.issue_date).toLocaleDateString()}</>}
+                          {doc.issue_date && doc.expiry_date && ' · '}
+                          {doc.expiry_date && <>Expires {new Date(doc.expiry_date).toLocaleDateString()}</>}
+                        </p>
+                      )}
+                      {doc.status === 'rejected' && doc.rejection_reason && (
+                        <p className="mt-1 text-xs text-red-600">{doc.rejection_reason}</p>
+                      )}
+
+                      {doc.status !== 'verified' && rejectingDocId !== doc.id && (
+                        <div className="flex gap-2 mt-2">
+                          <button
+                            type="button"
+                            disabled={documentActioning === doc.id}
+                            onClick={() => runDocumentAction(doc.id, 'verify_document')}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-green-600 text-white text-[11px] font-semibold disabled:opacity-50"
+                          >
+                            <CheckCircle className="w-3.5 h-3.5" />
+                            Verify
+                          </button>
+                          <button
+                            type="button"
+                            disabled={documentActioning === doc.id}
+                            onClick={() => setRejectingDocId(doc.id)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 text-[11px] font-semibold disabled:opacity-50"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            Reject
+                          </button>
+                        </div>
+                      )}
+
+                      {rejectingDocId === doc.id && (
+                        <div className="mt-2 space-y-1.5">
+                          <textarea
+                            value={docRejectReason}
+                            onChange={(e) => setDocRejectReason(e.target.value)}
+                            placeholder="Reason (optional)"
+                            className="w-full border rounded-lg p-2 text-xs min-h-[64px]"
+                          />
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => { setRejectingDocId(null); setDocRejectReason(''); }}
+                              className="flex-1 py-1.5 rounded-lg border text-[11px] font-medium"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              disabled={documentActioning === doc.id}
+                              onClick={() => runDocumentAction(doc.id, 'reject_document', docRejectReason)}
+                              className="flex-1 py-1.5 rounded-lg bg-red-600 text-white text-[11px] font-semibold disabled:opacity-50"
+                            >
+                              Confirm reject
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -314,19 +454,5 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       <span className="text-gray-500">{label}</span>
       <span className="font-medium text-gray-900 text-right">{value}</span>
     </div>
-  );
-}
-
-function DocLink({ href, label }: { href: string; label: string }) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-primary-700"
-    >
-      {label}
-      <ExternalLink className="w-3 h-3" />
-    </a>
   );
 }

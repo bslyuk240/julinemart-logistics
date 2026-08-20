@@ -16,10 +16,12 @@ const emptyForm = {
   phone: '',
   nin: '',
   id_document: null as File | null,
+  id_document_expiry_date: '',
   selfie: null as File | null,
   vehicle_type: 'okada' as 'okada' | 'keke' | 'car' | 'foot',
   vehicle_plate: '',
   vehicle_document: null as File | null,
+  vehicle_document_expiry_date: '',
   guarantor_name: '',
   guarantor_phone: '',
   state: '',
@@ -182,10 +184,12 @@ export default function Apply() {
         phone: form.phone.trim(),
         nin: form.nin.trim(),
         id_document_url: idUrl,
+        id_document_expiry_date: form.id_document_expiry_date || undefined,
         selfie_url: selfieUrl,
         vehicle_type: form.vehicle_type,
         vehicle_plate: form.vehicle_plate.trim(),
         vehicle_document_url: vehicleUrl,
+        vehicle_document_expiry_date: vehicleUrl ? form.vehicle_document_expiry_date || undefined : undefined,
         guarantor_name: form.guarantor_name.trim(),
         guarantor_phone: form.guarantor_phone.trim(),
         approved_location_id: form.approved_location_id,
@@ -242,6 +246,15 @@ export default function Apply() {
             file={form.id_document}
             onSelect={(f) => set('id_document', f)}
           />
+          <div>
+            <label className="field-label">ID expiry date (optional)</label>
+            <input
+              type="date"
+              className="field-input"
+              value={form.id_document_expiry_date}
+              onChange={(e) => set('id_document_expiry_date', e.target.value)}
+            />
+          </div>
         </StepShell>
       )}
 
@@ -281,6 +294,17 @@ export default function Apply() {
             file={form.vehicle_document}
             onSelect={(f) => set('vehicle_document', f)}
           />
+          {form.vehicle_document && (
+            <div>
+              <label className="field-label">Vehicle document expiry date (optional)</label>
+              <input
+                type="date"
+                className="field-input"
+                value={form.vehicle_document_expiry_date}
+                onChange={(e) => set('vehicle_document_expiry_date', e.target.value)}
+              />
+            </div>
+          )}
           <div>
             <label className="field-label">Guarantor name</label>
             <input className="field-input" value={form.guarantor_name} onChange={(e) => set('guarantor_name', e.target.value)} />

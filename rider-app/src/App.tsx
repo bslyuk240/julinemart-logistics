@@ -8,6 +8,7 @@ import ActiveDelivery from './pages/ActiveDelivery';
 import Activity from './pages/Activity';
 import Earnings from './pages/Earnings';
 import Profile from './pages/Profile';
+import Documents from './pages/Documents';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -66,6 +67,14 @@ function AppRoutes() {
         element={
           <PrivateRoute>
             <Profile />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/documents"
+        element={
+          <PrivateRoute>
+            <Documents />
           </PrivateRoute>
         }
       />

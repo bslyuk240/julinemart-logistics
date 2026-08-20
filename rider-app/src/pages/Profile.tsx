@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Banknote, LogOut, Pencil, Phone, RefreshCw, Shield, Truck, User } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Banknote, ChevronRight, FileText, LogOut, Pencil, Phone, RefreshCw, Shield, Truck, User } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api, RiderProfile } from '../lib/api';
 import { BottomNav } from '../components/BottomNav';
@@ -26,6 +27,7 @@ function Row({ label, value }: { label: string; value: string | null | undefined
 }
 
 export default function Profile() {
+  const navigate = useNavigate();
   const { signOut } = useAuth();
   const [profile, setProfile] = useState<RiderProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -366,6 +368,20 @@ export default function Profile() {
                   </button>
                 </div>
               )}
+            </div>
+
+            <div>
+              <p className="px-1 text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2 flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5" /> Documents
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate('/documents')}
+                className="w-full rounded-2xl border border-gray-200 px-4 py-3.5 flex items-center justify-between gap-3 text-sm font-semibold text-gray-900"
+              >
+                View document status
+                <ChevronRight className="w-4 h-4 text-gray-400" />
+              </button>
             </div>
 
             <div>

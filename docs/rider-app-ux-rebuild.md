@@ -94,3 +94,8 @@ optimization. Not started, not planned until P0/P1 are done.
    leak in the process**: `track-order.js`, `track-manual-shipment.js`, and `orders.js`'s
    customer-email-match path were all serving rider problem-report descriptions straight to
    customers' own tracking pages before this fix.
+8. Sidebar reorganized: Riders, Rider Verifications, Rider Roster, and Delivery Problems moved out
+   of the general Operations section into their own dedicated "Riders" section in
+   `permissions.ts`'s `navigationSections` (the single source of truth for both the desktop
+   sidebar and mobile more-menu) — no admin session available to click through live, but this is
+   a pure data-array move with no logic change, typechecked clean.

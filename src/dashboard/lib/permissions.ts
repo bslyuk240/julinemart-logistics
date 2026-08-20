@@ -71,12 +71,18 @@ export const navigationSections: NavSection[] = [
       { name: 'Custom Orders', href: '/admin/custom-orders', icon: Sparkles, roles: ['admin', 'manager', 'staff'] },
       { name: 'Manual Shipments', href: '/admin/manual-shipments', icon: Send, roles: ['admin', 'agent', 'manager', 'viewer'] },
       { name: 'Hub Dispatch', href: '/admin/dispatch/hub', icon: Truck, roles: ['admin', 'agent', 'manager', 'viewer'] },
+      { name: 'Live Support', href: '/admin/support', icon: Headphones, roles: ['admin', 'agent', 'manager', 'viewer'] },
+      { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent', 'manager', 'viewer'] },
+    ],
+  },
+  {
+    id: 'riders',
+    label: 'Riders',
+    items: [
       { name: 'Riders', href: '/admin/riders', icon: Bike, roles: ['admin', 'manager'] },
       { name: 'Rider Verifications', href: '/admin/rider-verifications', icon: Bike, roles: ['admin', 'manager'] },
       { name: 'Rider Roster', href: '/admin/rider-roster', icon: MapPin, roles: ['admin', 'manager'] },
       { name: 'Delivery Problems', href: '/admin/delivery-problems', icon: AlertCircle, roles: ['admin', 'manager', 'agent', 'viewer'] },
-      { name: 'Live Support', href: '/admin/support', icon: Headphones, roles: ['admin', 'agent', 'manager', 'viewer'] },
-      { name: 'Refunds', href: '/admin/refunds', icon: RotateCcw, roles: ['admin', 'agent', 'manager', 'viewer'] },
     ],
   },
   {

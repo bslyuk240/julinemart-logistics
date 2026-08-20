@@ -1,9 +1,8 @@
 /**
  * GET /.netlify/functions/rider-earnings
- * Display-only earnings for the authenticated rider — running weekly
- * total, a per-delivery breakdown, and a 7-day daily sparkline. No payout
- * automation; that's explicitly deferred (rider_withdrawals doesn't exist
- * yet).
+ * Weekly running total, a per-delivery breakdown, a 7-day daily sparkline,
+ * plus the all-time available balance (rider_earnings_summary — bounds
+ * what rider-withdrawals.js will let this rider request).
  */
 import { requireActiveRider, jsonResponse, headers } from './services/requireRider.js';
 
@@ -23,13 +22,18 @@ export async function handler(event) {
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
   sevenDaysAgo.setHours(0, 0, 0, 0);
 
-  const { data: deliveries, error } = await adminClient
-    .from('sub_orders')
-    .select('id, tracking_number, delivered_at, allocated_shipping_fee, courier_charge, orders:main_order_id (order_number)')
-    .eq('assigned_rider_id', rider.id)
-    .eq('status', 'delivered')
-    .gte('delivered_at', sevenDaysAgo.toISOString())
-    .order('delivered_at', { ascending: false });
+  const [{ data: deliveries, error }, { data: summary }] = await Promise.all([
+    adminClient
+      .from('shipments')
+      .select(
+        'id, tracking_number, delivered_at, rider_payout, sub_orders:sub_order_id ( allocated_shipping_fee, courier_charge, orders:main_order_id ( order_number ) )'
+      )
+      .eq('assigned_rider_id', rider.id)
+      .eq('status', 'delivered')
+      .gte('delivered_at', sevenDaysAgo.toISOString())
+      .order('delivered_at', { ascending: false }),
+    adminClient.from('rider_earnings_summary').select('available_balance').eq('rider_id', rider.id).maybeSingle(),
+  ]);
 
   if (error) {
     console.error('rider-earnings error:', error);
@@ -45,14 +49,17 @@ export async function handler(event) {
 
   let weeklyTotal = 0;
   const breakdown = (deliveries || []).map((row) => {
-    const fee = Number(row.allocated_shipping_fee ?? row.courier_charge ?? 0) || 0;
+    // rider_payout is the commission-adjusted amount; fall back to the old
+    // full-fee read for shipments delivered before it existed (sub_order
+    // only — manual_shipment historical rows show 0, same as before).
+    const fee = row.rider_payout ?? (Number(row.sub_orders?.allocated_shipping_fee ?? row.sub_orders?.courier_charge ?? 0) || 0);
     weeklyTotal += fee;
     const key = dayKey(new Date(row.delivered_at));
     if (sparklineMap.has(key)) sparklineMap.set(key, sparklineMap.get(key) + fee);
     return {
       id: row.id,
       tracking_number: row.tracking_number,
-      order_number: row.orders?.order_number ?? null,
+      order_number: row.sub_orders?.orders?.order_number ?? null,
       fee,
       delivered_at: row.delivered_at,
     };
@@ -62,6 +69,12 @@ export async function handler(event) {
 
   return jsonResponse(200, {
     success: true,
-    data: { weekly_total: weeklyTotal, delivery_count: breakdown.length, breakdown, sparkline },
+    data: {
+      weekly_total: weeklyTotal,
+      delivery_count: breakdown.length,
+      breakdown,
+      sparkline,
+      available_balance: Number(summary?.available_balance || 0),
+    },
   });
 }

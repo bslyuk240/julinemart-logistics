@@ -10,6 +10,11 @@ interface Hub {
   city: string;
 }
 
+interface Zone {
+  id: string;
+  states: string[] | null;
+}
+
 const inputClass = 'w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none placeholder:text-gray-400';
 
 export default function MobileCreateManualShipment() {
@@ -17,6 +22,7 @@ export default function MobileCreateManualShipment() {
   const notification = useNotification();
 
   const [hubs, setHubs] = useState<Hub[]>([]);
+  const [stateOptions, setStateOptions] = useState<string[]>([]);
   const [senderMode, setSenderMode] = useState<'hub' | 'manual'>('hub');
   const [senderHubId, setSenderHubId] = useState('');
   const [sender, setSender] = useState({ name: '', address: '', city: '', state: 'Lagos', phone: '' });
@@ -34,6 +40,22 @@ export default function MobileCreateManualShipment() {
         setHubs(data.data || []);
       } catch {
         // hubs optional for manual sender
+      }
+    })();
+
+    // Same states the backend's zone lookup recognizes — free text that
+    // doesn't match a zone silently falls back to the wrong one.
+    (async () => {
+      try {
+        const response = await fetch(`${functionsBase}/zones`, { headers: await functionsAuthHeader() });
+        const data = await response.json();
+        const zones = (data.data || []) as Zone[];
+        const states = Array.from(
+          new Set(zones.flatMap((z) => (Array.isArray(z.states) ? z.states : [])))
+        ).sort();
+        setStateOptions(states);
+      } catch {
+        // falls back to empty options; state select just shows the default
       }
     })();
   }, []);
@@ -130,7 +152,12 @@ export default function MobileCreateManualShipment() {
             <input className={inputClass} placeholder="Address *" value={sender.address} onChange={(e) => setSender({ ...sender, address: e.target.value })} style={{ fontSize: '16px' }} />
             <div className="grid grid-cols-2 gap-2">
               <input className={inputClass} placeholder="City" value={sender.city} onChange={(e) => setSender({ ...sender, city: e.target.value })} style={{ fontSize: '16px' }} />
-              <input className={inputClass} placeholder="State *" value={sender.state} onChange={(e) => setSender({ ...sender, state: e.target.value })} style={{ fontSize: '16px' }} />
+              <select className={inputClass} value={sender.state} onChange={(e) => setSender({ ...sender, state: e.target.value })} style={{ fontSize: '16px' }}>
+                <option value="">State *</option>
+                {stateOptions.map((state) => (
+                  <option key={state} value={state}>{state}</option>
+                ))}
+              </select>
             </div>
           </div>
         )}
@@ -144,7 +171,12 @@ export default function MobileCreateManualShipment() {
         <input className={inputClass} placeholder="Delivery address *" value={recipient.address} onChange={(e) => setRecipient({ ...recipient, address: e.target.value })} style={{ fontSize: '16px' }} />
         <div className="grid grid-cols-2 gap-2">
           <input className={inputClass} placeholder="City" value={recipient.city} onChange={(e) => setRecipient({ ...recipient, city: e.target.value })} style={{ fontSize: '16px' }} />
-          <input className={inputClass} placeholder="State *" value={recipient.state} onChange={(e) => setRecipient({ ...recipient, state: e.target.value })} style={{ fontSize: '16px' }} />
+          <select className={inputClass} value={recipient.state} onChange={(e) => setRecipient({ ...recipient, state: e.target.value })} style={{ fontSize: '16px' }}>
+            <option value="">State *</option>
+            {stateOptions.map((state) => (
+              <option key={state} value={state}>{state}</option>
+            ))}
+          </select>
         </div>
       </section>
 

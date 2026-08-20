@@ -17,6 +17,11 @@ interface Hub {
   city: string;
 }
 
+interface Zone {
+  id: string;
+  states: string[] | null;
+}
+
 const inputClass = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500';
 
 // Ad-hoc waybills with no order or return behind them — e.g. shipping a
@@ -27,6 +32,7 @@ export function CreateManualShipmentPage() {
   const notification = useNotification();
 
   const [hubs, setHubs] = useState<Hub[]>([]);
+  const [stateOptions, setStateOptions] = useState<string[]>([]);
   const [senderMode, setSenderMode] = useState<'hub' | 'manual'>('hub');
   const [senderHubId, setSenderHubId] = useState('');
   const [sender, setSender] = useState({ name: '', address: '', city: '', state: 'Lagos', phone: '' });
@@ -44,6 +50,24 @@ export function CreateManualShipmentPage() {
         setHubs(data.data || []);
       } catch (error) {
         console.error('Error fetching hubs:', error);
+      }
+    })();
+
+    // Same states the backend's zone lookup actually recognizes — a
+    // free-text state that doesn't match any zone silently falls back to
+    // an arbitrary zone (wrong shipping_fee), so this must stay a picker,
+    // not typed text.
+    (async () => {
+      try {
+        const response = await fetch(`${functionsBase}/zones`, { headers: await authHeader() });
+        const data = await response.json();
+        const zones = (data.data || []) as Zone[];
+        const states = Array.from(
+          new Set(zones.flatMap((z) => (Array.isArray(z.states) ? z.states : [])))
+        ).sort();
+        setStateOptions(states);
+      } catch (error) {
+        console.error('Error fetching zones:', error);
       }
     })();
   }, []);
@@ -152,7 +176,12 @@ export function CreateManualShipmentPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">State *</label>
-                <input value={sender.state} onChange={(e) => setSender({ ...sender, state: e.target.value })} className={inputClass} placeholder="Lagos" />
+                <select value={sender.state} onChange={(e) => setSender({ ...sender, state: e.target.value })} className={inputClass}>
+                  <option value="">Select state…</option>
+                  {stateOptions.map((state) => (
+                    <option key={state} value={state}>{state}</option>
+                  ))}
+                </select>
               </div>
             </div>
           )}
@@ -183,7 +212,12 @@ export function CreateManualShipmentPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">State *</label>
-              <input value={recipient.state} onChange={(e) => setRecipient({ ...recipient, state: e.target.value })} className={inputClass} placeholder="Lagos" />
+              <select value={recipient.state} onChange={(e) => setRecipient({ ...recipient, state: e.target.value })} className={inputClass}>
+                <option value="">Select state…</option>
+                {stateOptions.map((state) => (
+                  <option key={state} value={state}>{state}</option>
+                ))}
+              </select>
             </div>
           </div>
         </div>

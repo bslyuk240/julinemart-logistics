@@ -16,7 +16,13 @@ const headers = {
   'Content-Type': 'application/json',
 };
 
-const WEBHOOK_URL = 'https://jlo.julinemart.com/.netlify/functions/fez-webhook';
+// Appends ?token=... automatically once FEZ_WEBHOOK_TOKEN is set — see the
+// matching check in fez-webhook.js. Re-run this (POST) after setting that
+// env var to actually register the tokened URL with Fez; until then this
+// still registers the bare URL, same as before.
+const WEBHOOK_URL = process.env.FEZ_WEBHOOK_TOKEN
+  ? `https://jlo.julinemart.com/.netlify/functions/fez-webhook?token=${process.env.FEZ_WEBHOOK_TOKEN}`
+  : 'https://jlo.julinemart.com/.netlify/functions/fez-webhook';
 
 async function getFezAuth() {
   const userId = process.env.FEZ_USER_ID;

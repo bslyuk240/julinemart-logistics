@@ -107,13 +107,6 @@ exports.handler = async (event) => {
     };
   }
 
-  // NOTE: this only rate-limits by IP — it does not verify the request
-  // actually came from Fez. Unlike paystack-webhook.js (which checks
-  // x-paystack-signature), there's no signature/secret verification here,
-  // so anyone who finds this URL can currently POST a fake status update
-  // that gets trusted as genuine. Fez's webhook delivery would need to
-  // support a signing header or a shared secret for a real fix — flagging
-  // this rather than silently treating the rate limit as sufficient.
   const { limited, response } = await checkRateLimit(event, {
     name: 'fez-webhook',
     max: 60,
@@ -121,6 +114,29 @@ exports.handler = async (event) => {
     retryAfterSeconds: 60,
   });
   if (limited) return response;
+
+  // Fez's webhook API (see fez-register-webhook.js's call to /webhooks/store)
+  // only accepts a bare callback URL — it has no signature/secret header like
+  // Paystack's x-paystack-signature. The workaround is a secret embedded in
+  // the registered URL itself, checked here. Gated on FEZ_WEBHOOK_TOKEN being
+  // set so deploying this can't break live tracking updates on its own: Fez
+  // is still POSTing to the un-tokened URL until someone (1) sets this env
+  // var and (2) re-registers the webhook URL with Fez to include ?token=...
+  // (fez-register-webhook.js's WEBHOOK_URL constant needs updating first).
+  // Until both of those happen, this check is a no-op and the endpoint is
+  // exactly as open as it was before.
+  const expectedToken = process.env.FEZ_WEBHOOK_TOKEN;
+  if (expectedToken) {
+    const providedToken = event.queryStringParameters?.token || '';
+    if (providedToken !== expectedToken) {
+      console.warn('[fez-webhook] rejected request with missing/invalid token');
+      return {
+        statusCode: 401,
+        headers,
+        body: JSON.stringify({ success: false, error: 'Unauthorized' }),
+      };
+    }
+  }
 
   try {
     const webhookData = JSON.parse(event.body || '{}');

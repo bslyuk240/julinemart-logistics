@@ -458,7 +458,7 @@ async function handlePost(rider, adminClient, body) {
       description: `${rider.full_name} reported a problem: ${REASON_LABEL[reason]}${note ? ` — ${note}` : ''}`,
       actor_type: 'rider',
       source: 'rider_app',
-      metadata: { reason, note: note || null },
+      metadata: { type: 'problem_report', reason, note: note || null },
     });
 
     await notifyDispatch(shipment.source_type, sourceId, 'problem_reported', { status: shipment.status, reason });

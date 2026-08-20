@@ -3,10 +3,11 @@
 
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { requireAdmin } from './services/global-sourcing-utils.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
-const encryptionKey = process.env.ENCRYPTION_KEY || 'your-32-character-encryption-key-here-change-this!';
+const encryptionKey = process.env.ENCRYPTION_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
   throw new Error('Missing Supabase environment variables');
@@ -16,24 +17,36 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Content-Type': 'application/json',
 };
 
-// Simple encryption (in production, use proper encryption library)
-function encrypt(text) {
+// Only real Fez hosts may be hit by test_connection's server-side fetch —
+// api_base_url otherwise comes straight from the request body, which would
+// let anyone make this server fetch an arbitrary URL (SSRF) and see the
+// response/error back.
+const ALLOWED_COURIER_HOSTS = new Set(['apisandbox.fezdelivery.co', 'api.fezdelivery.co']);
+
+function isAllowedCourierUrl(url) {
   try {
-    const algorithm = 'aes-256-cbc';
-    const key = Buffer.from(encryptionKey.padEnd(32, '0').slice(0, 32));
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv(algorithm, key, iv);
-    let encrypted = cipher.update(text, 'utf8', 'hex');
-    encrypted += cipher.final('hex');
-    return iv.toString('hex') + ':' + encrypted;
-  } catch (error) {
-    console.error('Encryption error:', error);
-    return text; // Fallback to plain text if encryption fails
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' && ALLOWED_COURIER_HOSTS.has(parsed.hostname);
+  } catch {
+    return false;
   }
+}
+
+function encrypt(text) {
+  if (!encryptionKey) {
+    throw new Error('ENCRYPTION_KEY is not configured — refusing to store courier credentials unencrypted');
+  }
+  const algorithm = 'aes-256-cbc';
+  const key = Buffer.from(encryptionKey.padEnd(32, '0').slice(0, 32));
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv(algorithm, key, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return iv.toString('hex') + ':' + encrypted;
 }
 
 // Test Fez API connection
@@ -86,6 +99,9 @@ exports.handler = async (event) => {
     };
   }
 
+  const auth = await requireAdmin(event, ['admin']);
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     // Get courier ID from path
     const pathParts = event.path.split('/').filter(Boolean);
@@ -118,6 +134,13 @@ exports.handler = async (event) => {
       }
 
       const baseUrl = api_base_url || 'https://apisandbox.fezdelivery.co/v1';
+      if (!isAllowedCourierUrl(baseUrl)) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({ success: false, error: 'api_base_url must be a recognized Fez API host' }),
+        };
+      }
       const testResult = await testFezConnection(api_user_id, api_password, baseUrl);
 
       return {

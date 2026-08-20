@@ -18,6 +18,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "rider-app", "run", "dev"],
       "port": 5175
+    },
+    {
+      "name": "jlo-api",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "api:dev"],
+      "port": 3001
     }
   ]
 }

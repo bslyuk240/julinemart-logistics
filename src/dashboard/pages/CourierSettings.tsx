@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from 'react';
 import { Settings, Key, CheckCircle, XCircle, AlertCircle, Save, Zap } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Courier {
   id: string;
@@ -18,6 +19,10 @@ interface Courier {
 
 export function CourierSettingsPage() {
   const notification = useNotification();
+  const { session } = useAuth();
+  const authHeaders: Record<string, string> = session?.access_token
+    ? { Authorization: `Bearer ${session.access_token}` }
+    : {};
   const [couriers, setCouriers] = useState<Courier[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -82,7 +87,7 @@ export function CourierSettingsPage() {
     try {
       const response = await fetch(`${functionsBase}/save-courier-credentials/${courierId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ api_enabled: enabled }),
       });
 
@@ -116,7 +121,7 @@ export function CourierSettingsPage() {
 
       const response = await fetch(`${functionsBase}/save-courier-credentials/${courierId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({
           action: 'test_connection',
           api_user_id: creds.api_user_id,
@@ -166,7 +171,7 @@ export function CourierSettingsPage() {
 
       const response = await fetch(`${functionsBase}/save-courier-credentials/${courierId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify(payload),
       });
 

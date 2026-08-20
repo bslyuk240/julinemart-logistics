@@ -364,11 +364,14 @@ export async function previewEmailTemplateHandler(req: AuthRequest, res: Respons
     let html = template.html_content;
     let subject = template.subject;
 
-    // Replace {{variable}} with sample data
+    // Replace {{variable}} with sample data — literal split/join, not a
+    // RegExp built from the key, since the key comes straight from the
+    // request body (ReDoS via a crafted key otherwise).
     Object.keys(sampleData).forEach((key) => {
-      const regex = new RegExp(`{{${key}}}`, 'g');
-      html = html.replace(regex, sampleData[key]);
-      subject = subject.replace(regex, sampleData[key]);
+      const placeholder = `{{${key}}}`;
+      const value = String(sampleData[key] ?? '');
+      html = html.split(placeholder).join(value);
+      subject = subject.split(placeholder).join(value);
     });
 
     return res.status(200).json({

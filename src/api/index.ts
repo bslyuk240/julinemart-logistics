@@ -356,13 +356,13 @@ console.log('🌐 Public tracking routes registered');
 
 // Email configuration and templates routes
 app.get('/api/email/config', getEmailConfigHandler);
-app.post('/api/email/config', saveEmailConfigHandler);
-app.post('/api/email/test-connection', testEmailConnectionHandler);
+app.post('/api/email/config', authenticate, requireRole('admin'), saveEmailConfigHandler);
+app.post('/api/email/test-connection', authenticate, requireRole('admin'), testEmailConnectionHandler);
 app.get('/api/email/logs', authenticate, requireRole('admin'), getEmailLogsHandler);
 app.get('/api/email/templates', getEmailTemplatesHandler);
 app.get('/api/email/templates/:id', getEmailTemplateHandler);
-app.put('/api/email/templates/:id', updateEmailTemplateHandler);
-app.post('/api/email/templates/:id/preview', previewEmailTemplateHandler);
+app.put('/api/email/templates/:id', authenticate, requireRole('admin'), updateEmailTemplateHandler);
+app.post('/api/email/templates/:id/preview', authenticate, requireRole('admin'), previewEmailTemplateHandler);
 const testEmailHandler = async (req: Request, res: Response) => {
   try {
     const { to, email, template_id, sample_data } = req.body as {
@@ -394,8 +394,8 @@ const testEmailHandler = async (req: Request, res: Response) => {
   }
 };
 
-app.post('/api/emails/test', testEmailHandler);
-app.post('/api/email/test', testEmailHandler);
+app.post('/api/emails/test', authenticate, requireRole('admin'), testEmailHandler);
+app.post('/api/email/test', authenticate, requireRole('admin'), testEmailHandler);
 
 console.log('✉️  Email routes registered');
 

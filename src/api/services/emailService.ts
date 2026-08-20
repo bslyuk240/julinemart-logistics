@@ -164,7 +164,9 @@ function renderTemplateString(
   Object.keys(data).forEach((key) => {
     const value = data[key];
     const replacement = value === null || value === undefined ? '' : String(value);
-    output = output.replace(new RegExp(`{{${key}}}`, 'g'), replacement);
+    // Literal split/join, not a RegExp built from `key` — `key` comes from
+    // caller-supplied sample_data (ReDoS via a crafted key otherwise).
+    output = output.split(`{{${key}}}`).join(replacement);
   });
   return output;
 }

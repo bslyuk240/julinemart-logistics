@@ -167,7 +167,10 @@ export function EmailSettingsPage() {
     try {
       const response = await fetch('/api/email/config', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify(config),
       });
 
@@ -205,7 +208,10 @@ export function EmailSettingsPage() {
     try {
       const response = await fetch('/api/email/test', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({
           email: testEmail,
           template_id: testTemplateId || undefined,
@@ -718,6 +724,7 @@ function TemplatesTab({ templates, onRefresh }: { templates: EmailTemplate[]; on
 // Template Editor Component (Preview in next phase)
 function TemplateEditor({ template, onSave }: { template: EmailTemplate; onSave: () => void }) {
   const notification = useNotification();
+  const { session } = useAuth();
   const [subject, setSubject] = useState(template.subject || '');
   const [htmlContent, setHtmlContent] = useState(template.html_content || '');
   const [textContent, setTextContent] = useState(template.text_content || '');
@@ -753,7 +760,10 @@ function TemplateEditor({ template, onSave }: { template: EmailTemplate; onSave:
     try {
       const response = await fetch(`/api/email/templates/${template.id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({
           subject,
           html_content: htmlContent,

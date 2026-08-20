@@ -308,12 +308,18 @@ export async function saveCourierCredentials(
   if (typeof window !== 'undefined' && window.location.hostname === 'localhost' && window.location.port !== '8888') {
     urls.push(`http://localhost:8888${functionsBase}/save-courier-credentials/${courierId}`);
   }
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
   let lastError: Error | null = null;
   for (const url of urls) {
     try {
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token || ''}`,
+        },
         body: JSON.stringify(payload),
       });
       const json = await res.json();

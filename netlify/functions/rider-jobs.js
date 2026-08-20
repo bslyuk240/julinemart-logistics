@@ -83,7 +83,11 @@ function summarizeShipment(s, subOrderMap, manualMap) {
     const order = subOrder.orders || {};
     return {
       ...base,
-      fee: Number(subOrder.allocated_shipping_fee ?? subOrder.courier_charge ?? 0) || 0,
+      // rider_payout is the commission-adjusted amount, frozen at
+      // assign/broadcast time — this is what the rider actually earns, not
+      // the customer's full shipping fee. Falls back to the old full-fee
+      // read only for shipments assigned before rider_payout existed.
+      fee: s.rider_payout ?? (Number(subOrder.allocated_shipping_fee ?? subOrder.courier_charge ?? 0) || 0),
       order_number: order.order_number || null,
       pickup: { name: pickup.name, address: pickup.address, city: pickup.city, state: pickup.state, phone: pickup.phone },
       dropoff: {
@@ -97,16 +101,17 @@ function summarizeShipment(s, subOrderMap, manualMap) {
     };
   }
 
-  // manual_shipment — no rider-fee field exists on this table yet, so this
-  // is always 0 for now. sender/recipient are already {name, address, city,
-  // state, phone} shaped, matching the sub_order pickup/dropoff shape.
+  // manual_shipment — rider_payout is only populated for shipments assigned
+  // after that field existed; older ones still show 0 (same as before).
+  // sender/recipient are already {name, address, city, state, phone}
+  // shaped, matching the sub_order pickup/dropoff shape.
   const manual = manualMap.get(s.manual_shipment_id);
   if (!manual) return null;
   const sender = manual.sender || {};
   const recipient = manual.recipient || {};
   return {
     ...base,
-    fee: 0,
+    fee: s.rider_payout ?? 0,
     order_number: null,
     pickup: { name: sender.name || null, address: sender.address || null, city: sender.city || null, state: sender.state || null, phone: sender.phone || null },
     dropoff: {
@@ -121,7 +126,7 @@ function summarizeShipment(s, subOrderMap, manualMap) {
 }
 
 const SHIPMENT_LIST_SELECT =
-  'id, source_type, sub_order_id, manual_shipment_id, status, tracking_number, metadata, delivery_proof_url, picked_up_at, out_for_delivery_at, delivered_at, created_at';
+  'id, source_type, sub_order_id, manual_shipment_id, status, tracking_number, metadata, delivery_proof_url, picked_up_at, out_for_delivery_at, delivered_at, created_at, rider_payout';
 
 async function handleGet(rider, adminClient) {
   const riderArea = rider.approved_vendor_locations || null;
@@ -178,25 +183,30 @@ async function handleGet(rider, adminClient) {
   todayStart.setHours(0, 0, 0, 0);
   const { data: deliveredToday } = await adminClient
     .from('shipments')
-    .select('source_type, sub_order_id')
+    .select('source_type, sub_order_id, rider_payout')
     .eq('assigned_rider_id', rider.id)
     .eq('status', 'delivered')
     .gte('delivered_at', todayStart.toISOString());
 
-  const deliveredSubOrderIds = (deliveredToday || []).filter((r) => r.source_type === 'sub_order').map((r) => r.sub_order_id);
+  // rider_payout covers anything assigned after that field existed.
+  // Fall back to the old full-fee read, sub-order-only, for older
+  // deliveries still sitting with rider_payout null.
+  const legacySubOrderIds = (deliveredToday || [])
+    .filter((r) => r.source_type === 'sub_order' && r.rider_payout == null)
+    .map((r) => r.sub_order_id);
   let feeBySubOrderId = new Map();
-  if (deliveredSubOrderIds.length) {
+  if (legacySubOrderIds.length) {
     const { data: feeRows } = await adminClient
       .from('sub_orders')
       .select('id, allocated_shipping_fee, courier_charge')
-      .in('id', deliveredSubOrderIds);
+      .in('id', legacySubOrderIds);
     feeBySubOrderId = new Map((feeRows || []).map((r) => [r.id, Number(r.allocated_shipping_fee ?? r.courier_charge ?? 0) || 0]));
   }
 
   const today = (deliveredToday || []).reduce(
     (acc, row) => {
       acc.count += 1;
-      acc.earnings += row.source_type === 'sub_order' ? feeBySubOrderId.get(row.sub_order_id) || 0 : 0;
+      acc.earnings += row.rider_payout ?? feeBySubOrderId.get(row.sub_order_id) ?? 0;
       return acc;
     },
     { count: 0, earnings: 0 }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Package, RefreshCw } from 'lucide-react';
-import { api, EarningsResponse } from '../lib/api';
+import { ArrowLeft, Banknote, Package, RefreshCw } from 'lucide-react';
+import { api, EarningsResponse, Withdrawal } from '../lib/api';
 import { BottomNav } from '../components/BottomNav';
 
 function formatNaira(amount: number) {
@@ -11,6 +11,20 @@ function formatNaira(amount: number) {
 function formatDayLabel(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('en-NG', { weekday: 'short' });
 }
+
+const WITHDRAWAL_STATUS_LABEL: Record<Withdrawal['status'], string> = {
+  pending: 'Pending review',
+  approved: 'Approved — payment coming',
+  paid: 'Paid',
+  rejected: 'Rejected',
+};
+
+const WITHDRAWAL_STATUS_CLASS: Record<Withdrawal['status'], string> = {
+  pending: 'bg-amber-100 text-amber-800',
+  approved: 'bg-blue-100 text-blue-800',
+  paid: 'bg-green-100 text-green-800',
+  rejected: 'bg-red-100 text-red-700',
+};
 
 function Sparkline({ points }: { points: { date: string; amount: number }[] }) {
   const width = 320;
@@ -48,21 +62,53 @@ function Sparkline({ points }: { points: { date: string; amount: number }[] }) {
 export default function Earnings() {
   const navigate = useNavigate();
   const [data, setData] = useState<EarningsResponse | null>(null);
+  const [withdrawals, setWithdrawals] = useState<Withdrawal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  const [submittingWithdrawal, setSubmittingWithdrawal] = useState(false);
+
+  const load = async () => {
+    try {
+      const [earnings, history] = await Promise.all([api.getEarnings(), api.getWithdrawals()]);
+      setData(earnings);
+      setWithdrawals(history);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load earnings');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const result = await api.getEarnings();
-        setData(result);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load earnings');
-      } finally {
-        setLoading(false);
-      }
-    })();
+    load();
   }, []);
+
+  const startWithdrawal = () => {
+    setWithdrawAmount(data ? String(data.available_balance) : '');
+    setWithdrawError(null);
+    setWithdrawing(true);
+  };
+
+  const submitWithdrawal = async () => {
+    setWithdrawError(null);
+    const amount = Number(withdrawAmount);
+    if (!amount || amount <= 0) return setWithdrawError('Enter an amount');
+    if (data && amount > data.available_balance) return setWithdrawError(`Max available: ${formatNaira(data.available_balance)}`);
+
+    setSubmittingWithdrawal(true);
+    try {
+      await api.requestWithdrawal(amount);
+      setWithdrawing(false);
+      await load();
+    } catch (err) {
+      setWithdrawError(err instanceof Error ? err.message : 'Could not submit withdrawal');
+    } finally {
+      setSubmittingWithdrawal(false);
+    }
+  };
 
   return (
     <div className="min-h-screen pb-24">
@@ -101,6 +147,76 @@ export default function Earnings() {
                 </div>
               </div>
             </div>
+
+            <div className="rounded-2xl border border-gray-200 p-5">
+              <p className="text-xs text-gray-500">Available to withdraw</p>
+              <p className="text-2xl font-black text-gray-900 mt-1">{formatNaira(data.available_balance)}</p>
+
+              {withdrawing ? (
+                <div className="mt-4 space-y-3">
+                  <div>
+                    <label className="field-label">Amount</label>
+                    <input
+                      className="field-input"
+                      value={withdrawAmount}
+                      onChange={(e) => setWithdrawAmount(e.target.value.replace(/[^\d.]/g, ''))}
+                      inputMode="decimal"
+                      placeholder="0"
+                    />
+                  </div>
+                  {withdrawError && <p className="text-xs text-red-600">{withdrawError}</p>}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setWithdrawing(false)}
+                      disabled={submittingWithdrawal}
+                      className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={submitWithdrawal}
+                      disabled={submittingWithdrawal}
+                      className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      {submittingWithdrawal ? 'Submitting…' : 'Request withdrawal'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={startWithdrawal}
+                  disabled={data.available_balance <= 0}
+                  className="mt-4 w-full inline-flex items-center justify-center gap-1.5 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+                >
+                  <Banknote className="w-4 h-4" />
+                  Withdraw
+                </button>
+              )}
+            </div>
+
+            {withdrawals.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Withdrawal history</p>
+                <div className="space-y-2">
+                  {withdrawals.map((w) => (
+                    <div key={w.id} className="rounded-xl border border-gray-200 p-3.5 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-gray-900">{formatNaira(w.amount)}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {new Date(w.created_at).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </p>
+                      </div>
+                      <span className={`shrink-0 px-2 py-0.5 rounded-full text-[11px] font-medium ${WITHDRAWAL_STATUS_CLASS[w.status]}`}>
+                        {WITHDRAWAL_STATUS_LABEL[w.status]}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Deliveries</p>

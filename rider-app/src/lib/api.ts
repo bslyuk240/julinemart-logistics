@@ -94,6 +94,19 @@ export type EarningsResponse = {
   delivery_count: number;
   breakdown: EarningsDelivery[];
   sparkline: { date: string; amount: number }[];
+  available_balance: number;
+};
+
+export type Withdrawal = {
+  id: string;
+  amount: number;
+  status: 'pending' | 'approved' | 'rejected' | 'paid';
+  bank_name: string | null;
+  bank_account_number: string | null;
+  notes: string | null;
+  payment_reference: string | null;
+  payment_date: string | null;
+  created_at: string;
 };
 
 export type PendingBankChange = {
@@ -153,6 +166,9 @@ export const api = {
   pingLocation: (lat: number, lng: number, accuracy?: number) =>
     request<void>('rider-location-ping', { method: 'POST', body: JSON.stringify({ lat, lng, accuracy }) }),
   getEarnings: () => request<EarningsResponse>('rider-earnings'),
+  getWithdrawals: () => request<Withdrawal[]>('rider-withdrawals'),
+  requestWithdrawal: (amount: number) =>
+    request<Withdrawal>('rider-withdrawals', { method: 'POST', body: JSON.stringify({ amount }) }),
   getProfile: () => request<RiderProfile>('rider-profile'),
   requestBankChange: (bank_name: string, bank_account_number: string, bank_account_name: string) =>
     request<void>('rider-profile-update', {

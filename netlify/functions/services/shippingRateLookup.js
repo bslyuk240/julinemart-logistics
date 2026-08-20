@@ -51,6 +51,19 @@ export async function lookupHubOrZoneRate(supabase, { zoneId, hubId, courierId =
   return lookupShippingRate(supabase, { zoneId, courierId });
 }
 
+/** Looks up by `code`, not `name` — codes are the stable identifier couriers
+ * are matched on elsewhere in this codebase; a display-name edit shouldn't
+ * break rider payout lookups. */
+export async function getLocalRidersCourierId(supabase) {
+  const { data, error } = await supabase
+    .from('couriers')
+    .select('id')
+    .eq('code', 'local-rider')
+    .maybeSingle();
+  if (error) throw error;
+  return data?.id || null;
+}
+
 export function computeDispatchCost(rate, weight, pickupSurcharge = 0) {
   const baseRate = Number(rate?.flat_rate || 0);
   const perKgRate = Number(rate?.per_kg_rate || 0);

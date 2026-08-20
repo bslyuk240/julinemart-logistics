@@ -11,6 +11,7 @@ import { insertTrackingEvent } from './services/fezTracking.js';
 import { sendPushToCustomer } from './services/pushNotifications.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
 import { notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
+import { lookupShippingRate, lookupHubOrZoneRate, computeDispatchCost, getLocalRidersCourierId } from './services/shippingRateLookup.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -85,7 +86,7 @@ exports.handler = async (event) => {
 
       await syncShipmentBestEffort(
         supabase,
-        { manualShipmentId: shipment_id, fields: { status: 'pending', broadcast_city: null, broadcast_state: null, broadcast_started_at: null } },
+        { manualShipmentId: shipment_id, fields: { status: 'pending', broadcast_city: null, broadcast_state: null, broadcast_started_at: null, rider_payout: null } },
         'manual-shipment-broadcast-rider cancel'
       );
       if (existingShipment.broadcast_city && existingShipment.broadcast_state) {
@@ -107,6 +108,31 @@ exports.handler = async (event) => {
         headers,
         body: JSON.stringify({ success: false, error: 'Could not determine a pickup town to broadcast to — pick a sender hub or fill in the sender city/state' }),
       };
+    }
+
+    // Rider payout, frozen now — before any rider has claimed this. Reuses
+    // the zone_id (and hub_id, if hub-mode) already resolved and stored on
+    // this shipment at creation, just filtered to the Local Riders courier.
+    let riderPayout = null;
+    if (existingShipment.zone_id) {
+      try {
+        const localRidersCourierId = await getLocalRidersCourierId(supabase);
+        if (localRidersCourierId) {
+          const riderRate = existingShipment.sender_hub_id
+            ? await lookupHubOrZoneRate(supabase, {
+                zoneId: existingShipment.zone_id,
+                hubId: existingShipment.sender_hub_id,
+                courierId: localRidersCourierId,
+              })
+            : await lookupShippingRate(supabase, {
+                zoneId: existingShipment.zone_id,
+                courierId: localRidersCourierId,
+              });
+          if (riderRate) riderPayout = computeDispatchCost(riderRate, existingShipment.item_weight || 1);
+        }
+      } catch (payoutErr) {
+        console.error('manual-shipment-broadcast-rider payout lookup failed:', payoutErr);
+      }
     }
 
     const existingMetadata =
@@ -156,6 +182,7 @@ exports.handler = async (event) => {
           delivery_person_name: null,
           delivery_person_phone: null,
           delivery_person_vehicle: null,
+          rider_payout: riderPayout,
           metadata: updatedShipment.metadata,
         },
       },

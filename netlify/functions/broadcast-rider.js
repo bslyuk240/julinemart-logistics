@@ -10,6 +10,7 @@ import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
 import { sendPushToCustomer } from './services/pushNotifications.js';
 import { notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
+import { lookupShippingRate, computeDispatchCost, getLocalRidersCourierId } from './services/shippingRateLookup.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -43,7 +44,7 @@ exports.handler = async (event) => {
 
     const { data: existingSubOrder, error: existingSubOrderError } = await supabase
       .from('sub_orders')
-      .select('id, tracking_number, metadata, assigned_rider_id, status, broadcast_city, broadcast_state, vendors ( approved_vendor_locations ( city, state ) )')
+      .select('id, tracking_number, metadata, assigned_rider_id, status, broadcast_city, broadcast_state, vendors ( approved_vendor_locations ( city, state, zone_id, vendor_pickup_surcharge ) )')
       .eq('id', sub_order_id)
       .single();
 
@@ -65,7 +66,7 @@ exports.handler = async (event) => {
 
       await syncShipmentBestEffort(
         supabase,
-        { subOrderId: sub_order_id, fields: { status: 'pending', broadcast_city: null, broadcast_state: null, broadcast_started_at: null } },
+        { subOrderId: sub_order_id, fields: { status: 'pending', broadcast_city: null, broadcast_state: null, broadcast_started_at: null, rider_payout: null } },
         'broadcast-rider cancel'
       );
       if (existingSubOrder.broadcast_city && existingSubOrder.broadcast_state) {
@@ -87,6 +88,30 @@ exports.handler = async (event) => {
         headers,
         body: JSON.stringify({ success: false, error: "This vendor has no approved pickup town on file — can't determine who to broadcast to" }),
       };
+    }
+
+    // Rider payout, frozen now — before any rider has claimed this — so the
+    // fee every eligible rider sees on their job card is already final.
+    // Priced by the vendor's own pickup zone (not the delivery destination):
+    // a local rider collects directly from the vendor, same physical pickup
+    // point this function already uses to decide who to broadcast to.
+    // Weight defaults to 1kg — sub_orders.items never stores a per-item
+    // weight (same gap fez-create-shipment.js already has), so there's no
+    // more accurate number available yet.
+    let riderPayout = null;
+    if (area.zone_id) {
+      try {
+        const localRidersCourierId = await getLocalRidersCourierId(supabase);
+        if (localRidersCourierId) {
+          const riderRate = await lookupShippingRate(supabase, {
+            zoneId: area.zone_id,
+            courierId: localRidersCourierId,
+          });
+          if (riderRate) riderPayout = computeDispatchCost(riderRate, 1, area.vendor_pickup_surcharge || 0);
+        }
+      } catch (payoutErr) {
+        console.error('broadcast-rider payout lookup failed:', payoutErr);
+      }
     }
 
     const existingMetadata =
@@ -139,6 +164,7 @@ exports.handler = async (event) => {
           delivery_person_name: null,
           delivery_person_phone: null,
           delivery_person_vehicle: null,
+          rider_payout: riderPayout,
           metadata: updatedSubOrder.metadata,
         },
       },

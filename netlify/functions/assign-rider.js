@@ -9,6 +9,7 @@ import {
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
 import { notifyRider, notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
+import { lookupShippingRate, computeDispatchCost } from './services/shippingRateLookup.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -130,7 +131,7 @@ exports.handler = async (event) => {
 
     const { data: existingSubOrder, error: existingSubOrderError } = await supabase
       .from('sub_orders')
-      .select('id, tracking_number, metadata, main_order_id, waybill_number, status, broadcast_city, broadcast_state')
+      .select('id, tracking_number, metadata, main_order_id, waybill_number, status, broadcast_city, broadcast_state, vendors ( approved_vendor_locations ( zone_id, vendor_pickup_surcharge ) )')
       .eq('id', sub_order_id)
       .single();
 
@@ -143,6 +144,26 @@ exports.handler = async (event) => {
           error: 'Sub-order not found',
         }),
       };
+    }
+
+    // Rider payout, frozen now — before the rider has accepted — so the
+    // number shown to them on accept/decline is already final. Priced by
+    // the vendor's own pickup zone (a local rider collects directly from
+    // the vendor), same as broadcast-rider.js. Weight defaults to 1kg —
+    // sub_orders.items never stores a per-item weight (same gap
+    // fez-create-shipment.js already has).
+    const area = existingSubOrder.vendors?.approved_vendor_locations;
+    let riderPayout = null;
+    if (area?.zone_id) {
+      try {
+        const riderRate = await lookupShippingRate(supabase, {
+          zoneId: area.zone_id,
+          courierId: localCourier.id,
+        });
+        if (riderRate) riderPayout = computeDispatchCost(riderRate, 1, area.vendor_pickup_surcharge || 0);
+      } catch (payoutErr) {
+        console.error('assign-rider payout lookup failed:', payoutErr);
+      }
     }
 
     const nextTrackingNumber = shouldGenerateLocalTracking(existingSubOrder.tracking_number)
@@ -221,6 +242,7 @@ exports.handler = async (event) => {
           delivery_person_name: rider_name,
           delivery_person_phone: rider_phone,
           delivery_person_vehicle: rider_vehicle || null,
+          rider_payout: riderPayout,
           metadata: updatedSubOrder.metadata,
         },
       },

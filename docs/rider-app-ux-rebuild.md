@@ -65,6 +65,16 @@ optimization. Not started, not planned until P0/P1 are done.
   `netlify dev` (port 8888) is slow to cold-start (each function compiles on first hit, ~30s–2min)
   but fast afterward. The local dev backend hits the **real production database** — there is no
   sandboxed dev data.
+- **Home showing misleading default content before load — fixed, and this was NOT the service
+  worker.** Reported as "a stale old view before the real page loads"; my first answer (service
+  worker) was a real but different issue — the actual cause here was `RiderHome` rendering its
+  greeting/online-status/stats immediately using default state (`riderName: ''`, `online: false`,
+  zero stats) while `api.getJobs()` was still in flight, before ever showing a loading state for
+  that part of the screen. The tell was in the user's own screenshot: the greeting showed the full
+  email address (`riderName || user?.email` falling back correctly, but to a value with no space to
+  split on) and "Offline" even though the account was genuinely online. Fixed by returning a
+  skeleton for the whole screen while `loading` is true, matching the pattern Earnings.tsx/
+  Profile.tsx/ActiveDelivery.tsx already used correctly — Home.tsx was the one screen with this gap.
 - **PWA service worker caching — fixed**: after a prod deploy, the installed/cached PWA kept
   serving the old bundle until every tab fully closed — confirmed by having to manually unregister
   the SW + clear caches to see fresh deploys while testing. Added `skipWaiting`/`clientsClaim`/
@@ -150,3 +160,8 @@ optimization. Not started, not planned until P0/P1 are done.
     real pending job that was sitting on the test account; (c) a first motion pass — tap feedback
     on shared buttons, a route-keyed page fade-in, skeleton loaders on Home/Activity. See
     "Cross-cutting notes" above for detail on each.
+15. The actual "stale view on reload" bug (not the service worker, which was a real but separate
+    issue) — `RiderHome` was rendering default/empty state as real-looking content (email as the
+    greeting name, "Offline" when genuinely online) before its own data fetch resolved. Home.tsx
+    now returns a full skeleton while loading, matching the pattern already used correctly on
+    Earnings/Profile/ActiveDelivery.

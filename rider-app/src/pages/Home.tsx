@@ -241,6 +241,27 @@ function RiderHome() {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen pb-24 bg-gray-50">
+        <div className="px-6 pt-4 pb-3 bg-white border-b border-gray-100">
+          <div className="skeleton h-6 w-48" />
+          <div className="skeleton h-3 w-28 mt-2" />
+        </div>
+        <div className="px-6 pt-4 space-y-4">
+          <div className="skeleton h-20 rounded-2xl" />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="skeleton h-16 rounded-2xl" />
+            <div className="skeleton h-16 rounded-2xl" />
+          </div>
+          <div className="skeleton h-4 w-32" />
+          <div className="skeleton h-28 rounded-2xl" />
+        </div>
+        <BottomNav />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen pb-24 bg-gray-50">
       <div className="px-6 pt-4 pb-3 bg-white border-b border-gray-100">
@@ -343,27 +364,7 @@ function RiderHome() {
           </div>
         )}
 
-        {online && loading && (
-          <div className="space-y-3">
-            {[0, 1].map((i) => (
-              <div key={i} className="rounded-2xl border border-gray-200 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 space-y-2">
-                    <div className="skeleton h-3 w-24" />
-                    <div className="skeleton h-4 w-40" />
-                  </div>
-                  <div className="skeleton h-5 w-14" />
-                </div>
-                <div className="mt-3 space-y-1.5">
-                  <div className="skeleton h-3 w-32" />
-                  <div className="skeleton h-3 w-28" />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {online && !loading && !active && pending.length === 0 && visibleAvailable.length === 0 && (
+        {online && !active && pending.length === 0 && visibleAvailable.length === 0 && (
           <div className="rounded-2xl border border-dashed border-gray-300 p-6 text-center">
             <Package className="w-6 h-6 text-gray-300 mx-auto mb-2" />
             <p className="text-sm font-semibold text-gray-900">No deliveries yet</p>

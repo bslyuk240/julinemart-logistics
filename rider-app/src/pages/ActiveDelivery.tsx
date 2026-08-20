@@ -78,11 +78,15 @@ export default function ActiveDelivery() {
   const [manualCodeOpen, setManualCodeOpen] = useState(false);
   const [manualCodeValue, setManualCodeValue] = useState('');
   const lastScannedCode = useRef('');
-  const [showProblemSheet, setShowProblemSheet] = useState(false);
+  // Same sheet, two different endpoints: 'report' just logs an incident
+  // (rider-jobs.js's report_problem), 'fail' ends the delivery attempt
+  // (fail_delivery) — only offered once the rider actually has the package.
+  const [problemSheetMode, setProblemSheetMode] = useState<'report' | 'fail' | null>(null);
   const [problemReason, setProblemReason] = useState<ProblemReason | ''>('');
   const [problemNote, setProblemNote] = useState('');
   const [reportingProblem, setReportingProblem] = useState(false);
   const [problemReported, setProblemReported] = useState(false);
+  const [handlingReturn, setHandlingReturn] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -186,8 +190,13 @@ export default function ActiveDelivery() {
     setReportingProblem(true);
     setError(null);
     try {
+      if (problemSheetMode === 'fail') {
+        await api.failDelivery(job.id, problemReason, problemNote.trim() || undefined);
+        navigate('/', { replace: true });
+        return;
+      }
       await api.reportProblem(job.id, problemReason, problemNote.trim() || undefined);
-      setShowProblemSheet(false);
+      setProblemSheetMode(null);
       setProblemReason('');
       setProblemNote('');
       setProblemReported(true);
@@ -195,6 +204,34 @@ export default function ActiveDelivery() {
       setError(err instanceof Error ? err.message : 'Could not report the problem');
     } finally {
       setReportingProblem(false);
+    }
+  };
+
+  const handleStartReturn = async () => {
+    if (!job) return;
+    setHandlingReturn(true);
+    setError(null);
+    try {
+      await api.startReturn(job.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start the return');
+    } finally {
+      setHandlingReturn(false);
+    }
+  };
+
+  const handleConfirmReturned = async () => {
+    if (!job) return;
+    setHandlingReturn(true);
+    setError(null);
+    try {
+      await api.confirmReturned(job.id);
+      navigate('/', { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not confirm the return');
+    } finally {
+      setHandlingReturn(false);
     }
   };
 
@@ -248,6 +285,86 @@ export default function ActiveDelivery() {
   }
 
   if (!job) return null;
+
+  // Staff called for this package to come back — a genuinely different
+  // phase of the job (heading back to the pickup point, not the customer),
+  // so it gets its own simple screen rather than trying to fold "return
+  // required"/"returning" into the forward delivery layout below (waybill
+  // status, the 4-step timeline, photo/signature capture — none of that
+  // applies here).
+  if (job.status === 'return_required' || job.status === 'returning') {
+    const returnTarget = mapsUrl(job.pickup.address, job.pickup.city, job.pickup.state);
+    return (
+      <div className="min-h-screen pb-32 bg-gray-50">
+        <div className="px-6 pt-4 pb-4 bg-white border-b border-gray-100 flex items-center gap-3">
+          <button type="button" onClick={() => navigate('/')} className="text-gray-400">
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+          <div className="flex-1">
+            <h1 className="text-base font-bold text-gray-900">{job.tracking_number || `Order ${job.order_number ?? ''}`}</h1>
+          </div>
+        </div>
+
+        <div className="px-6 pt-5 space-y-4">
+          {error && <p className="text-sm text-red-600">{error}</p>}
+
+          <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+            <p className="text-sm font-semibold text-orange-900">
+              {job.status === 'return_required' ? 'Return required' : 'Returning package'}
+            </p>
+            <p className="mt-1 text-sm text-orange-800">
+              {job.status === 'return_required'
+                ? `This delivery couldn't be completed — bring the package back to ${job.pickup.name || pickupLabel(job.pickup.kind)}.`
+                : `Head back to ${job.pickup.name || pickupLabel(job.pickup.kind)} and confirm once you've handed it back.`}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-gray-200 p-4">
+            <div className="flex items-start gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-primary-50 flex items-center justify-center shrink-0">
+                <Building2 className="w-4 h-4 text-primary-600" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Return to</p>
+                <p className="text-sm font-semibold text-gray-900 mt-0.5">{job.pickup.name || pickupLabel(job.pickup.kind)}</p>
+                <p className="text-sm text-gray-600 mt-0.5">{job.pickup.address || '—'}</p>
+                <p className="text-xs text-gray-400">{[job.pickup.city, job.pickup.state].filter(Boolean).join(', ')}</p>
+              </div>
+              {job.pickup.phone && (
+                <a
+                  href={`tel:${job.pickup.phone}`}
+                  className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center shrink-0 text-primary-600"
+                >
+                  <Phone className="w-4 h-4" />
+                </a>
+              )}
+            </div>
+          </div>
+
+          <a
+            href={returnTarget}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-700 bg-white"
+          >
+            <Navigation className="w-4 h-4" />
+            Navigate
+          </a>
+        </div>
+
+        <div className="fixed bottom-0 left-0 right-0 px-6 py-4 bg-white border-t border-gray-100">
+          <button
+            type="button"
+            onClick={job.status === 'return_required' ? handleStartReturn : handleConfirmReturned}
+            disabled={handlingReturn}
+            className="btn-primary"
+          >
+            {handlingReturn ? 'Saving…' : job.status === 'return_required' ? 'Start Return' : 'Mark Returned'}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const navTarget = headingToPickup
     ? mapsUrl(job.pickup.address, job.pickup.city, job.pickup.state)
@@ -383,13 +500,23 @@ export default function ActiveDelivery() {
           )}
           <button
             type="button"
-            onClick={() => setShowProblemSheet(true)}
+            onClick={() => setProblemSheetMode('report')}
             className="flex-1 flex flex-col items-center justify-center gap-1 rounded-xl border border-gray-200 py-2.5 text-[11px] font-semibold text-red-600 bg-white"
           >
             <AlertTriangle className="w-4 h-4" />
             Report Problem
           </button>
         </div>
+
+        {(job.status === 'picked_up' || job.status === 'out_for_delivery') && (
+          <button
+            type="button"
+            onClick={() => setProblemSheetMode('fail')}
+            className="w-full text-center text-xs font-semibold text-red-600 underline underline-offset-2"
+          >
+            Can't complete this delivery?
+          </button>
+        )}
 
         {job.status === 'out_for_delivery' && (
           <div className="rounded-2xl border border-dashed border-gray-300 p-4 text-center">
@@ -609,11 +736,17 @@ export default function ActiveDelivery() {
         </div>
       )}
 
-      {showProblemSheet && (
+      {problemSheetMode && (
         <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 px-6 pb-6 sm:pb-0">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6">
-            <h3 className="text-base font-bold text-gray-900">Report a problem</h3>
-            <p className="mt-1 text-sm text-gray-500">This lets dispatch know right away — it doesn't change your delivery status.</p>
+            <h3 className="text-base font-bold text-gray-900">
+              {problemSheetMode === 'fail' ? 'Mark this delivery as failed' : 'Report a problem'}
+            </h3>
+            <p className="mt-1 text-sm text-gray-500">
+              {problemSheetMode === 'fail'
+                ? "This ends the delivery attempt — dispatch will review and decide next steps, including whether you'll need to return the package."
+                : "This lets dispatch know right away — it doesn't change your delivery status."}
+            </p>
 
             <div className="mt-4 grid grid-cols-2 gap-2">
               {(Object.keys(PROBLEM_REASON_LABEL) as ProblemReason[]).map((reason) => (
@@ -641,7 +774,11 @@ export default function ActiveDelivery() {
             <div className="mt-5 flex gap-2">
               <button
                 type="button"
-                onClick={() => setShowProblemSheet(false)}
+                onClick={() => {
+                  setProblemSheetMode(null);
+                  setProblemReason('');
+                  setProblemNote('');
+                }}
                 disabled={reportingProblem}
                 className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 disabled:opacity-50"
               >
@@ -653,7 +790,13 @@ export default function ActiveDelivery() {
                 disabled={!problemReason || reportingProblem}
                 className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
               >
-                {reportingProblem ? 'Reporting…' : 'Report'}
+                {reportingProblem
+                  ? problemSheetMode === 'fail'
+                    ? 'Saving…'
+                    : 'Reporting…'
+                  : problemSheetMode === 'fail'
+                    ? 'Mark Failed'
+                    : 'Report'}
               </button>
             </div>
           </div>

@@ -22,6 +22,42 @@ const NEXT_STATUS = {
   out_for_delivery: 'delivered',
 };
 
+// Shared between report_problem (log only, no status change) and
+// fail_delivery (ends the delivery attempt) — same incident taxonomy, just
+// two different actions a rider can take on it.
+const INCIDENT_REASONS = [
+  'vendor_not_ready',
+  'vendor_closed',
+  'package_unavailable',
+  'wrong_address',
+  'customer_unreachable',
+  'customer_refused',
+  'package_damaged',
+  'vehicle_breakdown',
+  'safety_issue',
+  'other',
+];
+
+const INCIDENT_REASON_LABEL = {
+  vendor_not_ready: 'Vendor not ready',
+  vendor_closed: 'Vendor closed',
+  package_unavailable: 'Package unavailable',
+  wrong_address: 'Wrong address',
+  customer_unreachable: 'Customer unreachable',
+  customer_refused: 'Customer refused delivery',
+  package_damaged: 'Package damaged',
+  vehicle_breakdown: 'Vehicle breakdown',
+  safety_issue: 'Safety issue',
+  other: 'Other',
+};
+
+// A rider is only "busy" (blocks accept/claim, counts as their one active
+// job on Home/ActiveDelivery) for statuses that still need their action.
+// 'failed' is deliberately excluded — the rider has nothing to do until
+// staff reviews it and either requires a return or resolves it another
+// way (see admin-delivery-problems.js's require_return action).
+const RIDER_OWNED_STATUSES = ['assigned', 'picked_up', 'out_for_delivery', 'return_required', 'returning'];
+
 // A rider works one delivery at a time in this build (see handleGet's
 // "active" selection below) — broadcasts and direct assignments still reach
 // a busy rider, so they can see and queue up what's next, but committing to
@@ -33,7 +69,7 @@ async function hasActiveJob(adminClient, riderId) {
     .from('shipments')
     .select('status, metadata')
     .eq('assigned_rider_id', riderId)
-    .in('status', ['assigned', 'picked_up', 'out_for_delivery']);
+    .in('status', RIDER_OWNED_STATUSES);
   return (data || []).some((s) => s.status !== 'assigned' || isAccepted(s.metadata));
 }
 
@@ -56,7 +92,7 @@ async function handleGet(rider, adminClient) {
       .from('shipments')
       .select(SHIPMENT_LIST_SELECT)
       .eq('assigned_rider_id', rider.id)
-      .in('status', ['assigned', 'picked_up', 'out_for_delivery'])
+      .in('status', RIDER_OWNED_STATUSES)
       .order('created_at', { ascending: true }),
     rider.is_online && riderArea?.city && riderArea?.state
       ? adminClient
@@ -369,41 +405,16 @@ async function handlePost(rider, adminClient, body) {
   // that actually change what happens next (return required, reassign,
   // etc.) are a bigger, separate piece — see docs/rider-app-ux-rebuild.md.
   if (action === 'report_problem') {
-    const REASONS = [
-      'vendor_not_ready',
-      'vendor_closed',
-      'package_unavailable',
-      'wrong_address',
-      'customer_unreachable',
-      'customer_refused',
-      'package_damaged',
-      'vehicle_breakdown',
-      'safety_issue',
-      'other',
-    ];
     const { reason, note } = body;
-    if (!REASONS.includes(reason)) {
-      return jsonResponse(400, { success: false, error: `reason must be one of: ${REASONS.join(', ')}` });
+    if (!INCIDENT_REASONS.includes(reason)) {
+      return jsonResponse(400, { success: false, error: `reason must be one of: ${INCIDENT_REASONS.join(', ')}` });
     }
-
-    const REASON_LABEL = {
-      vendor_not_ready: 'Vendor not ready',
-      vendor_closed: 'Vendor closed',
-      package_unavailable: 'Package unavailable',
-      wrong_address: 'Wrong address',
-      customer_unreachable: 'Customer unreachable',
-      customer_refused: 'Customer refused delivery',
-      package_damaged: 'Package damaged',
-      vehicle_breakdown: 'Vehicle breakdown',
-      safety_issue: 'Safety issue',
-      other: 'Other',
-    };
 
     await adminClient.from('tracking_events').insert({
       ...trackingEventSourceField,
       shipment_id,
       status: shipment.status,
-      description: `${rider.full_name} reported a problem: ${REASON_LABEL[reason]}${note ? ` — ${note}` : ''}`,
+      description: `${rider.full_name} reported a problem: ${INCIDENT_REASON_LABEL[reason]}${note ? ` — ${note}` : ''}`,
       actor_type: 'rider',
       source: 'rider_app',
       metadata: { type: 'problem_report', reason, note: note || null },
@@ -412,6 +423,102 @@ async function handlePost(rider, adminClient, body) {
     await notifyDispatch(shipment.source_type, sourceId, 'problem_reported', { status: shipment.status, reason });
 
     return jsonResponse(200, { success: true, data: { reported: true } });
+  }
+
+  // Ends a delivery attempt the rider can't complete — the shipment stays
+  // assigned to them (they still physically hold the package) but drops off
+  // the "mine" list (RIDER_OWNED_STATUSES excludes 'failed') until staff
+  // reviews it via the Delivery Problems queue and either requires a return
+  // (admin-delivery-problems.js's require_return, see below) or resolves it
+  // another way. Reuses the exact incident taxonomy report_problem does, and
+  // tags the tracking event the same way (metadata.type: 'problem_report')
+  // so it surfaces in that same triage queue for free.
+  if (action === 'fail_delivery') {
+    if (!['picked_up', 'out_for_delivery'].includes(shipment.status)) {
+      return jsonResponse(409, { success: false, error: 'Only a delivery you have already picked up can be marked failed' });
+    }
+    const { reason, note } = body;
+    if (!INCIDENT_REASONS.includes(reason)) {
+      return jsonResponse(400, { success: false, error: `reason must be one of: ${INCIDENT_REASONS.join(', ')}` });
+    }
+
+    // The reason/note live on the tracking_events row below (which is what
+    // the Delivery Problems queue actually reads) — not worth also writing
+    // them into metadata here, since shipmentSync.js's metadataForShipment()
+    // only mirrors a fixed whitelist of keys into the unified shipments
+    // table, and these two aren't on it.
+    const update = { status: 'failed', failed_at: new Date().toISOString() };
+    const sourceUpdate = isSubOrder ? update : { status: 'failed' };
+
+    const { error } = await adminClient.from(sourceTable).update(sourceUpdate).eq('id', sourceId);
+    if (error) return jsonResponse(500, { success: false, error: error.message });
+
+    await syncShipmentBestEffort(adminClient, { [syncKey]: sourceId, fields: update }, 'rider-jobs fail_delivery');
+
+    await adminClient.from('tracking_events').insert({
+      ...trackingEventSourceField,
+      shipment_id,
+      status: 'failed',
+      description: `${rider.full_name} could not complete the delivery: ${INCIDENT_REASON_LABEL[reason]}${note ? ` — ${note}` : ''}`,
+      actor_type: 'rider',
+      source: 'rider_app',
+      metadata: { type: 'problem_report', reason, note: note || null },
+    });
+
+    await notifyDispatch(shipment.source_type, sourceId, 'updated', { status: 'failed', reason });
+
+    return jsonResponse(200, { success: true, data: { status: 'failed' } });
+  }
+
+  // Staff decided (from the Delivery Problems queue) that this failed
+  // delivery needs to come back — the rider taps through return_required ->
+  // returning -> returned themselves, same self-confirm pattern as pickup.
+  if (action === 'start_return') {
+    if (shipment.status !== 'return_required') {
+      return jsonResponse(409, { success: false, error: 'This delivery is not awaiting a return' });
+    }
+    const update = { status: 'returning' };
+    const { error } = await adminClient.from(sourceTable).update(update).eq('id', sourceId);
+    if (error) return jsonResponse(500, { success: false, error: error.message });
+
+    await syncShipmentBestEffort(adminClient, { [syncKey]: sourceId, fields: update }, 'rider-jobs start_return');
+
+    await adminClient.from('tracking_events').insert({
+      ...trackingEventSourceField,
+      shipment_id,
+      status: 'returning',
+      description: `${rider.full_name} started returning the package`,
+      actor_type: 'rider',
+      source: 'rider_app',
+    });
+
+    await notifyDispatch(shipment.source_type, sourceId, 'updated', { status: 'returning' });
+
+    return jsonResponse(200, { success: true, data: { status: 'returning' } });
+  }
+
+  if (action === 'confirm_returned') {
+    if (shipment.status !== 'returning') {
+      return jsonResponse(409, { success: false, error: 'This delivery is not currently being returned' });
+    }
+    const update = { status: 'returned' };
+    const { error } = await adminClient.from(sourceTable).update(update).eq('id', sourceId);
+    if (error) return jsonResponse(500, { success: false, error: error.message });
+
+    await syncShipmentBestEffort(adminClient, { [syncKey]: sourceId, fields: update }, 'rider-jobs confirm_returned');
+
+    await adminClient.from('tracking_events').insert({
+      ...trackingEventSourceField,
+      shipment_id,
+      status: 'returned',
+      description: `${rider.full_name} confirmed the package was returned`,
+      actor_type: 'rider',
+      source: 'rider_app',
+    });
+
+    await notifyDispatch(shipment.source_type, sourceId, 'updated', { status: 'returned' });
+
+    return jsonResponse(200, { success: true, data: { status: 'returned' } });
   }
 
   // Verifies a scanned code against this shipment WITHOUT changing anything

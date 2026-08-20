@@ -26,6 +26,8 @@ const STATUS_LABEL: Record<ActivityStatus, string> = {
   out_for_delivery: 'Out for delivery',
   delivered: 'Delivered',
   failed: 'Failed',
+  return_required: 'Return required',
+  returning: 'Returning',
   returned: 'Returned',
 };
 
@@ -35,6 +37,8 @@ const STATUS_ICON: Record<ActivityStatus, typeof CheckCircle2> = {
   out_for_delivery: Package,
   delivered: CheckCircle2,
   failed: XCircle,
+  return_required: RotateCcw,
+  returning: RotateCcw,
   returned: RotateCcw,
 };
 
@@ -44,10 +48,12 @@ const STATUS_CLASS: Record<ActivityStatus, string> = {
   out_for_delivery: 'bg-amber-100 text-amber-700',
   delivered: 'bg-emerald-100 text-emerald-700',
   failed: 'bg-red-100 text-red-700',
+  return_required: 'bg-orange-100 text-orange-700',
+  returning: 'bg-purple-100 text-purple-700',
   returned: 'bg-gray-100 text-gray-600',
 };
 
-const ACTIVE_STATUSES = new Set<ActivityStatus>(['assigned', 'picked_up', 'out_for_delivery']);
+const ACTIVE_STATUSES = new Set<ActivityStatus>(['assigned', 'picked_up', 'out_for_delivery', 'return_required', 'returning']);
 
 const DETAIL_TIMELINE: { key: keyof ActivityDetail; label: string }[] = [
   { key: 'assigned_at', label: 'Assigned' },

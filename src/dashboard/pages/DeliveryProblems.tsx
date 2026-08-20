@@ -11,6 +11,7 @@ type ProblemRow = {
   note: string | null;
   description: string;
   reported_at: string;
+  shipment_id: string;
   shipment_status: string;
   tracking_number: string | null;
   order_number: string | null;
@@ -44,6 +45,8 @@ const STATUS_BADGE: Record<string, string> = {
   out_for_delivery: 'bg-amber-100 text-amber-800',
   delivered: 'bg-green-100 text-green-800',
   failed: 'bg-red-100 text-red-700',
+  return_required: 'bg-orange-100 text-orange-800',
+  returning: 'bg-purple-100 text-purple-800',
   returned: 'bg-gray-100 text-gray-600',
 };
 
@@ -60,6 +63,7 @@ export default function DeliveryProblemsPage() {
   const [reasonFilter, setReasonFilter] = useState<string>('all');
   const [includeClosed, setIncludeClosed] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [requiringReturn, setRequiringReturn] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!session?.access_token) return;
@@ -84,6 +88,29 @@ export default function DeliveryProblemsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const requireReturn = async (row: ProblemRow) => {
+    if (!session?.access_token) return;
+    setRequiringReturn(row.id);
+    try {
+      const res = await fetch(`${functionsBase}/admin-delivery-problems`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ action: 'require_return', shipment_id: row.shipment_id }),
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload?.error || 'Failed to require a return');
+      notification.success('Return required — the rider will see it in their app.');
+      await load();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Failed to require a return');
+    } finally {
+      setRequiringReturn(null);
+    }
+  };
 
   return (
     <div className="w-full max-w-none px-4 sm:px-6 xl:px-8 py-4 md:py-6">
@@ -129,7 +156,7 @@ export default function DeliveryProblemsPage() {
         ))}
         <label className="ml-auto inline-flex items-center gap-1.5 text-sm text-gray-600">
           <input type="checkbox" checked={includeClosed} onChange={(e) => setIncludeClosed(e.target.checked)} />
-          Include delivered/failed/returned
+          Include delivered / returned (failed always shows)
         </label>
       </div>
 
@@ -185,13 +212,25 @@ export default function DeliveryProblemsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {href ? (
-                          <a href={href} className="inline-flex items-center gap-1 text-primary-700 hover:underline text-xs font-medium">
-                            View <ExternalLink className="w-3 h-3" />
-                          </a>
-                        ) : (
-                          <span className="text-xs text-gray-400">—</span>
-                        )}
+                        <div className="flex items-center justify-end gap-3">
+                          {row.shipment_status === 'failed' && (
+                            <button
+                              type="button"
+                              onClick={() => requireReturn(row)}
+                              disabled={requiringReturn === row.id}
+                              className="text-xs font-medium text-orange-700 hover:underline disabled:opacity-50"
+                            >
+                              {requiringReturn === row.id ? 'Requiring…' : 'Require Return'}
+                            </button>
+                          )}
+                          {href ? (
+                            <a href={href} className="inline-flex items-center gap-1 text-primary-700 hover:underline text-xs font-medium">
+                              View <ExternalLink className="w-3 h-3" />
+                            </a>
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

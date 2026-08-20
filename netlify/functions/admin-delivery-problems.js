@@ -9,15 +9,93 @@
  * each order individually.
  *
  * GET /api/admin-delivery-problems?reason=&include_closed=true|false
- *   include_closed defaults to false — hides reports on shipments that are
- *   already delivered/failed/returned, since those don't need action anymore.
+ *   include_closed defaults to false — hides reports on shipments that
+ *   don't need staff action anymore: delivered, or already past the point
+ *   where staff acted on a 'failed' one (return_required/returning/returned).
+ *   'failed' itself stays open — it's the one status that DOES need a staff
+ *   call (see the require_return action below).
+ *
+ * POST /api/admin-delivery-problems  { action: 'require_return', shipment_id }
+ *   Moves a 'failed' shipment to 'return_required' — see handleRequireReturn.
  */
 import { requireAdmin, jsonResponse, headers } from './services/global-sourcing-utils.js';
+import { syncShipmentBestEffort } from './services/shipmentSync.js';
+import { notifyRider } from './services/riderRealtime.js';
+import { sendPushToCustomer } from './services/pushNotifications.js';
 
-const CLOSED_STATUSES = new Set(['delivered', 'failed', 'returned']);
+// 'failed' stays open (needs a staff call); once staff acts (return_required)
+// it's the rider's turn next, so it drops off this queue same as delivered.
+const CLOSED_STATUSES = new Set(['delivered', 'return_required', 'returning', 'returned']);
+
+// A failed delivery (rider-jobs.js's fail_delivery) needs a staff call on
+// what happens next — this is the one option built so far: send it back the
+// way it came. The rider who still physically holds the package works
+// through return_required -> returning -> returned themselves (rider-jobs.js).
+async function handleRequireReturn(event) {
+  const auth = await requireAdmin(event, ['admin', 'manager', 'agent']);
+  if (auth.errorResponse) return auth.errorResponse;
+  const { adminClient } = auth;
+
+  const { shipment_id } = JSON.parse(event.body || '{}');
+  if (!shipment_id) return jsonResponse(400, { success: false, error: 'shipment_id is required' });
+
+  const { data: shipment, error: loadError } = await adminClient
+    .from('shipments')
+    .select('id, source_type, sub_order_id, manual_shipment_id, status, assigned_rider_id')
+    .eq('id', shipment_id)
+    .maybeSingle();
+  if (loadError || !shipment) return jsonResponse(404, { success: false, error: 'Shipment not found' });
+  if (shipment.status !== 'failed') {
+    return jsonResponse(409, { success: false, error: 'Only a failed delivery can be sent back for return' });
+  }
+
+  const isSubOrder = shipment.source_type === 'sub_order';
+  const sourceTable = isSubOrder ? 'sub_orders' : 'manual_shipments';
+  const sourceId = isSubOrder ? shipment.sub_order_id : shipment.manual_shipment_id;
+  const syncKey = isSubOrder ? 'subOrderId' : 'manualShipmentId';
+
+  const update = { status: 'return_required' };
+  const { error } = await adminClient.from(sourceTable).update(update).eq('id', sourceId);
+  if (error) return jsonResponse(500, { success: false, error: error.message });
+
+  await syncShipmentBestEffort(adminClient, { [syncKey]: sourceId, fields: update }, 'admin-delivery-problems require_return');
+
+  await adminClient.from('tracking_events').insert({
+    ...(isSubOrder ? { sub_order_id: sourceId } : { manual_shipment_id: sourceId }),
+    shipment_id,
+    status: 'return_required',
+    description: 'Staff requested this package be returned',
+    actor_type: 'user',
+    source: 'admin',
+  });
+
+  if (shipment.assigned_rider_id) {
+    await notifyRider(shipment.assigned_rider_id, 'return_required', { shipment_id });
+    const pushResult = await sendPushToCustomer(shipment.assigned_rider_id, {
+      title: 'Return required',
+      message: 'A package needs to go back — open the app for details.',
+      type: 'rider_job_assigned',
+      data: { shipment_id, targetPath: '/' },
+    });
+    if (!pushResult.success && !pushResult.skipped) {
+      console.warn('require_return push failed:', pushResult);
+    }
+  }
+
+  return jsonResponse(200, { success: true, data: { status: 'return_required' } });
+}
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
+
+  if (event.httpMethod === 'POST') {
+    const body = JSON.parse(event.body || '{}');
+    if (body.action === 'require_return') {
+      return handleRequireReturn(event);
+    }
+    return jsonResponse(400, { success: false, error: 'Unknown action' });
+  }
+
   if (event.httpMethod !== 'GET') return jsonResponse(405, { success: false, error: 'Method not allowed' });
 
   const auth = await requireAdmin(event, ['admin', 'manager', 'agent', 'viewer']);

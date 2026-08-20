@@ -10,7 +10,7 @@
 import { requireActiveRider, jsonResponse, headers } from './services/requireRider.js';
 import { SHIPMENT_LIST_SELECT, fetchSourceDetails, summarizeShipment } from './services/shipmentSummary.js';
 
-const ACTIVE_STATUSES = ['assigned', 'picked_up', 'out_for_delivery'];
+const ACTIVE_STATUSES = ['assigned', 'picked_up', 'out_for_delivery', 'return_required', 'returning'];
 
 const SELECT = `
   id, tracking_number, status, created_at, picked_up_at, out_for_delivery_at, delivered_at, failed_at, rider_payout,

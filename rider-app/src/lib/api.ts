@@ -114,7 +114,7 @@ export type PodLevel = 'standard' | 'verified';
 export type Job = {
   id: string;
   tracking_number: string | null;
-  status: 'assigned' | 'picked_up' | 'out_for_delivery' | 'delivered';
+  status: 'assigned' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'return_required' | 'returning';
   accepted: boolean;
   fee: number;
   order_number: string | null;
@@ -140,7 +140,15 @@ export type JobsResponse = {
 };
 
 export type ActivityStatusFilter = 'all' | 'active' | 'delivered' | 'failed' | 'returned';
-export type ActivityStatus = 'assigned' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'failed' | 'returned';
+export type ActivityStatus =
+  | 'assigned'
+  | 'picked_up'
+  | 'out_for_delivery'
+  | 'delivered'
+  | 'failed'
+  | 'return_required'
+  | 'returning'
+  | 'returned';
 
 export type ActivityItem = {
   id: string;
@@ -269,6 +277,25 @@ export const api = {
     request<{ reported: boolean }>('rider-jobs', {
       method: 'POST',
       body: JSON.stringify({ shipment_id, action: 'report_problem', reason, note }),
+    }),
+  // Ends a delivery attempt (only from picked_up/out_for_delivery — the
+  // rider still holds the package). Staff decides what happens next from
+  // the Delivery Problems queue; startReturn/confirmReturned pick it back
+  // up once staff calls for a return.
+  failDelivery: (shipment_id: string, reason: ProblemReason, note?: string) =>
+    request<{ status: string }>('rider-jobs', {
+      method: 'POST',
+      body: JSON.stringify({ shipment_id, action: 'fail_delivery', reason, note }),
+    }),
+  startReturn: (shipment_id: string) =>
+    request<{ status: string }>('rider-jobs', {
+      method: 'POST',
+      body: JSON.stringify({ shipment_id, action: 'start_return' }),
+    }),
+  confirmReturned: (shipment_id: string) =>
+    request<{ status: string }>('rider-jobs', {
+      method: 'POST',
+      body: JSON.stringify({ shipment_id, action: 'confirm_returned' }),
     }),
   verifyScan: (shipment_id: string, scanned_code: string) =>
     request<ScanVerification>('rider-jobs', {

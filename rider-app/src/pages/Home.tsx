@@ -43,6 +43,8 @@ const ACTIVE_STATUS_LABEL: Record<Job['status'], string> = {
   picked_up: 'Pickup complete',
   out_for_delivery: 'Out for delivery',
   delivered: 'Delivered',
+  return_required: 'Return required',
+  returning: 'Returning package',
 };
 
 export default function Home() {
@@ -320,10 +322,21 @@ function RiderHome() {
             </div>
             <div className="p-4">
               <p className="text-xs font-semibold text-emerald-600">{ACTIVE_STATUS_LABEL[active.status]}</p>
-              <p className="mt-1 text-sm text-gray-900">
-                Next: Deliver to <span className="font-semibold">{active.dropoff.customer_name || 'customer'}</span>
-              </p>
-              <p className="mt-0.5 text-xs text-gray-500">{active.dropoff.address || active.dropoff.city || '—'}</p>
+              {active.status === 'return_required' || active.status === 'returning' ? (
+                <>
+                  <p className="mt-1 text-sm text-gray-900">
+                    Next: Return to <span className="font-semibold">{active.pickup.name || pickupLabel(active.pickup.kind)}</span>
+                  </p>
+                  <p className="mt-0.5 text-xs text-gray-500">{active.pickup.address || active.pickup.city || '—'}</p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-1 text-sm text-gray-900">
+                    Next: Deliver to <span className="font-semibold">{active.dropoff.customer_name || 'customer'}</span>
+                  </p>
+                  <p className="mt-0.5 text-xs text-gray-500">{active.dropoff.address || active.dropoff.city || '—'}</p>
+                </>
+              )}
               <button
                 type="button"
                 onClick={() => navigate('/delivery')}

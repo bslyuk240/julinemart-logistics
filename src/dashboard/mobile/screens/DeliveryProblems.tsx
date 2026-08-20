@@ -11,6 +11,7 @@ type ProblemRow = {
   reason: string | null;
   note: string | null;
   reported_at: string;
+  shipment_id: string;
   shipment_status: string;
   tracking_number: string | null;
   order_number: string | null;
@@ -42,6 +43,8 @@ const STATUS_BADGE: Record<string, string> = {
   out_for_delivery: 'bg-amber-100 text-amber-800',
   delivered: 'bg-green-100 text-green-800',
   failed: 'bg-red-100 text-red-700',
+  return_required: 'bg-orange-100 text-orange-800',
+  returning: 'bg-purple-100 text-purple-800',
   returned: 'bg-gray-100 text-gray-600',
 };
 
@@ -57,6 +60,7 @@ export default function MobileDeliveryProblems() {
   const [rows, setRows] = useState<ProblemRow[]>([]);
   const [reasonFilter, setReasonFilter] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [requiringReturn, setRequiringReturn] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!session?.access_token) return;
@@ -80,6 +84,29 @@ export default function MobileDeliveryProblems() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const requireReturn = async (row: ProblemRow) => {
+    if (!session?.access_token) return;
+    setRequiringReturn(row.id);
+    try {
+      const res = await fetch(`${functionsBase}/admin-delivery-problems`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ action: 'require_return', shipment_id: row.shipment_id }),
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload?.error || 'Failed to require a return');
+      notification.success('Return required — the rider will see it in their app.');
+      await load();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Failed to require a return');
+    } finally {
+      setRequiringReturn(null);
+    }
+  };
 
   return (
     <PullToRefresh onRefresh={load}>
@@ -147,6 +174,20 @@ export default function MobileDeliveryProblems() {
                       {href && <ChevronRight className="w-4 h-4 text-gray-300" />}
                     </div>
                   </div>
+                  {row.shipment_status === 'failed' && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        requireReturn(row);
+                      }}
+                      disabled={requiringReturn === row.id}
+                      className="mt-3 w-full rounded-lg bg-orange-50 py-2 text-xs font-semibold text-orange-700 disabled:opacity-50"
+                    >
+                      {requiringReturn === row.id ? 'Requiring…' : 'Require Return'}
+                    </button>
+                  )}
                 </div>
               );
               return href ? (

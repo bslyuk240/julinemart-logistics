@@ -1,10 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, Building2, Camera, Check, Navigation, Phone, User } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Building2, Camera, Check, Navigation, Phone, ScanLine, User, X, XCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { api, Job, PROBLEM_REASON_LABEL, ProblemReason } from '../lib/api';
+import { api, Job, PROBLEM_REASON_LABEL, ProblemReason, ScanVerification } from '../lib/api';
 import { uploadRiderDocument } from '../lib/storage';
 import { Scanner } from '../components/Scanner';
+
+// verify_scan reports short codes (see rider-jobs.js), not sentences — the
+// server's own `message` for these is already rider-friendly, but the
+// shared request() helper only surfaces `error`, so translate here to keep
+// that helper's contract (used by other screens that key off the raw code).
+const SCAN_ERROR_MESSAGE: Record<string, string> = {
+  wrong_package: "This isn't your assigned shipment.",
+  already_collected: 'This package has already been collected.',
+  not_accepted: 'Accept the job before scanning for pickup.',
+  empty_scan: 'Scan the label on this package to confirm pickup.',
+  not_your_job: "This shipment isn't assigned to you.",
+};
 
 const TIMELINE: { status: Job['status']; label: string; at: (job: Job) => string | null }[] = [
   { status: 'assigned', label: 'Assigned', at: (job) => job.assigned_at },
@@ -52,6 +64,13 @@ export default function ActiveDelivery() {
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [uploadingProof, setUploadingProof] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [scanResult, setScanResult] = useState<ScanVerification | null>(null);
+  const [scanFailure, setScanFailure] = useState<string | null>(null);
+  const [confirmingPickup, setConfirmingPickup] = useState(false);
+  const [manualCodeOpen, setManualCodeOpen] = useState(false);
+  const [manualCodeValue, setManualCodeValue] = useState('');
+  const lastScannedCode = useRef('');
   const [showProblemSheet, setShowProblemSheet] = useState(false);
   const [problemReason, setProblemReason] = useState<ProblemReason | ''>('');
   const [problemNote, setProblemNote] = useState('');
@@ -160,19 +179,45 @@ export default function ActiveDelivery() {
     }
   };
 
-  const handleScanDetect = async (code: string) => {
+  const verifyCode = async (code: string) => {
     if (!job) return;
+    lastScannedCode.current = code;
     setShowScanner(false);
-    setAdvancing(true);
+    setManualCodeOpen(false);
+    setScanResult(null);
+    setScanFailure(null);
+    setVerifying(true);
+    try {
+      const result = await api.verifyScan(job.id, code);
+      setScanResult(result);
+    } catch (err) {
+      const code2 = err instanceof Error ? err.message : '';
+      setScanFailure(SCAN_ERROR_MESSAGE[code2] || 'Could not verify this package.');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  const handleConfirmPickup = async () => {
+    if (!job || !lastScannedCode.current) return;
+    setConfirmingPickup(true);
     setError(null);
     try {
-      await api.advanceJob(job.id, 'picked_up', { scanned_code: code });
+      await api.advanceJob(job.id, 'picked_up', { scanned_code: lastScannedCode.current });
+      setScanResult(null);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not confirm pickup');
     } finally {
-      setAdvancing(false);
+      setConfirmingPickup(false);
     }
+  };
+
+  const closeScanFlow = () => {
+    setScanResult(null);
+    setScanFailure(null);
+    setManualCodeOpen(false);
+    setManualCodeValue('');
   };
 
   if (loading) {
@@ -371,9 +416,145 @@ export default function ActiveDelivery() {
         <Scanner
           title="Scan to confirm pickup"
           hint="Point the camera at the QR code on this package's label"
-          onDetect={handleScanDetect}
+          onDetect={verifyCode}
           onClose={() => setShowScanner(false)}
         />
+      )}
+
+      {verifying && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 flex items-center gap-3">
+            <div className="w-5 h-5 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+            <span className="text-sm font-medium text-gray-700">Verifying package…</span>
+          </div>
+        </div>
+      )}
+
+      {scanResult && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 px-6 pb-6 sm:pb-0">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+                <Check className="w-5 h-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-gray-900">Package verified</p>
+                {scanResult.tracking_number && <p className="text-xs text-gray-500">{scanResult.tracking_number}</p>}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-gray-200 divide-y divide-gray-100">
+              <div className="flex items-center justify-between px-3 py-2.5">
+                <span className="text-xs text-gray-500">Assigned to</span>
+                <span className="text-xs font-semibold text-gray-900">{scanResult.rider_name}</span>
+              </div>
+              <div className="flex items-center justify-between px-3 py-2.5">
+                <span className="text-xs text-gray-500">Custody transfer</span>
+                <span className="text-xs font-semibold text-gray-900">
+                  {scanResult.from_custodian} → {scanResult.to_custodian}
+                </span>
+              </div>
+              {scanResult.pickup_name && (
+                <div className="flex items-center justify-between px-3 py-2.5">
+                  <span className="text-xs text-gray-500">From</span>
+                  <span className="text-xs font-semibold text-gray-900">{scanResult.pickup_name}</span>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleConfirmPickup}
+              disabled={confirmingPickup}
+              className="mt-4 w-full rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {confirmingPickup ? 'Confirming…' : 'Confirm Pickup'}
+            </button>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  closeScanFlow();
+                  setShowScanner(true);
+                }}
+                disabled={confirmingPickup}
+                className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 py-2 text-xs font-semibold text-gray-600 disabled:opacity-50"
+              >
+                <ScanLine className="w-3.5 h-3.5" />
+                Scan Again
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setScanResult(null);
+                  setManualCodeOpen(true);
+                }}
+                disabled={confirmingPickup}
+                className="flex-1 rounded-xl border border-gray-200 py-2 text-xs font-semibold text-gray-600 disabled:opacity-50"
+              >
+                Manual Code
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {scanFailure && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 px-6 pb-6 sm:pb-0">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6 text-center">
+            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-3">
+              <XCircle className="w-6 h-6 text-red-600" />
+            </div>
+            <p className="text-sm font-semibold text-gray-900">{scanFailure}</p>
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                onClick={closeScanFlow}
+                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  closeScanFlow();
+                  setShowScanner(true);
+                }}
+                className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white"
+              >
+                Scan Again
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {manualCodeOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 px-6 pb-6 sm:pb-0">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-bold text-gray-900">Enter waybill code</h3>
+              <button type="button" onClick={closeScanFlow} className="text-gray-400">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <input
+              className="field-input"
+              value={manualCodeValue}
+              onChange={(e) => setManualCodeValue(e.target.value)}
+              placeholder="Tracking number"
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={() => manualCodeValue.trim() && verifyCode(manualCodeValue.trim())}
+              disabled={!manualCodeValue.trim()}
+              className="mt-3 w-full rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+            >
+              Verify
+            </button>
+          </div>
+        </div>
       )}
 
       {showProblemSheet && (

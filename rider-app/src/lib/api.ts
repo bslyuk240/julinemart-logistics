@@ -81,6 +81,15 @@ export const PROBLEM_REASON_LABEL: Record<ProblemReason, string> = {
   other: 'Other',
 };
 
+export type ScanVerification = {
+  verified: true;
+  tracking_number: string | null;
+  rider_name: string;
+  from_custodian: string;
+  to_custodian: string;
+  pickup_name: string | null;
+};
+
 export type Job = {
   id: string;
   tracking_number: string | null;
@@ -231,6 +240,11 @@ export const api = {
     request<{ reported: boolean }>('rider-jobs', {
       method: 'POST',
       body: JSON.stringify({ shipment_id, action: 'report_problem', reason, note }),
+    }),
+  verifyScan: (shipment_id: string, scanned_code: string) =>
+    request<ScanVerification>('rider-jobs', {
+      method: 'POST',
+      body: JSON.stringify({ shipment_id, action: 'verify_scan', scanned_code }),
     }),
   setOnline: (online: boolean) =>
     request<{ online: boolean }>('rider-online', { method: 'POST', body: JSON.stringify({ online }) }),

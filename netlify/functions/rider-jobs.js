@@ -139,7 +139,7 @@ async function loadOwnedShipment(adminClient, riderId, shipmentId) {
 
   if (error || !shipment) return { errorResponse: jsonResponse(404, { success: false, error: 'Job not found' }) };
   if (shipment.assigned_rider_id !== riderId) {
-    return { errorResponse: jsonResponse(403, { success: false, error: 'not_your_job', message: 'This job is not assigned to you' }) };
+    return { errorResponse: jsonResponse(403, { success: false, error: 'not_your_job', message: "This shipment isn't assigned to you." }) };
   }
   return { shipment };
 }
@@ -369,6 +369,45 @@ async function handlePost(rider, adminClient, body) {
     return jsonResponse(200, { success: true, data: { reported: true } });
   }
 
+  // Verifies a scanned code against this shipment WITHOUT changing anything
+  // — the client shows the result (mockup screen 3: "Package verified" +
+  // custody direction) and only calls `advance` once the rider taps
+  // "Confirm Pickup". `advance` re-runs the same check server-side, so this
+  // is a preview, not the authority — a client that skips straight to
+  // `advance` still gets the same validation.
+  if (action === 'verify_scan') {
+    if (shipment.status !== 'assigned') {
+      return jsonResponse(409, { success: false, error: 'already_collected', message: 'This package has already been collected.' });
+    }
+    if (!isAccepted(shipment.metadata)) {
+      return jsonResponse(409, { success: false, error: 'not_accepted', message: 'Accept the job before scanning for pickup.' });
+    }
+
+    const scanned = normalizeScanCode(body.scanned_code);
+    if (!scanned) {
+      return jsonResponse(400, { success: false, error: 'empty_scan', message: 'Scan the label on this package to confirm pickup' });
+    }
+    const expected = [shipment.tracking_number, shipment.waybill_number].map((v) => normalizeScanCode(v)).filter(Boolean);
+    if (!expected.some((code) => code.toUpperCase() === scanned.toUpperCase())) {
+      return jsonResponse(400, { success: false, error: 'wrong_package', message: "This isn't your assigned shipment." });
+    }
+
+    const { subOrderMap, manualMap } = await fetchSourceDetails(adminClient, [shipment]);
+    const summary = summarizeShipment(shipment, subOrderMap, manualMap);
+
+    return jsonResponse(200, {
+      success: true,
+      data: {
+        verified: true,
+        tracking_number: shipment.tracking_number,
+        rider_name: rider.full_name,
+        from_custodian: 'Vendor',
+        to_custodian: 'Rider',
+        pickup_name: summary?.pickup?.name || null,
+      },
+    });
+  }
+
   if (action === 'advance') {
     if (!isAccepted(shipment.metadata)) {
       return jsonResponse(409, { success: false, error: 'Accept the job before updating its status' });
@@ -397,7 +436,7 @@ async function handlePost(rider, adminClient, body) {
       if (!expected.some((code) => code.toUpperCase() === scanned.toUpperCase())) {
         return jsonResponse(400, {
           success: false,
-          error: "That code doesn't match this delivery — scan the label on this specific package.",
+          error: "This isn't your assigned shipment.",
         });
       }
     }

@@ -15,6 +15,7 @@ const SELECT = `
   id_document_url, selfie_url, selfie_captured_at,
   vehicle_type, vehicle_plate, vehicle_document_url,
   guarantor_name, guarantor_phone,
+  bank_name, bank_account_number, bank_account_name,
   approved_location_id, status, reject_reason, approved_at, created_at, is_online,
   approved_vendor_locations ( city, state )
 `;

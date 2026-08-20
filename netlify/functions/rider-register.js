@@ -11,6 +11,7 @@
  *   vehicle_type, vehicle_plate, vehicle_document_url,
  *   guarantor_name, guarantor_phone,
  *   approved_location_id,
+ *   bank_name, bank_account_number, bank_account_name,
  * }
  *
  * Upserts on user_id: first submission creates the row (status →
@@ -31,7 +32,15 @@ const REQUIRED_FIELDS = [
   'guarantor_name',
   'guarantor_phone',
   'approved_location_id',
+  'bank_name',
+  'bank_account_number',
+  'bank_account_name',
 ];
+
+// Nigerian NUBAN account numbers are 10 digits — catches an obvious typo
+// (transposed digit, pasted phone number) before it reaches an admin
+// reviewing dozens of applications, without hard-coding a bank list.
+const ACCOUNT_NUMBER_RE = /^\d{10}$/;
 
 const VEHICLE_TYPES = ['okada', 'keke', 'car', 'foot'];
 
@@ -65,6 +74,9 @@ export async function handler(event) {
   }
   if (!VEHICLE_TYPES.includes(body.vehicle_type)) {
     return jsonResponse(400, { success: false, error: `vehicle_type must be one of: ${VEHICLE_TYPES.join(', ')}` });
+  }
+  if (!ACCOUNT_NUMBER_RE.test(String(body.bank_account_number).trim())) {
+    return jsonResponse(400, { success: false, error: 'bank_account_number must be a 10-digit NUBAN account number' });
   }
 
   // Verify the location is still active (same race-condition guard as vendor-register.js)
@@ -110,6 +122,9 @@ export async function handler(event) {
     guarantor_name: String(body.guarantor_name).trim(),
     guarantor_phone: String(body.guarantor_phone).trim(),
     approved_location_id: body.approved_location_id,
+    bank_name: String(body.bank_name).trim(),
+    bank_account_number: String(body.bank_account_number).trim(),
+    bank_account_name: String(body.bank_account_name).trim(),
     status: 'pending_review',
     reject_reason: null,
     approved_at: null,

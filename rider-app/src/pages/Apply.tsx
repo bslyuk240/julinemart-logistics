@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase';
 import { uploadRiderDocument } from '../lib/storage';
 import { api } from '../lib/api';
 
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3 | 4 | 5;
 
 type LocationOption = { id: string; lga: string };
 type GroupedLocations = Record<string, Record<string, LocationOption[]>>;
@@ -26,12 +26,15 @@ const emptyForm = {
   city: '',
   lga: '',
   approved_location_id: '',
+  bank_name: '',
+  bank_account_number: '',
+  bank_account_name: '',
 };
 
 function StepDots({ step }: { step: Step }) {
   return (
     <div className="flex items-center gap-1.5 mb-1">
-      {[1, 2, 3, 4].map((n) => (
+      {[1, 2, 3, 4, 5].map((n) => (
         <div
           key={n}
           className={`h-1 flex-1 rounded-full ${n <= step ? 'bg-primary-600' : 'bg-gray-200'} ${n === step ? 'opacity-60' : ''}`}
@@ -140,6 +143,11 @@ export default function Apply() {
       if (!form.guarantor_name.trim() || !form.guarantor_phone.trim()) return "Enter your guarantor's name and phone";
       if (!form.approved_location_id) return 'Select your state, city, and area';
     }
+    if (s === 4) {
+      if (!form.bank_name.trim()) return 'Select your bank';
+      if (!/^\d{10}$/.test(form.bank_account_number.trim())) return 'Account number must be 10 digits';
+      if (!form.bank_account_name.trim()) return 'Enter the account name';
+    }
     return null;
   }
 
@@ -181,6 +189,9 @@ export default function Apply() {
         guarantor_name: form.guarantor_name.trim(),
         guarantor_phone: form.guarantor_phone.trim(),
         approved_location_id: form.approved_location_id,
+        bank_name: form.bank_name.trim(),
+        bank_account_number: form.bank_account_number.trim(),
+        bank_account_name: form.bank_account_name.trim(),
       });
 
       navigate('/', { replace: true });
@@ -195,14 +206,15 @@ export default function Apply() {
     1: 'Identity',
     2: 'Selfie',
     3: 'Vehicle & guarantor',
-    4: 'Review',
+    4: 'Payout details',
+    5: 'Review',
   };
 
   return (
     <div className="min-h-screen bg-gray-50 px-6 py-8 max-w-sm mx-auto">
       <StepDots step={step} />
       <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">
-        Step {step} of 4 — {stepLabels[step]}
+        Step {step} of 5 — {stepLabels[step]}
       </p>
 
       {step === 1 && (
@@ -329,6 +341,31 @@ export default function Apply() {
       )}
 
       {step === 4 && (
+        <StepShell
+          title="Where should we pay you?"
+          subtitle="Delivery earnings get paid out here — double-check the account name matches yours exactly."
+        >
+          <div>
+            <label className="field-label">Bank name</label>
+            <input className="field-input" value={form.bank_name} onChange={(e) => set('bank_name', e.target.value)} placeholder="e.g. GTBank" />
+          </div>
+          <div>
+            <label className="field-label">Account number (10 digits)</label>
+            <input
+              className="field-input"
+              value={form.bank_account_number}
+              onChange={(e) => set('bank_account_number', e.target.value.replace(/\D/g, '').slice(0, 10))}
+              inputMode="numeric"
+            />
+          </div>
+          <div>
+            <label className="field-label">Account name</label>
+            <input className="field-input" value={form.bank_account_name} onChange={(e) => set('bank_account_name', e.target.value)} placeholder="As it appears on your bank account" />
+          </div>
+        </StepShell>
+      )}
+
+      {step === 5 && (
         <StepShell title="Review your application" subtitle="Make sure this all looks right before you submit.">
           <SummaryRow label="Name" value={form.full_name} />
           <SummaryRow label="Phone" value={form.phone} />
@@ -336,6 +373,8 @@ export default function Apply() {
           <SummaryRow label="Vehicle" value={`${form.vehicle_type} · ${form.vehicle_plate}`} />
           <SummaryRow label="Guarantor" value={`${form.guarantor_name} · ${form.guarantor_phone}`} />
           <SummaryRow label="Area" value={`${form.lga}, ${form.city}, ${form.state}`} />
+          <SummaryRow label="Payout account" value={`${form.bank_name} · ${form.bank_account_number}`} />
+          <SummaryRow label="Account name" value={form.bank_account_name} />
         </StepShell>
       )}
 
@@ -347,7 +386,7 @@ export default function Apply() {
             Back
           </button>
         )}
-        {step < 4 ? (
+        {step < 5 ? (
           <button type="button" className="btn-primary" onClick={next}>
             Continue
           </button>

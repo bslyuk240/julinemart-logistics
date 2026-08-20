@@ -41,6 +41,9 @@ export type RiderApplicationPayload = {
   guarantor_name: string;
   guarantor_phone: string;
   approved_location_id: string;
+  bank_name: string;
+  bank_account_number: string;
+  bank_account_name: string;
 };
 
 export type JobLocation = { name?: string; address: string | null; city: string | null; state: string | null; phone?: string };

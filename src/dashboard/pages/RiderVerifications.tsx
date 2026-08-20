@@ -19,6 +19,9 @@ type RiderRow = {
   vehicle_document_url: string | null;
   guarantor_name: string;
   guarantor_phone: string;
+  bank_name: string | null;
+  bank_account_number: string | null;
+  bank_account_name: string | null;
   status: string;
   reject_reason: string | null;
   approved_at: string | null;
@@ -234,6 +237,14 @@ export default function RiderVerificationsPage() {
                 value={selected.approved_vendor_locations ? `${selected.approved_vendor_locations.city}, ${selected.approved_vendor_locations.state}` : '—'}
               />
               <DetailRow label="Guarantor" value={`${selected.guarantor_name} · ${selected.guarantor_phone}`} />
+              <DetailRow
+                label="Payout account"
+                value={
+                  selected.bank_name
+                    ? `${selected.bank_name} · ${selected.bank_account_number} · ${selected.bank_account_name}`
+                    : '—'
+                }
+              />
 
               <div className="pt-2 border-t">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-500 mb-2">Documents</p>

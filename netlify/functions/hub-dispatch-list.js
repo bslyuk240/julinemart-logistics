@@ -84,10 +84,30 @@ export async function handler(event) {
 
     if (error) throw error;
 
+    // Manual shipments whose destination hub is this hub (or one of its
+    // sub-hubs) — either still needing a rider to bring them in, or already
+    // sitting here ('at_hub') waiting for the onward dispatch decision.
+    // Kept as a separate response key rather than merged into `data`: the
+    // shapes don't line up (no main_order_id/vendors join to group by), and
+    // manual shipments already have their own individual Fez-dispatch
+    // action on their own detail page — this list is just for visibility
+    // and first/second-leg rider assignment from the hub view.
+    const { data: manualShipments, error: manualError } = await supabase
+      .from('manual_shipments')
+      .select(
+        'id, shipment_code, tracking_number, status, item_description, item_value, sender, recipient, metadata, destination_hub_id, assigned_rider_id'
+      )
+      .in('destination_hub_id', allHubIds)
+      .not('status', 'in', '(delivered,failed,returned)')
+      .order('created_at', { ascending: false })
+      .limit(500);
+
+    if (manualError) throw manualError;
+
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ success: true, data: data || [] }),
+      body: JSON.stringify({ success: true, data: data || [], manual_shipments: manualShipments || [] }),
     };
   } catch (error) {
     console.error('hub-dispatch-list error:', error);

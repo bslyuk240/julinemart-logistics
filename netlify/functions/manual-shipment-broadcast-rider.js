@@ -76,8 +76,11 @@ export async function handler(event) {
     // Derived from the shipment's own persisted state, not a client-sent
     // flag — see manual-shipment-assign-rider.js for why a client flag here
     // could race a just-saved destination_hub_id and silently broadcast a
-    // normal delivery instead of a hub leg.
-    const toHub = Boolean(existingShipment.destination_hub_id);
+    // normal delivery instead of a hub leg. Excludes shipments already
+    // 'at_hub' — the first-mile leg already delivered there, so the next
+    // broadcast is the onward leg (to the real recipient), not another
+    // hub-collection leg.
+    const toHub = Boolean(existingShipment.destination_hub_id) && existingShipment.status !== 'at_hub';
 
     if (cancel) {
       if (existingShipment.status !== 'broadcasting') {

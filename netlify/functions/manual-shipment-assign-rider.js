@@ -94,8 +94,11 @@ export async function handler(event) {
     // A client flag here could race a just-saved destination_hub_id (the
     // Save button's PUT landing in the DB before the browser's local
     // shipment state re-fetches), silently sending a normal delivery
-    // instead of a hub leg.
-    const toHub = Boolean(existingShipment.destination_hub_id);
+    // instead of a hub leg. Excludes shipments already 'at_hub' — that
+    // status means the first-mile leg already delivered TO this hub, so
+    // the next assignment is the onward leg (to the real recipient), not
+    // another hub-collection leg.
+    const toHub = Boolean(existingShipment.destination_hub_id) && existingShipment.status !== 'at_hub';
 
     // Rider payout, frozen now — before the rider has accepted. Reuses the
     // zone_id (and hub_id, if hub-mode) already resolved and stored on this

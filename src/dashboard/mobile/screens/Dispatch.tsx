@@ -14,6 +14,19 @@ import { normalizeScanCode } from '../lib/scanCode';
 
 type Hub = { id: string; name: string; city?: string | null };
 
+type ManualShipmentRow = {
+  id: string;
+  shipment_code: string;
+  tracking_number: string | null;
+  status: string;
+  item_description: string;
+  item_value: number | null;
+  sender: { name?: string | null } | null;
+  recipient: { name?: string | null } | null;
+  metadata: { rider_leg?: 'to_hub' | null } | null;
+  assigned_rider_id: string | null;
+};
+
 type SubOrderRow = {
   id: string;
   main_order_id: string;
@@ -99,6 +112,13 @@ export default function MobileDispatch() {
   const [hubRiderTarget, setHubRiderTarget] = useState<SubOrderRow | null>(null);
   const [hubRiderId, setHubRiderId] = useState('');
   const [assigningHubRider, setAssigningHubRider] = useState(false);
+  const [manualShipments, setManualShipments] = useState<ManualShipmentRow[]>([]);
+  // Manual-shipment equivalent of hubRiderTarget/hubRiderId above — kept
+  // separate since it posts to manual-shipment-assign-rider (shipment_id),
+  // not assign-rider (sub_order_id).
+  const [manualHubRiderTarget, setManualHubRiderTarget] = useState<ManualShipmentRow | null>(null);
+  const [manualHubRiderId, setManualHubRiderId] = useState('');
+  const [assigningManualHubRider, setAssigningManualHubRider] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scanResult, setScanResult] = useState<{
     code: string;
@@ -211,6 +231,12 @@ export default function MobileDispatch() {
     [subOrders],
   );
 
+  // Manual shipments routed through this hub, split the same way as the
+  // sub_order sections above: still needs a rider to bring it in, vs.
+  // already here and waiting on the onward dispatch decision.
+  const manualAwaitingHubCollection = useMemo(() => manualShipments.filter((m) => m.status !== 'at_hub'), [manualShipments]);
+  const manualAtHub = useMemo(() => manualShipments.filter((m) => m.status === 'at_hub'), [manualShipments]);
+
   const fetchHubs = async () => {
     const res = await fetch(`${functionsBase}/hubs`);
     const payload = await res.json();
@@ -223,12 +249,14 @@ export default function MobileDispatch() {
   const fetchSubOrders = async (hubId: string) => {
     if (!hubId) {
       setSubOrders([]);
+      setManualShipments([]);
       return;
     }
     const res = await fetch(`${functionsBase}/hub-dispatch-list?hubId=${encodeURIComponent(hubId)}`);
     const payload = await res.json();
     if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load hub shipments');
     setSubOrders((payload.data || []) as SubOrderRow[]);
+    setManualShipments((payload.manual_shipments || []) as ManualShipmentRow[]);
     setSelectedGroupKeys([]);
   };
 
@@ -333,6 +361,28 @@ export default function MobileDispatch() {
       notification.error('Assignment Failed', err instanceof Error ? err.message : 'Unable to assign rider');
     } finally {
       setAssigningHubRider(false);
+    }
+  };
+
+  const assignManualHubRider = async () => {
+    if (!manualHubRiderTarget || !manualHubRiderId) return;
+    setAssigningManualHubRider(true);
+    try {
+      const res = await fetch(`${functionsBase}/manual-shipment-assign-rider`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await functionsAuthHeader()) },
+        body: JSON.stringify({ shipment_id: manualHubRiderTarget.id, rider_id: manualHubRiderId }),
+      });
+      const payload = await res.json();
+      if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Failed to assign rider');
+      notification.success('Rider Assigned', 'Rider will collect from the sender and drop at this hub');
+      setManualHubRiderTarget(null);
+      setManualHubRiderId('');
+      await fetchSubOrders(selectedHubId);
+    } catch (err) {
+      notification.error('Assignment Failed', err instanceof Error ? err.message : 'Unable to assign rider');
+    } finally {
+      setAssigningManualHubRider(false);
     }
   };
 
@@ -550,6 +600,82 @@ export default function MobileDispatch() {
             </div>
           )}
 
+          <SectionLabel>Manual shipments awaiting collection · {manualAwaitingHubCollection.length}</SectionLabel>
+          {manualAwaitingHubCollection.length === 0 ? (
+            <div className="rounded-xl bg-white p-4 text-sm text-gray-500 ring-1 ring-gray-100">
+              No manual shipments need first-mile collection into this hub right now.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {manualAwaitingHubCollection.map((row) => (
+                <div key={row.id} className="overflow-hidden rounded-xl bg-white ring-1 ring-gray-100">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/admin/manual-shipments/${row.id}`)}
+                    className="flex w-full items-center gap-3 p-3 text-left active:bg-gray-50"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-gray-900">{row.shipment_code}</div>
+                      <div className="mt-0.5 text-sm text-gray-700">
+                        {row.sender?.name || '—'} → {row.recipient?.name || '—'}
+                      </div>
+                      <div className="mt-0.5 text-xs text-gray-500 capitalize">{(row.status || 'pending').replace(/_/g, ' ')}</div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" />
+                  </button>
+                  <div className="border-t border-gray-100 px-3 py-2 space-y-2">
+                    <button
+                      type="button"
+                      disabled={row.status === 'broadcasting' || Boolean(row.assigned_rider_id)}
+                      onClick={() => {
+                        setManualHubRiderTarget(row);
+                        setManualHubRiderId('');
+                      }}
+                      className="w-full rounded-lg border border-purple-200 bg-purple-50 py-2 text-xs font-semibold text-purple-700 disabled:opacity-50"
+                    >
+                      Assign rider (to hub)
+                    </button>
+                    <BroadcastToRidersButton
+                      manualShipmentId={row.id}
+                      status={row.status || 'pending'}
+                      destination="hub"
+                      disabled={Boolean(row.assigned_rider_id)}
+                      onChanged={() => fetchSubOrders(selectedHubId)}
+                      fullWidth
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <SectionLabel>Manual shipments at this hub · {manualAtHub.length}</SectionLabel>
+          {manualAtHub.length === 0 ? (
+            <div className="rounded-xl bg-white p-4 text-sm text-gray-500 ring-1 ring-gray-100">
+              No manual shipments are currently sitting at this hub.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {manualAtHub.map((row) => (
+                <button
+                  key={row.id}
+                  type="button"
+                  onClick={() => navigate(`/admin/manual-shipments/${row.id}`)}
+                  className="flex w-full items-center gap-3 rounded-xl bg-white p-3 text-left ring-1 ring-gray-100 active:bg-gray-50"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-gray-900">{row.shipment_code}</div>
+                    <div className="mt-0.5 text-sm text-gray-700">
+                      {row.sender?.name || '—'} → {row.recipient?.name || '—'}
+                    </div>
+                    <div className="mt-0.5 text-xs text-gray-500">Ready to dispatch onward</div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" />
+                </button>
+              ))}
+            </div>
+          )}
+
           {selectedGroupKeys.length > 0 && (
             <div
               className="fixed inset-x-0 z-30 border-t border-gray-200 bg-white p-3"
@@ -595,6 +721,26 @@ export default function MobileDispatch() {
               className="rounded-lg bg-purple-600 py-3 text-sm font-semibold text-white disabled:opacity-60"
             >
               {assigningHubRider ? 'Saving…' : 'Save rider'}
+            </button>
+          </Sheet>
+
+          <Sheet
+            open={!!manualHubRiderTarget}
+            onClose={() => setManualHubRiderTarget(null)}
+            ariaLabel="Assign rider for hub collection"
+          >
+            <h3 className="text-base font-bold text-gray-900">Assign rider for hub collection</h3>
+            <p className="text-sm text-gray-500">Rider collects from the sender and drops off at this hub.</p>
+            <div className="space-y-3">
+              <RiderPicker value={manualHubRiderId} onChange={setManualHubRiderId} />
+            </div>
+            <button
+              type="button"
+              onClick={assignManualHubRider}
+              disabled={assigningManualHubRider || !manualHubRiderId}
+              className="rounded-lg bg-purple-600 py-3 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {assigningManualHubRider ? 'Saving…' : 'Save rider'}
             </button>
           </Sheet>
         </div>

@@ -1,11 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Loader, RefreshCw, Truck, User } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Loader, RefreshCw, Truck, User, Package } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { supabase } from '../../lib/supabase';
 import RiderPicker from '../components/RiderPicker';
 import BroadcastToRidersButton from '../components/BroadcastToRidersButton';
 
 type Hub = { id: string; name: string; city?: string | null };
+
+type ManualShipmentRow = {
+  id: string;
+  shipment_code: string;
+  tracking_number: string | null;
+  status: string;
+  item_description: string;
+  item_value: number | null;
+  sender: { name?: string | null } | null;
+  recipient: { name?: string | null } | null;
+  metadata: { rider_leg?: 'to_hub' | null } | null;
+  assigned_rider_id: string | null;
+};
 
 type SubOrderRow = {
   id: string;
@@ -71,6 +85,13 @@ export function HubDispatchPage() {
   const [hubRiderModal, setHubRiderModal] = useState<string | null>(null);
   const [hubRiderId, setHubRiderId] = useState('');
   const [assigningHubRider, setAssigningHubRider] = useState(false);
+  const [manualShipments, setManualShipments] = useState<ManualShipmentRow[]>([]);
+  // Manual-shipment equivalent of hubRiderModal/hubRiderId above — kept
+  // separate since it posts to manual-shipment-assign-rider (shipment_id),
+  // not assign-rider (sub_order_id).
+  const [manualHubRiderModal, setManualHubRiderModal] = useState<string | null>(null);
+  const [manualHubRiderId, setManualHubRiderId] = useState('');
+  const [assigningManualHubRider, setAssigningManualHubRider] = useState(false);
 
   const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
@@ -136,6 +157,12 @@ export function HubDispatchPage() {
     });
   }, [subOrders]);
 
+  // Manual shipments routed through this hub, split the same way as the
+  // sub_order sections above: still needs a rider to bring it in, vs.
+  // already here and waiting on the onward dispatch decision.
+  const manualAwaitingHubCollection = useMemo(() => manualShipments.filter((m) => m.status !== 'at_hub'), [manualShipments]);
+  const manualAtHub = useMemo(() => manualShipments.filter((m) => m.status === 'at_hub'), [manualShipments]);
+
   const allFezSelected =
     fezGroups.length > 0 && fezGroups.every((g) => selectedGroupKeys.includes(g.orderKey));
 
@@ -159,11 +186,12 @@ export function HubDispatchPage() {
   };
 
   const fetchSubOrders = async (hubId: string) => {
-    if (!hubId) { setSubOrders([]); return; }
+    if (!hubId) { setSubOrders([]); setManualShipments([]); return; }
     const res = await fetch(`/.netlify/functions/hub-dispatch-list?hubId=${encodeURIComponent(hubId)}`);
     const payload = await res.json();
     if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load hub shipments');
     setSubOrders((payload.data || []) as SubOrderRow[]);
+    setManualShipments((payload.manual_shipments || []) as ManualShipmentRow[]);
     setSelectedGroupKeys([]);
   };
 
@@ -269,6 +297,28 @@ export function HubDispatchPage() {
       notification.error('Assignment Failed', err instanceof Error ? err.message : 'Unable to assign rider');
     } finally {
       setAssigningHubRider(false);
+    }
+  };
+
+  const assignManualHubRider = async (shipmentId: string) => {
+    if (!manualHubRiderId) return;
+    setAssigningManualHubRider(true);
+    try {
+      const res = await fetch(`${functionsBase}/manual-shipment-assign-rider`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shipment_id: shipmentId, rider_id: manualHubRiderId }),
+      });
+      const payload = await res.json();
+      if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Failed to assign rider');
+      notification.success('Rider Assigned', 'Rider will collect from the sender and drop at this hub');
+      setManualHubRiderModal(null);
+      setManualHubRiderId('');
+      await refreshAll();
+    } catch (err) {
+      notification.error('Assignment Failed', err instanceof Error ? err.message : 'Unable to assign rider');
+    } finally {
+      setAssigningManualHubRider(false);
     }
   };
 
@@ -540,6 +590,125 @@ export function HubDispatchPage() {
         )}
       </div>
 
+      {/* ── MANUAL SHIPMENTS AWAITING HUB COLLECTION ───────────────────────── */}
+      <div className="card">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+            <Package className="w-5 h-5 text-purple-600" />
+            Manual Shipments — Awaiting Hub Collection
+          </h2>
+          <p className="text-sm text-gray-600">
+            Manual shipments with this hub set as their destination — send a rider to collect from
+            the sender and drop off here.
+          </p>
+        </div>
+
+        {manualAwaitingHubCollection.length === 0 ? (
+          <div className="text-sm text-gray-500 py-8 text-center">
+            No manual shipments need first-mile collection into this hub right now.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left border-b border-gray-200 text-gray-600">
+                  <th className="py-2 pr-3">Shipment</th>
+                  <th className="py-2 pr-3">Sender → Recipient</th>
+                  <th className="py-2 pr-3">Status</th>
+                  <th className="py-2">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {manualAwaitingHubCollection.map((row) => (
+                  <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="py-2 pr-3 font-medium">
+                      <Link to={`/admin/manual-shipments/${row.id}`} className="text-primary-600 hover:underline">
+                        {row.shipment_code}
+                      </Link>
+                    </td>
+                    <td className="py-2 pr-3 text-gray-700">
+                      {row.sender?.name || '—'} → {row.recipient?.name || '—'}
+                    </td>
+                    <td className="py-2 pr-3">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                        {row.status || 'pending'}
+                      </span>
+                    </td>
+                    <td className="py-2">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => { setManualHubRiderModal(row.id); setManualHubRiderId(''); }}
+                          disabled={row.status === 'broadcasting' || Boolean(row.assigned_rider_id)}
+                          className="btn-secondary text-xs px-3 py-1 disabled:opacity-50"
+                        >
+                          Assign Rider
+                        </button>
+                        <BroadcastToRidersButton
+                          manualShipmentId={row.id}
+                          status={row.status || 'pending'}
+                          destination="hub"
+                          disabled={Boolean(row.assigned_rider_id)}
+                          onChanged={refreshAll}
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── MANUAL SHIPMENTS AT HUB — READY TO DISPATCH ────────────────────── */}
+      <div className="card">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+            <Package className="w-5 h-5 text-blue-600" />
+            Manual Shipments at This Hub
+          </h2>
+          <p className="text-sm text-gray-600">
+            First-mile leg is done — open a shipment to dispatch it onward (Fez or a local rider to
+            the recipient).
+          </p>
+        </div>
+
+        {manualAtHub.length === 0 ? (
+          <div className="text-sm text-gray-500 py-8 text-center">
+            No manual shipments are currently sitting at this hub.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left border-b border-gray-200 text-gray-600">
+                  <th className="py-2 pr-3">Shipment</th>
+                  <th className="py-2 pr-3">Sender → Recipient</th>
+                  <th className="py-2 pr-3">Item</th>
+                  <th className="py-2">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {manualAtHub.map((row) => (
+                  <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50">
+                    <td className="py-2 pr-3 font-medium">{row.shipment_code}</td>
+                    <td className="py-2 pr-3 text-gray-700">
+                      {row.sender?.name || '—'} → {row.recipient?.name || '—'}
+                    </td>
+                    <td className="py-2 pr-3 text-gray-700">{row.item_description}</td>
+                    <td className="py-2">
+                      <Link to={`/admin/manual-shipments/${row.id}`} className="btn-secondary text-xs px-3 py-1 inline-block">
+                        Dispatch Onward
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* ── Rider Assignment Modal ─────────────────────────────────────────── */}
       {riderModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -596,6 +765,38 @@ export function HubDispatchPage() {
                 className="flex-1 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {assigningHubRider && <Loader className="w-4 h-4 animate-spin" />}
+                Assign Rider
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Manual Shipment Hub-Collection Rider Assignment Modal ──────────── */}
+      {manualHubRiderModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold mb-1">Assign Rider for Hub Collection</h3>
+            <p className="text-sm text-gray-500 mb-4">Rider collects from the sender and drops off at this hub.</p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Rider <span className="text-red-500">*</span></label>
+                <RiderPicker value={manualHubRiderId} onChange={setManualHubRiderId} />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => { setManualHubRiderModal(null); setManualHubRiderId(''); }}
+                className="flex-1 px-4 py-2 border rounded hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => assignManualHubRider(manualHubRiderModal)}
+                disabled={!manualHubRiderId || assigningManualHubRider}
+                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {assigningManualHubRider && <Loader className="w-4 h-4 animate-spin" />}
                 Assign Rider
               </button>
             </div>

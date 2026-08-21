@@ -305,12 +305,22 @@ export function ManualShipmentDetailPage() {
   if (loading) return <div className="text-gray-500">Loading…</div>;
   if (!shipment) return <div className="text-gray-500">Manual shipment not found.</div>;
 
-  const dispatched = !!(shipment.tracking_number || shipment.delivery_person_name);
+  // 'at_hub' means a first-mile rider leg just finished — the shipment is
+  // sitting at the hub, unassigned (rider-jobs.js clears assigned_rider_id/
+  // delivery_person_* on arrival), and needs a NEW dispatch decision (Fez,
+  // or a second local rider for the last mile). Without this exception the
+  // Dispatch card stays hidden forever, since tracking_number is still set
+  // from the first leg — there'd be no way to move it onward.
+  const dispatched = !!(shipment.tracking_number || shipment.delivery_person_name) && shipment.status !== 'at_hub';
   // A destination hub being set always means "route this rider leg to the
   // hub" — no separate toggle to forget to check (that was the bug: staff
   // set a hub, broadcast/assign without also ticking a checkbox, and the
-  // rider still saw the recipient as dropoff).
-  const hubMode = Boolean(shipment.destination_hub_id);
+  // rider still saw the recipient as dropoff). Once the shipment has
+  // actually reached that hub (status 'at_hub'), destination_hub_id is
+  // still populated (it's not cleared on arrival), but the NEXT dispatch
+  // decision is onward to the real recipient, not another hub leg — so
+  // hub mode only applies before arrival.
+  const hubMode = Boolean(shipment.destination_hub_id) && shipment.status !== 'at_hub';
   const canDelete = !dispatched;
   const fezTracking = isRealFezTrackingNumber(shipment.tracking_number) ? shipment.tracking_number : null;
   const events = shipment.tracking_events || [];

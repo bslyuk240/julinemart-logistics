@@ -10,7 +10,7 @@ import {
   type PushSubscriberSummary,
 } from '../lib/deviceTokensApi';
 
-type TypeFilter = 'all' | 'customer' | 'vendor' | 'staff' | 'admin' | 'unknown';
+type TypeFilter = 'all' | 'customer' | 'vendor' | 'staff' | 'admin' | 'rider' | 'unknown';
 type PlatformFilter = 'all' | 'web' | 'android' | 'ios';
 
 const TYPE_FILTERS: { value: TypeFilter; label: string }[] = [
@@ -19,6 +19,7 @@ const TYPE_FILTERS: { value: TypeFilter; label: string }[] = [
   { value: 'vendor', label: 'Vendors' },
   { value: 'staff', label: 'Staff' },
   { value: 'admin', label: 'Admins' },
+  { value: 'rider', label: 'Riders' },
 ];
 
 export function PushTokenRegistryPage() {
@@ -86,7 +87,7 @@ export function PushTokenRegistryPage() {
 
       {error ? <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
         <div className="card">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Users</p>
           <p className="mt-1 text-2xl font-bold text-gray-900">{(summary?.total_users || 0).toLocaleString()}</p>
@@ -102,6 +103,10 @@ export function PushTokenRegistryPage() {
         <div className="card">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Vendors</p>
           <p className="mt-1 text-2xl font-bold text-gray-900">{(typeCounts.vendor || 0).toLocaleString()}</p>
+        </div>
+        <div className="card">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Riders</p>
+          <p className="mt-1 text-2xl font-bold text-gray-900">{(typeCounts.rider || 0).toLocaleString()}</p>
         </div>
       </div>
 
@@ -143,7 +148,7 @@ export function PushTokenRegistryPage() {
           <div className="py-14 text-center">
             <Users className="mx-auto mb-3 h-12 w-12 text-gray-300" />
             <p className="text-lg font-medium text-gray-800">No subscribers found</p>
-            <p className="mt-1 text-gray-500">Tokens are saved when users opt in to push on the storefront or vendor portal.</p>
+            <p className="mt-1 text-gray-500">Tokens are saved when users opt in to push on the storefront, vendor portal, or rider app.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">

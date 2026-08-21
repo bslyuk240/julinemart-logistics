@@ -217,7 +217,7 @@ export const DB_TABLES: DbTableInfo[] = [
   { name: 'manual_shipments', description: 'Non-order dispatches', detail: 'Ad-hoc Fez / rider shipments' },
   { name: 'return_requests', description: 'Customer returns', detail: 'Inspection, refund, Fez return leg' },
   { name: 'refund_records', description: 'Refund audit', detail: 'Paystack refund tracking' },
-  { name: 'device_tokens', description: 'Push tokens', detail: 'Customers, vendors, staff FCM registrations' },
+  { name: 'device_tokens', description: 'Push tokens', detail: 'Customers, vendors, staff, and riders FCM registrations' },
   { name: 'email_config', description: 'SMTP settings', detail: 'Encrypted secrets at rest' },
   { name: 'email_logs', description: 'Sent email log', detail: 'Delivery status per message' },
   { name: 'pwa_install_events', description: 'PWA telemetry', detail: 'Install & notification opt-in funnel' },
@@ -295,6 +295,11 @@ export const ENV_VAR_GROUPS: EnvVarGroup[] = [
 ];
 
 export const DEVELOPER_RESOURCE_LINKS: DeveloperNavLink[] = [
+  {
+    label: 'Email settings',
+    description: 'SMTP provider, templates & send log',
+    href: '/admin/settings/email',
+  },
   {
     label: 'Push subscribers',
     description: 'Users with saved FCM tokens (PII-safe)',

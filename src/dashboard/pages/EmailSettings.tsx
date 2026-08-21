@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Mail,
   Save,
@@ -17,6 +18,13 @@ import {
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
+
+const EMAIL_TABS = ['config', 'templates', 'test', 'logs'] as const;
+type EmailTab = (typeof EMAIL_TABS)[number];
+
+function isEmailTab(value: string | null): value is EmailTab {
+  return EMAIL_TABS.includes(value as EmailTab);
+}
 
 interface EmailConfig {
   provider: 'gmail' | 'sendgrid' | 'smtp';
@@ -69,7 +77,12 @@ interface EmailLogRow {
 export function EmailSettingsPage() {
   const notification = useNotification();
   const { session } = useAuth();
-  const [activeTab, setActiveTab] = useState<'config' | 'templates' | 'test' | 'logs'>('config');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const activeTab: EmailTab = isEmailTab(tabParam) ? tabParam : 'config';
+  const setActiveTab = (id: EmailTab) => {
+    setSearchParams(id === 'config' ? {} : { tab: id }, { replace: true });
+  };
   const [config, setConfig] = useState<EmailConfig>({
     provider: 'gmail',
     gmail_user: '',
@@ -261,7 +274,7 @@ export function EmailSettingsPage() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => setActiveTab(tab.id as EmailTab)}
                 className={`
                   flex items-center gap-1.5 px-3 sm:px-4 py-3 border-b-2 font-medium text-sm transition-colors whitespace-nowrap flex-shrink-0
                   ${isActive

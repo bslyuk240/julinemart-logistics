@@ -5,7 +5,7 @@
  */
 import { headers, jsonResponse, requireAdmin } from './services/global-sourcing-utils.js';
 
-const ALLOWED_TYPES = new Set(['all', 'customer', 'vendor', 'staff', 'admin', 'unknown']);
+const ALLOWED_TYPES = new Set(['all', 'customer', 'vendor', 'staff', 'admin', 'rider', 'unknown']);
 const ALLOWED_PLATFORMS = new Set(['all', 'web', 'android', 'ios']);
 
 const maskEmail = (email) => {
@@ -45,7 +45,7 @@ const customerDisplayName = (row) => {
 
 const normalizeUserType = (raw) => {
   const value = String(raw || '').trim().toLowerCase();
-  if (value === 'customer' || value === 'vendor' || value === 'staff' || value === 'admin') return value;
+  if (value === 'customer' || value === 'vendor' || value === 'staff' || value === 'admin' || value === 'rider') return value;
   return null;
 };
 
@@ -126,12 +126,14 @@ export async function handler(event) {
   let vendorsById = new Map();
   let vendorsByUserId = new Map();
   let customersById = new Map();
+  let ridersById = new Map();
 
   try {
-    [usersById, vendorsById, customersById] = await Promise.all([
+    [usersById, vendorsById, customersById, ridersById] = await Promise.all([
       fetchByIds(adminClient, 'users', 'id', userIds, 'id, email, full_name, role, is_active'),
       fetchByIds(adminClient, 'vendors', 'id', userIds, 'id, email, store_name, user_id, is_active'),
       fetchByIds(adminClient, 'customers', 'id', userIds, 'id, email, first_name, last_name, phone'),
+      fetchByIds(adminClient, 'riders', 'id', userIds, 'id, email, full_name, phone, status'),
     ]);
 
     const vendorUserIds = [...vendorsById.values()]
@@ -169,9 +171,23 @@ export async function handler(event) {
     return jsonResponse(500, { success: false, error: 'Failed to resolve user profiles' });
   }
 
+  const riderProfile = (rider) => ({
+    user_type: 'rider',
+    display_name: rider.full_name || 'Rider',
+    email_masked: maskEmail(rider.email),
+    phone_masked: maskPhone(rider.phone),
+    role: rider.status || null,
+    is_active: rider.status === 'active',
+  });
+
   const resolveProfile = (customerId, hintedType) => {
     const id = String(customerId);
     const hinted = normalizeUserType(hintedType);
+
+    if (hinted === 'rider') {
+      const rider = ridersById.get(id);
+      if (rider) return riderProfile(rider);
+    }
 
     if (hinted === 'vendor') {
       const vendor = vendorsById.get(id) || vendorsByUserId.get(id);
@@ -250,6 +266,9 @@ export async function handler(event) {
         is_active: true,
       };
     }
+
+    const rider = ridersById.get(id);
+    if (rider) return riderProfile(rider);
 
     return {
       user_type: 'unknown',
@@ -339,7 +358,7 @@ export async function handler(event) {
   const summary = {
     total_users: subscribers.length,
     total_tokens: subscribers.reduce((sum, row) => sum + row.token_count, 0),
-    by_type: { customer: 0, vendor: 0, staff: 0, admin: 0, unknown: 0 },
+    by_type: { customer: 0, vendor: 0, staff: 0, admin: 0, rider: 0, unknown: 0 },
     by_platform: { web: 0, android: 0, ios: 0, unknown: 0 },
   };
 

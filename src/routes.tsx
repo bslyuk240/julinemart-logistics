@@ -503,7 +503,7 @@ function SettingsEmailRoute() {
 
 function SettingsEmailLogsRoute() {
   const isMobile = useIsMobile();
-  return isMobile ? <MobileEmailLogs /> : <Navigate to="/admin/email-settings" replace />;
+  return isMobile ? <MobileEmailLogs /> : <Navigate to="/admin/settings/email?tab=logs" replace />;
 }
 
 function SettingsDocumentationRoute() {

@@ -10,6 +10,7 @@ import {
   Users,
   RotateCcw,
   Settings,
+  Mail,
   Percent,
   Megaphone,
   Ticket,
@@ -174,6 +175,7 @@ export const navigationSections: NavSection[] = [
     label: 'System',
     items: [
       { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },
+      { name: 'Email', href: '/admin/settings/email', icon: Mail, roles: ['admin'] },
       { name: 'Notifications', href: '/admin/notifications', icon: BellRing, roles: ['admin'] },
     ],
   },

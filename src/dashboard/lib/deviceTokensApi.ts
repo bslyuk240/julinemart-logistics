@@ -3,7 +3,7 @@ import { functionsAuthHeader, functionsBase } from '../mobile/lib/functionsAuth'
 const primaryPath = '/api/admin/device-tokens';
 const fallbackPath = `${functionsBase}/admin-device-tokens-list`;
 
-export type PushSubscriberType = 'customer' | 'vendor' | 'staff' | 'admin' | 'unknown';
+export type PushSubscriberType = 'customer' | 'vendor' | 'staff' | 'admin' | 'rider' | 'unknown';
 
 export type PushDeviceRecord = {
   id: number;
@@ -108,6 +108,8 @@ export function getUserTypeLabel(type: PushSubscriberType) {
       return 'Staff';
     case 'admin':
       return 'Admin';
+    case 'rider':
+      return 'Rider';
     default:
       return 'Unknown';
   }
@@ -123,6 +125,8 @@ export function getUserTypeBadgeClass(type: PushSubscriberType) {
       return 'bg-violet-100 text-violet-800';
     case 'admin':
       return 'bg-gray-900 text-white';
+    case 'rider':
+      return 'bg-emerald-100 text-emerald-800';
     default:
       return 'bg-gray-100 text-gray-700';
   }

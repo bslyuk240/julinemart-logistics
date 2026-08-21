@@ -20,7 +20,7 @@ import {
   type PushSubscriberSummary,
 } from '../../lib/deviceTokensApi';
 
-type TypeFilter = 'all' | 'customer' | 'vendor' | 'staff' | 'admin' | 'unknown';
+type TypeFilter = 'all' | 'customer' | 'vendor' | 'staff' | 'admin' | 'rider' | 'unknown';
 type PlatformFilter = 'all' | 'web' | 'android' | 'ios';
 
 const TYPE_FILTERS: { value: TypeFilter; label: string }[] = [
@@ -29,6 +29,7 @@ const TYPE_FILTERS: { value: TypeFilter; label: string }[] = [
   { value: 'vendor', label: 'Vendors' },
   { value: 'staff', label: 'Staff' },
   { value: 'admin', label: 'Admins' },
+  { value: 'rider', label: 'Riders' },
 ];
 
 const PLATFORM_FILTERS: { value: PlatformFilter; label: string }[] = [
@@ -176,6 +177,7 @@ export default function MobilePushTokenRegistry() {
                   <SummaryTile label="Devices" value={summary?.total_tokens || 0} />
                   <SummaryTile label="Customers" value={typeCounts.customer || 0} />
                   <SummaryTile label="Vendors" value={typeCounts.vendor || 0} />
+                  <SummaryTile label="Riders" value={typeCounts.rider || 0} />
                 </div>
               </SettingsGroup>
 
@@ -224,7 +226,7 @@ export default function MobilePushTokenRegistry() {
                   <div className="px-4 py-10 text-center">
                     <Users className="mx-auto mb-2 h-8 w-8 text-gray-300" />
                     <p className="text-sm font-medium text-gray-700">No subscribers match</p>
-                    <p className="mt-1 text-xs text-gray-500">Tokens appear when users allow push in the storefront or vendor portal.</p>
+                    <p className="mt-1 text-xs text-gray-500">Tokens appear when users allow push in the storefront, vendor portal, or rider app.</p>
                   </div>
                 ) : (
                   rows.map((row) => (

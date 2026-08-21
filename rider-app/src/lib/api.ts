@@ -112,6 +112,9 @@ export type JobDropoff = {
   city: string | null;
   state: string | null;
   landmark: string | null;
+  // Present (== 'hub') only for a first-mile rider leg — a JLO hub, not the
+  // customer, is on the other end of this delivery.
+  kind?: 'hub';
 };
 
 export type ProblemReason =
@@ -163,7 +166,7 @@ export type FeeBreakdown = {
 export type Job = {
   id: string;
   tracking_number: string | null;
-  status: 'assigned' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'return_required' | 'returning';
+  status: 'assigned' | 'picked_up' | 'out_for_delivery' | 'delivered' | 'at_hub' | 'return_required' | 'returning';
   accepted: boolean;
   fee: number;
   fee_breakdown: FeeBreakdown | null;

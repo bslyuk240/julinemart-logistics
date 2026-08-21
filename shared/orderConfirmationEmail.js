@@ -542,6 +542,80 @@ export async function sendVendorNewOrderEmails(
 }
 
 /**
+ * One-time "your item was picked up" confirmation to a vendor — fired once
+ * a rider collects a sub_order's item(s) from them (rider-jobs.js's
+ * advance action, targetStatus === 'picked_up'). Pickup confirmation only,
+ * not the full delivery journey — a vendor's part ends the moment the item
+ * leaves their hands; tracking it to the customer's door is the customer's
+ * own notification, not theirs.
+ */
+export async function sendVendorPickupConfirmationEmail(supabase, { vendorId, orderId, orderNumber, trackingNumber, riderName, riderPhone }) {
+  if (!vendorId) return { sent: false, reason: 'no_vendor_id' };
+
+  const { vendorById } = await fetchVendorRowsForEmail(supabase, [vendorId]);
+  const vendor = vendorById.get(String(vendorId));
+  const subject = `Order #${orderNumber} — item picked up`;
+
+  if (!vendor) {
+    await logOrderEmail(supabase, { orderId, recipient: '(no vendor row)', subject, status: 'failed', errorMessage: `No vendors row for id ${vendorId}.` });
+    return { sent: false, reason: 'vendor_not_found' };
+  }
+
+  let toEmail = (vendor.email && String(vendor.email).trim()) || '';
+  if (!toEmail && vendor.user_id) {
+    try {
+      const { data: authData } = await supabase.auth.admin.getUserById(vendor.user_id);
+      if (authData?.user?.email) toEmail = String(authData.user.email).trim();
+    } catch (_e) {
+      /* non-fatal */
+    }
+  }
+  if (!toEmail) {
+    await logOrderEmail(supabase, { orderId, recipient: '(no email)', subject, status: 'failed', errorMessage: `Vendor ${vendor.id} has no email on file.` });
+    return { sent: false, reason: 'no_vendor_email' };
+  }
+
+  const { transporter, from } = await loadEmailTransport(supabase);
+  if (!transporter || !from) {
+    await logOrderEmail(supabase, { orderId, recipient: toEmail, subject, status: 'failed', errorMessage: 'Email not configured' });
+    return { sent: false, reason: 'email_not_configured' };
+  }
+
+  const riderBlock =
+    riderName || riderPhone
+      ? `<div style="padding:14px;background:#f9fafb;border-radius:8px;margin:16px 0;border:1px solid #e5e7eb">
+      <p style="margin:0;font-size:12px;text-transform:uppercase;color:#6b7280">Rider</p>
+      <p style="margin:6px 0 0;font-size:15px">${riderName || '—'}</p>
+      ${riderPhone ? `<p style="margin:6px 0 0">${riderPhone}</p>` : ''}
+    </div>`
+      : '';
+
+  const html = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+  <div style="background:#6b21a8;color:#fff;padding:30px;text-align:center">
+    <h1 style="margin:0;font-size:22px">Item picked up ✅</h1>
+    <p style="margin:8px 0 0;opacity:.85">Order #${orderNumber}</p>
+  </div>
+  <div style="padding:30px;background:#fff">
+    <p>Hi ${vendor.store_name || 'Vendor'},</p>
+    <p>Our rider has collected the item(s) for this order. No further action is needed from you — the customer will be kept updated on the rest of the delivery.</p>
+    ${riderBlock}
+    <p style="margin-top:12px;font-size:14px;color:#555">Tracking: ${trackingNumber || '—'}</p>
+  </div>
+</div>`;
+  const text = `Hi ${vendor.store_name || 'Vendor'},\n\nOur rider has collected the item(s) for order #${orderNumber}. Tracking: ${trackingNumber || '—'}\n\n— JulineMart`;
+
+  try {
+    await transporter.sendMail({ from, to: toEmail, subject, html, text });
+    await logOrderEmail(supabase, { orderId, recipient: toEmail, subject, status: 'sent' });
+    return { sent: true };
+  } catch (err) {
+    await logOrderEmail(supabase, { orderId, recipient: toEmail, subject, status: 'failed', errorMessage: err?.message || String(err) });
+    return { sent: false, reason: err?.message };
+  }
+}
+
+/**
  * Send vendor new-order emails after Paystack confirms payment. Idempotent via email_logs.
  */
 export async function sendVendorNewOrderEmailsForPaidOrder(supabase, orderId) {

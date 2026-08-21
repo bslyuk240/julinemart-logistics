@@ -183,6 +183,16 @@ const LOCAL_DELIVERY_PHASE_COPY = {
     bodyLead: `Your order has been marked <strong>delivered</strong>. We hope you enjoy your purchase!`,
     textLead: 'Your JulineMart order has been marked delivered. Thank you for shopping with us.',
   },
+  // First-mile rider leg (vendor/sender -> a JLO hub, feeding the existing
+  // Hub Dispatch flow for the next leg) — not a final delivery, just
+  // progress worth telling the customer about like every other phase here.
+  at_hub: {
+    subjectSuffix: 'reached our hub',
+    headTitle: 'Reached our hub',
+    headSub: 'Your order is continuing its journey',
+    bodyLead: `Your order has <strong>reached our hub</strong> and will continue on to you shortly.`,
+    textLead: 'Your JulineMart order has reached our hub and will continue its journey shortly.',
+  },
   // Return workflow (rider-app-ux-rebuild.md #10) — the customer was
   // never told about any of this before; every other status transition
   // already emails them, so this closes that gap rather than being new
@@ -229,6 +239,7 @@ export async function sendLocalDeliveryStatusEmail(supabase, params) {
     rider_phone,
     delivery_city,
     delivery_state,
+    delivery_proof_url,
   } = params;
 
   const phase = String(phaseRaw || '').trim().toLowerCase();
@@ -276,6 +287,17 @@ export async function sendLocalDeliveryStatusEmail(supabase, params) {
 
     const { headTitle, headSub, bodyLead } = copy;
 
+    // Proof-of-delivery photo — only meaningful on the 'delivered' email,
+    // and only if the rider actually captured one (older/legacy deliveries
+    // may not have one).
+    const photoBlock =
+      (phase === 'delivered' || phase === 'at_hub') && delivery_proof_url
+        ? `<div style="margin:16px 0">
+      <p style="margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#6b7280">${phase === 'at_hub' ? 'Photo at hub' : 'Proof of delivery'}</p>
+      <a href="${delivery_proof_url}"><img src="${delivery_proof_url}" alt="Delivery photo" style="width:100%;max-width:544px;border-radius:10px;border:1px solid #e5e7eb;display:block" /></a>
+    </div>`
+        : '';
+
     const textLines = [
       `Hi ${customer_name || 'there'},`,
       '',
@@ -286,6 +308,7 @@ export async function sendLocalDeliveryStatusEmail(supabase, params) {
       rider_name ? `Rider: ${rider_name}` : '',
       rider_phone ? `Rider phone: ${rider_phone}` : '',
       `Area: ${area}`,
+      (phase === 'delivered' || phase === 'at_hub') && delivery_proof_url ? `Photo: ${delivery_proof_url}` : '',
       '',
       `Track or view your order: ${trackBase}`,
       '',
@@ -308,6 +331,7 @@ export async function sendLocalDeliveryStatusEmail(supabase, params) {
       <p style="margin:0;font-size:18px;font-weight:700;color:#6b21a8;word-break:break-all">${escapeHtml(String(tracking_number || '—'))}</p>
     </div>
     ${riderBlock}
+    ${photoBlock}
     <p style="margin:12px 0 0;font-size:14px;color:#555"><strong>Area:</strong> ${escapeHtml(area)}</p>
     <p style="margin:22px 0 0;font-size:14px;line-height:1.5">View your order anytime: <a href="${trackBase}" style="color:#6b21a8">${trackBase.replace(/^https?:\/\//, '')}</a></p>
   </div>

@@ -43,6 +43,7 @@ const ACTIVE_STATUS_LABEL: Record<Job['status'], string> = {
   picked_up: 'Pickup complete',
   out_for_delivery: 'Out for delivery',
   delivered: 'Delivered',
+  at_hub: 'Dropped at hub',
   return_required: 'Return required',
   returning: 'Returning package',
 };

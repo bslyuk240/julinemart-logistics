@@ -15,6 +15,12 @@ import { normalizeScanCode } from './services/scanLookup.js';
 import { notifyRider, notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
 import { sendLocalDeliveryStatusEmail } from '../../shared/riderAssignedEmail.js';
 import { sendStaffAlertEmails } from '../../shared/riderLifecycleEmail.js';
+import { sendVendorPickupConfirmationEmail } from '../../shared/orderConfirmationEmail.js';
+import {
+  notifyManualShipmentRiderAssigned,
+  notifyManualShipmentLocalRiderStatus,
+  notifyManualShipmentSenderPickedUp,
+} from './services/manualShipmentNotify.js';
 
 const ADMIN_BASE_URL = process.env.URL || process.env.JLO_BASE_URL || '';
 
@@ -45,7 +51,19 @@ async function notifyStaffOfRiderEvent(adminClient, { title, message, type, targ
 async function loadSubOrderForCustomerNotify(adminClient, sourceId) {
   const { data } = await adminClient
     .from('sub_orders')
-    .select('main_order_id, orders:main_order_id ( id, order_number, customer_name, customer_phone, customer_email, delivery_city, delivery_state )')
+    .select('main_order_id, vendor_id, orders:main_order_id ( id, order_number, customer_name, customer_phone, customer_email, delivery_city, delivery_state )')
+    .eq('id', sourceId)
+    .maybeSingle();
+  return data;
+}
+
+// Same idea for manual shipments — recipient/sender email notifications
+// need fields loadOwnedShipment's own select doesn't carry (that one only
+// pulls the shared shipments-table columns every source type has).
+async function loadManualShipmentForNotify(adminClient, sourceId) {
+  const { data } = await adminClient
+    .from('manual_shipments')
+    .select('shipment_code, tracking_number, recipient, sender')
     .eq('id', sourceId)
     .maybeSingle();
   return data;
@@ -54,11 +72,16 @@ async function loadSubOrderForCustomerNotify(adminClient, sourceId) {
 // picked up -> en route (out_for_delivery) -> delivered. Matches the
 // existing local-rider status set used by local-status.js — riders never
 // see/enter in_transit, that's an inter-city Fez concept.
-const NEXT_STATUS = {
-  assigned: 'picked_up',
-  picked_up: 'out_for_delivery',
-  out_for_delivery: 'delivered',
-};
+//
+// A hub-collection leg (metadata.rider_leg === 'to_hub' — see
+// assign-rider.js/broadcast-rider.js and their manual-shipment
+// equivalents) ends at 'at_hub' instead of 'delivered' — the rider handed
+// the package to a JLO hub, not the final customer, and the existing Hub
+// Dispatch flow takes it from there.
+function nextStatusFor(currentStatus, isHubLeg) {
+  if (currentStatus === 'out_for_delivery') return isHubLeg ? 'at_hub' : 'delivered';
+  return { assigned: 'picked_up', picked_up: 'out_for_delivery' }[currentStatus];
+}
 
 // Shared between report_problem (log only, no status change) and
 // fail_delivery (ends the delivery attempt) — same incident taxonomy, just
@@ -247,6 +270,7 @@ async function notifyCustomer(adminClient, subOrder, status, extra = {}) {
     picked_up: { title: 'Order picked up', message: `Your order ${orderRef} has been picked up by our rider.` },
     out_for_delivery: { title: 'Order out for delivery', message: `Your order ${orderRef} is on the way.` },
     delivered: { title: 'Order delivered', message: `Your order ${orderRef} has been delivered.` },
+    at_hub: { title: 'Order reached our hub', message: `Your order ${orderRef} has reached our hub and will continue its journey shortly.` },
     failed: { title: 'Delivery attempt unsuccessful', message: `We couldn't complete delivery for order ${orderRef}. Our team will be in touch.` },
     returning: { title: 'Order on its way back', message: `Order ${orderRef} is being returned to us.` },
     returned: { title: 'Order returned', message: `Order ${orderRef} has been returned to us.` },
@@ -274,6 +298,7 @@ async function notifyCustomer(adminClient, subOrder, status, extra = {}) {
       rider_phone: extra.riderPhone || '',
       delivery_city: order.delivery_city,
       delivery_state: order.delivery_state,
+      delivery_proof_url: extra.deliveryProofUrl,
     });
   } catch (err) {
     console.error('rider-jobs sendLocalDeliveryStatusEmail failed:', err?.message || err);
@@ -384,6 +409,19 @@ async function handleClaim(rider, adminClient, shipmentId) {
 
   await notifyRiderArea(shipment.broadcast_city, shipment.broadcast_state, 'job_removed', { shipment_id: shipmentId });
   await notifyDispatch(shipment.source_type, sourceId, 'updated', { status: 'assigned' });
+
+  // Direct-assign already emails the manual-shipment recipient "a rider has
+  // been assigned" — broadcast-claim never did, since claimedRow (the full
+  // updated manual_shipments row) has everything that email needs. Skipped
+  // for a hub-leg job, same as direct-assign — see
+  // manual-shipment-assign-rider.js for why.
+  if (!isSubOrder && claimedRow?.metadata?.rider_leg !== 'to_hub') {
+    await notifyManualShipmentRiderAssigned(adminClient, claimedRow, {
+      rider_name: rider.full_name,
+      rider_phone: rider.phone,
+      rider_vehicle: riderVehicle,
+    });
+  }
 
   return jsonResponse(200, { success: true, data: { claimed: true } });
 }
@@ -552,6 +590,16 @@ async function handlePost(rider, adminClient, body) {
           riderPhone: rider.phone,
         });
       }
+    } else {
+      const manualShipmentForNotify = await loadManualShipmentForNotify(adminClient, sourceId);
+      if (manualShipmentForNotify) {
+        await notifyManualShipmentLocalRiderStatus(adminClient, manualShipmentForNotify, {
+          phase: 'failed',
+          tracking_number: shipment.tracking_number,
+          rider_name: rider.full_name,
+          rider_phone: rider.phone,
+        });
+      }
     }
 
     return jsonResponse(200, { success: true, data: { status: 'failed' } });
@@ -588,6 +636,16 @@ async function handlePost(rider, adminClient, body) {
           trackingNumber: shipment.tracking_number,
           riderName: rider.full_name,
           riderPhone: rider.phone,
+        });
+      }
+    } else {
+      const manualShipmentForNotify = await loadManualShipmentForNotify(adminClient, sourceId);
+      if (manualShipmentForNotify) {
+        await notifyManualShipmentLocalRiderStatus(adminClient, manualShipmentForNotify, {
+          phase: 'returning',
+          tracking_number: shipment.tracking_number,
+          rider_name: rider.full_name,
+          rider_phone: rider.phone,
         });
       }
     }
@@ -630,6 +688,16 @@ async function handlePost(rider, adminClient, body) {
           trackingNumber: shipment.tracking_number,
           riderName: rider.full_name,
           riderPhone: rider.phone,
+        });
+      }
+    } else {
+      const manualShipmentForNotify = await loadManualShipmentForNotify(adminClient, sourceId);
+      if (manualShipmentForNotify) {
+        await notifyManualShipmentLocalRiderStatus(adminClient, manualShipmentForNotify, {
+          phase: 'returned',
+          tracking_number: shipment.tracking_number,
+          rider_name: rider.full_name,
+          rider_phone: rider.phone,
         });
       }
     }
@@ -680,17 +748,22 @@ async function handlePost(rider, adminClient, body) {
     if (!isAccepted(shipment.metadata)) {
       return jsonResponse(409, { success: false, error: 'Accept the job before updating its status' });
     }
-    const targetStatus = NEXT_STATUS[shipment.status];
+    const isHubLeg = shipment.metadata?.rider_leg === 'to_hub';
+    const targetStatus = nextStatusFor(shipment.status, isHubLeg);
     if (!targetStatus || body.target_status !== targetStatus) {
       return jsonResponse(400, { success: false, error: `Next status must be "${targetStatus || 'none'}"` });
     }
-    if (targetStatus === 'delivered' && !body.delivery_proof_url) {
-      return jsonResponse(400, { success: false, error: 'A delivery photo is required to confirm delivery' });
+    if ((targetStatus === 'delivered' || targetStatus === 'at_hub') && !body.delivery_proof_url) {
+      return jsonResponse(400, {
+        success: false,
+        error: targetStatus === 'at_hub' ? 'A photo of the package at the hub is required' : 'A delivery photo is required to confirm delivery',
+      });
     }
     // High-value orders also require a customer signature — see
     // shipmentSummary.js's podLevelForValue. Checked server-side (not just
     // trusted from the client) against the same source-table value column
-    // the rider-facing summary computes pod_level from.
+    // the rider-facing summary computes pod_level from. Doesn't apply to a
+    // hub drop-off — there's no customer present to sign for it.
     if (targetStatus === 'delivered' && !body.signature_url) {
       const valueColumn = isSubOrder ? 'subtotal' : 'item_value';
       const { data: valueRow } = await adminClient.from(sourceTable).select(valueColumn).eq('id', sourceId).maybeSingle();
@@ -724,9 +797,12 @@ async function handlePost(rider, adminClient, body) {
       }
     }
 
+    // 'at_hub' has no dedicated timestamp column (unlike the other three,
+    // which are true delivery-lifecycle milestones this schema already
+    // tracks) — status plus the tracking_events row below is the record.
     const timestampColumn = { picked_up: 'picked_up_at', out_for_delivery: 'out_for_delivery_at', delivered: 'delivered_at' }[targetStatus];
-    const update = { status: targetStatus, [timestampColumn]: new Date().toISOString() };
-    if (targetStatus === 'delivered' && body.delivery_proof_url) update.delivery_proof_url = body.delivery_proof_url;
+    const update = { status: targetStatus, ...(timestampColumn ? { [timestampColumn]: new Date().toISOString() } : {}) };
+    if ((targetStatus === 'delivered' || targetStatus === 'at_hub') && body.delivery_proof_url) update.delivery_proof_url = body.delivery_proof_url;
     if (targetStatus === 'delivered' && body.signature_url) update.signature_url = body.signature_url;
 
     // manual_shipments has no picked_up_at/out_for_delivery_at/delivered_at/
@@ -744,6 +820,7 @@ async function handlePost(rider, adminClient, body) {
       picked_up: `${rider.full_name} picked up the package`,
       out_for_delivery: `${rider.full_name} is on the way`,
       delivered: `${rider.full_name} confirmed delivery`,
+      at_hub: `${rider.full_name} dropped the package at the hub`,
     }[targetStatus];
 
     await adminClient.from('tracking_events').insert({
@@ -755,9 +832,22 @@ async function handlePost(rider, adminClient, body) {
       source: 'rider_app',
     });
 
+    // Nothing else surfaces this — staff need to know an item reached the
+    // hub so they can actually process it onward (Hub Dispatch's existing
+    // Fez/local-rider last-mile actions).
+    if (targetStatus === 'at_hub') {
+      await notifyStaffOfRiderEvent(adminClient, {
+        title: 'Package arrived at hub',
+        message: `${rider.full_name} dropped a package at the hub. Ready for dispatch.`,
+        type: 'rider_arrived_at_hub',
+        targetPath: '/dispatch/hub',
+      });
+    }
+
     // Order-linked side effects (overall status recompute, customer push)
     // only apply to marketplace orders — manual shipments have no
-    // customer account or main_order_id to notify.
+    // customer account or main_order_id, but they do have an optional
+    // recipient/sender email, handled in the else branch below.
     if (isSubOrder) {
       const subOrderForNotify = await loadSubOrderForCustomerNotify(adminClient, sourceId);
 
@@ -771,7 +861,44 @@ async function handlePost(rider, adminClient, body) {
           trackingNumber: shipment.tracking_number,
           riderName: rider.full_name,
           riderPhone: rider.phone,
+          deliveryProofUrl: targetStatus === 'delivered' || targetStatus === 'at_hub' ? body.delivery_proof_url : undefined,
         });
+      }
+
+      // Vendor's part ends at pickup — a one-time confirmation, not the
+      // full journey (see shared/orderConfirmationEmail.js's
+      // sendVendorPickupConfirmationEmail for why it stops there).
+      if (targetStatus === 'picked_up' && subOrderForNotify?.vendor_id) {
+        try {
+          await sendVendorPickupConfirmationEmail(adminClient, {
+            vendorId: subOrderForNotify.vendor_id,
+            orderId: subOrderForNotify.main_order_id,
+            orderNumber: subOrderForNotify.orders?.order_number || sourceId,
+            trackingNumber: shipment.tracking_number,
+            riderName: rider.full_name,
+            riderPhone: rider.phone,
+          });
+        } catch (err) {
+          console.error('rider-jobs sendVendorPickupConfirmationEmail failed:', err?.message || err);
+        }
+      }
+    } else {
+      const manualShipmentForNotify = await loadManualShipmentForNotify(adminClient, sourceId);
+      if (manualShipmentForNotify) {
+        await notifyManualShipmentLocalRiderStatus(adminClient, manualShipmentForNotify, {
+          phase: targetStatus,
+          tracking_number: shipment.tracking_number,
+          rider_name: rider.full_name,
+          rider_phone: rider.phone,
+          delivery_proof_url: targetStatus === 'delivered' || targetStatus === 'at_hub' ? body.delivery_proof_url : undefined,
+        });
+
+        if (targetStatus === 'picked_up') {
+          await notifyManualShipmentSenderPickedUp(adminClient, manualShipmentForNotify, {
+            rider_name: rider.full_name,
+            rider_phone: rider.phone,
+          });
+        }
       }
     }
 

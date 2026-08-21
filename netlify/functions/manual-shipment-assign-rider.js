@@ -38,7 +38,7 @@ exports.handler = async (event) => {
       return { statusCode: access.statusCode, headers, body: access.body };
     }
 
-    const { shipment_id, rider_id } = JSON.parse(event.body || '{}');
+    const { shipment_id, rider_id, destination } = JSON.parse(event.body || '{}');
 
     if (!shipment_id || !rider_id) {
       return {
@@ -47,6 +47,10 @@ exports.handler = async (event) => {
         body: JSON.stringify({ success: false, error: 'Missing required fields: shipment_id, rider_id' }),
       };
     }
+    // See assign-rider.js (sub_order equivalent) for what this mode means —
+    // same first-mile-to-hub concept, gated on destination_hub_id already
+    // being set (manual_shipments' equivalent of sub_orders.hub_id).
+    const toHub = destination === 'hub';
 
     const { data: rider, error: riderLookupError } = await supabase
       .from('riders')
@@ -86,6 +90,14 @@ exports.handler = async (event) => {
 
     if (existingError || !existingShipment) {
       return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Manual shipment not found' }) };
+    }
+
+    if (toHub && !existingShipment.destination_hub_id) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ success: false, error: 'This shipment has no destination hub set — set one first' }),
+      };
     }
 
     // Rider payout, frozen now — before the rider has accepted. Reuses the
@@ -151,6 +163,7 @@ exports.handler = async (event) => {
             Array.isArray(existingMetadata.eligible_lanes) && existingMetadata.eligible_lanes.length > 0
               ? existingMetadata.eligible_lanes
               : ['fez', 'local_rider'],
+          rider_leg: toHub ? 'to_hub' : null,
         },
       })
       .eq('id', shipment_id)
@@ -227,14 +240,19 @@ exports.handler = async (event) => {
       console.warn('Initial manual shipment tracking event failed:', eventErr?.message || eventErr);
     }
 
-    try {
-      await notifyManualShipmentRiderAssigned(supabase, updatedShipment, {
-        rider_name,
-        rider_phone,
-        rider_vehicle: rider_vehicle || null,
-      });
-    } catch (mailErr) {
-      console.error('manual shipment rider email:', mailErr?.message || mailErr);
+    // Hub-leg jobs skip this — same reasoning as assign-rider.js: the
+    // recipient's meaningful update is the 'at_hub' progress email once the
+    // rider actually arrives, not this intermediate first-mile step.
+    if (!toHub) {
+      try {
+        await notifyManualShipmentRiderAssigned(supabase, updatedShipment, {
+          rider_name,
+          rider_phone,
+          rider_vehicle: rider_vehicle || null,
+        });
+      } catch (mailErr) {
+        console.error('manual shipment rider email:', mailErr?.message || mailErr);
+      }
     }
 
     return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: updatedShipment }) };

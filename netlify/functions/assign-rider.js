@@ -54,7 +54,7 @@ exports.handler = async (event) => {
       return { statusCode: access.statusCode, headers, body: access.body };
     }
 
-    const { sub_order_id, rider_id } = JSON.parse(event.body || '{}');
+    const { sub_order_id, rider_id, destination } = JSON.parse(event.body || '{}');
 
     if (!sub_order_id || !rider_id) {
       return {
@@ -66,6 +66,13 @@ exports.handler = async (event) => {
         }),
       };
     }
+
+    // 'hub' = first-mile: rider collects from the vendor and drops at this
+    // sub_order's already-routed hub (feeding the existing Hub Dispatch flow
+    // for the next leg), not the customer. Only ever offered for orders
+    // staff already routed through a hub — this never decides hub routing
+    // on its own.
+    const toHub = destination === 'hub';
 
     const { data: rider, error: riderLookupError } = await supabase
       .from('riders')
@@ -114,7 +121,7 @@ exports.handler = async (event) => {
 
     const { data: existingSubOrder, error: existingSubOrderError } = await supabase
       .from('sub_orders')
-      .select('id, tracking_number, metadata, main_order_id, waybill_number, status, broadcast_city, broadcast_state, vendors ( approved_vendor_locations ( zone_id, vendor_pickup_surcharge ) )')
+      .select('id, tracking_number, metadata, main_order_id, waybill_number, status, broadcast_city, broadcast_state, hub_id, vendors ( approved_vendor_locations ( zone_id, vendor_pickup_surcharge ) )')
       .eq('id', sub_order_id)
       .single();
 
@@ -126,6 +133,14 @@ exports.handler = async (event) => {
           success: false,
           error: 'Sub-order not found',
         }),
+      };
+    }
+
+    if (toHub && !existingSubOrder.hub_id) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ success: false, error: 'This order has no hub routing set — route it through a hub first' }),
       };
     }
 
@@ -199,6 +214,7 @@ exports.handler = async (event) => {
             existingMetadata.eligible_lanes.length > 0
               ? existingMetadata.eligible_lanes
               : ['fez', 'local_rider'],
+          rider_leg: toHub ? 'to_hub' : null,
         },
       })
       .eq('id', sub_order_id)
@@ -266,7 +282,10 @@ exports.handler = async (event) => {
       await notifyRiderArea(existingSubOrder.broadcast_city, existingSubOrder.broadcast_state, 'job_removed', { sub_order_id });
     }
 
-    if (existingSubOrder.main_order_id) {
+    // Hub-leg jobs skip the customer "rider assigned" touch — the
+    // meaningful update for them is the 'at_hub' progress email once the
+    // rider actually arrives, not this intermediate first-mile step.
+    if (existingSubOrder.main_order_id && !toHub) {
       const { data: orderRecord, error: orderError } = await supabase
         .from('orders')
         .select(

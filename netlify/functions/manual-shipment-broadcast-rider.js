@@ -9,6 +9,7 @@ import { createClient } from '@supabase/supabase-js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { insertTrackingEvent } from './services/fezTracking.js';
 import { sendRiderPush } from './services/riderNotifications.js';
+import { sendRiderAccountEmail } from '../../shared/riderLifecycleEmail.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
 import { notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
 import { lookupShippingRate, lookupHubOrZoneRate, computeDispatchCostBreakdown, getLocalRidersCourierId } from './services/shippingRateLookup.js';
@@ -57,10 +58,12 @@ exports.handler = async (event) => {
       return { statusCode: access.statusCode, headers, body: access.body };
     }
 
-    const { shipment_id, cancel } = JSON.parse(event.body || '{}');
+    const { shipment_id, cancel, destination } = JSON.parse(event.body || '{}');
     if (!shipment_id) {
       return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Missing required field: shipment_id' }) };
     }
+    // See manual-shipment-assign-rider.js for what this mode means.
+    const toHub = destination === 'hub';
 
     const { data: existingShipment, error: existingError } = await supabase
       .from('manual_shipments')
@@ -70,6 +73,14 @@ exports.handler = async (event) => {
 
     if (existingError || !existingShipment) {
       return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Manual shipment not found' }) };
+    }
+
+    if (toHub && !cancel && !existingShipment.destination_hub_id) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ success: false, error: 'This shipment has no destination hub set — set one first' }),
+      };
     }
 
     if (cancel) {
@@ -162,6 +173,7 @@ exports.handler = async (event) => {
             Array.isArray(existingMetadata.eligible_lanes) && existingMetadata.eligible_lanes.length > 0
               ? existingMetadata.eligible_lanes
               : ['fez', 'local_rider'],
+          rider_leg: toHub ? 'to_hub' : null,
         },
       })
       .eq('id', shipment_id)
@@ -196,22 +208,38 @@ exports.handler = async (event) => {
 
     const { data: eligibleRiders } = await supabase
       .from('riders')
-      .select('id, approved_vendor_locations!inner ( city, state )')
+      .select('id, full_name, email, approved_vendor_locations!inner ( city, state )')
       .eq('status', 'active')
       .eq('is_online', true)
       .ilike('approved_vendor_locations.city', area.city)
       .ilike('approved_vendor_locations.state', area.state);
 
     const riders = eligibleRiders || [];
+    const broadcastMessage = toHub
+      ? `A hub drop-off job is available for pickup in ${area.city}. Open the app to claim it.`
+      : `A delivery is available for pickup in ${area.city}. Open the app to claim it.`;
     for (const rider of riders) {
       const pushResult = await sendRiderPush(supabase, rider.id, {
         title: 'New delivery near you',
-        message: `A delivery is available for pickup in ${area.city}. Open the app to claim it.`,
+        message: broadcastMessage,
         type: 'rider_job_broadcast',
         data: { manual_shipment_id: shipment_id, targetPath: '/' },
       });
       if (!pushResult.success && !pushResult.skipped) {
         console.warn('manual-shipment-broadcast push failed:', pushResult);
+      }
+      if (rider.email) {
+        try {
+          await sendRiderAccountEmail(supabase, {
+            to: rider.email,
+            riderName: rider.full_name,
+            subject: 'JulineMart Rider: New delivery near you',
+            headline: 'New delivery near you',
+            message: `${broadcastMessage} Claim it before another rider does.`,
+          });
+        } catch (err) {
+          console.error('manual-shipment-broadcast email failed:', err?.message || err);
+        }
       }
     }
 

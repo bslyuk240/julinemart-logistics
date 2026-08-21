@@ -35,6 +35,10 @@ export function podLevelForValue(value) {
   return (Number(value) || 0) >= POD_VERIFIED_THRESHOLD_NGN ? 'verified' : 'standard';
 }
 
+// hubs(...) here is the sub_order's OWN hub_id join — used both for the
+// pre-existing hub-fallback pickup case (hub as sender) and, when
+// metadata.rider_leg === 'to_hub' (see rider-jobs.js), as the DESTINATION
+// for a first-mile rider leg instead of the customer.
 const SUB_ORDER_DETAIL_SELECT = `
   id, main_order_id, subtotal, allocated_shipping_fee, courier_charge,
   vendors ( store_name, address, city, state, phone, fez_collection_method,
@@ -53,7 +57,10 @@ export async function fetchSourceDetails(adminClient, shipmentRows) {
       ? adminClient.from('sub_orders').select(SUB_ORDER_DETAIL_SELECT).in('id', subOrderIds)
       : Promise.resolve({ data: [] }),
     manualIds.length
-      ? adminClient.from('manual_shipments').select('id, sender, sender_hub_id, recipient, item_description, item_value').in('id', manualIds)
+      ? adminClient
+          .from('manual_shipments')
+          .select('id, sender, sender_hub_id, recipient, item_description, item_value, destination_hub:destination_hub_id ( name, address, city, state, phone )')
+          .in('id', manualIds)
       : Promise.resolve({ data: [] }),
   ]);
 
@@ -83,11 +90,19 @@ export function summarizeShipment(s, subOrderMap, manualMap) {
     failed_at: s.failed_at || null,
   };
 
+  // First-mile leg (rider-jobs.js's advance/claim honor this the same way)
+  // — the rider's destination is a JLO hub, not the customer/recipient.
+  // dropoff keeps its usual shape (customer_name/address/city/state) so
+  // every existing consumer of this summary renders it without changes;
+  // the values underneath just point at the hub instead.
+  const isHubLeg = s.metadata?.rider_leg === 'to_hub';
+
   if (s.source_type === 'sub_order') {
     const subOrder = subOrderMap.get(s.sub_order_id);
     if (!subOrder) return null;
     const pickup = resolveSender(subOrder);
     const order = subOrder.orders || {};
+    const hub = subOrder.hubs || {};
     return {
       ...base,
       // rider_payout is the commission-adjusted amount, frozen at
@@ -105,14 +120,24 @@ export function summarizeShipment(s, subOrderMap, manualMap) {
         phone: pickup.phone,
         kind: pickupKindFor(pickup.kind),
       },
-      dropoff: {
-        customer_name: order.customer_name || null,
-        customer_phone: order.customer_phone || null,
-        address: order.delivery_address || null,
-        city: order.delivery_city || null,
-        state: order.delivery_state || null,
-        landmark: order.delivery_landmark || null,
-      },
+      dropoff: isHubLeg
+        ? {
+            customer_name: hub.name ? `Hub: ${hub.name}` : 'Hub',
+            customer_phone: hub.phone || null,
+            address: hub.address || null,
+            city: hub.city || null,
+            state: hub.state || null,
+            landmark: null,
+            kind: 'hub',
+          }
+        : {
+            customer_name: order.customer_name || null,
+            customer_phone: order.customer_phone || null,
+            address: order.delivery_address || null,
+            city: order.delivery_city || null,
+            state: order.delivery_state || null,
+            landmark: order.delivery_landmark || null,
+          },
     };
   }
 
@@ -124,6 +149,7 @@ export function summarizeShipment(s, subOrderMap, manualMap) {
   if (!manual) return null;
   const sender = manual.sender || {};
   const recipient = manual.recipient || {};
+  const destinationHub = manual.destination_hub || {};
   return {
     ...base,
     fee: s.rider_payout ?? 0,
@@ -137,13 +163,23 @@ export function summarizeShipment(s, subOrderMap, manualMap) {
       phone: sender.phone || null,
       kind: manual.sender_hub_id ? 'hub' : 'sender',
     },
-    dropoff: {
-      customer_name: recipient.name || null,
-      customer_phone: recipient.phone || null,
-      address: recipient.address || null,
-      city: recipient.city || null,
-      state: recipient.state || null,
-      landmark: null,
-    },
+    dropoff: isHubLeg
+      ? {
+          customer_name: destinationHub.name ? `Hub: ${destinationHub.name}` : 'Hub',
+          customer_phone: destinationHub.phone || null,
+          address: destinationHub.address || null,
+          city: destinationHub.city || null,
+          state: destinationHub.state || null,
+          landmark: null,
+          kind: 'hub',
+        }
+      : {
+          customer_name: recipient.name || null,
+          customer_phone: recipient.phone || null,
+          address: recipient.address || null,
+          city: recipient.city || null,
+          state: recipient.state || null,
+          landmark: null,
+        },
   };
 }

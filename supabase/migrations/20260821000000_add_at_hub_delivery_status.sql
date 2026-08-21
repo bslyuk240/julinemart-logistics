@@ -1,0 +1,12 @@
+-- First-mile local-rider leg: vendor/sender -> hub, feeding into the
+-- existing Hub Dispatch flow (HubDispatch.tsx, hub-dispatch-list.js) for
+-- the next leg (Fez or a second local rider for last-mile). Previously
+-- local riders only ever had one leg: vendor/sender -> customer/recipient
+-- directly. 'at_hub' is a distinct terminal state from 'delivered' — this
+-- shipment hasn't reached its final customer, it's just arrived at the
+-- hub and is no longer this rider's job.
+--
+-- ALTER TYPE ... ADD VALUE cannot run in the same transaction as a
+-- statement that references the new value, so this is its own migration
+-- (same reasoning as 20260820140000's return_required/returning).
+alter type delivery_status add value if not exists 'at_hub';

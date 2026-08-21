@@ -35,7 +35,7 @@ export function CreateManualShipmentPage() {
   const [stateOptions, setStateOptions] = useState<string[]>([]);
   const [senderMode, setSenderMode] = useState<'hub' | 'manual'>('hub');
   const [senderHubId, setSenderHubId] = useState('');
-  const [sender, setSender] = useState({ name: '', address: '', city: '', state: 'Lagos', phone: '' });
+  const [sender, setSender] = useState({ name: '', address: '', city: '', state: 'Lagos', phone: '', email: '' });
   const [recipient, setRecipient] = useState({ name: '', address: '', city: '', state: 'Lagos', phone: '', email: '' });
   const [itemDescription, setItemDescription] = useState('');
   const [itemWeight, setItemWeight] = useState(1);
@@ -165,6 +165,10 @@ export function CreateManualShipmentPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
                 <input value={sender.phone} onChange={(e) => setSender({ ...sender, phone: e.target.value })} className={inputClass} placeholder="+234 800 000 0000" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Email <span className="text-gray-400 font-normal">(optional — pickup confirmation)</span></label>
+                <input type="email" value={sender.email} onChange={(e) => setSender({ ...sender, email: e.target.value })} className={inputClass} placeholder="sender@example.com" />
               </div>
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">Address *</label>

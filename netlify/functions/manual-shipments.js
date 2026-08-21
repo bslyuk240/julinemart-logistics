@@ -161,12 +161,25 @@ export async function handler(event) {
             body: JSON.stringify({ success: false, error: `Missing required sender field(s): ${senderMissing.join(', ')}` }),
           };
         }
+        // Optional — every sender today is JulineMart's own hub or a vendor,
+        // neither of which has always had a natural per-shipment email to
+        // collect, so this stays opt-in rather than required (mirrors
+        // recipient.email's own optionality above).
+        const senderEmail = normalizeOptionalEmail(body.sender.email);
+        if (body.sender.email && !senderEmail) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ success: false, error: 'sender.email is invalid' }),
+          };
+        }
         sender = {
           name: body.sender.name,
           address: body.sender.address,
           city: body.sender.city || '',
           state: body.sender.state,
           phone: body.sender.phone || '',
+          ...(senderEmail ? { email: senderEmail } : {}),
         };
       } else {
         return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'sender_hub_id or sender is required' }) };

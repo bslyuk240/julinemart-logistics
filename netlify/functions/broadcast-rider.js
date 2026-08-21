@@ -37,19 +37,30 @@ exports.handler = async (event) => {
       return { statusCode: access.statusCode, headers, body: access.body };
     }
 
-    const { sub_order_id, cancel } = JSON.parse(event.body || '{}');
+    const { sub_order_id, cancel, destination } = JSON.parse(event.body || '{}');
     if (!sub_order_id) {
       return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Missing required field: sub_order_id' }) };
     }
+    // See assign-rider.js for what this means — same first-mile-to-hub mode,
+    // just via broadcast instead of a hand-picked rider.
+    const toHub = destination === 'hub';
 
     const { data: existingSubOrder, error: existingSubOrderError } = await supabase
       .from('sub_orders')
-      .select('id, tracking_number, metadata, assigned_rider_id, status, broadcast_city, broadcast_state, vendors ( approved_vendor_locations ( city, state, zone_id, vendor_pickup_surcharge ) )')
+      .select('id, tracking_number, metadata, assigned_rider_id, status, broadcast_city, broadcast_state, hub_id, vendors ( approved_vendor_locations ( city, state, zone_id, vendor_pickup_surcharge ) )')
       .eq('id', sub_order_id)
       .single();
 
     if (existingSubOrderError || !existingSubOrder) {
       return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Sub-order not found' }) };
+    }
+
+    if (toHub && !cancel && !existingSubOrder.hub_id) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ success: false, error: 'This order has no hub routing set — route it through a hub first' }),
+      };
     }
 
     if (cancel) {
@@ -144,6 +155,7 @@ exports.handler = async (event) => {
             Array.isArray(existingMetadata.eligible_lanes) && existingMetadata.eligible_lanes.length > 0
               ? existingMetadata.eligible_lanes
               : ['fez', 'local_rider'],
+          rider_leg: toHub ? 'to_hub' : null,
         },
       })
       .eq('id', sub_order_id)
@@ -185,10 +197,13 @@ exports.handler = async (event) => {
       .ilike('approved_vendor_locations.state', area.state);
 
     const riders = eligibleRiders || [];
+    const broadcastMessage = toHub
+      ? `A hub drop-off job is available for pickup in ${area.city}. Open the app to claim it.`
+      : `A delivery is available for pickup in ${area.city}. Open the app to claim it.`;
     for (const rider of riders) {
       const pushResult = await sendRiderPush(supabase, rider.id, {
         title: 'New delivery near you',
-        message: `A delivery is available for pickup in ${area.city}. Open the app to claim it.`,
+        message: broadcastMessage,
         type: 'rider_job_broadcast',
         data: { sub_order_id, targetPath: '/' },
       });

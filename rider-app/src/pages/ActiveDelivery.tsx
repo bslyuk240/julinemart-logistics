@@ -30,11 +30,15 @@ const TIMELINE: { status: Job['status']; label: string; at: (job: Job) => string
   { status: 'delivered', label: 'Delivered', at: (job) => job.delivered_at },
 ];
 
-const NEXT_STATUS: Record<string, Job['status']> = {
-  assigned: 'picked_up',
-  picked_up: 'out_for_delivery',
-  out_for_delivery: 'delivered',
-};
+// Mirrors rider-jobs.js's nextStatusFor — a first-mile leg (job.dropoff.kind
+// === 'hub', see services/shipmentSummary.js) ends at 'at_hub' instead of
+// 'delivered'. Must match the server exactly, or advanceJob's target_status
+// gets rejected as a mismatch.
+function nextStatusFor(job: Job): Job['status'] | undefined {
+  if (job.status === 'out_for_delivery') return job.dropoff.kind === 'hub' ? 'at_hub' : 'delivered';
+  const before: Partial<Record<Job['status'], Job['status']>> = { assigned: 'picked_up', picked_up: 'out_for_delivery' };
+  return before[job.status];
+}
 
 // 'out_for_delivery' isn't here — it always renders the dedicated Complete
 // Delivery screen (its own "Confirm Delivery" CTA), never this generic one.
@@ -136,8 +140,9 @@ export default function ActiveDelivery() {
 
   const handleAdvance = async () => {
     if (!job) return;
-    const targetStatus = NEXT_STATUS[job.status];
+    const targetStatus = nextStatusFor(job);
     if (!targetStatus) return;
+    const isFinalStep = targetStatus === 'delivered' || targetStatus === 'at_hub';
 
     // Pickup is confirmed by scanning the package's label, not a plain tap —
     // see handleScanDetect for the actual advance call.
@@ -147,7 +152,7 @@ export default function ActiveDelivery() {
       return;
     }
 
-    if (targetStatus === 'delivered' && !proofFile) {
+    if (isFinalStep && !proofFile) {
       fileInputRef.current?.click();
       return;
     }
@@ -156,6 +161,7 @@ export default function ActiveDelivery() {
     // POD_VERIFIED_THRESHOLD_NGN) need a customer signature in addition to
     // the photo — the server enforces this independently, this is just the
     // client-side prompt so the rider isn't surprised by a rejected submit.
+    // Doesn't apply to 'at_hub' — there's no customer present to sign.
     if (targetStatus === 'delivered' && job.pod_level === 'verified' && !signatureFile) {
       setShowSignaturePad(true);
       return;
@@ -166,14 +172,14 @@ export default function ActiveDelivery() {
     try {
       let proofUrl: string | undefined;
       let signatureUrl: string | undefined;
-      if (targetStatus === 'delivered' && proofFile && user) {
+      if (isFinalStep && proofFile && user) {
         setUploadingProof(true);
         proofUrl = await uploadRiderDocument(user.id, proofFile, 'delivery_proof');
         if (signatureFile) signatureUrl = await uploadRiderDocument(user.id, signatureFile, 'delivery_signature');
         setUploadingProof(false);
       }
       await api.advanceJob(job.id, targetStatus, { delivery_proof_url: proofUrl, signature_url: signatureUrl });
-      if (targetStatus === 'delivered') {
+      if (isFinalStep) {
         navigate('/', { replace: true });
       } else {
         await load();
@@ -296,7 +302,11 @@ export default function ActiveDelivery() {
   // mockup's own sections.
   if (job.status === 'out_for_delivery') {
     const dropoffTarget = mapsUrl(job.dropoff.address, job.dropoff.city, job.dropoff.state);
-    const proofTiles = job.pod_level === 'verified' ? 'grid-cols-2' : 'grid-cols-1';
+    // First-mile leg (see services/shipmentSummary.js) — no customer present
+    // to sign, regardless of order value.
+    const isHubLeg = job.dropoff.kind === 'hub';
+    const needsSignature = job.pod_level === 'verified' && !isHubLeg;
+    const proofTiles = needsSignature ? 'grid-cols-2' : 'grid-cols-1';
     return (
       <div className="min-h-screen pb-32 bg-gray-50">
         <div className="px-6 pt-4 pb-4 bg-white border-b border-gray-100 flex items-center gap-3">
@@ -304,7 +314,7 @@ export default function ActiveDelivery() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="flex-1">
-            <h1 className="text-base font-bold text-gray-900">Complete Delivery</h1>
+            <h1 className="text-base font-bold text-gray-900">{isHubLeg ? 'Complete Hub Drop-off' : 'Complete Delivery'}</h1>
             <p className="text-xs font-semibold text-primary-600">{formatNaira(job.fee)}</p>
           </div>
         </div>
@@ -312,9 +322,9 @@ export default function ActiveDelivery() {
         <div className="px-6 pt-5 space-y-4">
           {error && <p className="text-sm text-red-600">{error}</p>}
 
-          {/* Recipient */}
+          {/* Recipient (or destination hub, for a first-mile leg) */}
           <div className="rounded-2xl border border-gray-200 p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2">Recipient</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-2">{isHubLeg ? 'Drop off at' : 'Recipient'}</p>
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-gray-900">{job.dropoff.customer_name || 'Customer'}</p>
@@ -359,7 +369,7 @@ export default function ActiveDelivery() {
                 <p className="mt-2 text-xs font-semibold text-gray-900">{proofFile ? 'Photo captured' : 'Take delivery photo'}</p>
               </button>
 
-              {job.pod_level === 'verified' && (
+              {needsSignature && (
                 <button
                   type="button"
                   onClick={() => setShowSignaturePad(true)}
@@ -377,7 +387,7 @@ export default function ActiveDelivery() {
                 </button>
               )}
             </div>
-            {job.pod_level === 'verified' && (
+            {needsSignature && (
               <p className="mt-1.5 text-[11px] text-gray-400">Signature required for this order's value</p>
             )}
           </div>
@@ -432,7 +442,7 @@ export default function ActiveDelivery() {
                 className="flex-1 flex flex-col items-center justify-center gap-1 rounded-xl border border-gray-200 py-2.5 text-[11px] font-semibold text-gray-700 bg-white"
               >
                 <Phone className="w-4 h-4" />
-                Call Customer
+                {isHubLeg ? 'Call Hub' : 'Call Customer'}
               </a>
             )}
           </div>
@@ -451,13 +461,13 @@ export default function ActiveDelivery() {
             onClick={() => setProblemSheetMode('fail')}
             className="w-full text-center text-xs font-semibold text-red-600 underline underline-offset-2"
           >
-            Can't complete this delivery?
+            {isHubLeg ? "Can't complete this drop-off?" : "Can't complete this delivery?"}
           </button>
         </div>
 
         <div className="fixed bottom-0 left-0 right-0 px-6 py-4 bg-white border-t border-gray-100">
           <button type="button" onClick={handleAdvance} disabled={advancing || uploadingProof} className="btn-primary">
-            {advancing ? (uploadingProof ? 'Uploading photo…' : 'Saving…') : 'Confirm Delivery'}
+            {advancing ? (uploadingProof ? 'Uploading photo…' : 'Saving…') : isHubLeg ? 'Confirm Hub Drop-off' : 'Confirm Delivery'}
           </button>
         </div>
 

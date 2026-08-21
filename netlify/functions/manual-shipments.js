@@ -272,6 +272,36 @@ export async function handler(event) {
       return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: shipment }) };
     }
 
+    // Destination-hub only, not a general edit endpoint — this is the one
+    // field a dispatcher decides post-creation (whether a local rider
+    // should collect this and drop it at a hub for onward Fez dispatch;
+    // see rider-jobs.js's 'at_hub' status / manual-shipment-assign-rider.js's
+    // destination:'hub' mode).
+    if (event.httpMethod === 'PUT' && id) {
+      const access = await assertStaffCanCreateShipment(event);
+      if (!access.ok) {
+        return { statusCode: access.statusCode, headers, body: access.body };
+      }
+
+      const body = JSON.parse(event.body || '{}');
+      if (!('destination_hub_id' in body)) {
+        return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'destination_hub_id is required' }) };
+      }
+      const destinationHubId = body.destination_hub_id || null;
+
+      const { data, error } = await supabase
+        .from('manual_shipments')
+        .update({ destination_hub_id: destinationHubId })
+        .eq('id', id)
+        .select('id, destination_hub_id')
+        .maybeSingle();
+
+      if (error) return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: error.message }) };
+      if (!data) return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Manual shipment not found' }) };
+
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data }) };
+    }
+
     if (event.httpMethod === 'DELETE') {
       if (!id) {
         return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Shipment ID required' }) };

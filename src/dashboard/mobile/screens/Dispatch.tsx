@@ -94,6 +94,11 @@ export default function MobileDispatch() {
   const [riderTarget, setRiderTarget] = useState<SubOrderRow | null>(null);
   const [riderId, setRiderId] = useState('');
   const [assigningRider, setAssigningRider] = useState(false);
+  // Separate from riderTarget/riderId above — this is the first-mile
+  // (vendor -> hub) assignment sheet, not the last-mile one.
+  const [hubRiderTarget, setHubRiderTarget] = useState<SubOrderRow | null>(null);
+  const [hubRiderId, setHubRiderId] = useState('');
+  const [assigningHubRider, setAssigningHubRider] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scanResult, setScanResult] = useState<{
     code: string;
@@ -188,6 +193,21 @@ export default function MobileDispatch() {
 
   const localRows = useMemo(
     () => subOrders.filter((r) => r.metadata?.selected_lane === 'local_rider'),
+    [subOrders],
+  );
+
+  // First-mile: a local rider collects from the vendor and drops at THIS
+  // hub — still Fez-bound (or otherwise undecided) for the rest of the
+  // journey. Excludes the full local-rider lane (localRows, above) and
+  // anything that's already reached the hub.
+  const awaitingHubCollection = useMemo(
+    () =>
+      subOrders.filter((r) => {
+        const lane = r.metadata?.selected_lane;
+        if (lane === 'local_rider') return false;
+        if (['at_hub', 'delivered', 'failed', 'returned'].includes(r.status || '')) return false;
+        return true;
+      }),
     [subOrders],
   );
 
@@ -287,6 +307,32 @@ export default function MobileDispatch() {
       notification.error('Assignment Failed', err instanceof Error ? err.message : 'Unable to assign rider');
     } finally {
       setAssigningRider(false);
+    }
+  };
+
+  const assignHubRider = async () => {
+    if (!hubRiderTarget || !hubRiderId) return;
+    setAssigningHubRider(true);
+    try {
+      const res = await fetch(`${functionsBase}/assign-rider`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await functionsAuthHeader()) },
+        body: JSON.stringify({
+          sub_order_id: hubRiderTarget.id,
+          rider_id: hubRiderId,
+          destination: 'hub',
+        }),
+      });
+      const payload = await res.json();
+      if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Failed to assign rider');
+      notification.success('Rider Assigned', 'Rider will collect from the vendor and drop at this hub');
+      setHubRiderTarget(null);
+      setHubRiderId('');
+      await fetchSubOrders(selectedHubId);
+    } catch (err) {
+      notification.error('Assignment Failed', err instanceof Error ? err.message : 'Unable to assign rider');
+    } finally {
+      setAssigningHubRider(false);
     }
   };
 
@@ -453,6 +499,57 @@ export default function MobileDispatch() {
             </div>
           )}
 
+          <SectionLabel>Awaiting hub collection · {awaitingHubCollection.length}</SectionLabel>
+          {awaitingHubCollection.length === 0 ? (
+            <div className="rounded-xl bg-white p-4 text-sm text-gray-500 ring-1 ring-gray-100">
+              Nothing needs first-mile collection into this hub right now.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {awaitingHubCollection.map((row) => {
+                const label = orderLabelFromRow(row);
+                const isHubLeg = row.metadata?.rider_leg === 'to_hub';
+                return (
+                  <div key={row.id} className="overflow-hidden rounded-xl bg-white ring-1 ring-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => openOrder(row.main_order_id)}
+                      className="flex w-full items-center gap-3 p-3 text-left active:bg-gray-50"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-gray-900">{label}</div>
+                        <div className="mt-0.5 text-sm text-gray-700">{row.vendors?.store_name || '—'}</div>
+                        <div className="mt-0.5 text-xs text-gray-500 capitalize">{(row.status || 'pending').replace(/_/g, ' ')}</div>
+                      </div>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" />
+                    </button>
+                    <div className="border-t border-gray-100 px-3 py-2 space-y-2">
+                      <button
+                        type="button"
+                        disabled={row.status === 'broadcasting' || isHubLeg}
+                        onClick={() => {
+                          setHubRiderTarget(row);
+                          setHubRiderId('');
+                        }}
+                        className="w-full rounded-lg border border-purple-200 bg-purple-50 py-2 text-xs font-semibold text-purple-700 disabled:opacity-50"
+                      >
+                        Assign rider (to hub)
+                      </button>
+                      <BroadcastToRidersButton
+                        subOrderId={row.id}
+                        status={row.status || 'pending'}
+                        destination="hub"
+                        disabled={isHubLeg}
+                        onChanged={() => fetchSubOrders(selectedHubId)}
+                        fullWidth
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {selectedGroupKeys.length > 0 && (
             <div
               className="fixed inset-x-0 z-30 border-t border-gray-200 bg-white p-3"
@@ -482,6 +579,22 @@ export default function MobileDispatch() {
               className="rounded-lg bg-primary-600 py-3 text-sm font-semibold text-white disabled:opacity-60"
             >
               {assigningRider ? 'Saving…' : 'Save rider'}
+            </button>
+          </Sheet>
+
+          <Sheet open={!!hubRiderTarget} onClose={() => setHubRiderTarget(null)} ariaLabel="Assign rider for hub collection">
+            <h3 className="text-base font-bold text-gray-900">Assign rider for hub collection</h3>
+            <p className="text-sm text-gray-500">Rider collects from the vendor and drops off at this hub.</p>
+            <div className="space-y-3">
+              <RiderPicker value={hubRiderId} onChange={setHubRiderId} />
+            </div>
+            <button
+              type="button"
+              onClick={assignHubRider}
+              disabled={assigningHubRider || !hubRiderId}
+              className="rounded-lg bg-purple-600 py-3 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {assigningHubRider ? 'Saving…' : 'Save rider'}
             </button>
           </Sheet>
         </div>

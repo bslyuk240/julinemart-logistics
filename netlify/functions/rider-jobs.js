@@ -804,12 +804,30 @@ async function handlePost(rider, adminClient, body) {
     const update = { status: targetStatus, ...(timestampColumn ? { [timestampColumn]: new Date().toISOString() } : {}) };
     if ((targetStatus === 'delivered' || targetStatus === 'at_hub') && body.delivery_proof_url) update.delivery_proof_url = body.delivery_proof_url;
     if (targetStatus === 'delivered' && body.signature_url) update.signature_url = body.signature_url;
+    // Reaching the hub ends THIS rider's leg, not the shipment's journey —
+    // staff still need to send it onward (Fez, or a second local rider for
+    // last-mile). Clearing rider ownership here is what lets assign-rider.js
+    // /broadcast-rider.js (and their manual-shipment equivalents, both of
+    // which refuse to touch an already-assigned shipment) pick up the next
+    // leg without a stale assignment blocking them.
+    if (targetStatus === 'at_hub') {
+      Object.assign(update, {
+        assigned_rider_id: null,
+        delivery_person_name: null,
+        delivery_person_phone: null,
+        delivery_person_vehicle: null,
+        ...(isSubOrder ? { rider_name: null, rider_phone: null } : {}),
+      });
+    }
 
     // manual_shipments has no picked_up_at/out_for_delivery_at/delivered_at/
     // delivery_proof_url columns — those timestamps live only on the unified
     // shipments table for that source type, so limit the source-table write
-    // to columns that actually exist there.
-    const sourceUpdate = isSubOrder ? update : { status: targetStatus };
+    // to columns that actually exist there (still includes the at_hub
+    // ownership-clearing fields above, which do exist on both tables).
+    const sourceUpdate = isSubOrder
+      ? update
+      : { status: targetStatus, ...(targetStatus === 'at_hub' ? { assigned_rider_id: null, delivery_person_name: null, delivery_person_phone: null, delivery_person_vehicle: null } : {}) };
 
     const { error } = await adminClient.from(sourceTable).update(sourceUpdate).eq('id', sourceId);
     if (error) return jsonResponse(500, { success: false, error: error.message });

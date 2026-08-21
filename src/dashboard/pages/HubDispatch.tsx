@@ -66,6 +66,11 @@ export function HubDispatchPage() {
   const [riderModal, setRiderModal] = useState<string | null>(null);
   const [riderId, setRiderId] = useState('');
   const [assigningRider, setAssigningRider] = useState(false);
+  // Separate from riderModal/riderId above — this is the first-mile
+  // (vendor -> hub) assignment modal, not the last-mile one.
+  const [hubRiderModal, setHubRiderModal] = useState<string | null>(null);
+  const [hubRiderId, setHubRiderId] = useState('');
+  const [assigningHubRider, setAssigningHubRider] = useState(false);
 
   const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
@@ -115,6 +120,19 @@ export function HubDispatchPage() {
     return subOrders.filter((r) => {
       const lane = r.metadata?.selected_lane;
       return lane === 'local_rider';
+    });
+  }, [subOrders]);
+
+  // First-mile: a local rider collects from the vendor and drops at THIS
+  // hub — still Fez-bound (or otherwise undecided) for the rest of the
+  // journey, so excludes anything already on the full local-rider lane
+  // (that's localRows, above) and anything that's already reached the hub.
+  const awaitingHubCollection = useMemo(() => {
+    return subOrders.filter((r) => {
+      const lane = r.metadata?.selected_lane;
+      if (lane === 'local_rider') return false;
+      if (['at_hub', 'delivered', 'failed', 'returned'].includes(r.status || '')) return false;
+      return true;
     });
   }, [subOrders]);
 
@@ -225,6 +243,32 @@ export function HubDispatchPage() {
       notification.error('Assignment Failed', err instanceof Error ? err.message : 'Unable to assign rider');
     } finally {
       setAssigningRider(false);
+    }
+  };
+
+  const assignHubRider = async (subOrderId: string) => {
+    if (!hubRiderId) return;
+    setAssigningHubRider(true);
+    try {
+      const res = await fetch(`${functionsBase}/assign-rider`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sub_order_id: subOrderId,
+          rider_id: hubRiderId,
+          destination: 'hub',
+        }),
+      });
+      const payload = await res.json();
+      if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Failed to assign rider');
+      notification.success('Rider Assigned', 'Rider will collect from the vendor and drop at this hub');
+      setHubRiderModal(null);
+      setHubRiderId('');
+      await refreshAll();
+    } catch (err) {
+      notification.error('Assignment Failed', err instanceof Error ? err.message : 'Unable to assign rider');
+    } finally {
+      setAssigningHubRider(false);
     }
   };
 
@@ -423,6 +467,79 @@ export function HubDispatchPage() {
         )}
       </div>
 
+      {/* ── AWAITING HUB COLLECTION ───────────────────────────────────────── */}
+      <div className="card">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+            <Truck className="w-5 h-5 text-purple-600" />
+            Awaiting Hub Collection
+          </h2>
+          <p className="text-sm text-gray-600">
+            Send a local rider to collect from the vendor and drop off at this hub — the order stays
+            bound for Fez (or whatever's next) once it arrives; this only covers the first mile.
+          </p>
+        </div>
+
+        {awaitingHubCollection.length === 0 ? (
+          <div className="text-sm text-gray-500 py-8 text-center">
+            Nothing needs first-mile collection into this hub right now.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left border-b border-gray-200 text-gray-600">
+                  <th className="py-2 pr-3">Order</th>
+                  <th className="py-2 pr-3">Vendor</th>
+                  <th className="py-2 pr-3">Status</th>
+                  <th className="py-2">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {awaitingHubCollection.map((row) => {
+                  const o = row.orders;
+                  const label = o?.order_number
+                    ? `#${o.order_number}`
+                    : o?.woocommerce_order_id
+                    ? `#${o.woocommerce_order_id}`
+                    : `#${row.main_order_id.slice(0, 8)}`;
+                  const isHubLeg = row.metadata?.rider_leg === 'to_hub';
+                  return (
+                    <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="py-2 pr-3 font-medium">{label}</td>
+                      <td className="py-2 pr-3 text-gray-700">{row.vendors?.store_name || '—'}</td>
+                      <td className="py-2 pr-3">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                          {row.status || 'pending'}
+                        </span>
+                      </td>
+                      <td className="py-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => { setHubRiderModal(row.id); setHubRiderId(''); }}
+                            disabled={row.status === 'broadcasting' || isHubLeg}
+                            className="btn-secondary text-xs px-3 py-1 disabled:opacity-50"
+                          >
+                            Assign Rider
+                          </button>
+                          <BroadcastToRidersButton
+                            subOrderId={row.id}
+                            status={row.status || 'pending'}
+                            destination="hub"
+                            disabled={isHubLeg}
+                            onChanged={refreshAll}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* ── Rider Assignment Modal ─────────────────────────────────────────── */}
       {riderModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -447,6 +564,38 @@ export function HubDispatchPage() {
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {assigningRider && <Loader className="w-4 h-4 animate-spin" />}
+                Assign Rider
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Hub-Collection Rider Assignment Modal (first-mile) ─────────────── */}
+      {hubRiderModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold mb-1">Assign Rider for Hub Collection</h3>
+            <p className="text-sm text-gray-500 mb-4">Rider collects from the vendor and drops off at this hub.</p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Rider <span className="text-red-500">*</span></label>
+                <RiderPicker value={hubRiderId} onChange={setHubRiderId} />
+              </div>
+            </div>
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => { setHubRiderModal(null); setHubRiderId(''); }}
+                className="flex-1 px-4 py-2 border rounded hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => assignHubRider(hubRiderModal)}
+                disabled={!hubRiderId || assigningHubRider}
+                className="flex-1 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {assigningHubRider && <Loader className="w-4 h-4 animate-spin" />}
                 Assign Rider
               </button>
             </div>

@@ -208,7 +208,12 @@ exports.handler = async (event) => {
         metadata: {
           ...existingMetadata,
           rider_accepted_at: null,
-          selected_lane: 'local_rider',
+          // A hub leg is only the FIRST mile — the order still needs Fez (or
+          // another leg) for the rest, so selected_lane must stay whatever
+          // it already was (normally 'fez') rather than being claimed by
+          // the local rider for the whole journey. Only a true end-to-end
+          // local delivery flips this to 'local_rider'.
+          ...(toHub ? {} : { selected_lane: 'local_rider' }),
           eligible_lanes:
             Array.isArray(existingMetadata.eligible_lanes) &&
             existingMetadata.eligible_lanes.length > 0

@@ -150,7 +150,9 @@ exports.handler = async (event) => {
         metadata: {
           ...existingMetadata,
           rider_accepted_at: null,
-          selected_lane: 'local_rider',
+          // See assign-rider.js — a hub leg is first-mile only, so this
+          // must not claim the whole journey for the local-rider lane.
+          ...(toHub ? {} : { selected_lane: 'local_rider' }),
           eligible_lanes:
             Array.isArray(existingMetadata.eligible_lanes) && existingMetadata.eligible_lanes.length > 0
               ? existingMetadata.eligible_lanes

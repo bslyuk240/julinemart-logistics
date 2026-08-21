@@ -48,9 +48,16 @@ interface ManualShipment {
   delivery_proof_url?: string | null;
   signature_url?: string | null;
   last_tracking_update: string | null;
-  metadata: { selected_lane?: 'fez' | 'local_rider' } | null;
+  metadata: { selected_lane?: 'fez' | 'local_rider'; rider_leg?: 'to_hub' | null } | null;
+  destination_hub_id: string | null;
   created_at: string;
   tracking_events?: TrackingEvent[];
+}
+
+interface Hub {
+  id: string;
+  name: string;
+  city?: string | null;
 }
 
 function isRealFezTrackingNumber(value?: string | null): boolean {
@@ -88,6 +95,10 @@ export function ManualShipmentDetailPage() {
   const [fetchingTracking, setFetchingTracking] = useState(false);
   const [showRiderModal, setShowRiderModal] = useState(false);
   const [riderId, setRiderId] = useState('');
+  const [useHubDestination, setUseHubDestination] = useState(false);
+  const [hubs, setHubs] = useState<Hub[]>([]);
+  const [destinationHubId, setDestinationHubId] = useState('');
+  const [savingHub, setSavingHub] = useState(false);
 
   const fetchShipment = async () => {
     try {
@@ -107,6 +118,45 @@ export function ManualShipmentDetailPage() {
     fetchShipment();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${functionsBase}/hubs`);
+        const data = await res.json();
+        if (data.success) setHubs(((data.data || []) as Hub[]).filter((h: any) => h?.is_active !== false));
+      } catch {
+        /* non-fatal — destination-hub picker just stays empty */
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    setDestinationHubId(shipment?.destination_hub_id || '');
+  }, [shipment?.destination_hub_id]);
+
+  const saveDestinationHub = async () => {
+    setSavingHub(true);
+    try {
+      const response = await fetch(`${functionsBase}/manual-shipments/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+        body: JSON.stringify({ destination_hub_id: destinationHubId || null }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        notification.success('Saved', destinationHubId ? 'Destination hub set' : 'Destination hub cleared');
+        fetchShipment();
+      } else {
+        notification.error('Save Failed', data.error || 'Unable to save destination hub');
+      }
+    } catch (error) {
+      console.error('Save destination hub error:', error);
+      notification.error('Error', 'Failed to save destination hub');
+    } finally {
+      setSavingHub(false);
+    }
+  };
 
   // Live refresh when a rider claims, accepts, declines, or the broadcast
   // otherwise changes state — so the dispatcher isn't stuck manually
@@ -154,11 +204,15 @@ export function ManualShipmentDetailPage() {
         body: JSON.stringify({
           shipment_id: id,
           rider_id: riderId,
+          ...(useHubDestination ? { destination: 'hub' } : {}),
         }),
       });
       const data = await response.json();
       if (data.success) {
-        notification.success('Rider Assigned', 'Local rider saved for this shipment');
+        notification.success(
+          'Rider Assigned',
+          useHubDestination ? 'Rider will collect from the sender and drop at the destination hub' : 'Local rider saved for this shipment',
+        );
         setShowRiderModal(false);
         setRiderId('');
         fetchShipment();
@@ -312,10 +366,38 @@ export function ManualShipmentDetailPage() {
         <p className="text-sm text-gray-600 mt-1">{shipment.item_weight}kg &middot; ₦{Number(shipment.item_value || 0).toLocaleString()}</p>
       </div>
 
+      <div className="card mb-6">
+        <h2 className="text-sm font-semibold text-gray-500 uppercase mb-2">Destination Hub</h2>
+        <p className="text-xs text-gray-500 mb-2">
+          Set this if a local rider should collect from the sender and drop off at a hub instead of
+          delivering straight to the recipient — the item then continues via Fez (or another leg)
+          from there.
+        </p>
+        <div className="flex gap-2">
+          <select
+            value={destinationHubId}
+            onChange={(e) => setDestinationHubId(e.target.value)}
+            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+          >
+            <option value="">No destination hub</option>
+            {hubs.map((h) => (
+              <option key={h.id} value={h.id}>{h.name}{h.city ? ` (${h.city})` : ''}</option>
+            ))}
+          </select>
+          <button
+            onClick={saveDestinationHub}
+            disabled={savingHub || destinationHubId === (shipment.destination_hub_id || '')}
+            className="btn-secondary text-sm px-3 disabled:opacity-50"
+          >
+            {savingHub ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+
       {!dispatched ? (
         <div className="card">
           <h2 className="text-lg font-semibold mb-4">Dispatch</h2>
-          <div className="flex gap-3">
+          <div className="flex gap-3 items-center flex-wrap">
             <button onClick={dispatchViaFez} disabled={dispatching} className="btn-primary flex items-center disabled:opacity-50">
               <Send className="w-4 h-4 mr-2" />
               {dispatching ? 'Sending…' : 'Send to Fez'}
@@ -324,7 +406,19 @@ export function ManualShipmentDetailPage() {
               <Truck className="w-4 h-4 mr-2" />
               Assign Local Rider
             </button>
-            <BroadcastToRidersButton manualShipmentId={id} status={shipment.status} disabled={dispatching} onChanged={fetchShipment} />
+            <BroadcastToRidersButton
+              manualShipmentId={id}
+              status={shipment.status}
+              disabled={dispatching}
+              destination={useHubDestination ? 'hub' : undefined}
+              onChanged={fetchShipment}
+            />
+            {shipment.destination_hub_id && (
+              <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                <input type="checkbox" checked={useHubDestination} onChange={(e) => setUseHubDestination(e.target.checked)} />
+                Collect to hub, not recipient
+              </label>
+            )}
           </div>
         </div>
       ) : (
@@ -429,7 +523,12 @@ export function ManualShipmentDetailPage() {
       {showRiderModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-bold mb-4">Assign Local Rider</h3>
+            <h3 className="text-lg font-bold mb-1">Assign Local Rider</h3>
+            {useHubDestination && (
+              <p className="text-xs text-purple-700 bg-purple-50 rounded px-2 py-1 mb-3">
+                Hub collection mode — rider drops at the destination hub, not the recipient.
+              </p>
+            )}
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Rider <span className="text-red-500">*</span></label>

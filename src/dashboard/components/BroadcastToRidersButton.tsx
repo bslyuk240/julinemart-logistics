@@ -12,6 +12,10 @@ type Props = {
   disabled?: boolean;
   /** Stretch to the width of its container — mobile card layouts want this, desktop inline button rows don't. */
   fullWidth?: boolean;
+  /** 'hub' = first-mile leg (vendor/sender -> a JLO hub), not the usual
+   * vendor/sender -> customer/recipient delivery. See broadcast-rider.js /
+   * manual-shipment-broadcast-rider.js. */
+  destination?: 'hub';
 };
 
 async function authHeader(): Promise<Record<string, string>> {
@@ -25,7 +29,7 @@ async function authHeader(): Promise<Record<string, string>> {
  * between desktop and mobile — same component, same two endpoints, only
  * the surrounding page differs.
  */
-export default function BroadcastToRidersButton({ manualShipmentId, subOrderId, status, onChanged, disabled, fullWidth }: Props) {
+export default function BroadcastToRidersButton({ manualShipmentId, subOrderId, status, onChanged, disabled, fullWidth, destination }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const endpoint = manualShipmentId ? 'manual-shipment-broadcast-rider' : 'broadcast-rider';
@@ -54,7 +58,7 @@ export default function BroadcastToRidersButton({ manualShipmentId, subOrderId, 
   };
 
   const startBroadcast = async () => {
-    const result = await call({});
+    const result = await call(destination ? { destination } : {});
     if (result) {
       const n = result.riders_notified ?? 0;
       setError(n === 0 ? 'Broadcast started, but no online riders currently cover this area' : null);
@@ -93,7 +97,7 @@ export default function BroadcastToRidersButton({ manualShipmentId, subOrderId, 
         className={`btn-secondary flex items-center disabled:opacity-50 ${fullWidth ? 'w-full justify-center' : ''}`}
       >
         <Radio className="w-4 h-4 mr-2" />
-        {busy ? 'Broadcasting…' : 'Broadcast to Online Riders'}
+        {busy ? 'Broadcasting…' : destination === 'hub' ? 'Broadcast Hub Collection' : 'Broadcast to Online Riders'}
       </button>
       {error && <span className="text-xs text-red-600">{error}</span>}
     </div>

@@ -58,9 +58,16 @@ interface ManualShipment {
   delivery_proof_url?: string | null;
   signature_url?: string | null;
   last_tracking_update: string | null;
-  metadata: { selected_lane?: 'fez' | 'local_rider' } | null;
+  metadata: { selected_lane?: 'fez' | 'local_rider'; rider_leg?: 'to_hub' | null } | null;
+  destination_hub_id: string | null;
   created_at: string;
   tracking_events?: TrackingEvent[];
+}
+
+interface Hub {
+  id: string;
+  name: string;
+  city?: string | null;
 }
 
 function isRealFezTrackingNumber(value?: string | null): boolean {
@@ -83,6 +90,10 @@ export default function MobileManualShipmentDetail() {
   const [fetchingTracking, setFetchingTracking] = useState(false);
   const [riderOpen, setRiderOpen] = useState(false);
   const [riderId, setRiderId] = useState('');
+  const [useHubDestination, setUseHubDestination] = useState(false);
+  const [hubs, setHubs] = useState<Hub[]>([]);
+  const [destinationHubId, setDestinationHubId] = useState('');
+  const [savingHub, setSavingHub] = useState(false);
 
   const fetchShipment = useCallback(async () => {
     if (!id) return;
@@ -101,6 +112,45 @@ export default function MobileManualShipmentDetail() {
   useEffect(() => {
     fetchShipment();
   }, [fetchShipment]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${functionsBase}/hubs`);
+        const data = await res.json();
+        if (data.success) setHubs(((data.data || []) as Hub[]).filter((h: any) => h?.is_active !== false));
+      } catch {
+        /* non-fatal — destination-hub picker just stays empty */
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    setDestinationHubId(shipment?.destination_hub_id || '');
+  }, [shipment?.destination_hub_id]);
+
+  const saveDestinationHub = async () => {
+    if (!id) return;
+    setSavingHub(true);
+    try {
+      const response = await fetch(`${functionsBase}/manual-shipments/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...(await functionsAuthHeader()) },
+        body: JSON.stringify({ destination_hub_id: destinationHubId || null }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        notification.success('Saved', destinationHubId ? 'Destination hub set' : 'Destination hub cleared');
+        await fetchShipment();
+      } else {
+        notification.error('Save Failed', data.error || 'Unable to save destination hub');
+      }
+    } catch {
+      notification.error('Error', 'Failed to save destination hub');
+    } finally {
+      setSavingHub(false);
+    }
+  };
 
   // Live refresh when a rider claims, accepts, declines, or the broadcast
   // otherwise changes state.
@@ -147,11 +197,15 @@ export default function MobileManualShipmentDetail() {
         body: JSON.stringify({
           shipment_id: id,
           rider_id: riderId,
+          ...(useHubDestination ? { destination: 'hub' } : {}),
         }),
       });
       const data = await response.json();
       if (data.success) {
-        notification.success('Rider assigned', 'Local rider saved for this shipment');
+        notification.success(
+          'Rider assigned',
+          useHubDestination ? 'Rider will collect from the sender and drop at the destination hub' : 'Local rider saved for this shipment',
+        );
         setRiderOpen(false);
         setRiderId('');
         await fetchShipment();
@@ -421,11 +475,53 @@ export default function MobileManualShipmentDetail() {
                 </button>
               </div>
               <div className="mt-2">
-                <BroadcastToRidersButton manualShipmentId={id} status={shipment.status} disabled={dispatching} onChanged={fetchShipment} fullWidth />
+                <BroadcastToRidersButton
+                  manualShipmentId={id}
+                  status={shipment.status}
+                  disabled={dispatching}
+                  destination={useHubDestination ? 'hub' : undefined}
+                  onChanged={fetchShipment}
+                  fullWidth
+                />
               </div>
+              {shipment.destination_hub_id && (
+                <label className="mt-2 flex items-center gap-1.5 text-xs text-gray-600">
+                  <input type="checkbox" checked={useHubDestination} onChange={(e) => setUseHubDestination(e.target.checked)} />
+                  Collect to hub, not recipient
+                </label>
+              )}
             </div>
           </>
         )}
+
+        <SectionLabel>Destination Hub</SectionLabel>
+        <div className="mx-4 overflow-hidden rounded-xl bg-white p-4">
+          <p className="text-xs text-gray-500 mb-2">
+            Set this if a local rider should collect from the sender and drop off at a hub instead
+            of delivering straight to the recipient.
+          </p>
+          <div className="flex gap-2">
+            <select
+              value={destinationHubId}
+              onChange={(e) => setDestinationHubId(e.target.value)}
+              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              style={{ fontSize: '16px' }}
+            >
+              <option value="">No destination hub</option>
+              {hubs.map((h) => (
+                <option key={h.id} value={h.id}>{h.name}{h.city ? ` (${h.city})` : ''}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={saveDestinationHub}
+              disabled={savingHub || destinationHubId === (shipment.destination_hub_id || '')}
+              className="rounded-lg border border-gray-200 px-3 text-sm font-semibold text-gray-700 disabled:opacity-50"
+            >
+              {savingHub ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
 
         <SectionLabel>Package</SectionLabel>
         <div className="mx-4 overflow-hidden rounded-xl bg-white">
@@ -486,6 +582,11 @@ export default function MobileManualShipmentDetail() {
 
       <Sheet open={riderOpen} onClose={() => setRiderOpen(false)} ariaLabel="Assign rider">
         <h3 className="text-lg font-bold text-gray-900">Assign local rider</h3>
+        {useHubDestination && (
+          <p className="mt-1 text-xs text-amber-700">
+            Hub collection mode — rider drops at the destination hub, not the recipient.
+          </p>
+        )}
         <div className="mt-4 space-y-3">
           <RiderPicker value={riderId} onChange={setRiderId} />
         </div>

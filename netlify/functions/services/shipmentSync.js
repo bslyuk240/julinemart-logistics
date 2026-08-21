@@ -16,12 +16,17 @@
 
 function metadataForShipment(fields) {
   if (!fields.metadata || typeof fields.metadata !== 'object') return undefined;
-  const { selected_lane, eligible_lanes, rider_accepted_at, declined_by } = fields.metadata;
+  const { selected_lane, eligible_lanes, rider_accepted_at, declined_by, rider_leg } = fields.metadata;
   const picked = {};
   if (selected_lane !== undefined) picked.selected_lane = selected_lane;
   if (eligible_lanes !== undefined) picked.eligible_lanes = eligible_lanes;
   if (rider_accepted_at !== undefined) picked.rider_accepted_at = rider_accepted_at;
   if (declined_by !== undefined) picked.declined_by = declined_by;
+  // rider_leg ('to_hub' | null) is what rider-jobs.js's summarizeShipment
+  // reads (from THIS shipments table, not the source table) to decide
+  // whether to show the destination hub or the recipient as dropoff — an
+  // omission here silently showed every hub-leg job as a normal delivery.
+  if (rider_leg !== undefined) picked.rider_leg = rider_leg;
   return picked;
 }
 

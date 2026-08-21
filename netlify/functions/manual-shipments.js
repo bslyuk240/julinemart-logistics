@@ -289,6 +289,27 @@ export async function handler(event) {
       }
       const destinationHubId = body.destination_hub_id || null;
 
+      if (destinationHubId) {
+        const { data: existing, error: existingError } = await supabase
+          .from('manual_shipments')
+          .select('sender_hub_id')
+          .eq('id', id)
+          .maybeSingle();
+        if (existingError) return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: existingError.message }) };
+        if (!existing) return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Manual shipment not found' }) };
+        // A hub can't collect from itself — that's a no-op job (pick up
+        // and drop off at the same place). A different hub as sender is a
+        // legitimate hub-to-hub transfer leg, so only the same-hub case
+        // is blocked here.
+        if (existing.sender_hub_id && existing.sender_hub_id === destinationHubId) {
+          return {
+            statusCode: 400,
+            headers,
+            body: JSON.stringify({ success: false, error: "Destination hub can't be the same as the sender hub" }),
+          };
+        }
+      }
+
       const { data, error } = await supabase
         .from('manual_shipments')
         .update({ destination_hub_id: destinationHubId })

@@ -60,6 +60,7 @@ interface ManualShipment {
   last_tracking_update: string | null;
   metadata: { selected_lane?: 'fez' | 'local_rider'; rider_leg?: 'to_hub' | null } | null;
   destination_hub_id: string | null;
+  sender_hub_id: string | null;
   created_at: string;
   tracking_events?: TrackingEvent[];
 }
@@ -502,6 +503,7 @@ export default function MobileManualShipmentDetail() {
           <p className="text-xs text-gray-500 mb-2">
             Set this if a local rider should collect from the sender and drop off at a hub instead
             of delivering straight to the recipient.
+            {shipment.sender_hub_id && ' The sender’s own hub is already the pickup point, so it’s not offered here as a destination.'}
           </p>
           <div className="flex gap-2">
             <select
@@ -511,7 +513,7 @@ export default function MobileManualShipmentDetail() {
               style={{ fontSize: '16px' }}
             >
               <option value="">No destination hub</option>
-              {hubs.map((h) => (
+              {hubs.filter((h) => h.id !== shipment.sender_hub_id).map((h) => (
                 <option key={h.id} value={h.id}>{h.name}{h.city ? ` (${h.city})` : ''}</option>
               ))}
             </select>

@@ -44,7 +44,7 @@ async function resolveBroadcastArea(shipment) {
   return null;
 }
 
-exports.handler = async (event) => {
+export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }

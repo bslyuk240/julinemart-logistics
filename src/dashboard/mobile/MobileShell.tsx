@@ -45,6 +45,7 @@ const MOBILE_NATIVE_PATHS = new Set([
   '/admin/seller-verifications',
   '/admin/riders',
   '/admin/rider-verifications',
+  '/admin/rider-withdrawals',
   '/admin/rider-roster',
   '/admin/delivery-problems',
   '/admin/vendor-campaign-approvals',

@@ -51,6 +51,7 @@ import MobileHomepageContent from './dashboard/mobile/screens/HomepageContent';
 import MobileVendors from './dashboard/mobile/screens/Vendors';
 import MobileSellerVerifications from './dashboard/mobile/screens/SellerVerifications';
 import MobileRiderVerifications from './dashboard/mobile/screens/RiderVerifications';
+import MobileRiderWithdrawals from './dashboard/mobile/screens/RiderWithdrawals';
 import MobileRiderRoster from './dashboard/mobile/screens/RiderRoster';
 import MobileRiders from './dashboard/mobile/screens/Riders';
 import MobileDeliveryProblems from './dashboard/mobile/screens/DeliveryProblems';
@@ -134,6 +135,7 @@ import { CustomersPage } from './dashboard/pages/Customers';
 import { VendorsPage } from './dashboard/pages/Vendors';
 import SellerVerificationsPage from './dashboard/pages/SellerVerifications';
 import RiderVerificationsPage from './dashboard/pages/RiderVerifications';
+import RiderWithdrawals from './dashboard/pages/RiderWithdrawals';
 import RiderRosterPage from './dashboard/pages/RiderRoster';
 import RidersPage from './dashboard/pages/Riders';
 import DeliveryProblemsPage from './dashboard/pages/DeliveryProblems';
@@ -409,6 +411,11 @@ function VendorWithdrawalsRoute() {
   return isMobile ? <MobileVendorWithdrawals /> : <VendorWithdrawals />;
 }
 
+function RiderWithdrawalsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileRiderWithdrawals /> : <RiderWithdrawals />;
+}
+
 function VendorDebitsRoute() {
   const isMobile = useIsMobile();
   return isMobile ? <MobileVendorDebits /> : <VendorDebits />;
@@ -636,6 +643,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'seller-verifications', element: <SellerVerificationsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'riders', element: <RidersRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'rider-verifications', element: <RiderVerificationsRoute />, allowedRoles: ['admin', 'manager'] },
+  { path: 'rider-withdrawals', element: <RiderWithdrawalsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'rider-roster', element: <RiderRosterRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'delivery-problems', element: <DeliveryProblemsRoute />, allowedRoles: ['admin', 'manager', 'agent', 'viewer'] },
   { path: 'vendor-campaign-approvals', element: <VendorCampaignApprovalsRoute />, allowedRoles: ['admin', 'manager'] },

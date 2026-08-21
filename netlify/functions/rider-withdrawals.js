@@ -18,7 +18,8 @@ import { requireAdmin } from './services/global-sourcing-utils.js';
 import { checkRateLimit } from './services/rate-limit.js';
 import { recordAudit, recordStaffAudit, requestMeta } from './services/auditLog.js';
 import { sendRiderPush } from './services/riderNotifications.js';
-import { sendRiderAccountEmail } from '../../shared/riderLifecycleEmail.js';
+import { sendPushToAllStaff } from './services/pushNotifications.js';
+import { sendRiderAccountEmail, sendStaffAlertEmails } from '../../shared/riderLifecycleEmail.js';
 
 function extractId(path) {
   const parts = (path || '').split('/');
@@ -245,6 +246,29 @@ export async function handler(event) {
       details: { amount, rider_id: rider.id, full_name: rider.full_name },
       ...requestMeta(event),
     });
+
+    // Nothing else surfaces a new request to staff — there's no polling
+    // queue view, so without this it just sits pending until someone
+    // happens to open Rider Payouts.
+    try {
+      const amountLabel = `₦${amount.toLocaleString()}`;
+      const adminBaseUrl = process.env.URL || process.env.JLO_BASE_URL || '';
+      await sendPushToAllStaff({
+        title: 'New rider withdrawal request',
+        message: `${rider.full_name} requested ${amountLabel}.`,
+        type: 'rider_withdrawal_requested',
+        data: { targetPath: '/rider-withdrawals' },
+      });
+      await sendStaffAlertEmails(adminClient, {
+        subject: 'JulineMart: New rider withdrawal request',
+        headline: 'New rider withdrawal request',
+        message: `${rider.full_name} requested a withdrawal of ${amountLabel}.`,
+        actionUrl: adminBaseUrl ? `${adminBaseUrl}/rider-withdrawals` : undefined,
+        actionLabel: 'Review request',
+      });
+    } catch (notifyErr) {
+      console.error('rider-withdrawals staff notify failed:', notifyErr);
+    }
 
     return jsonResponse(201, { success: true, data });
   }

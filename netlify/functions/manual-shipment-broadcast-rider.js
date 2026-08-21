@@ -58,12 +58,10 @@ export async function handler(event) {
       return { statusCode: access.statusCode, headers, body: access.body };
     }
 
-    const { shipment_id, cancel, destination } = JSON.parse(event.body || '{}');
+    const { shipment_id, cancel } = JSON.parse(event.body || '{}');
     if (!shipment_id) {
       return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Missing required field: shipment_id' }) };
     }
-    // See manual-shipment-assign-rider.js for what this mode means.
-    const toHub = destination === 'hub';
 
     const { data: existingShipment, error: existingError } = await supabase
       .from('manual_shipments')
@@ -75,13 +73,11 @@ export async function handler(event) {
       return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Manual shipment not found' }) };
     }
 
-    if (toHub && !cancel && !existingShipment.destination_hub_id) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ success: false, error: 'This shipment has no destination hub set — set one first' }),
-      };
-    }
+    // Derived from the shipment's own persisted state, not a client-sent
+    // flag — see manual-shipment-assign-rider.js for why a client flag here
+    // could race a just-saved destination_hub_id and silently broadcast a
+    // normal delivery instead of a hub leg.
+    const toHub = Boolean(existingShipment.destination_hub_id);
 
     if (cancel) {
       if (existingShipment.status !== 'broadcasting') {

@@ -38,7 +38,7 @@ export async function handler(event) {
       return { statusCode: access.statusCode, headers, body: access.body };
     }
 
-    const { shipment_id, rider_id, destination } = JSON.parse(event.body || '{}');
+    const { shipment_id, rider_id } = JSON.parse(event.body || '{}');
 
     if (!shipment_id || !rider_id) {
       return {
@@ -47,10 +47,6 @@ export async function handler(event) {
         body: JSON.stringify({ success: false, error: 'Missing required fields: shipment_id, rider_id' }),
       };
     }
-    // See assign-rider.js (sub_order equivalent) for what this mode means —
-    // same first-mile-to-hub concept, gated on destination_hub_id already
-    // being set (manual_shipments' equivalent of sub_orders.hub_id).
-    const toHub = destination === 'hub';
 
     const { data: rider, error: riderLookupError } = await supabase
       .from('riders')
@@ -92,13 +88,14 @@ export async function handler(event) {
       return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Manual shipment not found' }) };
     }
 
-    if (toHub && !existingShipment.destination_hub_id) {
-      return {
-        statusCode: 400,
-        headers,
-        body: JSON.stringify({ success: false, error: 'This shipment has no destination hub set — set one first' }),
-      };
-    }
+    // Derived from the shipment's own persisted state, not a client-sent
+    // flag — destination_hub_id has no purpose on manual_shipments other
+    // than "collect to this hub", so its presence alone is authoritative.
+    // A client flag here could race a just-saved destination_hub_id (the
+    // Save button's PUT landing in the DB before the browser's local
+    // shipment state re-fetches), silently sending a normal delivery
+    // instead of a hub leg.
+    const toHub = Boolean(existingShipment.destination_hub_id);
 
     // Rider payout, frozen now — before the rider has accepted. Reuses the
     // zone_id (and hub_id, if hub-mode) already resolved and stored on this

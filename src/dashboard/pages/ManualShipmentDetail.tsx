@@ -95,7 +95,6 @@ export function ManualShipmentDetailPage() {
   const [fetchingTracking, setFetchingTracking] = useState(false);
   const [showRiderModal, setShowRiderModal] = useState(false);
   const [riderId, setRiderId] = useState('');
-  const [useHubDestination, setUseHubDestination] = useState(false);
   const [hubs, setHubs] = useState<Hub[]>([]);
   const [destinationHubId, setDestinationHubId] = useState('');
   const [savingHub, setSavingHub] = useState(false);
@@ -204,14 +203,14 @@ export function ManualShipmentDetailPage() {
         body: JSON.stringify({
           shipment_id: id,
           rider_id: riderId,
-          ...(useHubDestination ? { destination: 'hub' } : {}),
+          ...(hubMode ? { destination: 'hub' } : {}),
         }),
       });
       const data = await response.json();
       if (data.success) {
         notification.success(
           'Rider Assigned',
-          useHubDestination ? 'Rider will collect from the sender and drop at the destination hub' : 'Local rider saved for this shipment',
+          hubMode ? 'Rider will collect from the sender and drop at the destination hub' : 'Local rider saved for this shipment',
         );
         setShowRiderModal(false);
         setRiderId('');
@@ -306,6 +305,11 @@ export function ManualShipmentDetailPage() {
   if (!shipment) return <div className="text-gray-500">Manual shipment not found.</div>;
 
   const dispatched = !!(shipment.tracking_number || shipment.delivery_person_name);
+  // A destination hub being set always means "route this rider leg to the
+  // hub" — no separate toggle to forget to check (that was the bug: staff
+  // set a hub, broadcast/assign without also ticking a checkbox, and the
+  // rider still saw the recipient as dropoff).
+  const hubMode = Boolean(shipment.destination_hub_id);
   const canDelete = !dispatched;
   const fezTracking = isRealFezTrackingNumber(shipment.tracking_number) ? shipment.tracking_number : null;
   const events = shipment.tracking_events || [];
@@ -410,14 +414,13 @@ export function ManualShipmentDetailPage() {
               manualShipmentId={id}
               status={shipment.status}
               disabled={dispatching}
-              destination={useHubDestination ? 'hub' : undefined}
+              destination={hubMode ? 'hub' : undefined}
               onChanged={fetchShipment}
             />
-            {shipment.destination_hub_id && (
-              <label className="flex items-center gap-1.5 text-xs text-gray-600">
-                <input type="checkbox" checked={useHubDestination} onChange={(e) => setUseHubDestination(e.target.checked)} />
-                Collect to hub, not recipient
-              </label>
+            {hubMode && (
+              <span className="text-xs font-medium text-purple-700 bg-purple-50 rounded px-2 py-1">
+                Hub collection mode — rider drops at the destination hub, not the recipient
+              </span>
             )}
           </div>
         </div>
@@ -524,7 +527,7 @@ export function ManualShipmentDetailPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 className="text-lg font-bold mb-1">Assign Local Rider</h3>
-            {useHubDestination && (
+            {hubMode && (
               <p className="text-xs text-purple-700 bg-purple-50 rounded px-2 py-1 mb-3">
                 Hub collection mode — rider drops at the destination hub, not the recipient.
               </p>

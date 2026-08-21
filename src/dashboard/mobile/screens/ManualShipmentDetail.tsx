@@ -90,7 +90,6 @@ export default function MobileManualShipmentDetail() {
   const [fetchingTracking, setFetchingTracking] = useState(false);
   const [riderOpen, setRiderOpen] = useState(false);
   const [riderId, setRiderId] = useState('');
-  const [useHubDestination, setUseHubDestination] = useState(false);
   const [hubs, setHubs] = useState<Hub[]>([]);
   const [destinationHubId, setDestinationHubId] = useState('');
   const [savingHub, setSavingHub] = useState(false);
@@ -197,14 +196,14 @@ export default function MobileManualShipmentDetail() {
         body: JSON.stringify({
           shipment_id: id,
           rider_id: riderId,
-          ...(useHubDestination ? { destination: 'hub' } : {}),
+          ...(hubMode ? { destination: 'hub' } : {}),
         }),
       });
       const data = await response.json();
       if (data.success) {
         notification.success(
           'Rider assigned',
-          useHubDestination ? 'Rider will collect from the sender and drop at the destination hub' : 'Local rider saved for this shipment',
+          hubMode ? 'Rider will collect from the sender and drop at the destination hub' : 'Local rider saved for this shipment',
         );
         setRiderOpen(false);
         setRiderId('');
@@ -306,6 +305,11 @@ export default function MobileManualShipmentDetail() {
 
   const dispatched = !!(shipment.tracking_number || shipment.delivery_person_name);
   const canDelete = !dispatched;
+  // A destination hub being set always means "route this rider leg to the
+  // hub" — no separate toggle to forget to check (that was the bug: staff
+  // set a hub, broadcast/assign without also ticking a checkbox, and the
+  // rider still saw the recipient as dropoff).
+  const hubMode = Boolean(shipment.destination_hub_id);
   const fezTracking = isRealFezTrackingNumber(shipment.tracking_number) ? shipment.tracking_number : null;
   const events = shipment.tracking_events || [];
   const laneLabel =
@@ -479,16 +483,15 @@ export default function MobileManualShipmentDetail() {
                   manualShipmentId={id}
                   status={shipment.status}
                   disabled={dispatching}
-                  destination={useHubDestination ? 'hub' : undefined}
+                  destination={hubMode ? 'hub' : undefined}
                   onChanged={fetchShipment}
                   fullWidth
                 />
               </div>
-              {shipment.destination_hub_id && (
-                <label className="mt-2 flex items-center gap-1.5 text-xs text-gray-600">
-                  <input type="checkbox" checked={useHubDestination} onChange={(e) => setUseHubDestination(e.target.checked)} />
-                  Collect to hub, not recipient
-                </label>
+              {hubMode && (
+                <p className="mt-2 text-xs font-medium text-purple-700 bg-purple-50 rounded px-2 py-1">
+                  Hub collection mode — rider drops at the destination hub, not the recipient
+                </p>
               )}
             </div>
           </>
@@ -582,7 +585,7 @@ export default function MobileManualShipmentDetail() {
 
       <Sheet open={riderOpen} onClose={() => setRiderOpen(false)} ariaLabel="Assign rider">
         <h3 className="text-lg font-bold text-gray-900">Assign local rider</h3>
-        {useHubDestination && (
+        {hubMode && (
           <p className="mt-1 text-xs text-amber-700">
             Hub collection mode — rider drops at the destination hub, not the recipient.
           </p>

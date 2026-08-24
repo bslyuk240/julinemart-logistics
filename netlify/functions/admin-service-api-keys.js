@@ -22,7 +22,7 @@ export const CAPABILITIES = [
 ];
 
 function generateToken() {
-  return `skola_live_${crypto.randomBytes(32).toString('base64url')}`;
+  return `jlo_live_${crypto.randomBytes(32).toString('base64url')}`;
 }
 
 export const handler = async (event) => {

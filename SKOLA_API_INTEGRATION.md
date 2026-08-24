@@ -25,7 +25,7 @@ for the URL of the environment you've been given access to.)
 Every request requires a bearer token:
 
 ```
-Authorization: Bearer skola_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+Authorization: Bearer jlo_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 - No token, or a malformed header → `401`.

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Check, Copy, Plus, Trash2, AlertTriangle, Key, Webhook } from 'lucide-react';
+import { Check, Copy, Plus, Trash2, AlertTriangle, Globe, Key, Webhook } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { buildApiUrl } from '../../lib/settingsDeveloperUtils';
@@ -47,6 +47,7 @@ interface IntegrationsPanelProps {
 export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
   const { session } = useAuth();
   const notification = useNotification();
+  const serviceApiBaseUrl = buildApiUrl('/api/v1');
 
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
   const [webhooks, setWebhooks] = useState<WebhookRow[]>([]);
@@ -196,6 +197,20 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
         </div>
 
         <div className={compact ? 'p-4 space-y-3' : 'space-y-3'}>
+          <div className="rounded-lg bg-gray-50 border border-gray-200 p-3">
+            <p className="text-xs font-semibold text-gray-700 flex items-center gap-1.5">
+              <Globe className="w-3.5 h-3.5 text-gray-400" />
+              Base URL — hand this to the integrator along with the token
+            </p>
+            <div className="mt-2 flex gap-2">
+              <input readOnly value={serviceApiBaseUrl} className="flex-1 min-w-0 px-2 py-1.5 border border-gray-300 rounded font-mono text-xs bg-white" />
+              <button type="button" onClick={() => copy(serviceApiBaseUrl, 'base_url')} className="btn-secondary text-xs shrink-0">
+                {copiedItem === 'base_url' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-1">e.g. <code className="font-mono">{serviceApiBaseUrl}/orders</code></p>
+          </div>
+
           {mintedToken ? (
             <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
               <p className="text-xs font-semibold text-amber-900 flex items-center gap-1">

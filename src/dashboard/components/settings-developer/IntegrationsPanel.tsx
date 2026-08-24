@@ -4,8 +4,16 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { buildApiUrl } from '../../lib/settingsDeveloperUtils';
 
-const CAPABILITIES = ['orders:read', 'shipments:read', 'vendors:read', 'riders:read', 'shipment_notes:write'];
 const EVENT_TYPES = ['order.updated', 'shipment.delayed'];
+
+interface Capability {
+  id: string;
+  domain: string;
+  name: string;
+  description: string;
+  risk_level: 'low' | 'medium' | 'high' | 'critical';
+  enabled: boolean;
+}
 
 interface ApiKeyRow {
   id: string;
@@ -50,6 +58,7 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
   const serviceApiBaseUrl = buildApiUrl('/api/v1');
 
   const [keys, setKeys] = useState<ApiKeyRow[]>([]);
+  const [capabilities, setCapabilities] = useState<Capability[]>([]);
   const [webhooks, setWebhooks] = useState<WebhookRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [copiedItem, setCopiedItem] = useState<string | null>(null);
@@ -60,7 +69,7 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
   const [mintedToken, setMintedToken] = useState<{ name: string; token: string } | null>(null);
 
   const [showWebhookForm, setShowWebhookForm] = useState(false);
-  const [webhookName, setWebhookName] = useState('skola_workforce');
+  const [webhookName, setWebhookName] = useState('');
   const [webhookUrl, setWebhookUrl] = useState('');
   const [webhookSecret, setWebhookSecret] = useState('');
   const [webhookEventTypes, setWebhookEventTypes] = useState<string[]>([]);
@@ -80,6 +89,7 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
         callAdminApi(session, '/api/admin/webhook-endpoints', 'GET'),
       ]);
       setKeys(keysRes.data || []);
+      setCapabilities(keysRes.capabilities || []);
       setWebhooks(hooksRes.data || []);
     } catch (e) {
       notification.error('Failed to load', e instanceof Error ? e.message : String(e));
@@ -182,6 +192,17 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
 
   const cardClass = compact ? 'overflow-hidden rounded-2xl bg-white ring-1 ring-gray-100' : 'card';
 
+  const capabilitiesByDomain = capabilities.reduce<Record<string, Capability[]>>((acc, cap) => {
+    (acc[cap.domain] ||= []).push(cap);
+    return acc;
+  }, {});
+  const RISK_BADGE: Record<Capability['risk_level'], string> = {
+    low: 'bg-gray-100 text-gray-500',
+    medium: 'bg-amber-100 text-amber-700',
+    high: 'bg-orange-100 text-orange-700',
+    critical: 'bg-red-100 text-red-700',
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       <div className={cardClass}>
@@ -265,22 +286,46 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
             </div>
           )}
 
-          <div className="border border-dashed border-gray-300 rounded-lg p-3 space-y-2">
+          <div className="border border-dashed border-gray-300 rounded-lg p-3 space-y-3">
             <p className="text-xs font-semibold text-gray-700">New key</p>
             <input
               value={newKeyName}
               onChange={(e) => setNewKeyName(e.target.value)}
-              placeholder="e.g. Skola Workforce"
+              placeholder="e.g. Skola Workforce — JulineMart Sales Rep"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
             />
-            <div className="flex flex-wrap gap-2">
-              {CAPABILITIES.map((cap) => (
-                <label key={cap} className="flex items-center gap-1.5 text-xs bg-gray-50 border border-gray-200 rounded px-2 py-1">
-                  <input type="checkbox" checked={newKeyScopes.includes(cap)} onChange={() => toggleScope(cap)} />
-                  <span className="font-mono">{cap}</span>
-                </label>
-              ))}
-            </div>
+            <p className="text-[11px] text-gray-500">
+              These are business capabilities, not agent roles — grant whatever this connection might ever need;
+              which subset a given agent actually uses is decided on the platform side.
+            </p>
+            {Object.entries(capabilitiesByDomain).map(([domain, caps]) => (
+              <div key={domain}>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">{domain}</p>
+                <div className="flex flex-wrap gap-2">
+                  {caps.map((cap) => (
+                    <label
+                      key={cap.id}
+                      title={cap.enabled ? cap.description : `${cap.description} (not built yet)`}
+                      className={`flex items-center gap-1.5 text-xs border rounded px-2 py-1 ${
+                        cap.enabled ? 'bg-gray-50 border-gray-200' : 'bg-gray-50 border-gray-100 opacity-50 cursor-not-allowed'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        disabled={!cap.enabled}
+                        checked={newKeyScopes.includes(cap.id)}
+                        onChange={() => toggleScope(cap.id)}
+                      />
+                      <span className="font-mono">{cap.id}</span>
+                      {cap.risk_level !== 'low' ? (
+                        <span className={`text-[9px] px-1 rounded ${RISK_BADGE[cap.risk_level]}`}>{cap.risk_level}</span>
+                      ) : null}
+                      {!cap.enabled ? <span className="text-[9px] text-gray-400">soon</span> : null}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
             <button type="button" onClick={() => void createKey()} disabled={creatingKey} className="btn-primary btn-sm text-xs flex items-center gap-1">
               <Plus className="w-3.5 h-3.5" />
               {creatingKey ? 'Creating…' : 'Create key'}

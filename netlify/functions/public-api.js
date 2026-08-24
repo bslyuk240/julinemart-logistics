@@ -4,23 +4,23 @@
  * as meta-ads.js / save-courier-credentials.js).
  *
  * Every request needs `Authorization: Bearer <service_api_key>`. Every
- * response is JSON, including errors: { "error": "message" }. Routes are
- * grouped by CAPABILITY (resource:action) — see serviceApiKeyAuth.js and
- * admin-service-api-keys.js for how keys are granted these capabilities.
+ * response is JSON, including errors: { "error": "message" }.
  *
- * Capabilities:
- *   orders:read          GET /orders, GET /orders/:id
- *   shipments:read        GET /shipments, GET /shipments/delayed, GET /shipments/:id
- *   vendors:read           GET /vendors, GET /vendors/:id
- *   riders:read              GET /riders/:id/status
- *   shipment_notes:write   POST /shipments/:id/notes
+ * This router is a mechanical translation of the capability manifest in
+ * services/capabilityCatalog.js — that file is the source of truth for
+ * what exists and what each capability id means; this file just wires
+ * each enabled capability to its handler. GET /api/v1/capabilities serves
+ * the manifest itself so a Custom API consumer (Skola Workforce or
+ * anything else) can discover what's available without reading this code.
  *
  * PII is intentionally minimized for an external/agent audience: customer
- * email is never returned by this API, and list endpoints omit street
- * addresses (available on the single-resource detail endpoints).
+ * email is never returned, list endpoints omit street addresses, and
+ * rider live location / customer PII domains are advertised in the
+ * manifest but not enabled — see capabilityCatalog.js for why.
  */
 import { authenticateServiceApiRequest, jsonError } from './services/serviceApiKeyAuth.js';
 import { fetchSourceDetails, summarizeShipment, SHIPMENT_LIST_SELECT } from './services/shipmentSummary.js';
+import { getCapabilityManifest } from './services/capabilityCatalog.js';
 
 function json(statusCode, body) {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -32,6 +32,7 @@ function paginationParams(query) {
   return { limit, offset };
 }
 
+// ── orders.* ────────────────────────────────────────────────────────────
 const ORDER_LIST_FIELDS =
   'id, order_number, woocommerce_order_id, customer_name, delivery_city, delivery_state, delivery_zone, overall_status, payment_status, total_amount, created_at, updated_at';
 const ORDER_DETAIL_FIELDS =
@@ -47,6 +48,7 @@ async function listOrders(adminClient, query) {
 
   if (query.status) q = q.eq('overall_status', query.status);
   if (query.since) q = q.gte('created_at', query.since);
+  if (query.q) q = q.or(`customer_name.ilike.%${query.q}%,order_number.eq.${Number(query.q) || 0}`);
 
   const { data, error, count } = await q;
   if (error) return json(500, { error: error.message });
@@ -78,6 +80,31 @@ async function getOrder(adminClient, id) {
   });
 }
 
+async function getOrderStatus(adminClient, id) {
+  const { data, error } = await adminClient
+    .from('orders')
+    .select('id, order_number, overall_status, payment_status, updated_at')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) return json(500, { error: error.message });
+  if (!data) return json(404, { error: 'Order not found' });
+  return json(200, { data });
+}
+
+async function getOrderItems(adminClient, id) {
+  const { data: order } = await adminClient.from('orders').select('id').eq('id', id).maybeSingle();
+  if (!order) return json(404, { error: 'Order not found' });
+
+  const { data, error } = await adminClient
+    .from('order_items')
+    .select('id, product_id, product_name, product_sku, variation_id, variation_details, unit_price, quantity, subtotal, tax, warranty_type, warranty_months')
+    .eq('order_id', id);
+
+  if (error) return json(500, { error: error.message });
+  return json(200, { data: data || [] });
+}
+
+// ── shipments.* ─────────────────────────────────────────────────────────
 async function listShipments(adminClient, query, { delayedOnly = false } = {}) {
   const { limit, offset } = paginationParams(query);
   let q = adminClient
@@ -118,6 +145,20 @@ async function getShipment(adminClient, id) {
   return json(200, { data: summary });
 }
 
+async function getShipmentTimeline(adminClient, id) {
+  const { data: shipment } = await adminClient.from('shipments').select('id').eq('id', id).maybeSingle();
+  if (!shipment) return json(404, { error: 'Shipment not found' });
+
+  const { data, error } = await adminClient
+    .from('tracking_events')
+    .select('id, status, event_time, location_name, location_city, location_state, description, remarks, actor_type, actor_name, source, created_at')
+    .eq('shipment_id', id)
+    .order('event_time', { ascending: true });
+
+  if (error) return json(500, { error: error.message });
+  return json(200, { data: data || [] });
+}
+
 async function addShipmentNote(adminClient, id, body, apiKeyName) {
   const note = String(body?.note || '').trim();
   if (!note) return json(400, { error: 'note is required' });
@@ -137,6 +178,7 @@ async function addShipmentNote(adminClient, id, body, apiKeyName) {
   return json(201, { data: created });
 }
 
+// ── vendors.* ───────────────────────────────────────────────────────────
 const VENDOR_LIST_FIELDS = 'id, store_name, store_slug, email, phone, city, state, is_active, total_orders, fulfilled_orders, created_at';
 const VENDOR_DETAIL_FIELDS = `${VENDOR_LIST_FIELDS}, address, description, logo_url`;
 
@@ -163,6 +205,71 @@ async function getVendor(adminClient, id) {
   return json(200, { data });
 }
 
+async function getVendorOrders(adminClient, id, query) {
+  const { data: vendor } = await adminClient.from('vendors').select('id').eq('id', id).maybeSingle();
+  if (!vendor) return json(404, { error: 'Vendor not found' });
+
+  const { limit, offset } = paginationParams(query);
+  const { data, error, count } = await adminClient
+    .from('sub_orders')
+    .select('id, status, subtotal, created_at, orders:main_order_id ( order_number, overall_status )', { count: 'exact' })
+    .eq('vendor_id', id)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) return json(500, { error: error.message });
+  return json(200, {
+    data: (data || []).map((so) => ({
+      id: so.id,
+      status: so.status,
+      subtotal: so.subtotal,
+      created_at: so.created_at,
+      order_number: so.orders?.order_number || null,
+      order_status: so.orders?.overall_status || null,
+    })),
+    count,
+  });
+}
+
+async function getVendorPerformance(adminClient, id) {
+  const { data, error } = await adminClient
+    .from('vendors')
+    .select('id, store_name, total_orders, fulfilled_orders, average_processing_time_hours, seller_quality_score')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) return json(500, { error: error.message });
+  if (!data) return json(404, { error: 'Vendor not found' });
+  return json(200, { data });
+}
+
+// ── riders.* ────────────────────────────────────────────────────────────
+async function listRiders(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  let q = adminClient
+    .from('riders')
+    .select('id, full_name, phone, status, is_online, last_online_at, created_at', { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (query.status) q = q.eq('status', query.status);
+  if (query.online === 'true') q = q.eq('is_online', true);
+
+  const { data, error, count } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
+async function getRider(adminClient, id) {
+  const { data, error } = await adminClient
+    .from('riders')
+    .select('id, full_name, email, phone, status, vehicle_type, vehicle_plate, is_online, last_online_at, approved_at, created_at, updated_at')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) return json(500, { error: error.message });
+  if (!data) return json(404, { error: 'Rider not found' });
+  return json(200, { data });
+}
+
 async function getRiderStatus(adminClient, id) {
   const { data, error } = await adminClient
     .from('riders')
@@ -173,6 +280,49 @@ async function getRiderStatus(adminClient, id) {
   if (error) return json(500, { error: error.message });
   if (!data) return json(404, { error: 'Rider not found' });
   return json(200, { data });
+}
+
+// ── catalogue: products.* / categories.* ───────────────────────────────
+const PRODUCT_LIST_FIELDS =
+  'id, name, slug, sku, status, type, regular_price, sale_price, stock_status, stock_quantity, vendor_id, average_rating, rating_count, created_at, updated_at';
+const PRODUCT_DETAIL_FIELDS =
+  `${PRODUCT_LIST_FIELDS}, description, short_description, weight, length, width, height, is_virtual, warranty_type, warranty_months`;
+
+async function listProducts(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  let q = adminClient
+    .from('products')
+    .select(PRODUCT_LIST_FIELDS, { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (query.status) q = q.eq('status', query.status);
+  if (query.vendor_id) q = q.eq('vendor_id', query.vendor_id);
+  if (query.stock_status) q = q.eq('stock_status', query.stock_status);
+  if (query.q) q = q.or(`name.ilike.%${query.q}%,sku.ilike.%${query.q}%`);
+
+  const { data, error, count } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
+async function getProduct(adminClient, id) {
+  const { data, error } = await adminClient.from('products').select(PRODUCT_DETAIL_FIELDS).eq('id', id).maybeSingle();
+  if (error) return json(500, { error: error.message });
+  if (!data) return json(404, { error: 'Product not found' });
+  return json(200, { data });
+}
+
+async function listCategories(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  const { data, error, count } = await adminClient
+    .from('categories')
+    .select('id, name, slug, parent_id, description, display_order', { count: 'exact' })
+    .order('display_order', { ascending: true })
+    .range(offset, offset + limit - 1);
+
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
 }
 
 export const handler = async (event) => {
@@ -186,64 +336,127 @@ export const handler = async (event) => {
   const query = event.queryStringParameters || {};
 
   try {
-    // --- /orders ---
+    // --- discovery ---
+    if (segments[0] === 'capabilities' && segments.length === 1 && method === 'GET') {
+      const auth = await authenticateServiceApiRequest(event); // any valid active key, no specific capability
+      if (auth.errorResponse) return auth.errorResponse;
+      return json(200, getCapabilityManifest());
+    }
+
+    // --- orders ---
     if (segments[0] === 'orders') {
       if (segments.length === 1 && method === 'GET') {
-        const auth = await authenticateServiceApiRequest(event, 'orders:read');
+        const auth = await authenticateServiceApiRequest(event, ['orders.list', 'orders.search']);
         if (auth.errorResponse) return auth.errorResponse;
         return await listOrders(auth.adminClient, query);
       }
       if (segments.length === 2 && method === 'GET') {
-        const auth = await authenticateServiceApiRequest(event, 'orders:read');
+        const auth = await authenticateServiceApiRequest(event, 'orders.read');
         if (auth.errorResponse) return auth.errorResponse;
         return await getOrder(auth.adminClient, segments[1]);
       }
+      if (segments.length === 3 && segments[2] === 'status' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'orders.status');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getOrderStatus(auth.adminClient, segments[1]);
+      }
+      if (segments.length === 3 && segments[2] === 'items' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'orders.items.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getOrderItems(auth.adminClient, segments[1]);
+      }
     }
 
-    // --- /shipments ---
+    // --- shipments ---
     if (segments[0] === 'shipments') {
       if (segments.length === 1 && method === 'GET') {
-        const auth = await authenticateServiceApiRequest(event, 'shipments:read');
+        const auth = await authenticateServiceApiRequest(event, 'shipments.list');
         if (auth.errorResponse) return auth.errorResponse;
         return await listShipments(auth.adminClient, query);
       }
       if (segments.length === 2 && segments[1] === 'delayed' && method === 'GET') {
-        const auth = await authenticateServiceApiRequest(event, 'shipments:read');
+        const auth = await authenticateServiceApiRequest(event, 'shipments.delayed.list');
         if (auth.errorResponse) return auth.errorResponse;
         return await listShipments(auth.adminClient, query, { delayedOnly: true });
       }
       if (segments.length === 2 && method === 'GET') {
-        const auth = await authenticateServiceApiRequest(event, 'shipments:read');
+        const auth = await authenticateServiceApiRequest(event, ['shipments.read', 'shipments.track']);
         if (auth.errorResponse) return auth.errorResponse;
         return await getShipment(auth.adminClient, segments[1]);
       }
+      if (segments.length === 3 && segments[2] === 'timeline' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'shipments.timeline.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getShipmentTimeline(auth.adminClient, segments[1]);
+      }
       if (segments.length === 3 && segments[2] === 'notes' && method === 'POST') {
-        const auth = await authenticateServiceApiRequest(event, 'shipment_notes:write');
+        const auth = await authenticateServiceApiRequest(event, 'shipments.notes.write');
         if (auth.errorResponse) return auth.errorResponse;
         const body = JSON.parse(event.body || '{}');
         return await addShipmentNote(auth.adminClient, segments[1], body, auth.apiKey.name);
       }
     }
 
-    // --- /vendors ---
+    // --- vendors ---
     if (segments[0] === 'vendors') {
       if (segments.length === 1 && method === 'GET') {
-        const auth = await authenticateServiceApiRequest(event, 'vendors:read');
+        const auth = await authenticateServiceApiRequest(event, 'vendors.list');
         if (auth.errorResponse) return auth.errorResponse;
         return await listVendors(auth.adminClient, query);
       }
       if (segments.length === 2 && method === 'GET') {
-        const auth = await authenticateServiceApiRequest(event, 'vendors:read');
+        const auth = await authenticateServiceApiRequest(event, 'vendors.read');
         if (auth.errorResponse) return auth.errorResponse;
         return await getVendor(auth.adminClient, segments[1]);
       }
+      if (segments.length === 3 && segments[2] === 'orders' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'vendors.orders.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getVendorOrders(auth.adminClient, segments[1], query);
+      }
+      if (segments.length === 3 && segments[2] === 'performance' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'vendors.performance.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getVendorPerformance(auth.adminClient, segments[1]);
+      }
     }
 
-    // --- /riders/:id/status ---
-    if (segments[0] === 'riders' && segments.length === 3 && segments[2] === 'status' && method === 'GET') {
-      const auth = await authenticateServiceApiRequest(event, 'riders:read');
+    // --- riders ---
+    if (segments[0] === 'riders') {
+      if (segments.length === 1 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'riders.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listRiders(auth.adminClient, query);
+      }
+      if (segments.length === 3 && segments[2] === 'status' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'riders.status.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getRiderStatus(auth.adminClient, segments[1]);
+      }
+      if (segments.length === 2 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'riders.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getRider(auth.adminClient, segments[1]);
+      }
+    }
+
+    // --- catalogue ---
+    if (segments[0] === 'products') {
+      if (segments.length === 1 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, ['products.list', 'products.search']);
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listProducts(auth.adminClient, query);
+      }
+      if (segments.length === 2 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'products.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getProduct(auth.adminClient, segments[1]);
+      }
+    }
+    if (segments[0] === 'categories' && segments.length === 1 && method === 'GET') {
+      const auth = await authenticateServiceApiRequest(event, 'categories.list');
       if (auth.errorResponse) return auth.errorResponse;
-      return await getRiderStatus(auth.adminClient, segments[1]);
+      return await listCategories(auth.adminClient, query);
     }
 
     return json(404, { error: `No route for ${method} /api/v1/${path}` });

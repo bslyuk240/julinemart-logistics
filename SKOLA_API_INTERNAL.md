@@ -18,6 +18,27 @@ Two independent capabilities, sharing one auth/crypto foundation:
 Both are additive: nothing existing was rewired to depend on them, except
 the one hook into `orderStatusHelper.js` described in §5.
 
+### Architecture: capabilities, not agent roles
+
+This was deliberately redesigned away from an early draft that shaped
+routes around fixed consumer roles ("Ops Manager", "Sales Rep"). **JLO's
+API has no concept of an agent.** It exposes business capabilities grouped
+by domain (`orders.*`, `shipments.*`, `riders.*`, `vendors.*`, catalogue).
+A connected platform (Skola Workforce or anyone else) discovers the full
+menu via `GET /capabilities` (§4.1) and decides on its own side which
+subset of a key's granted scopes any given agent gets. JLO never needs to
+learn about a new agent type to support it — only about a new *business
+capability*, if one doesn't already exist.
+
+Two permission layers, and they nest:
+```
+service_api_keys.scopes        <- ceiling: max capabilities this connection can ever use
+   └── platform-side agent permission   <- subset the platform grants one specific agent
+```
+JLO only enforces the first layer. The second is entirely the connected
+platform's problem — as it should be, since JLO has no visibility into
+what agents exist there.
+
 ## 2. Files
 
 ```
@@ -35,6 +56,7 @@ netlify/functions/
   fez-create-shipment-batch.js         # existing file — fires order.updated promoting pending -> processing
   admin-gift-ops.js                    # existing file — fires order.updated on gift order 'complete' -> delivered
   services/
+    capabilityCatalog.js               # SOURCE OF TRUTH — every capability + event, with rich metadata
     secretsCrypto.js                   # AES-256-GCM encrypt/decrypt (webhook secrets at rest)
     serviceApiKeyAuth.js               # bearer-token auth + capability check for public-api.js
     webhookDelivery.js                 # sendWebhookEvent() — sign + POST + log, called synchronously from producers
@@ -94,16 +116,43 @@ const segments = path.split('/').filter(Boolean);
 
 Every route handler calls `authenticateServiceApiRequest(event,
 requiredCapability)` first — it hashes the bearer token, looks up
-`service_api_keys` by `key_hash`, checks `is_active` and that
-`scopes` includes the required capability, and fire-and-forgets a
-`last_used_at` touch. Returns `{ errorResponse }` (401/403/500, already
-JSON-shaped) or `{ apiKey, adminClient }`.
+`service_api_keys` by `key_hash`, checks `is_active`, and fire-and-forgets
+a `last_used_at` touch. `requiredCapability` is one of three shapes:
+- omitted — any valid active key, no scope check (only `GET /capabilities`
+  uses this — it's discovery, not business data)
+- a string — the key's `scopes` must include exactly that capability id
+- a string array — **any one** of the listed ids satisfies it, used where
+  multiple capability ids map to the same route (e.g. `shipments.read` and
+  `shipments.track` both hit `getShipment`)
+
+Returns `{ errorResponse }` (401/403/500, already JSON-shaped) or
+`{ apiKey, adminClient }`.
+
+`GET /capabilities` just calls `getCapabilityManifest()` from
+`capabilityCatalog.js` and returns it verbatim — that file is genuinely
+the only place describing what exists; `public-api.js` is a mechanical
+wire-up of routes to the ids that file defines, not an independent source
+of truth. If a capability's `enabled: false`, there is deliberately no
+route for it — the catalog documents the roadmap, the router only
+implements what's live.
 
 `GET /shipments*` reuses `shipmentSummary.js` (`fetchSourceDetails` +
 `summarizeShipment`) rather than re-deriving the sub_order/manual_shipment
 join logic — that module already resolves pickup/dropoff for both shipment
 sources correctly (it's shared with the rider app), so this endpoint's
 shape is proven, not new code.
+
+### Scope-string migration note
+
+Capability ids moved from a coarse `resource:action` colon format
+(`orders:read`, `shipment_notes:write`) to a granular dot-notation domain
+format (`orders.read`, `orders.list`, `shipments.notes.write`, ...) during
+the redesign. **Any key minted before this change has old-format scopes
+that no longer match any route's `requiredCapability` and will get 403s
+on everything.** There's no migration path for existing keys — revoke and
+re-mint. (At the time of this redesign, exactly one key existed, freshly
+minted for the initial Skola Workforce connection test — it needs
+re-minting with the new capability ids before real use.)
 
 ## 5. Outbound webhook wiring
 
@@ -183,15 +232,33 @@ partner side is expected to dedupe.
 
 ### Adding a new capability / endpoint
 
-1. Add the capability string to `CAPABILITIES` in
-   `admin-service-api-keys.js` (this is the allowlist admins can grant).
-2. Add the route + handler in `public-api.js`, gated by
-   `authenticateServiceApiRequest(event, 'your:capability')`.
-3. Update the module-level capability table comment in `public-api.js`.
-4. Add it to `CAPABILITIES` in `IntegrationsPanel.tsx` (so it's checkbox-able
-   in the admin UI) and to `API_ENDPOINT_GROUPS` in
-   `settingsDeveloperContent.ts` (so it shows in Settings → API Reference).
-5. Document it in `SKOLA_API_INTEGRATION.md` §4.
+`capabilityCatalog.js` is the only place capability *identity* lives —
+everything else derives from it, so start there:
+
+1. Add an entry to `CAPABILITIES` in `capabilityCatalog.js` — `id` in
+   `domain.action` form, plus the full metadata block (`operation_type`,
+   `side_effect_type`, `risk_level`, `http_method`, `endpoint`, etc). Set
+   `enabled: false` if you're only advertising it for now (see §8 for why
+   several entries are deliberately disabled).
+2. If `enabled: true`, add the route + handler in `public-api.js`, gated by
+   `authenticateServiceApiRequest(event, 'your.capability.id')` (or an
+   array if it shares a route with another capability id).
+3. Nothing else needs updating by hand:
+   - `admin-service-api-keys.js` derives its grantable-scopes allowlist
+     from `getEnabledCapabilityIds()` and serves the full catalog (enabled
+     and disabled) to the admin UI on every `GET` — no duplicate list to
+     maintain there anymore.
+   - `IntegrationsPanel.tsx` renders whatever the catalog returns,
+     grouped by `domain`, with disabled entries shown greyed-out — no
+     hardcoded capability array in the frontend either.
+4. Add it to `API_ENDPOINT_GROUPS` in `settingsDeveloperContent.ts` (this
+   one **is** still hand-maintained — it's a human-facing doc index, not
+   something the manifest drives) and to `SKOLA_API_INTEGRATION.md` §5.
+5. If it's a write/execute capability, think hard about `risk_level` and
+   `approval_recommended` before setting `enabled: true` — those are the
+   fields Skola's policy engine (or any platform's) uses to decide whether
+   an agent can call it unattended. See the disabled entries in §8 for the
+   bar this project has been holding so far.
 
 ## 6. Admin UI
 
@@ -199,11 +266,15 @@ partner side is expected to dedupe.
 `integrations` tab → `IntegrationsPanel.tsx`), admin-only (same
 `requireAdmin(['admin'])` gate as the rest of `/api/admin/*`):
 
-- **Service API keys** — create (name + capability checkboxes), list
-  (name, prefix, scopes, active/revoked, last used), revoke. The plaintext
-  token is shown exactly once in the create response and never again —
-  there is no "reveal" affordance anywhere because the value doesn't exist
-  server-side to reveal.
+- **Service API keys** — create (name + capability checkboxes, grouped by
+  domain and rendered live from `GET /api/admin/service-api-keys`'s
+  `capabilities` field, which is the full catalog from
+  `capabilityCatalog.js`), list (name, prefix, scopes, active/revoked, last
+  used), revoke. Disabled/roadmap capabilities render greyed-out with a
+  "soon" tag rather than being silently omitted, so admins can see what's
+  coming. The plaintext token is shown exactly once in the create response
+  and never again — there is no "reveal" affordance anywhere because the
+  value doesn't exist server-side to reveal.
 - **Outbound webhooks** — create/edit (name, URL, secret, optional event
   type filter), pause/resume (`is_active`), delete. List never returns the
   secret, only `secret_configured: true/false`.
@@ -227,6 +298,21 @@ partner side is expected to dedupe.
 
 ## 8. Known scope cuts (deliberate, not oversights)
 
+- **`capabilityCatalog.js` carries `enabled: false` entries as the actual
+  roadmap tracker** — don't duplicate this list elsewhere:
+  - `orders.cancel` — execute/destructive/critical, needs approval-gating
+    on the consuming platform's side before it'd be safe to expose.
+  - `shipments.create` — execute/financial/high, dispatches a real courier
+    and incurs real cost; same reasoning.
+  - `riders.location.read` — live GPS is a privacy decision, not an
+    engineering one; needs product sign-off first.
+  - `customers.read` / `customers.orders.read` — PII domain; the rest of
+    this API deliberately never returns customer email, so a whole
+    customer-record capability needs the same scrutiny before it exists.
+  - `operations.exceptions.list` / `operations.summary.read` — not a
+    security concern, just undefined: "exception" and "summary" need a
+    product decision on what counts before there's something real to
+    build.
 - **No application-level rate limiting on `/api/v1/*`.** The repo has an
   Upstash-backed limiter (`services/rate-limit.js`) used elsewhere; it
   wasn't wired in here to keep the first cut simple. Add it the same way if

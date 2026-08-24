@@ -12,14 +12,13 @@ import crypto from 'crypto';
 import { requireAdmin, jsonResponse, parseJsonBody } from './services/global-sourcing-utils.js';
 import { hashApiKey } from './services/serviceApiKeyAuth.js';
 import { recordStaffAudit } from './services/auditLog.js';
+import { CAPABILITIES as CAPABILITY_CATALOG, getEnabledCapabilityIds } from './services/capabilityCatalog.js';
 
-export const CAPABILITIES = [
-  'orders:read',
-  'shipments:read',
-  'vendors:read',
-  'riders:read',
-  'shipment_notes:write',
-];
+// The only capability ids a key can actually be granted — everything
+// disabled in the catalog (roadmap items) is filtered out here too, not
+// just at the route level, so an admin can't mint a key for a capability
+// that doesn't have a working route yet.
+const GRANTABLE_CAPABILITIES = getEnabledCapabilityIds();
 
 function generateToken() {
   return `jlo_live_${crypto.randomBytes(32).toString('base64url')}`;
@@ -44,7 +43,9 @@ export const handler = async (event) => {
       .order('created_at', { ascending: false });
 
     if (error) return jsonResponse(500, { success: false, error: error.message });
-    return jsonResponse(200, { success: true, data });
+    // Full catalog (including disabled/roadmap entries) so the admin UI can
+    // render them greyed-out rather than just omitting them silently.
+    return jsonResponse(200, { success: true, data, capabilities: CAPABILITY_CATALOG });
   }
 
   if (event.httpMethod === 'POST' && !keyId) {
@@ -54,9 +55,9 @@ export const handler = async (event) => {
     const name = String(body.name || '').trim();
     if (!name) return jsonResponse(400, { success: false, error: 'name is required' });
 
-    const scopes = Array.isArray(body.scopes) ? body.scopes.filter((s) => CAPABILITIES.includes(s)) : [];
+    const scopes = Array.isArray(body.scopes) ? body.scopes.filter((s) => GRANTABLE_CAPABILITIES.includes(s)) : [];
     if (scopes.length === 0) {
-      return jsonResponse(400, { success: false, error: `scopes must include at least one of: ${CAPABILITIES.join(', ')}` });
+      return jsonResponse(400, { success: false, error: `scopes must include at least one enabled capability: ${GRANTABLE_CAPABILITIES.join(', ')}` });
     }
 
     const token = generateToken();

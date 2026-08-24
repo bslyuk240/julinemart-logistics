@@ -33,7 +33,13 @@ export function jsonError(statusCode, message) {
 
 /**
  * @param {object} event - Netlify function event
- * @param {string} requiredCapability - e.g. 'orders:read'
+ * @param {string|string[]|undefined} requiredCapability - a capability id
+ *   (e.g. 'orders.read'), an array meaning "any one of these" (used where
+ *   several capability ids map to the same route, e.g. shipments.read /
+ *   shipments.track), or omitted entirely for routes that only need *some*
+ *   valid active key with no specific capability (e.g. the manifest
+ *   discovery route) — every request still needs a real, active key;
+ *   omitting this only skips the per-capability scope check.
  * @returns {Promise<{ errorResponse?: object, apiKey?: object, adminClient?: object }>}
  */
 export async function authenticateServiceApiRequest(event, requiredCapability) {
@@ -63,8 +69,12 @@ export async function authenticateServiceApiRequest(event, requiredCapability) {
     return { errorResponse: jsonError(401, 'Invalid or revoked API key') };
   }
 
-  if (requiredCapability && !apiKey.scopes.includes(requiredCapability)) {
-    return { errorResponse: jsonError(403, `API key is not granted the "${requiredCapability}" capability`) };
+  if (requiredCapability) {
+    const required = Array.isArray(requiredCapability) ? requiredCapability : [requiredCapability];
+    const granted = required.some((cap) => apiKey.scopes.includes(cap));
+    if (!granted) {
+      return { errorResponse: jsonError(403, `API key is not granted any of: ${required.join(', ')}`) };
+    }
   }
 
   // Fire-and-forget usage tracking — never block/fail the request on this.

@@ -87,6 +87,33 @@
   status = 200
 
 [[redirects]]
+  from = "/api/admin/service-api-keys"
+  to = "/.netlify/functions/admin-service-api-keys"
+  status = 200
+
+[[redirects]]
+  from = "/api/admin/service-api-keys/*"
+  to = "/.netlify/functions/admin-service-api-keys"
+  status = 200
+
+[[redirects]]
+  from = "/api/admin/webhook-endpoints"
+  to = "/.netlify/functions/admin-webhook-endpoints"
+  status = 200
+
+[[redirects]]
+  from = "/api/admin/webhook-endpoints/*"
+  to = "/.netlify/functions/admin-webhook-endpoints"
+  status = 200
+
+# Versioned public/service API for external "Custom API" integrations
+# (e.g. Skola Workforce). Bearer-token auth, see public-api.js.
+[[redirects]]
+  from = "/api/v1/*"
+  to = "/.netlify/functions/public-api"
+  status = 200
+
+[[redirects]]
   from = "/api/meta/*"
   to = "/.netlify/functions/meta-ads"
   status = 200
@@ -227,6 +254,17 @@
 [functions."process-product-winback-reminders"]
   timeout = 60
   schedule = "0 * * * *"
+
+[functions."process-webhook-retries-scheduled"]
+  timeout = 60
+  schedule = "*/5 * * * *"
+
+[functions."detect-delayed-shipments-scheduled"]
+  timeout = 60
+  schedule = "*/30 * * * *"
+
+[functions."public-api"]
+  timeout = 15
 
 [functions."broadcast-email"]
   timeout = 120

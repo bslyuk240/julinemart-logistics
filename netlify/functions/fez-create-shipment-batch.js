@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { authenticateFez } from './services/fezAuth.js';
+import { sendWebhookEvent } from './services/webhookDelivery.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '',
@@ -268,6 +269,12 @@ export async function handler(event) {
       // Promote parent order status if still pending
       if (order?.id && order?.overall_status === 'pending') {
         await supabase.from('orders').update({ overall_status: 'processing' }).eq('id', order.id);
+        sendWebhookEvent('order.updated', {
+          order_id: order.id,
+          order_number: order.order_number,
+          previous_status: 'pending',
+          status: 'processing',
+        }).catch((e) => console.warn('[fez-create-shipment-batch] webhook dispatch failed:', e.message));
       }
 
       // Activity log for the group

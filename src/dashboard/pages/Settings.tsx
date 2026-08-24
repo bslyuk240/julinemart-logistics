@@ -1,14 +1,15 @@
 ﻿import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Book, ChevronRight, Database, Key, Mail, ScrollText, Settings, Webhook } from 'lucide-react';
+import { Book, ChevronRight, Database, Key, Mail, Plug, ScrollText, Settings, Webhook } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { ApiPanel } from '../components/settings-developer/ApiPanel';
 import { DatabasePanel } from '../components/settings-developer/DatabasePanel';
 import { DocumentationPanel } from '../components/settings-developer/DocumentationPanel';
 import { EnvHealthPanel } from '../components/settings-developer/EnvHealthPanel';
 import { WebhooksPanel } from '../components/settings-developer/WebhooksPanel';
+import { IntegrationsPanel } from '../components/settings-developer/IntegrationsPanel';
 
-type TabType = 'documentation' | 'webhooks' | 'api' | 'database';
+type TabType = 'documentation' | 'webhooks' | 'api' | 'database' | 'integrations';
 
 export function SettingsPage() {
   const notification = useNotification();
@@ -26,6 +27,7 @@ export function SettingsPage() {
     { id: 'documentation', label: 'Documentation', icon: Book },
     { id: 'webhooks', label: 'Webhooks', icon: Webhook },
     { id: 'api', label: 'API Reference', icon: Key },
+    { id: 'integrations', label: 'Integrations', icon: Plug },
     { id: 'database', label: 'Database', icon: Database },
   ];
 
@@ -104,6 +106,7 @@ export function SettingsPage() {
           <WebhooksPanel copiedItem={copiedItem} copyToClipboard={copyToClipboard} />
         )}
         {activeTab === 'api' && <ApiPanel copiedItem={copiedItem} copyToClipboard={copyToClipboard} />}
+        {activeTab === 'integrations' && <IntegrationsPanel />}
         {activeTab === 'database' && <DatabasePanel />}
       </div>
     </div>

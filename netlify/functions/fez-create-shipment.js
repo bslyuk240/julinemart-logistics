@@ -8,6 +8,7 @@ import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { assertStaffCanCreateShipment } from './services/shipmentAccess.js';
 import { resolveSender } from './services/resolveSender.js';
 import { authenticateFez } from './services/fezAuth.js';
+import { sendWebhookEvent } from './services/webhookDelivery.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -432,6 +433,13 @@ exports.handler = async (event) => {
           .from("orders")
           .update({ overall_status: "processing" })
           .eq("id", subOrder.orders.id);
+
+        sendWebhookEvent("order.updated", {
+          order_id: subOrder.orders.id,
+          order_number: subOrder.orders.order_number,
+          previous_status: "pending",
+          status: "processing",
+        }).catch((e) => console.warn("[fez-create-shipment] webhook dispatch failed:", e.message));
       } catch (orderUpdateError) {
         console.warn("Failed to promote overall order status", orderUpdateError);
       }

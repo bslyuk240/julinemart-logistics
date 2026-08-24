@@ -7,6 +7,7 @@
  */
 import { requireAdmin, adminClient, jsonResponse, headers } from './services/global-sourcing-utils.js';
 import { recordStaffAudit } from './services/auditLog.js';
+import { sendWebhookEvent } from './services/webhookDelivery.js';
 
 const TAB_STATUSES = {
   new: ['new', 'paid'],
@@ -179,10 +180,27 @@ export async function handler(event) {
     });
 
     if (newStatus === 'delivered' && existing.order_id) {
-      await adminClient
+      const { data: preOrder } = await adminClient
+        .from('orders')
+        .select('overall_status')
+        .eq('id', existing.order_id)
+        .maybeSingle();
+
+      const { data: deliveredOrder } = await adminClient
         .from('orders')
         .update({ overall_status: 'delivered', updated_at: now })
-        .eq('id', existing.order_id);
+        .eq('id', existing.order_id)
+        .select('id, order_number')
+        .maybeSingle();
+
+      if (deliveredOrder?.id) {
+        sendWebhookEvent('order.updated', {
+          order_id: deliveredOrder.id,
+          order_number: deliveredOrder.order_number,
+          previous_status: preOrder?.overall_status || null,
+          status: 'delivered',
+        }).catch((e) => console.warn('[admin-gift-ops] webhook dispatch failed:', e.message));
+      }
     }
 
     const result = await loadDetail(giftOrderId);

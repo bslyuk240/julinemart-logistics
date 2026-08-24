@@ -9,7 +9,7 @@ export interface ApiEndpoint {
   method: HttpMethod;
   path: string;
   description: string;
-  auth?: 'admin' | 'staff' | 'public' | 'webhook';
+  auth?: 'admin' | 'staff' | 'public' | 'webhook' | 'service';
 }
 
 export interface ApiEndpointGroup {
@@ -156,6 +156,22 @@ export const API_ENDPOINT_GROUPS: ApiEndpointGroup[] = [
       { method: 'POST', path: '/api/paystack-webhook', description: 'Paystack payment events', auth: 'webhook' },
       { method: 'POST', path: '/api/fez-webhook', description: 'Fez delivery status updates', auth: 'webhook' },
       { method: 'POST', path: '/api/notify-order-confirmation', description: 'Supabase orders INSERT → confirmation email', auth: 'webhook' },
+    ],
+  },
+  {
+    category: 'External service API (Custom API integrations)',
+    items: [
+      { method: 'GET', path: '/api/v1/orders', description: 'List orders — capability: orders:read', auth: 'service' },
+      { method: 'GET', path: '/api/v1/orders/:id', description: 'Order details — capability: orders:read', auth: 'service' },
+      { method: 'GET', path: '/api/v1/shipments', description: 'List shipments — capability: shipments:read', auth: 'service' },
+      { method: 'GET', path: '/api/v1/shipments/delayed', description: 'Shipments past the delay threshold — capability: shipments:read', auth: 'service' },
+      { method: 'GET', path: '/api/v1/shipments/:id', description: 'Shipment details — capability: shipments:read', auth: 'service' },
+      { method: 'POST', path: '/api/v1/shipments/:id/notes', description: 'Append a note — capability: shipment_notes:write', auth: 'service' },
+      { method: 'GET', path: '/api/v1/vendors', description: 'List vendors — capability: vendors:read', auth: 'service' },
+      { method: 'GET', path: '/api/v1/vendors/:id', description: 'Vendor details — capability: vendors:read', auth: 'service' },
+      { method: 'GET', path: '/api/v1/riders/:id/status', description: 'Rider online/verification status — capability: riders:read', auth: 'service' },
+      { method: 'GET', path: '/api/admin/service-api-keys', description: 'Mint/list/revoke service API keys (Settings → Integrations)', auth: 'admin' },
+      { method: 'POST', path: '/api/admin/webhook-endpoints', description: 'Configure outbound webhook URL + secret (Settings → Integrations)', auth: 'admin' },
     ],
   },
 ];
@@ -342,6 +358,7 @@ export const AUTH_BADGE: Record<NonNullable<ApiEndpoint['auth']>, string> = {
   staff: 'bg-violet-100 text-violet-800',
   public: 'bg-emerald-100 text-emerald-800',
   webhook: 'bg-amber-100 text-amber-900',
+  service: 'bg-sky-100 text-sky-800',
 };
 
 export function flattenApiEndpoints(): ApiEndpoint[] {

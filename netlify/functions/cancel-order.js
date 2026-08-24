@@ -12,6 +12,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { sendWebhookEvent } from './services/webhookDelivery.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
@@ -161,6 +162,14 @@ export async function handler(event) {
       .eq('id', order_id);
 
     if (updateOrderErr) throw updateOrderErr;
+
+    // Fire-and-forget — a webhook hiccup should never block cancellation.
+    sendWebhookEvent('order.updated', {
+      order_id: order.id,
+      order_number: order.order_number,
+      previous_status: order.overall_status,
+      status: 'cancelled',
+    }).catch((err) => console.warn('[cancel-order] webhook dispatch failed:', err.message));
 
     // 5. Cancel all sub_orders that aren't already terminal
     if (subOrders.length > 0) {

@@ -15,6 +15,7 @@ import crypto from 'crypto';
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
 import { recordInfluencerSaleForPaidOrder } from './services/influencer-order-sale.js';
 import { notifyOnPaidOrder } from './services/paidOrderNotify.js';
+import { sendWebhookEvent } from './services/webhookDelivery.js';
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
@@ -75,6 +76,14 @@ export async function handler(event) {
           return jsonResponse(200, { received: true });
         }
 
+        // Captured before the update purely to report an accurate
+        // previous_status on the order.updated webhook below.
+        const { data: preUpdateOrder } = await adminClient
+          .from('orders')
+          .select('overall_status')
+          .eq('payment_reference', reference)
+          .maybeSingle();
+
         const { data: updatedOrder, error } = await adminClient
           .from('orders')
           .update({
@@ -86,7 +95,7 @@ export async function handler(event) {
           })
           .eq('payment_reference', reference)
           .eq('payment_status', 'pending') // idempotent — won't double-update
-          .select('id, order_number, customer_name, customer_email, total_amount')
+          .select('id, order_number, customer_name, customer_email, total_amount, overall_status')
           .maybeSingle();
 
         if (error) {
@@ -100,6 +109,13 @@ export async function handler(event) {
         }
 
         if (updatedOrder?.id) {
+          sendWebhookEvent('order.updated', {
+            order_id: updatedOrder.id,
+            order_number: updatedOrder.order_number,
+            previous_status: preUpdateOrder?.overall_status || null,
+            status: updatedOrder.overall_status,
+          }).catch((e) => console.warn('paystack-webhook: webhook dispatch failed', e?.message || e));
+
           try {
             await notifyOnPaidOrder(adminClient, updatedOrder.id, updatedOrder.order_number);
           } catch (e) {
@@ -133,14 +149,31 @@ export async function handler(event) {
       }
 
       case 'refund.processed': {
-        await adminClient
+        const { data: preRefundOrder } = await adminClient
+          .from('orders')
+          .select('overall_status')
+          .eq('payment_reference', reference)
+          .maybeSingle();
+
+        const { data: refundedOrder } = await adminClient
           .from('orders')
           .update({
             payment_status: 'refunded',
             overall_status: 'refunded',
             updated_at: new Date().toISOString(),
           })
-          .eq('payment_reference', reference);
+          .eq('payment_reference', reference)
+          .select('id, order_number')
+          .maybeSingle();
+
+        if (refundedOrder?.id) {
+          sendWebhookEvent('order.updated', {
+            order_id: refundedOrder.id,
+            order_number: refundedOrder.order_number,
+            previous_status: preRefundOrder?.overall_status || null,
+            status: 'refunded',
+          }).catch((e) => console.warn('paystack-webhook: webhook dispatch failed', e?.message || e));
+        }
         break;
       }
 

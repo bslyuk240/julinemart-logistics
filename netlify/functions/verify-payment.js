@@ -16,6 +16,7 @@
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
 import { recordInfluencerSaleForPaidOrder } from './services/influencer-order-sale.js';
 import { notifyOnPaidOrder } from './services/paidOrderNotify.js';
+import { sendWebhookEvent } from './services/webhookDelivery.js';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 
@@ -71,6 +72,14 @@ export async function handler(event) {
   }
 
   // ── Update order ───────────────────────────────────────────────────────────
+  // Captured before the update purely to report an accurate previous_status
+  // on the order.updated webhook below — the update itself doesn't need it.
+  const { data: preUpdateOrder } = await adminClient
+    .from('orders')
+    .select('id, overall_status')
+    .eq('payment_reference', payment_reference)
+    .maybeSingle();
+
   const { data: updatedOrder, error: updateErr } = await adminClient
     .from('orders')
     .update({
@@ -107,6 +116,13 @@ export async function handler(event) {
 
   // Notify customer, staff, and vendors only when this call actually confirmed payment.
   if (updatedOrder?.id) {
+    sendWebhookEvent('order.updated', {
+      order_id: updatedOrder.id,
+      order_number: updatedOrder.order_number,
+      previous_status: preUpdateOrder?.overall_status || null,
+      status: updatedOrder.overall_status,
+    }).catch((err) => console.warn('[verify-payment] webhook dispatch failed:', err.message));
+
     try {
       const { data: giftRow } = await adminClient
         .from('gift_orders')

@@ -1,3 +1,5 @@
+import { sendWebhookEvent } from '../services/webhookDelivery.js';
+
 const STATUS_PRIORITY = {
   pending: 1,
   vendor_dispatched: 2,
@@ -51,7 +53,7 @@ export async function refreshOverallOrderStatus(supabase, orderId) {
 
   const { data: order } = await supabase
     .from('orders')
-    .select('overall_status')
+    .select('id, order_number, overall_status')
     .eq('id', orderId)
     .single();
 
@@ -59,6 +61,14 @@ export async function refreshOverallOrderStatus(supabase, orderId) {
 
   if (orderStatus !== order.overall_status) {
     await supabase.from('orders').update({ overall_status: orderStatus }).eq('id', orderId);
+
+    // Fire-and-forget — a webhook hiccup should never block the status update.
+    sendWebhookEvent('order.updated', {
+      order_id: order.id,
+      order_number: order.order_number,
+      previous_status: order.overall_status,
+      status: orderStatus,
+    }).catch((err) => console.warn('[orderStatusHelper] webhook dispatch failed:', err.message));
   }
 
   return orderStatus;

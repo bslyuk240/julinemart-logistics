@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { Banknote, Bike, CheckCircle, Pause, Play, RefreshCw, Search, Truck, Wifi, WifiOff, XCircle } from 'lucide-react';
+import { Banknote, Bike, CheckCircle, Pause, Play, RefreshCw, Search, Trash2, Truck, Wifi, WifiOff, XCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 
@@ -83,7 +83,7 @@ export default function RidersPage() {
 
   const runAction = async (
     rider: Rider,
-    action: 'suspend' | 'reactivate' | 'approve_bank_change' | 'reject_bank_change' | 'approve_vehicle_change' | 'reject_vehicle_change'
+    action: 'suspend' | 'reactivate' | 'approve_bank_change' | 'reject_bank_change' | 'approve_vehicle_change' | 'reject_vehicle_change' | 'delete'
   ) => {
     if (!session?.access_token) return;
     let reject_reason: string | undefined;
@@ -101,6 +101,16 @@ export default function RidersPage() {
     if (action === 'approve_vehicle_change') {
       const ok = window.confirm(
         `Update ${rider.full_name}'s vehicle to ${rider.pending_vehicle_change?.vehicle_type} · ${rider.pending_vehicle_change?.vehicle_plate}?`
+      );
+      if (!ok) return;
+    }
+    if (action === 'delete') {
+      if (rider.current_job) {
+        notification.error('Reassign or finish their current job before deleting.');
+        return;
+      }
+      const ok = window.confirm(
+        `Permanently delete ${rider.full_name} (${rider.email})?\n\nThis removes their rider profile and login so the email can be used again. Past deliveries are kept, with the rider unassigned.`
       );
       if (!ok) return;
     }
@@ -234,6 +244,7 @@ export default function RidersPage() {
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-500">{new Date(r.created_at).toLocaleDateString()}</td>
                     <td className="px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
                       {r.status === 'active' && (
                         <button
                           type="button"
@@ -268,6 +279,17 @@ export default function RidersPage() {
                           Rejected
                         </span>
                       )}
+                      <button
+                        type="button"
+                        disabled={actioning === r.id || Boolean(r.current_job)}
+                        title={r.current_job ? 'Finish or reassign their current job first' : `Delete ${r.full_name}`}
+                        onClick={() => runAction(r, 'delete')}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-red-700 disabled:opacity-40"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete
+                      </button>
+                      </div>
                     </td>
                   </tr>
                   {r.pending_bank_change && (

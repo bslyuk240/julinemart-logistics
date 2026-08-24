@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Banknote, Bike, CheckCircle, Pause, Play, Search, Truck, Wifi, WifiOff, XCircle } from 'lucide-react';
+import { Banknote, Bike, CheckCircle, Pause, Play, Search, Trash2, Truck, Wifi, WifiOff, XCircle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { PullToRefresh } from '../PullToRefresh';
@@ -84,7 +84,7 @@ export default function MobileRiders() {
 
   const runAction = async (
     riderId: string,
-    action: 'suspend' | 'reactivate' | 'approve_bank_change' | 'reject_bank_change' | 'approve_vehicle_change' | 'reject_vehicle_change',
+    action: 'suspend' | 'reactivate' | 'approve_bank_change' | 'reject_bank_change' | 'approve_vehicle_change' | 'reject_vehicle_change' | 'delete',
     reason?: string
   ) => {
     if (!session?.access_token) return;
@@ -335,6 +335,23 @@ export default function MobileRiders() {
                 Reactivate rider
               </button>
             )}
+
+            <button
+              type="button"
+              disabled={actioning === selected.id || Boolean(selected.current_job)}
+              onClick={() => {
+                if (selected.current_job) return;
+                const ok = window.confirm(
+                  `Permanently delete ${selected.full_name} (${selected.email})?\n\nThis removes their rider profile and login so the email can be used again.`
+                );
+                if (!ok) return;
+                void runAction(selected.id, 'delete');
+              }}
+              className="w-full mt-3 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm font-semibold disabled:opacity-40"
+            >
+              <Trash2 className="w-4 h-4" />
+              {selected.current_job ? 'Finish current job to delete' : 'Delete rider'}
+            </button>
           </>
         )}
       </Sheet>

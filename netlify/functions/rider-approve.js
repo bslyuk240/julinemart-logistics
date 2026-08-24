@@ -65,6 +65,7 @@ export async function handler(event) {
     'reject_vehicle_change',
     'verify_document',
     'reject_document',
+    'delete',
   ];
   if (!action || !ACTIONS.includes(action)) {
     return jsonResponse(400, { success: false, error: `action must be one of: ${ACTIONS.join(', ')}` });
@@ -127,7 +128,7 @@ export async function handler(event) {
   const { data: rider, error: riderErr } = await adminClient
     .from('riders')
     .select(
-      'id, full_name, email, status, pending_bank_name, pending_bank_account_number, pending_bank_account_name, pending_vehicle_type, pending_vehicle_plate'
+      'id, full_name, email, status, user_id, pending_bank_name, pending_bank_account_number, pending_bank_account_name, pending_vehicle_type, pending_vehicle_plate'
     )
     .eq('id', rider_id)
     .maybeSingle();
@@ -143,6 +144,64 @@ export async function handler(event) {
   }
   if (action === 'reactivate' && rider.status !== 'suspended') {
     return jsonResponse(409, { success: false, error: `Only a suspended rider can be reactivated (currently ${rider.status})` });
+  }
+
+  if (action === 'delete') {
+    const ACTIVE_JOB_STATUSES = ['assigned', 'picked_up', 'out_for_delivery', 'return_required', 'returning'];
+    const { data: activeJobs, error: jobErr } = await adminClient
+      .from('shipments')
+      .select('id, status, tracking_number')
+      .eq('assigned_rider_id', rider_id)
+      .in('status', ACTIVE_JOB_STATUSES)
+      .limit(1);
+    if (jobErr) return jsonResponse(500, { success: false, error: jobErr.message });
+    if (activeJobs?.length) {
+      const tracking = activeJobs[0].tracking_number || 'this delivery';
+      return jsonResponse(409, {
+        success: false,
+        error: `This rider still has an in-progress job (${tracking}). Reassign or finish it before deleting.`,
+      });
+    }
+
+    const { data: openWithdrawals, error: wdErr } = await adminClient
+      .from('rider_withdrawals')
+      .select('id')
+      .eq('rider_id', rider_id)
+      .in('status', ['pending', 'approved'])
+      .limit(1);
+    if (wdErr && !/does not exist|schema cache/i.test(wdErr.message || '')) {
+      return jsonResponse(500, { success: false, error: wdErr.message });
+    }
+    if (!wdErr && openWithdrawals?.length) {
+      return jsonResponse(409, {
+        success: false,
+        error: 'This rider has an outstanding withdrawal. Pay or reject it before deleting.',
+      });
+    }
+
+    await adminClient.from('device_tokens').delete().eq('customer_id', rider_id);
+    if (!wdErr) {
+      await adminClient.from('rider_withdrawals').delete().eq('rider_id', rider_id);
+    }
+
+    const { error: delErr } = await adminClient.from('riders').delete().eq('id', rider_id);
+    if (delErr) return jsonResponse(500, { success: false, error: delErr.message });
+
+    if (rider.user_id) {
+      const { error: authErr } = await adminClient.auth.admin.deleteUser(rider.user_id);
+      if (authErr) {
+        console.warn('rider-approve delete: auth user cleanup failed:', authErr.message);
+      }
+    }
+
+    await recordStaffAudit(event, authUser, {
+      action: 'RIDER_DELETED',
+      resource_type: 'riders',
+      resource_id: rider_id,
+      details: { full_name: rider.full_name, email: rider.email },
+    });
+
+    return jsonResponse(200, { success: true, message: `${rider.full_name} deleted` });
   }
   if (['approve_bank_change', 'reject_bank_change'].includes(action) && !rider.pending_bank_name) {
     return jsonResponse(409, { success: false, error: 'This rider has no pending bank-detail change' });

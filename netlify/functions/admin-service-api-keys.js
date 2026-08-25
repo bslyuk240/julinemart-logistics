@@ -4,9 +4,10 @@
  * The plaintext token is shown exactly once, in the create response — only
  * its SHA-256 hash is persisted (see serviceApiKeyAuth.js).
  *
- *   GET    /api/admin/service-api-keys        list (no secrets)
- *   POST   /api/admin/service-api-keys        { name, scopes: string[] } -> { token, ... } once
- *   DELETE /api/admin/service-api-keys/:id     revoke (soft — is_active=false)
+ *   GET    /api/admin/service-api-keys                     list (no secrets)
+ *   POST   /api/admin/service-api-keys                     { name, scopes: string[] } -> { token, ... } once
+ *   DELETE /api/admin/service-api-keys/:id                  revoke (soft — is_active=false)
+ *   DELETE /api/admin/service-api-keys/:id?permanent=true   hard-delete a key that's already revoked
  */
 import crypto from 'crypto';
 import { requireAdmin, jsonResponse, parseJsonBody } from './services/global-sourcing-utils.js';
@@ -84,6 +85,34 @@ export const handler = async (event) => {
   }
 
   if (event.httpMethod === 'DELETE' && keyId) {
+    const permanent = (event.queryStringParameters || {}).permanent === 'true';
+
+    if (permanent) {
+      const { data: existing, error: fetchErr } = await adminClient
+        .from('service_api_keys')
+        .select('id, name, is_active')
+        .eq('id', keyId)
+        .maybeSingle();
+
+      if (fetchErr) return jsonResponse(500, { success: false, error: fetchErr.message });
+      if (!existing) return jsonResponse(404, { success: false, error: 'API key not found' });
+      if (existing.is_active) {
+        return jsonResponse(409, { success: false, error: 'Revoke this key before deleting it permanently' });
+      }
+
+      const { error: deleteErr } = await adminClient.from('service_api_keys').delete().eq('id', keyId);
+      if (deleteErr) return jsonResponse(500, { success: false, error: deleteErr.message });
+
+      await recordStaffAudit(event, authUser, {
+        action: 'SERVICE_API_KEY_DELETED',
+        resource_type: 'service_api_key',
+        resource_id: existing.id,
+        details: { name: existing.name },
+      });
+
+      return jsonResponse(200, { success: true, data: { id: existing.id, deleted: true } });
+    }
+
     const { data, error } = await adminClient
       .from('service_api_keys')
       .update({ is_active: false, revoked_at: new Date().toISOString() })

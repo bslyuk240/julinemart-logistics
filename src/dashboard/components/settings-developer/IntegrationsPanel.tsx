@@ -144,6 +144,17 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
     }
   };
 
+  const deleteKey = async (id: string, name: string) => {
+    if (!window.confirm(`Permanently delete "${name}"? This removes the key record entirely and cannot be undone.`)) return;
+    try {
+      await callAdminApi(session, `/api/admin/service-api-keys/${id}?permanent=true`, 'DELETE');
+      notification.success('Deleted', `"${name}" removed`);
+      await load();
+    } catch (e) {
+      notification.error('Failed to delete', e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const saveWebhook = async () => {
     if (!webhookName.trim() || !webhookUrl.trim() || !webhookSecret.trim()) {
       notification.error('Missing info', 'Name, URL, and secret are required');
@@ -280,7 +291,12 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
                       <Trash2 className="w-3.5 h-3.5" />
                       Revoke
                     </button>
-                  ) : null}
+                  ) : (
+                    <button type="button" onClick={() => void deleteKey(k.id, k.name)} className="btn-secondary btn-sm text-xs text-red-600 shrink-0 flex items-center gap-1">
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete
+                    </button>
+                  )}
                 </div>
               ))}
             </div>

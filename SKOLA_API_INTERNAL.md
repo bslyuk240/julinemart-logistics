@@ -270,11 +270,17 @@ everything else derives from it, so start there:
   domain and rendered live from `GET /api/admin/service-api-keys`'s
   `capabilities` field, which is the full catalog from
   `capabilityCatalog.js`), list (name, prefix, scopes, active/revoked, last
-  used), revoke. Disabled/roadmap capabilities render greyed-out with a
-  "soon" tag rather than being silently omitted, so admins can see what's
-  coming. The plaintext token is shown exactly once in the create response
-  and never again — there is no "reveal" affordance anywhere because the
-  value doesn't exist server-side to reveal.
+  used), revoke (`DELETE .../:id`, soft — `is_active=false`), and — once
+  revoked — permanently delete (`DELETE .../:id?permanent=true`, hard
+  row delete). The 409 guard on hard-delete (`is_active` must already be
+  `false`) forces revoke-then-delete as two explicit steps rather than one
+  click destroying a key that might still be live somewhere — same
+  precedent as the rider hard-delete's active-job guard. Disabled/roadmap
+  capabilities render greyed-out with a "soon" tag rather than being
+  silently omitted, so admins can see what's coming. The plaintext token is
+  shown exactly once in the create response and never again — there is no
+  "reveal" affordance anywhere because the value doesn't exist server-side
+  to reveal.
 - **Outbound webhooks** — create/edit (name, URL, secret, optional event
   type filter), pause/resume (`is_active`), delete. List never returns the
   secret, only `secret_configured: true/false`.

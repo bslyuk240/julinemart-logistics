@@ -139,12 +139,37 @@ under two names for different consumer mental models).
 | `vendors.read` | `GET /vendors/:id` |
 | `vendors.orders.read` | `GET /vendors/:id/orders` |
 | `vendors.performance.read` | `GET /vendors/:id/performance` |
+| `gift_boxes.list` | `GET /gift-boxes` |
+| `gift_boxes.read` | `GET /gift-boxes/:id` |
+| `gift_orders.list` | `GET /gift-orders` |
+| `gift_orders.read` | `GET /gift-orders/:id` |
+| `gift_orders.events.read` | `GET /gift-orders/:id/events` |
+| `gift_fulfilment_centres.list` | `GET /gift-fulfilment-centres` |
+| `gift_packaging_types.list` | `GET /gift-packaging-types` |
 | `riders.list` | `GET /riders` |
 | `riders.read` | `GET /riders/:id` |
 | `riders.status.read` | `GET /riders/:id/status` |
 | `products.list` / `products.search` | `GET /products` |
 | `products.read` | `GET /products/:id` |
 | `categories.list` | `GET /categories` |
+| `returns.list` | `GET /returns` |
+| `returns.read` | `GET /returns/:id` |
+| `returns.shipments.read` | `GET /returns/:id/shipments` |
+| `influencers.list` | `GET /influencers` |
+| `influencers.read` | `GET /influencers/:id` |
+| `influencers.sales.read` | `GET /influencers/:id/sales` |
+| `custom_orders.list` | `GET /custom-orders` |
+| `custom_orders.read` | `GET /custom-orders/:id` |
+| `campaigns.list` | `GET /campaigns` |
+| `campaigns.read` | `GET /campaigns/:id` |
+| `notifications.email_templates.list` | `GET /notifications/email-templates` |
+| `notifications.email.send` | `POST /notifications/email` |
+| `notifications.push.send` | `POST /notifications/push` (audience: `single` only) |
+| `notifications.push.broadcast` | `POST /notifications/push` (any audience) |
+
+`notifications.push.send` and `notifications.push.broadcast` share one
+route — which audiences you can pass depends on which capability your key
+holds (broadcast implies send).
 
 PII is intentionally minimized for an external/agent audience: **customer
 email is never returned**, list endpoints omit street addresses, and rider
@@ -275,6 +300,66 @@ ID, or commission rate.
 
 ---
 
+### Gift
+
+JulineMart's curated gift-box program. A gift order is a side-record keyed
+to a regular order, carrying its own pipeline:
+`new → paid → packing → packed → dispatch → delivered`.
+
+#### `GET /gift-boxes` — `gift_boxes.list`
+Query params: `active` (`true`/`false`), `limit`, `offset`.
+```json
+{ "data": [{ "id": "...", "slug": "sweet-surprise", "name": "Sweet Surprise Box",
+  "list_price": 15000, "active": true, "recipient_types": ["mother", "partner"],
+  "occasion_types": ["birthday", "anniversary"], "average_rating": 4.8, "rating_count": 22 }], "count": 1 }
+```
+
+#### `GET /gift-boxes/:id` — `gift_boxes.read`
+Adds `description`, `gallery_urls`, and `items` (component products —
+`product_id`, `variation_id`, `quantity`). Excludes internal component
+cost.
+
+#### `GET /gift-orders` — `gift_orders.list`
+Query params: `status` (matches `gift_status`), `limit`, `offset`. Omits
+recipient contact details — see the detail endpoint for those.
+```json
+{ "data": [{ "id": "...", "order_id": "b6b6c6b0-...", "gift_box_id": "...",
+  "gift_status": "packing", "recipient_city": "Lagos", "recipient_state": "Lagos",
+  "occasion": "birthday", "requested_delivery_date": "2026-08-28", "created_at": "2026-08-24T10:00:00Z" }], "count": 1 }
+```
+
+#### `GET /gift-orders/:id` — `gift_orders.read`
+Adds `recipient_name`, `recipient_phone`, `recipient_address`,
+`gift_message`, `sender_visible`, `customer_subtotal`, `pack_photo_url`,
+`qc_notes`, `packed_at`, `dispatched_at`, `completed_at`. Excludes
+recipient email and internal cost/vendor-settlement breakdown.
+
+#### `GET /gift-orders/:id/events` — `gift_orders.events.read`
+```json
+{ "data": [{ "id": "...", "status": "packed", "note": "QC passed, ready to dispatch",
+  "actor_email": "ops@julinemart.com", "created_at": "2026-08-24T11:30:00Z" }] }
+```
+
+#### `GET /gift-fulfilment-centres` — `gift_fulfilment_centres.list`
+```json
+{ "data": [{ "id": "...", "name": "Lagos Gift Hub", "code": "LG1", "city": "Lagos",
+  "state": "Lagos", "active": true, "is_default": true, "same_day_supported": true,
+  "next_day_supported": true, "supported_delivery_zones": ["South West"] }], "count": 1 }
+```
+
+#### `GET /gift-packaging-types` — `gift_packaging_types.list`
+```json
+{ "data": [{ "id": "...", "code": "premium", "name": "Premium Box", "price": 2500,
+  "max_items": 6, "active": true }], "count": 1 }
+```
+
+Advancing a gift order's status (packing → packed → dispatch → delivered)
+is not yet exposed for external write access — `gift_orders.status.write`
+is advertised in the manifest as `enabled: false`. Ask your JulineMart
+contact if your use case needs it.
+
+---
+
 ### Riders
 
 #### `GET /riders` — `riders.list`
@@ -317,6 +402,155 @@ metadata.
 #### `GET /categories` — `categories.list`
 ```json
 { "data": [{ "id": "...", "name": "Fabrics", "slug": "fabrics", "parent_id": null, "display_order": 3 }], "count": 1 }
+```
+
+---
+
+### Returns
+
+#### `GET /returns` — `returns.list`
+Query params: `status`, `limit`, `offset`. Omits customer contact details.
+```json
+{ "data": [{ "id": "...", "order_number": "10432", "status": "inspecting",
+  "reason": "Wrong size", "reason_code": "size_mismatch", "refund_amount": 4500,
+  "refund_status": "pending", "created_at": "2026-08-20T09:00:00Z" }], "count": 1 }
+```
+
+#### `GET /returns/:id` — `returns.read`
+Adds `customer_name`, `reason_note`, `images`, `evidence_urls`, inspection
+result/notes, refund method/currency/dates, seller response. Excludes
+customer email and the raw payment-provider refund payload.
+
+#### `GET /returns/:id/shipments` — `returns.shipments.read`
+Reverse-logistics shipment(s) created for this return — tracking,
+destination, status. Same shape family as `shipments.read`.
+
+---
+
+### Influencers
+
+#### `GET /influencers` — `influencers.list`
+Query params: `status`, `tier`, `limit`, `offset`. Omits contact details
+and bank info.
+```json
+{ "data": [{ "id": "...", "name": "Amaka Style", "handle": "@amakastyle",
+  "platform": "instagram", "coupon_code": "AMAKA10", "tier": "gold", "status": "active",
+  "total_orders": 58, "total_sales": 812000, "commission_rate": 8,
+  "total_commission_earned": 64960 }], "count": 1 }
+```
+
+#### `GET /influencers/:id` — `influencers.read`
+Adds `email`, `phone`, discount terms (`shipping_discount_type/value`,
+`minimum_order_value`, `maximum_uses`). Never returns bank details.
+
+#### `GET /influencers/:id/sales` — `influencers.sales.read`
+```json
+{ "data": [{ "id": "...", "order_number": "10432", "product_total": 28500,
+  "influencer_commission_rate": 8, "influencer_commission_amount": 2280,
+  "commission_status": "pending", "sale_date": "2026-08-20T09:14:00Z" }], "count": 1 }
+```
+Excludes JulineMart's internal margin split (admin commission, vendor
+payout amount) and the customer's email.
+
+---
+
+### Custom Orders
+
+Personalised / made-to-order line items and their production timeline.
+
+#### `GET /custom-orders` — `custom_orders.list`
+Query params: `status`, `order_id`, `limit`, `offset`.
+```json
+{ "data": [{ "id": "...", "order_id": "b6b6c6b0-...", "order_item_id": "...",
+  "status": "awaiting_proof", "price_adjustment": 1500, "created_at": "2026-08-22T10:00:00Z" }], "count": 1 }
+```
+
+#### `GET /custom-orders/:id` — `custom_orders.read`
+Adds `field_values` (the customer's submitted customisation answers),
+`approved_proof_url`, `schema_id`.
+
+---
+
+### Campaigns
+
+#### `GET /campaigns` — `campaigns.list`
+Query params: `status`, `approval_status`, `limit`, `offset`.
+```json
+{ "data": [{ "id": "...", "slug": "back-to-school-2026", "internal_name": "Back to School 2026",
+  "public_title": "Back to School Deals", "status": "live", "approval_status": "approved",
+  "start_date": "2026-08-15T00:00:00Z", "end_date": "2026-09-05T00:00:00Z",
+  "target_type": "storewide" }], "count": 1 }
+```
+
+#### `GET /campaigns/:id` — `campaigns.read`
+Adds `target_id`, `template_id`, `section_layout`, `hero_config`,
+`product_selection_rules`, `offer_config`, `meta_seo`, `vendor_id`.
+Excludes internal review notes and the reviewer's identity.
+
+---
+
+### Notifications
+
+**Different from everything else in this API** — these two `POST`
+endpoints trigger real outbound email/push to real people. Treat them as
+high-trust operations regardless of what your platform's own policy
+engine decides:
+
+#### `GET /notifications/email-templates` — `notifications.email_templates.list`
+```json
+{ "data": [{ "id": "...", "name": "Order Shipped", "type": "order_update",
+  "subject": "Your order #{{orderNumber}} has shipped!",
+  "variables": ["orderNumber", "customerName", "trackingUrl"], "is_active": true }], "count": 1 }
+```
+
+#### `POST /notifications/email` — `notifications.email.send`
+Sends an **existing, admin-approved template only** — you cannot submit
+arbitrary HTML/content, only pick a template by name and supply its
+`{{variable}}` values. This is a deliberate constraint, not a limitation
+to work around.
+```bash
+curl -s -X POST "https://jlo.julinemart.com/api/v1/notifications/email" \
+  -H "Authorization: Bearer $YOUR_TOKEN" -H "Content-Type: application/json" \
+  -d '{"template_name": "Order Shipped", "to": "customer@example.com",
+       "data": {"orderNumber": "10432", "customerName": "Ada", "trackingUrl": "https://..."}}'
+```
+| Field | Required | Notes |
+|---|---|---|
+| `template_name` | yes | Must match an active `email_templates.name` exactly |
+| `to` | yes | Recipient address |
+| `data` | no | `{{variable}}` substitution values |
+| `order_id` | no | Enables dedup (won't resend the same template for the same order within 10 minutes) and shows up in the audit log |
+
+```json
+{ "data": { "sent": true } }
+```
+A `{ "data": { "sent": false, "reason": "duplicate" } }` response means
+the dedup window caught a repeat send — not an error.
+
+#### `POST /notifications/push` — `notifications.push.send` or `notifications.push.broadcast`
+```bash
+curl -s -X POST "https://jlo.julinemart.com/api/v1/notifications/push" \
+  -H "Authorization: Bearer $YOUR_TOKEN" -H "Content-Type: application/json" \
+  -d '{"audience": "single", "customer_id": "77aa...", "title": "Your gift is on its way!",
+       "message": "Track it here.", "type": "order_update"}'
+```
+| Field | Required | Notes |
+|---|---|---|
+| `audience` | yes | `single` (needs `notifications.push.send` or `.broadcast`) or `all_customers`/`all_vendors`/`all_staff`/`segment` (needs `.broadcast`) |
+| `customer_id` | if `audience=single` | |
+| `segment` | if `audience=segment` | `{ "platform": "android" \| "web" }` |
+| `title`, `message` | yes | |
+| `type` | yes | `order_update` \| `product` \| `promotion` \| `general` |
+| `data` | no | Arbitrary JSON delivered with the push |
+| `schedule_at` | no | ISO datetime — queues it instead of sending immediately (needs to be >1 minute in the future) |
+
+Immediate send response:
+```json
+{ "success": true, "data": { /* upstream push-service response */ }, "meta": { "audience": "single", "sent": 1, "failed": 0 } }
+```
+Scheduled response:
+```json
+{ "data": { "scheduled": true, "id": "...", "schedule_at": "2026-09-01T09:00:00Z" } }
 ```
 
 ## 6. Outbound webhooks

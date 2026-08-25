@@ -204,6 +204,228 @@ export const CAPABILITIES = [
     idempotency_required: false, approval_recommended: false, enabled: true,
   },
 
+  // ── GIFT ──────────────────────────────────────────────────────────────
+  // JulineMart's gift-box program: curated boxes (gift_boxes), the orders
+  // placed against them (gift_orders, a side-table keyed off orders.id
+  // with its own New -> Packing -> Packed -> Dispatch -> Delivered
+  // pipeline run from Settings -> Gift Ops), and the fulfilment
+  // centres/packaging options that back them.
+  {
+    id: 'gift_boxes.list', domain: 'gift', name: 'List Gift Boxes',
+    description: 'List curated gift boxes with active/recipient/occasion filters.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/gift-boxes',
+    supports_pagination: true, supports_filtering: true, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'gift_boxes.read', domain: 'gift', name: 'Read Gift Box',
+    description: 'Gift box detail including its component products. Excludes internal component cost.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/gift-boxes/:id',
+    input_schema: { gift_box_id: 'string (uuid)' },
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'gift_orders.list', domain: 'gift', name: 'List Gift Orders',
+    description: 'List gift orders through the New/Packing/Packed/Dispatch/Delivered pipeline. Omits recipient contact details.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/gift-orders',
+    supports_pagination: true, supports_filtering: true, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'gift_orders.read', domain: 'gift', name: 'Read Gift Order',
+    description: 'Full gift order detail: recipient, gift message, occasion, pipeline timestamps. Excludes recipient email and internal cost/settlement breakdown.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/gift-orders/:id',
+    input_schema: { gift_order_id: 'string (uuid)' },
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'gift_orders.events.read', domain: 'gift', name: 'Read Gift Order Timeline',
+    description: 'Status-change history (packing notes, who did what, when) for one gift order.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/gift-orders/:id/events',
+    input_schema: { gift_order_id: 'string (uuid)' },
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'gift_orders.status.write', domain: 'gift', name: 'Advance Gift Order Status',
+    description: 'Move a gift order through start_packing / mark_packed / dispatch / complete. Also promotes the linked order to delivered on complete.',
+    operation_type: 'update', side_effect_type: 'internal_write', risk_level: 'medium',
+    http_method: 'PATCH', endpoint: '/gift-orders/:id',
+    idempotency_required: false, approval_recommended: true, enabled: false,
+  },
+  {
+    id: 'gift_fulfilment_centres.list', domain: 'gift', name: 'List Gift Fulfilment Centres',
+    description: 'Fulfilment centres backing the gift program — location, delivery zones, cutoff times.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/gift-fulfilment-centres',
+    supports_pagination: true, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'gift_packaging_types.list', domain: 'gift', name: 'List Gift Packaging Types',
+    description: 'Packaging options available for gift orders — name, price, max items.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/gift-packaging-types',
+    supports_pagination: true, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+
+  // ── RETURNS ───────────────────────────────────────────────────────────
+  {
+    id: 'returns.list', domain: 'returns', name: 'List Return Requests',
+    description: 'List customer return/complaint requests with status/reason filters. Omits customer contact details.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/returns',
+    supports_pagination: true, supports_filtering: true, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'returns.read', domain: 'returns', name: 'Read Return Request',
+    description: 'Full return/complaint detail: reason, inspection result, refund status/amount, seller response. Excludes customer email and raw payment-provider payloads.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/returns/:id',
+    input_schema: { return_id: 'string (uuid)' },
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'returns.shipments.read', domain: 'returns', name: 'Read Return Shipments',
+    description: 'Reverse-logistics shipment(s) for one return request — tracking, destination, status.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/returns/:id/shipments',
+    input_schema: { return_id: 'string (uuid)' },
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+
+  // ── INFLUENCERS ───────────────────────────────────────────────────────
+  {
+    id: 'influencers.list', domain: 'influencers', name: 'List Influencers',
+    description: 'List referral/affiliate partners with tier and performance totals. Omits contact details and bank info.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/influencers',
+    supports_pagination: true, supports_filtering: true, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'influencers.read', domain: 'influencers', name: 'Read Influencer',
+    description: 'Influencer detail including contact info and coupon/discount terms. Never returns bank details.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/influencers/:id',
+    input_schema: { influencer_id: 'string (uuid)' },
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'influencers.sales.read', domain: 'influencers', name: 'Read Influencer Sales',
+    description: "An influencer's attributed sales and their own commission — excludes JulineMart's internal margin split and customer email.",
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/influencers/:id/sales',
+    input_schema: { influencer_id: 'string (uuid)' },
+    supports_pagination: true, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+
+  // ── CUSTOM ORDERS ─────────────────────────────────────────────────────
+  {
+    id: 'custom_orders.list', domain: 'custom_orders', name: 'List Custom Order Specs',
+    description: 'List personalised/made-to-order line items and their production status.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/custom-orders',
+    supports_pagination: true, supports_filtering: true, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'custom_orders.read', domain: 'custom_orders', name: 'Read Custom Order Spec',
+    description: 'Full customisation detail: submitted field values, proof approval, price adjustment.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/custom-orders/:id',
+    input_schema: { custom_order_spec_id: 'string (uuid)' },
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+
+  // ── CAMPAIGNS ─────────────────────────────────────────────────────────
+  {
+    id: 'campaigns.list', domain: 'campaigns', name: 'List Campaigns',
+    description: 'List marketing campaigns with status/approval filters.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/campaigns',
+    supports_pagination: true, supports_filtering: true, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'campaigns.read', domain: 'campaigns', name: 'Read Campaign',
+    description: 'Full campaign detail: offer/targeting config, hero/section layout, SEO meta. Excludes internal review notes and reviewer identity.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/campaigns/:id',
+    input_schema: { campaign_id: 'string (uuid)' },
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'campaigns.analytics.read', domain: 'campaigns', name: 'Read Campaign Analytics',
+    description: 'Aggregate performance (views, conversions) for one campaign.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/campaigns/:id/analytics',
+    idempotency_required: false, approval_recommended: false, enabled: false,
+  },
+
+  // ── NOTIFICATIONS ─────────────────────────────────────────────────────
+  // Real external communication — these actually reach customers/vendors,
+  // unlike everything else in this catalog. See capabilityCatalog.js §
+  // notes and SKOLA_API_INTERNAL.md for why send/broadcast are enabled
+  // with approval_recommended rather than disabled outright: the platform
+  // consuming this API (not JLO) is expected to gate execute/high-risk
+  // calls behind human approval using this metadata, the same way it
+  // would for any other Custom API. JLO does not enforce approval itself.
+  {
+    id: 'notifications.email_templates.list', domain: 'notifications', name: 'List Email Templates',
+    description: 'List available transactional email templates and the {{variables}} each one expects.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/notifications/email-templates',
+    supports_pagination: true, supports_filtering: true, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'notifications.email.send', domain: 'notifications', name: 'Send Email',
+    description: 'Send an existing approved template to one recipient with variable substitution. Cannot send arbitrary/free-form HTML — template content is fixed, only the {{variables}} are caller-supplied.',
+    operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'medium',
+    http_method: 'POST', endpoint: '/notifications/email',
+    input_schema: { template_name: 'string (must match an active email_templates.name)', to: 'string (email)', data: 'object (optional, {{variable}} values)', order_id: 'string (uuid, optional — for dedup/audit)' },
+    idempotency_required: false, approval_recommended: true, enabled: true,
+  },
+  {
+    id: 'notifications.email.schedule', domain: 'notifications', name: 'Schedule Email',
+    description: 'Queue a templated email for future delivery.',
+    operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'medium',
+    http_method: 'POST', endpoint: '/notifications/email/schedule',
+    idempotency_required: false, approval_recommended: true, enabled: false,
+  },
+  {
+    id: 'notifications.push.send', domain: 'notifications', name: 'Send Push (single recipient)',
+    description: 'Send or schedule a push notification to one customer.',
+    operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'medium',
+    http_method: 'POST', endpoint: '/notifications/push',
+    input_schema: { audience: '"single"', customer_id: 'string', title: 'string', message: 'string', type: 'order_update|product|promotion|general', data: 'object (optional)', schedule_at: 'ISO datetime (optional — future send)' },
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'notifications.push.broadcast', domain: 'notifications', name: 'Broadcast Push (bulk/segment)',
+    description: 'Send or schedule a push notification to all customers, all vendors, all staff, or a platform segment. Reaches many real devices in one call.',
+    operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'high',
+    http_method: 'POST', endpoint: '/notifications/push',
+    input_schema: { audience: 'all_customers|all_vendors|all_staff|segment', title: 'string', message: 'string', type: 'order_update|product|promotion|general', segment: '{ platform: android|web } (required if audience=segment)', data: 'object (optional)', schedule_at: 'ISO datetime (optional — future send)' },
+    idempotency_required: false, approval_recommended: true, enabled: true,
+  },
+
   // ── CATALOGUE ─────────────────────────────────────────────────────────
   {
     id: 'products.list', domain: 'catalogue', name: 'List Products',

@@ -310,6 +310,12 @@ everything else derives from it, so start there:
     on the consuming platform's side before it'd be safe to expose.
   - `shipments.create` — execute/financial/high, dispatches a real courier
     and incurs real cost; same reasoning.
+  - `gift_orders.status.write` — execute/internal_write/medium; advancing
+    the pipeline also promotes the linked `orders` row on `complete` (see
+    `admin-gift-ops.js`), so a wrong call has real downstream effects.
+    Lower risk than the two above but still a write, deliberately shipped
+    disabled in the same pass that added the rest of the `gift` domain as
+    read-only.
   - `riders.location.read` — live GPS is a privacy decision, not an
     engineering one; needs product sign-off first.
   - `customers.read` / `customers.orders.read` — PII domain; the rest of
@@ -335,3 +341,65 @@ everything else derives from it, so start there:
   if Skola's use case needs email.
 - **`shipments/delayed` is age-based**, not compared against a
   promised-delivery-date, because JLO doesn't track one today.
+
+## 9. Domain expansion — returns, influencers, custom orders, campaigns, notifications (2026-08-26)
+
+Added five domains to `capabilityCatalog.js` in one pass, in response to a
+direct ask: "the APIs you exposed don't have the gift logic or other
+business logic — can it be updated." (Gift landed in a separate earlier
+pass, already covered in §3/§4/§8 above.) All new handlers live in
+`public-api.js` alongside the existing ones — no new files, same
+`authenticateServiceApiRequest` + capability-gating pattern throughout.
+
+**`returns`, `influencers`, `custom_orders`, `campaigns`** — straight
+read-only additions, same PII-minimization discipline as everything else
+(list views omit contact/financial-split fields that detail views expose
+where operationally justified; internal margin/settlement figures —
+`influencer_sales.admin_commission`/`vendor_amount`, `return_requests
+.refund_raw`, `campaigns.review_notes`/`reviewed_by` — are never
+returned). `campaigns.analytics.read` is advertised `enabled: false`
+because `campaign_analytics_events`' schema wasn't inspected before this
+pass — don't build against it without checking the table first.
+
+**`notifications`** is a different category entirely — it's the first
+capability domain with `side_effect_type: 'external_communication'`, i.e.
+it reaches real customer inboxes/devices, not just reads JLO's DB:
+- `notifications.email.send` wraps the existing
+  `services/emailNotifications.js:sendTransactionalEmail()` unchanged —
+  same dedup (10 min, keyed on `order_id` + template name), same
+  `email_logs` audit trail, same DB-then-env config resolution. The API
+  only accepts a `template_name` + `data` (variable values), never raw
+  HTML/subject — this is deliberate, not a missing feature. Composing
+  arbitrary email content through an external API key would be a much
+  larger trust decision than filling in an admin-approved template's
+  blanks.
+- `notifications.push.send` / `notifications.push.broadcast` wrap
+  `services/pushSendProxy.js:sendPushViaPwa()` and, for future-dated
+  sends, insert into `scheduled_push_notifications` — the exact same
+  table `process-scheduled-push.js` (cron `*/5 * * * *`) already polls
+  for the admin dashboard's own scheduled pushes, so no new cron was
+  needed. Both capabilities hit **one route** (`POST /notifications/push`)
+  — which `audience` values are accepted is computed from the calling
+  key's actual granted scopes (`allowedAudiences` in
+  `sendOrSchedulePush()`), not from what the caller asked for, so a
+  `.send`-only key silently can't widen its own blast radius by just
+  passing a different `audience` value. Every push send/schedule is
+  logged to `activity_logs` via `logNotificationHistory()` with
+  `actorEmail: "service-api:<key name>"`, so it's distinguishable from
+  admin-dashboard-initiated sends in the same history view.
+- **`notifications.email.schedule` is `enabled: false`** — email has no
+  equivalent of `scheduled_push_notifications` + a polling cron; building
+  one is real infra work (new table, new scheduled function), not a
+  config flag. Don't half-build this by e.g. reusing the push table with
+  a `channel` column bolted on — do it properly or leave it disabled.
+- No new environment variables were needed for any of this —
+  `PWA_BASE_URL` and `NOTIFICATIONS_ADMIN_SECRET` (push) and the existing
+  email-provider config (DB `email_config` row, or env fallback) were
+  already live for the admin dashboard's own notification-sending UI.
+
+**Migration note — this expansion is purely additive**, unlike the
+colon-to-dot capability rename in §4.1: every new capability id is new,
+nothing existing was renamed or restructured, so **keys minted before
+this change keep working exactly as before** and do not need re-minting.
+They just can't use the new capabilities until an admin grants them (or a
+new key is minted with them).

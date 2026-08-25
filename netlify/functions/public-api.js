@@ -21,6 +21,9 @@
 import { authenticateServiceApiRequest, jsonError } from './services/serviceApiKeyAuth.js';
 import { fetchSourceDetails, summarizeShipment, SHIPMENT_LIST_SELECT } from './services/shipmentSummary.js';
 import { getCapabilityManifest } from './services/capabilityCatalog.js';
+import { sendTransactionalEmail } from './services/emailNotifications.js';
+import { sendPushViaPwa } from './services/pushSendProxy.js';
+import { logNotificationHistory, PUSH_HISTORY_ACTION } from './services/notificationHistory.js';
 
 function json(statusCode, body) {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -30,6 +33,10 @@ function paginationParams(query) {
   const limit = Math.min(100, Math.max(1, Number(query.limit) || 25));
   const offset = Math.max(0, Number(query.offset) || 0);
   return { limit, offset };
+}
+
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 // ── orders.* ────────────────────────────────────────────────────────────
@@ -242,6 +249,105 @@ async function getVendorPerformance(adminClient, id) {
   return json(200, { data });
 }
 
+// ── gift.* ──────────────────────────────────────────────────────────────
+const GIFT_BOX_LIST_FIELDS = 'id, slug, name, description, image_url, list_price, active, recipient_types, occasion_types, sku, average_rating, rating_count, gift_fulfilment_centre_id';
+
+async function listGiftBoxes(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  let q = adminClient
+    .from('gift_boxes')
+    .select(GIFT_BOX_LIST_FIELDS, { count: 'exact' })
+    .order('sort_order', { ascending: true })
+    .range(offset, offset + limit - 1);
+
+  if (query.active === 'true') q = q.eq('active', true);
+  if (query.active === 'false') q = q.eq('active', false);
+
+  const { data, error, count } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
+async function getGiftBox(adminClient, id) {
+  const { data: box, error } = await adminClient.from('gift_boxes').select(`${GIFT_BOX_LIST_FIELDS}, gallery_urls`).eq('id', id).maybeSingle();
+  if (error) return json(500, { error: error.message });
+  if (!box) return json(404, { error: 'Gift box not found' });
+
+  const { data: items } = await adminClient
+    .from('gift_box_items')
+    .select('id, product_id, variation_id, quantity, sort_order')
+    .eq('gift_box_id', id)
+    .order('sort_order', { ascending: true });
+
+  return json(200, { data: { ...box, items: items || [] } });
+}
+
+const GIFT_ORDER_LIST_FIELDS = 'id, order_id, gift_box_id, gift_fulfilment_centre_id, gift_status, recipient_city, recipient_state, occasion, requested_delivery_date, created_at, updated_at';
+const GIFT_ORDER_DETAIL_FIELDS = `${GIFT_ORDER_LIST_FIELDS}, recipient_name, recipient_phone, recipient_address, recipient_zone, gift_message, sender_visible, customer_subtotal, pack_photo_url, qc_notes, packed_at, dispatched_at, completed_at, occasion_date`;
+
+async function listGiftOrders(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  let q = adminClient
+    .from('gift_orders')
+    .select(GIFT_ORDER_LIST_FIELDS, { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (query.status) q = q.eq('gift_status', query.status);
+
+  const { data, error, count } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
+async function getGiftOrder(adminClient, id) {
+  const { data, error } = await adminClient.from('gift_orders').select(GIFT_ORDER_DETAIL_FIELDS).eq('id', id).maybeSingle();
+  if (error) return json(500, { error: error.message });
+  if (!data) return json(404, { error: 'Gift order not found' });
+  return json(200, { data });
+}
+
+async function getGiftOrderEvents(adminClient, id) {
+  const { data: giftOrder } = await adminClient.from('gift_orders').select('id').eq('id', id).maybeSingle();
+  if (!giftOrder) return json(404, { error: 'Gift order not found' });
+
+  const { data, error } = await adminClient
+    .from('gift_order_events')
+    .select('id, status, note, actor_email, created_at')
+    .eq('gift_order_id', id)
+    .order('created_at', { ascending: true });
+
+  if (error) return json(500, { error: error.message });
+  return json(200, { data: data || [] });
+}
+
+async function listGiftFulfilmentCentres(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  const { data, error, count } = await adminClient
+    .from('gift_fulfilment_centres')
+    .select('id, name, code, country, state, city, address, active, is_default, supported_delivery_zones, cutoff_time, same_day_supported, next_day_supported', { count: 'exact' })
+    .order('name', { ascending: true })
+    .range(offset, offset + limit - 1);
+
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
+async function listGiftPackagingTypes(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  let q = adminClient
+    .from('gift_packaging_types')
+    .select('id, code, name, description, price, max_items, sku, active', { count: 'exact' })
+    .order('sort_order', { ascending: true })
+    .range(offset, offset + limit - 1);
+
+  if (query.active === 'true') q = q.eq('active', true);
+
+  const { data, error, count } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
 // ── riders.* ────────────────────────────────────────────────────────────
 async function listRiders(adminClient, query) {
   const { limit, offset } = paginationParams(query);
@@ -323,6 +429,256 @@ async function listCategories(adminClient, query) {
 
   if (error) return json(500, { error: error.message });
   return json(200, { data, count });
+}
+
+// ── returns.* ───────────────────────────────────────────────────────────
+const RETURN_LIST_FIELDS = 'id, order_number, status, reason, reason_code, complaint_type, preferred_resolution, refund_amount, refund_status, created_at, updated_at';
+const RETURN_DETAIL_FIELDS = `${RETURN_LIST_FIELDS}, customer_name, hub_id, reason_note, images, evidence_urls, fez_tracking, inspection_result, inspection_notes, inspected_at, refund_method, refund_currency, refund_initiated_at, refund_expected_by, refund_completed_at, rejection_reason, seller_response, seller_responded_at, resolution_timeline`;
+
+async function listReturns(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  let q = adminClient
+    .from('return_requests')
+    .select(RETURN_LIST_FIELDS, { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (query.status) q = q.eq('status', query.status);
+
+  const { data, error, count } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
+async function getReturn(adminClient, id) {
+  const { data, error } = await adminClient.from('return_requests').select(RETURN_DETAIL_FIELDS).eq('id', id).maybeSingle();
+  if (error) return json(500, { error: error.message });
+  if (!data) return json(404, { error: 'Return request not found' });
+  return json(200, { data });
+}
+
+async function getReturnShipments(adminClient, id) {
+  const { data: returnRequest } = await adminClient.from('return_requests').select('id').eq('id', id).maybeSingle();
+  if (!returnRequest) return json(404, { error: 'Return request not found' });
+
+  const { data, error } = await adminClient
+    .from('return_shipments')
+    .select('id, method, return_code, status, fez_tracking, waybill_number, destination_type, destination_address, tracking_submitted_at, created_at, updated_at')
+    .eq('return_request_id', id)
+    .order('created_at', { ascending: false });
+
+  if (error) return json(500, { error: error.message });
+  return json(200, { data: data || [] });
+}
+
+// ── influencers.* ───────────────────────────────────────────────────────
+const INFLUENCER_LIST_FIELDS = 'id, name, handle, platform, coupon_code, tier, status, total_orders, total_sales, commission_rate, total_commission_earned, total_commission_paid, start_date, last_sale_date, created_at';
+const INFLUENCER_DETAIL_FIELDS = `${INFLUENCER_LIST_FIELDS}, email, phone, shipping_discount_type, shipping_discount_value, minimum_order_value, maximum_uses, commission_based_on`;
+
+async function listInfluencers(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  let q = adminClient
+    .from('influencers')
+    .select(INFLUENCER_LIST_FIELDS, { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (query.status) q = q.eq('status', query.status);
+  if (query.tier) q = q.eq('tier', query.tier);
+
+  const { data, error, count } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
+async function getInfluencer(adminClient, id) {
+  const { data, error } = await adminClient.from('influencers').select(INFLUENCER_DETAIL_FIELDS).eq('id', id).maybeSingle();
+  if (error) return json(500, { error: error.message });
+  if (!data) return json(404, { error: 'Influencer not found' });
+  return json(200, { data });
+}
+
+async function getInfluencerSales(adminClient, id, query) {
+  const { data: influencer } = await adminClient.from('influencers').select('id').eq('id', id).maybeSingle();
+  if (!influencer) return json(404, { error: 'Influencer not found' });
+
+  const { limit, offset } = paginationParams(query);
+  const { data, error, count } = await adminClient
+    .from('influencer_sales')
+    .select('id, order_number, product_total, influencer_commission_rate, influencer_commission_amount, commission_status, sale_date, order_status, payment_date, notes, created_at', { count: 'exact' })
+    .eq('influencer_id', id)
+    .order('sale_date', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
+// ── custom_orders.* ─────────────────────────────────────────────────────
+const CUSTOM_ORDER_LIST_FIELDS = 'id, order_id, order_item_id, status, price_adjustment, approved_at, created_at, updated_at';
+
+async function listCustomOrders(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  let q = adminClient
+    .from('custom_order_specs')
+    .select(CUSTOM_ORDER_LIST_FIELDS, { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (query.status) q = q.eq('status', query.status);
+  if (query.order_id) q = q.eq('order_id', query.order_id);
+
+  const { data, error, count } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
+async function getCustomOrder(adminClient, id) {
+  const { data, error } = await adminClient
+    .from('custom_order_specs')
+    .select(`${CUSTOM_ORDER_LIST_FIELDS}, field_values, schema_id, approved_proof_url`)
+    .eq('id', id)
+    .maybeSingle();
+  if (error) return json(500, { error: error.message });
+  if (!data) return json(404, { error: 'Custom order spec not found' });
+  return json(200, { data });
+}
+
+// ── campaigns.* ─────────────────────────────────────────────────────────
+const CAMPAIGN_LIST_FIELDS = 'id, slug, internal_name, public_title, campaign_objective, status, approval_status, start_date, end_date, target_type, created_at, updated_at';
+
+async function listCampaigns(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  let q = adminClient
+    .from('campaigns')
+    .select(CAMPAIGN_LIST_FIELDS, { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (query.status) q = q.eq('status', query.status);
+  if (query.approval_status) q = q.eq('approval_status', query.approval_status);
+
+  const { data, error, count } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
+async function getCampaign(adminClient, id) {
+  const { data, error } = await adminClient
+    .from('campaigns')
+    .select(`${CAMPAIGN_LIST_FIELDS}, target_id, template_id, section_layout, hero_config, product_selection_rules, offer_config, meta_seo, vendor_id`)
+    .eq('id', id)
+    .maybeSingle();
+  if (error) return json(500, { error: error.message });
+  if (!data) return json(404, { error: 'Campaign not found' });
+  return json(200, { data });
+}
+
+// ── notifications.* ─────────────────────────────────────────────────────
+async function listEmailTemplates(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  let q = adminClient
+    .from('email_templates')
+    .select('id, name, type, subject, variables, is_active', { count: 'exact' })
+    .order('name', { ascending: true })
+    .range(offset, offset + limit - 1);
+
+  if (query.type) q = q.eq('type', query.type);
+  if (query.active === 'true') q = q.eq('is_active', true);
+
+  const { data, error, count } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
+async function sendEmail(body) {
+  if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
+  const templateName = String(body.template_name || '').trim();
+  const to = String(body.to || '').trim();
+  if (!templateName) return json(400, { error: 'template_name is required' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return json(400, { error: 'A valid "to" email address is required' });
+
+  const data = isPlainObject(body.data) ? body.data : {};
+  const orderId = body.order_id ? String(body.order_id) : null;
+
+  const result = await sendTransactionalEmail({ templateName, to, data, orderId });
+  if (result.sent) return json(200, { data: { sent: true } });
+  if (result.reason === 'no_template') return json(400, { error: `Unknown template_name "${templateName}"` });
+  if (result.reason === 'disabled') return json(503, { error: 'Email sending is currently disabled' });
+  return json(200, { data: { sent: false, reason: result.reason } });
+}
+
+const PUSH_TYPES = new Set(['order_update', 'product', 'promotion', 'general']);
+const PUSH_SCHEDULE_BUFFER_MS = 60_000;
+
+async function sendOrSchedulePush(adminClient, body, { allowedAudiences, apiKeyName }) {
+  if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
+
+  const audience = String(body.audience || '');
+  const title = String(body.title || '').trim();
+  const message = String(body.message || '').trim();
+  const type = String(body.type || '').trim();
+
+  if (!allowedAudiences.has(audience)) {
+    return json(400, { error: `audience must be one of: ${[...allowedAudiences].join(', ')}` });
+  }
+  if (!PUSH_TYPES.has(type)) return json(400, { error: `type must be one of: ${[...PUSH_TYPES].join(', ')}` });
+  if (!title) return json(400, { error: 'title is required' });
+  if (!message) return json(400, { error: 'message is required' });
+
+  const customerId = audience === 'single' ? String(body.customer_id || '').trim() : '';
+  if (audience === 'single' && !customerId) return json(400, { error: 'customer_id is required for audience=single' });
+
+  let segment;
+  if (audience === 'segment') {
+    const platform = body.segment?.platform ? String(body.segment.platform).toLowerCase() : '';
+    if (!['android', 'web'].includes(platform)) return json(400, { error: 'segment.platform must be android or web' });
+    segment = { platform };
+  }
+
+  const requestPayload = {
+    audience, title, message, type,
+    ...(isPlainObject(body.data) ? { data: body.data } : {}),
+    ...(audience === 'single' ? { customerId } : {}),
+    ...(audience === 'segment' ? { segment } : {}),
+  };
+
+  const scheduleAt = body.schedule_at ? String(body.schedule_at).trim() : null;
+  if (scheduleAt && Number.isNaN(Date.parse(scheduleAt))) {
+    return json(400, { error: 'schedule_at must be a valid datetime string' });
+  }
+
+  const scheduledAtMs = scheduleAt ? Date.parse(scheduleAt) : NaN;
+  if (scheduleAt && !Number.isNaN(scheduledAtMs) && scheduledAtMs > Date.now() + PUSH_SCHEDULE_BUFFER_MS) {
+    const { data: queued, error } = await adminClient
+      .from('scheduled_push_notifications')
+      .insert({ schedule_at: scheduleAt, status: 'pending', payload: requestPayload })
+      .select('id, schedule_at')
+      .single();
+    if (error) return json(500, { error: error.message });
+    return json(202, { data: { scheduled: true, id: queued.id, schedule_at: queued.schedule_at } });
+  }
+
+  const pwaBaseUrl = process.env.PWA_BASE_URL;
+  if (!pwaBaseUrl) return json(503, { error: 'Push notification service is not configured' });
+
+  const result = await sendPushViaPwa({
+    pwaBaseUrl,
+    notificationsAdminSecret: process.env.NOTIFICATIONS_ADMIN_SECRET,
+    payload: requestPayload,
+  });
+
+  logNotificationHistory(adminClient, {
+    action: PUSH_HISTORY_ACTION,
+    actorEmail: `service-api:${apiKeyName}`,
+    request: requestPayload,
+    response: result.body,
+    success: !!result.body?.success,
+    statusCode: result.statusCode,
+    meta: result.body?.meta,
+  }).catch(() => {});
+
+  return json(result.statusCode, result.body);
 }
 
 export const handler = async (event) => {
@@ -421,6 +777,47 @@ export const handler = async (event) => {
       }
     }
 
+    // --- gift ---
+    if (segments[0] === 'gift-boxes') {
+      if (segments.length === 1 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'gift_boxes.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listGiftBoxes(auth.adminClient, query);
+      }
+      if (segments.length === 2 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'gift_boxes.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getGiftBox(auth.adminClient, segments[1]);
+      }
+    }
+    if (segments[0] === 'gift-orders') {
+      if (segments.length === 1 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'gift_orders.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listGiftOrders(auth.adminClient, query);
+      }
+      if (segments.length === 3 && segments[2] === 'events' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'gift_orders.events.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getGiftOrderEvents(auth.adminClient, segments[1]);
+      }
+      if (segments.length === 2 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'gift_orders.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getGiftOrder(auth.adminClient, segments[1]);
+      }
+    }
+    if (segments[0] === 'gift-fulfilment-centres' && segments.length === 1 && method === 'GET') {
+      const auth = await authenticateServiceApiRequest(event, 'gift_fulfilment_centres.list');
+      if (auth.errorResponse) return auth.errorResponse;
+      return await listGiftFulfilmentCentres(auth.adminClient, query);
+    }
+    if (segments[0] === 'gift-packaging-types' && segments.length === 1 && method === 'GET') {
+      const auth = await authenticateServiceApiRequest(event, 'gift_packaging_types.list');
+      if (auth.errorResponse) return auth.errorResponse;
+      return await listGiftPackagingTypes(auth.adminClient, query);
+    }
+
     // --- riders ---
     if (segments[0] === 'riders') {
       if (segments.length === 1 && method === 'GET') {
@@ -457,6 +854,101 @@ export const handler = async (event) => {
       const auth = await authenticateServiceApiRequest(event, 'categories.list');
       if (auth.errorResponse) return auth.errorResponse;
       return await listCategories(auth.adminClient, query);
+    }
+
+    // --- returns ---
+    if (segments[0] === 'returns') {
+      if (segments.length === 1 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'returns.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listReturns(auth.adminClient, query);
+      }
+      if (segments.length === 3 && segments[2] === 'shipments' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'returns.shipments.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getReturnShipments(auth.adminClient, segments[1]);
+      }
+      if (segments.length === 2 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'returns.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getReturn(auth.adminClient, segments[1]);
+      }
+    }
+
+    // --- influencers ---
+    if (segments[0] === 'influencers') {
+      if (segments.length === 1 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'influencers.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listInfluencers(auth.adminClient, query);
+      }
+      if (segments.length === 3 && segments[2] === 'sales' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'influencers.sales.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getInfluencerSales(auth.adminClient, segments[1], query);
+      }
+      if (segments.length === 2 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'influencers.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getInfluencer(auth.adminClient, segments[1]);
+      }
+    }
+
+    // --- custom orders ---
+    if (segments[0] === 'custom-orders') {
+      if (segments.length === 1 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'custom_orders.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listCustomOrders(auth.adminClient, query);
+      }
+      if (segments.length === 2 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'custom_orders.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getCustomOrder(auth.adminClient, segments[1]);
+      }
+    }
+
+    // --- campaigns ---
+    if (segments[0] === 'campaigns') {
+      if (segments.length === 1 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'campaigns.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listCampaigns(auth.adminClient, query);
+      }
+      if (segments.length === 2 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'campaigns.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getCampaign(auth.adminClient, segments[1]);
+      }
+    }
+
+    // --- notifications ---
+    if (segments[0] === 'notifications') {
+      if (segments.length === 2 && segments[1] === 'email-templates' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'notifications.email_templates.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listEmailTemplates(auth.adminClient, query);
+      }
+      if (segments.length === 2 && segments[1] === 'email' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'notifications.email.send');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await sendEmail(body);
+      }
+      if (segments.length === 2 && segments[1] === 'push' && method === 'POST') {
+        const body = JSON.parse(event.body || '{}');
+        const requestedAudience = String(body?.audience || '');
+        const isBulk = requestedAudience !== 'single';
+        const auth = await authenticateServiceApiRequest(
+          event,
+          isBulk ? 'notifications.push.broadcast' : ['notifications.push.send', 'notifications.push.broadcast']
+        );
+        if (auth.errorResponse) return auth.errorResponse;
+        const allowedAudiences = auth.apiKey.scopes.includes('notifications.push.broadcast')
+          ? new Set(['single', 'all_customers', 'all_vendors', 'all_staff', 'segment'])
+          : new Set(['single']);
+        return await sendOrSchedulePush(auth.adminClient, body, { allowedAudiences, apiKeyName: auth.apiKey.name });
+      }
     }
 
     return json(404, { error: `No route for ${method} /api/v1/${path}` });

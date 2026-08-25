@@ -66,7 +66,7 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
   const [newKeyName, setNewKeyName] = useState('');
   const [newKeyScopes, setNewKeyScopes] = useState<string[]>([]);
   const [creatingKey, setCreatingKey] = useState(false);
-  const [mintedToken, setMintedToken] = useState<{ name: string; token: string } | null>(null);
+  const [mintedToken, setMintedToken] = useState<{ name: string; token: string; scopes: string[] } | null>(null);
 
   const [showWebhookForm, setShowWebhookForm] = useState(false);
   const [webhookName, setWebhookName] = useState('');
@@ -122,7 +122,7 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
         name: newKeyName.trim(),
         scopes: newKeyScopes,
       });
-      setMintedToken({ name: res.data.name, token: res.data.token });
+      setMintedToken({ name: res.data.name, token: res.data.token, scopes: res.data.scopes || [] });
       setNewKeyName('');
       setNewKeyScopes([]);
       await load();
@@ -207,6 +207,8 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
     (acc[cap.domain] ||= []).push(cap);
     return acc;
   }, {});
+  const dangerBtnClass =
+    'inline-flex items-center gap-1 text-xs font-medium border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 rounded-lg px-3 py-1.5 transition-colors shrink-0';
   const RISK_BADGE: Record<Capability['risk_level'], string> = {
     low: 'bg-gray-100 text-gray-500',
     medium: 'bg-amber-100 text-amber-700',
@@ -256,6 +258,13 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
                   {copiedItem === 'token' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                 </button>
               </div>
+              <p className="text-[11px] text-amber-700 mt-2">Granted capabilities (comma-separated, for pasting into a scopes field):</p>
+              <div className="mt-1 flex gap-2">
+                <input readOnly value={mintedToken.scopes.join(',')} className="flex-1 min-w-0 px-2 py-1.5 border border-amber-300 rounded font-mono text-xs bg-white" />
+                <button type="button" onClick={() => copy(mintedToken.scopes.join(','), 'minted_scopes')} className="btn-secondary text-xs shrink-0">
+                  {copiedItem === 'minted_scopes' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
               <button type="button" onClick={() => setMintedToken(null)} className="text-xs text-amber-700 underline mt-2">
                 Done, dismiss
               </button>
@@ -276,10 +285,19 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
                       {!k.is_active ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">Revoked</span> : null}
                     </p>
                     <p className="text-xs font-mono text-gray-500 mt-0.5">{k.key_prefix}…</p>
-                    <div className="mt-1 flex flex-wrap gap-1">
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
                       {k.scopes.map((s) => (
                         <span key={s} className="text-[10px] px-1.5 py-0.5 rounded bg-primary-50 text-primary-700 font-mono">{s}</span>
                       ))}
+                      <button
+                        type="button"
+                        title="Copy all capabilities as a comma-separated list"
+                        onClick={() => copy(k.scopes.join(','), `scopes_${k.id}`)}
+                        className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-500 hover:bg-gray-50"
+                      >
+                        {copiedItem === `scopes_${k.id}` ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                        Copy all
+                      </button>
                     </div>
                     <p className="text-[11px] text-gray-400 mt-1">
                       Created {new Date(k.created_at).toLocaleDateString()}
@@ -287,12 +305,12 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
                     </p>
                   </div>
                   {k.is_active ? (
-                    <button type="button" onClick={() => void revokeKey(k.id, k.name)} className="btn-secondary btn-sm text-xs text-red-600 shrink-0 flex items-center gap-1">
+                    <button type="button" onClick={() => void revokeKey(k.id, k.name)} className={dangerBtnClass}>
                       <Trash2 className="w-3.5 h-3.5" />
                       Revoke
                     </button>
                   ) : (
-                    <button type="button" onClick={() => void deleteKey(k.id, k.name)} className="btn-secondary btn-sm text-xs text-red-600 shrink-0 flex items-center gap-1">
+                    <button type="button" onClick={() => void deleteKey(k.id, k.name)} className={dangerBtnClass}>
                       <Trash2 className="w-3.5 h-3.5" />
                       Delete
                     </button>
@@ -385,7 +403,7 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
                     <button type="button" onClick={() => void toggleWebhookActive(w)} className="btn-secondary btn-sm text-xs">
                       {w.is_active ? 'Pause' : 'Resume'}
                     </button>
-                    <button type="button" onClick={() => void deleteWebhook(w)} className="btn-secondary btn-sm text-xs text-red-600">
+                    <button type="button" onClick={() => void deleteWebhook(w)} className={dangerBtnClass}>
                       Delete
                     </button>
                   </div>

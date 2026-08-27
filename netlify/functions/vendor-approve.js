@@ -208,6 +208,17 @@ export const handler = async (event) => {
     details: { application_id, store_name: app.store_name, email: app.email },
   });
 
+  await sendTransactionalEmail({
+    templateName: 'New Vendor Welcome',
+    to: app.email,
+    data: {
+      vendor_name: app.full_name || app.store_name,
+      store_name: app.store_name,
+      portal_url: portalBase,
+      support_email: process.env.SUPPORT_EMAIL || 'support@julinemart.com',
+    },
+  });
+
   return {
     statusCode: 200,
     headers: { ...cors, 'Content-Type': 'application/json' },

@@ -245,7 +245,7 @@
 
 [functions."process-scheduled-push"]
   timeout = 120
-  schedule = "*/5 * * * *"
+  schedule = "* * * * *"
 
 [functions."process-abandoned-checkout-reminders"]
   timeout = 60

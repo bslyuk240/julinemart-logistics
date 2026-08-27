@@ -414,7 +414,7 @@ export const CAPABILITIES = [
     description: 'Send or schedule a push notification to one customer.',
     operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'medium',
     http_method: 'POST', endpoint: '/notifications/push',
-    input_schema: { audience: '"single"', customer_id: 'string', title: 'string', message: 'string', type: 'order_update|product|promotion|general', data: 'object (optional)', schedule_at: 'ISO datetime (optional — future send)' },
+    input_schema: { audience: '"single"', customer_id: 'string', title: 'string', message: 'string', type: 'order_update|product|promotion|general', data: 'object (optional)', schedule_at: 'ISO datetime with timezone, prefer Z (optional — when set, always queued, never sent in this request)' },
     idempotency_required: false, approval_recommended: false, enabled: true,
   },
   {
@@ -422,7 +422,7 @@ export const CAPABILITIES = [
     description: 'Send or schedule a push notification to all customers, all vendors, all staff, or a platform segment. Reaches many real devices in one call.',
     operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'high',
     http_method: 'POST', endpoint: '/notifications/push',
-    input_schema: { audience: 'all_customers|all_vendors|all_staff|segment', title: 'string', message: 'string', type: 'order_update|product|promotion|general', segment: '{ platform: android|web } (required if audience=segment)', data: 'object (optional)', schedule_at: 'ISO datetime (optional — future send)' },
+    input_schema: { audience: 'all_customers|all_vendors|all_staff|segment', title: 'string', message: 'string', type: 'order_update|product|promotion|general', segment: '{ platform: android|web } (required if audience=segment)', data: 'object (optional)', schedule_at: 'ISO datetime with timezone, prefer Z (optional — when set, always queued, never sent in this request)' },
     idempotency_required: false, approval_recommended: true, enabled: true,
   },
 

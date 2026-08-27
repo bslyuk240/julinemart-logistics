@@ -35,6 +35,19 @@ function paginationParams(query) {
   return { limit, offset };
 }
 
+// Strips characters significant to PostgREST's .or() filter-string syntax
+// (comma separates conditions, parens nest logic groups) before a caller-
+// supplied search term is spliced into one. Without this, a `q` containing
+// a comma appends an independent filter clause against ANY column on the
+// table — e.g. a key scoped only to orders.search (customer_name/order_number)
+// could probe order_notes/payment_method, which are only meant to be
+// reachable via the separate orders.read capability. Query-builder methods
+// like .eq()/.ilike() parameterize correctly; only .or()'s raw string
+// argument needs this.
+function sanitizeSearchTerm(value) {
+  return String(value || '').replace(/[,()%]/g, '').trim().slice(0, 200);
+}
+
 function isPlainObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -55,7 +68,8 @@ async function listOrders(adminClient, query) {
 
   if (query.status) q = q.eq('overall_status', query.status);
   if (query.since) q = q.gte('created_at', query.since);
-  if (query.q) q = q.or(`customer_name.ilike.%${query.q}%,order_number.eq.${Number(query.q) || 0}`);
+  const searchTerm = sanitizeSearchTerm(query.q);
+  if (searchTerm) q = q.or(`customer_name.ilike.%${searchTerm}%,order_number.eq.${Number(searchTerm) || 0}`);
 
   const { data, error, count } = await q;
   if (error) return json(500, { error: error.message });
@@ -405,7 +419,8 @@ async function listProducts(adminClient, query) {
   if (query.status) q = q.eq('status', query.status);
   if (query.vendor_id) q = q.eq('vendor_id', query.vendor_id);
   if (query.stock_status) q = q.eq('stock_status', query.stock_status);
-  if (query.q) q = q.or(`name.ilike.%${query.q}%,sku.ilike.%${query.q}%`);
+  const searchTerm = sanitizeSearchTerm(query.q);
+  if (searchTerm) q = q.or(`name.ilike.%${searchTerm}%,sku.ilike.%${searchTerm}%`);
 
   const { data, error, count } = await q;
   if (error) return json(500, { error: error.message });
@@ -609,7 +624,6 @@ async function sendEmail(body) {
 }
 
 const PUSH_TYPES = new Set(['order_update', 'product', 'promotion', 'general']);
-const PUSH_SCHEDULE_BUFFER_MS = 60_000;
 
 async function sendOrSchedulePush(adminClient, body, { allowedAudiences, apiKeyName }) {
   if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
@@ -643,16 +657,19 @@ async function sendOrSchedulePush(adminClient, body, { allowedAudiences, apiKeyN
     ...(audience === 'segment' ? { segment } : {}),
   };
 
-  const scheduleAt = body.schedule_at ? String(body.schedule_at).trim() : null;
-  if (scheduleAt && Number.isNaN(Date.parse(scheduleAt))) {
-    return json(400, { error: 'schedule_at must be a valid datetime string' });
-  }
-
-  const scheduledAtMs = scheduleAt ? Date.parse(scheduleAt) : NaN;
-  if (scheduleAt && !Number.isNaN(scheduledAtMs) && scheduledAtMs > Date.now() + PUSH_SCHEDULE_BUFFER_MS) {
+  // Any valid schedule_at queues. Never fall through to an immediate send —
+  // a too-soon or already-past timestamp used to do that silently (the old
+  // 60s buffer), which made HITL-approved "send in 5 minutes" fires fire now.
+  const scheduleAtRaw = body.schedule_at ?? body.scheduleAt ?? body.scheduled_at;
+  const scheduleAt = scheduleAtRaw ? String(scheduleAtRaw).trim() : '';
+  if (scheduleAt) {
+    const scheduledAtMs = Date.parse(scheduleAt);
+    if (Number.isNaN(scheduledAtMs)) {
+      return json(400, { error: 'schedule_at must be a valid datetime string' });
+    }
     const { data: queued, error } = await adminClient
       .from('scheduled_push_notifications')
-      .insert({ schedule_at: scheduleAt, status: 'pending', payload: requestPayload })
+      .insert({ schedule_at: new Date(scheduledAtMs).toISOString(), status: 'pending', payload: requestPayload })
       .select('id, schedule_at')
       .single();
     if (error) return json(500, { error: error.message });

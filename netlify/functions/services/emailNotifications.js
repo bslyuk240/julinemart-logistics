@@ -130,10 +130,25 @@ export { getTransport };
 
 // ── Template rendering ────────────────────────────────────────────────────────
 
-function render(template, data) {
+// Escapes HTML-significant characters in a substituted value. Applied to the
+// HTML body only — callers now include the external /api/v1/notifications/email
+// route, where `data` values come from an untrusted caller and were previously
+// spliced into the HTML body unescaped (real phishing/markup-injection risk,
+// not just theoretical: any {{variable}} could carry attacker-controlled
+// <a>/<img>/<script>-shaped markup into a legitimate JulineMart-branded email).
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function render(template, data, { escape = false } = {}) {
   let out = template || '';
   for (const [key, val] of Object.entries(data || {})) {
-    const safe = val == null ? '' : String(val);
+    const safe = val == null ? '' : escape ? escapeHtml(val) : String(val);
     out = out.replace(new RegExp(`{{${key}}}`, 'g'), safe);
   }
   return out;
@@ -213,7 +228,7 @@ export async function sendTransactionalEmail({ templateName, to, data = {}, orde
 
     // ── Render & send ──────────────────────────────────────────────────────────
     const subject = render(tpl.subject, data);
-    const html    = render(tpl.html_content, data);
+    const html    = render(tpl.html_content, data, { escape: true });
     const text    = render(tpl.text_content, data);
 
     await tc.transport.sendMail({ from: tc.from, to, subject, html, text });

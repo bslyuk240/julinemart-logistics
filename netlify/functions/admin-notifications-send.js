@@ -35,7 +35,6 @@ const ALLOWED_AUDIENCES = new Set([
 const BULK_AUDIENCES = new Set(['all_customers', 'all_vendors', 'all_staff', 'segment']);
 const ALLOWED_TYPES = new Set(['order_update', 'product', 'promotion', 'general']);
 
-const SCHEDULE_BUFFER_MS = 60_000;
 
 const isRecord = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -197,13 +196,16 @@ export async function handler(event) {
     return jsonResponse(403, { success: false, error: 'Insufficient permissions' });
   }
 
-  const scheduledAtMs = validated.scheduleAt ? Date.parse(validated.scheduleAt) : NaN;
-  if (validated.scheduleAt && !Number.isNaN(scheduledAtMs) && scheduledAtMs > Date.now() + SCHEDULE_BUFFER_MS) {
+  if (validated.scheduleAt) {
+    const scheduledAtMs = Date.parse(validated.scheduleAt);
+    if (Number.isNaN(scheduledAtMs)) {
+      return jsonResponse(400, { success: false, error: 'scheduleAt must be a valid datetime string' });
+    }
     const { data: queued, error: queueError } = await auth.adminClient
       .from('scheduled_push_notifications')
       .insert({
         created_by: auth.profile.id,
-        schedule_at: validated.scheduleAt,
+        schedule_at: new Date(scheduledAtMs).toISOString(),
         status: 'pending',
         payload: validated.requestPayload,
       })

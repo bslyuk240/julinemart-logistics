@@ -376,7 +376,7 @@ it reaches real customer inboxes/devices, not just reads JLO's DB:
 - `notifications.push.send` / `notifications.push.broadcast` wrap
   `services/pushSendProxy.js:sendPushViaPwa()` and, for future-dated
   sends, insert into `scheduled_push_notifications` — the exact same
-  table `process-scheduled-push.js` (cron `*/5 * * * *`) already polls
+  table `process-scheduled-push.js` (cron `* * * * *`) already polls
   for the admin dashboard's own scheduled pushes, so no new cron was
   needed. Both capabilities hit **one route** (`POST /notifications/push`)
   — which `audience` values are accepted is computed from the calling

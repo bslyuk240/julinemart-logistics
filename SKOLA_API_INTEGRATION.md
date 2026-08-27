@@ -542,7 +542,7 @@ curl -s -X POST "https://jlo.julinemart.com/api/v1/notifications/push" \
 | `title`, `message` | yes | |
 | `type` | yes | `order_update` \| `product` \| `promotion` \| `general` |
 | `data` | no | Arbitrary JSON delivered with the push |
-| `schedule_at` | no | ISO datetime — queues it instead of sending immediately (needs to be >1 minute in the future) |
+| `schedule_at` | no | ISO datetime (include a timezone, prefer `Z`). When set, the push is **always queued** and never sent in this request — even if the time is soon or already past (the processor sends it on the next minute tick). Omit the field entirely to send immediately. |
 
 Immediate send response:
 ```json

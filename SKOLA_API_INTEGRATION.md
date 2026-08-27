@@ -109,13 +109,12 @@ grow over time without a breaking change to existing routes.
 ### 4.1 `enabled: false` entries
 
 Some capabilities are advertised but not live yet — `orders.cancel`,
-`shipments.create`, `riders.location.read`, `customers.read`,
-`customers.orders.read`, `operations.exceptions.list`,
-`operations.summary.read`. These are real roadmap items (several are
-disabled on purpose — location and customer PII need a privacy decision
-first; order cancellation and shipment creation are high-risk writes).
-Calling their `endpoint` today returns `404`. Don't build against them
-until `enabled` flips to `true`.
+`shipments.create`, `riders.location.read`,
+`operations.exceptions.list`, `operations.summary.read`. These are real
+roadmap items (several are disabled on purpose — location needs a
+privacy decision first; order cancellation and shipment creation are
+high-risk writes). Calling their `endpoint` today returns `404`. Don't
+build against them until `enabled` flips to `true`.
 
 ## 5. Capability reference
 
@@ -149,6 +148,8 @@ under two names for different consumer mental models).
 | `riders.list` | `GET /riders` |
 | `riders.read` | `GET /riders/:id` |
 | `riders.status.read` | `GET /riders/:id/status` |
+| `customers.read` | `GET /customers/:id` (uuid or phone; no email) |
+| `customers.orders.read` | `GET /customers/:id/orders` |
 | `products.list` / `products.search` | `GET /products` |
 | `products.read` | `GET /products/:id` |
 | `categories.list` | `GET /categories` |

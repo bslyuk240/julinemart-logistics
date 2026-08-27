@@ -15,8 +15,9 @@
  *
  * PII is intentionally minimized for an external/agent audience: customer
  * email is never returned, list endpoints omit street addresses, and
- * rider live location / customer PII domains are advertised in the
- * manifest but not enabled — see capabilityCatalog.js for why.
+ * rider live location is advertised in the manifest but not enabled —
+ * see capabilityCatalog.js. Customer profile (name/phone) is available
+ * under customers.read / customers.orders.read.
  */
 import { authenticateServiceApiRequest, jsonError } from './services/serviceApiKeyAuth.js';
 import { fetchSourceDetails, summarizeShipment, SHIPMENT_LIST_SELECT } from './services/shipmentSummary.js';
@@ -261,6 +262,70 @@ async function getVendorPerformance(adminClient, id) {
   if (error) return json(500, { error: error.message });
   if (!data) return json(404, { error: 'Vendor not found' });
   return json(200, { data });
+}
+
+const CUSTOMER_PUBLIC_FIELDS = 'id, first_name, last_name, phone, created_at';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function resolveCustomer(adminClient, idOrPhone) {
+  const key = String(idOrPhone || '').trim();
+  if (!key) return { status: 400, error: 'Customer id is required' };
+
+  if (UUID_RE.test(key)) {
+    const { data, error } = await adminClient.from('customers').select(CUSTOMER_PUBLIC_FIELDS).eq('id', key).maybeSingle();
+    if (error) return { status: 500, error: error.message };
+    if (!data) return { status: 404, error: 'Customer not found' };
+    return { customer: data };
+  }
+
+  const digits = key.replace(/\D/g, '');
+  if (digits.length < 7) return { status: 404, error: 'Customer not found' };
+  const last10 = digits.slice(-10);
+  const { data, error } = await adminClient
+    .from('customers')
+    .select(CUSTOMER_PUBLIC_FIELDS)
+    .like('phone', `%${last10}%`)
+    .limit(5);
+  if (error) return { status: 500, error: error.message };
+  const rows = data || [];
+  if (rows.length === 0) return { status: 404, error: 'Customer not found' };
+  if (rows.length > 1) {
+    return { status: 400, error: 'Multiple customers match that phone', matches: rows.map((r) => r.id) };
+  }
+  return { customer: rows[0] };
+}
+
+async function getCustomer(adminClient, idOrPhone) {
+  const found = await resolveCustomer(adminClient, idOrPhone);
+  if (!found.customer) {
+    return json(found.status, { error: found.error, ...(found.matches ? { matches: found.matches } : {}) });
+  }
+  const c = found.customer;
+  const name = [c.first_name, c.last_name].filter(Boolean).join(' ').trim() || null;
+  return json(200, { data: { id: c.id, name, first_name: c.first_name || null, last_name: c.last_name || null, phone: c.phone || null, created_at: c.created_at } });
+}
+
+async function getCustomerOrders(adminClient, idOrPhone, query) {
+  const found = await resolveCustomer(adminClient, idOrPhone);
+  if (!found.customer) {
+    return json(found.status, { error: found.error, ...(found.matches ? { matches: found.matches } : {}) });
+  }
+  const phone = String(found.customer.phone || '').replace(/\D/g, '');
+  const last10 = phone.slice(-10);
+  if (last10.length < 7) return json(200, { data: [], count: 0 });
+
+  const { limit, offset } = paginationParams(query);
+  let q = adminClient
+    .from('orders')
+    .select(ORDER_LIST_FIELDS, { count: 'exact' })
+    .like('customer_phone', `%${last10}%`)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (query.status) q = q.eq('overall_status', query.status);
+
+  const { data, error, count } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data: data || [], count });
 }
 
 // ── gift.* ──────────────────────────────────────────────────────────────
@@ -867,6 +932,20 @@ export const handler = async (event) => {
         const auth = await authenticateServiceApiRequest(event, 'riders.read');
         if (auth.errorResponse) return auth.errorResponse;
         return await getRider(auth.adminClient, segments[1]);
+      }
+    }
+
+    // --- customers ---
+    if (segments[0] === 'customers') {
+      if (segments.length === 3 && segments[2] === 'orders' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'customers.orders.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getCustomerOrders(auth.adminClient, segments[1], query);
+      }
+      if (segments.length === 2 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'customers.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getCustomer(auth.adminClient, segments[1]);
       }
     }
 

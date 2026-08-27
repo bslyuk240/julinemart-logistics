@@ -476,17 +476,20 @@ export const CAPABILITIES = [
   // ── CUSTOMERS ─────────────────────────────────────────────────────────
   {
     id: 'customers.read', domain: 'customers', name: 'Read Customer',
-    description: 'Customer profile (name, phone, order history summary). No email.',
+    description: 'Customer profile (name, phone). Email is never returned. :id may be a UUID or a phone number.',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'medium',
     http_method: 'GET', endpoint: '/customers/:id',
-    idempotency_required: false, approval_recommended: false, enabled: false,
+    input_schema: { id: 'uuid or phone' },
+    idempotency_required: false, approval_recommended: false, enabled: true,
   },
   {
     id: 'customers.orders.read', domain: 'customers', name: 'Read Customer Orders',
-    description: "A customer's order history.",
+    description: "A customer's order history (no customer email). :id may be a UUID or a phone number.",
     operation_type: 'read', side_effect_type: 'none', risk_level: 'medium',
     http_method: 'GET', endpoint: '/customers/:id/orders',
-    idempotency_required: false, approval_recommended: false, enabled: false,
+    input_schema: { id: 'uuid or phone', status: 'optional order overall_status', limit: 'number', offset: 'number' },
+    supports_pagination: true, supports_filtering: true,
+    idempotency_required: false, approval_recommended: false, enabled: true,
   },
 
   // ── OPERATIONS ────────────────────────────────────────────────────────

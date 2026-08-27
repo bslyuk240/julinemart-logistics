@@ -318,9 +318,8 @@ everything else derives from it, so start there:
     read-only.
   - `riders.location.read` — live GPS is a privacy decision, not an
     engineering one; needs product sign-off first.
-  - `customers.read` / `customers.orders.read` — PII domain; the rest of
-    this API deliberately never returns customer email, so a whole
-    customer-record capability needs the same scrutiny before it exists.
+  - `customers.read` / `customers.orders.read` — live. Profile returns
+    name and phone only; email is still never exposed.
   - `operations.exceptions.list` / `operations.summary.read` — not a
     security concern, just undefined: "exception" and "summary" need a
     product decision on what counts before there's something real to

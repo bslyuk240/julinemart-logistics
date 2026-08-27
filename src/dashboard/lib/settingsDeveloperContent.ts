@@ -185,6 +185,8 @@ export const API_ENDPOINT_GROUPS: ApiEndpointGroup[] = [
       { method: 'GET', path: '/api/v1/riders', description: 'List riders — riders.list', auth: 'service' },
       { method: 'GET', path: '/api/v1/riders/:id', description: 'Rider profile — riders.read', auth: 'service' },
       { method: 'GET', path: '/api/v1/riders/:id/status', description: 'Rider online/verification status — riders.status.read', auth: 'service' },
+      { method: 'GET', path: '/api/v1/customers/:id', description: 'Customer profile (name, phone; no email) — customers.read', auth: 'service' },
+      { method: 'GET', path: '/api/v1/customers/:id/orders', description: "Customer's order history — customers.orders.read", auth: 'service' },
       { method: 'GET', path: '/api/v1/products', description: 'List/search catalogue products — products.list, products.search', auth: 'service' },
       { method: 'GET', path: '/api/v1/products/:id', description: 'Product detail — products.read', auth: 'service' },
       { method: 'GET', path: '/api/v1/categories', description: 'List categories — categories.list', auth: 'service' },

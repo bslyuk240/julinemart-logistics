@@ -21,7 +21,7 @@
 import { authenticateServiceApiRequest, jsonError } from './services/serviceApiKeyAuth.js';
 import { fetchSourceDetails, summarizeShipment, SHIPMENT_LIST_SELECT } from './services/shipmentSummary.js';
 import { getCapabilityManifest } from './services/capabilityCatalog.js';
-import { sendTransactionalEmail } from './services/emailNotifications.js';
+import { sendTransactionalEmail, sendTransactionalEmailBulk, RESEND_BATCH_LIMIT } from './services/emailNotifications.js';
 import { sendPushViaPwa } from './services/pushSendProxy.js';
 import { logNotificationHistory, PUSH_HISTORY_ACTION } from './services/notificationHistory.js';
 
@@ -623,6 +623,22 @@ async function sendEmail(body) {
   return json(200, { data: { sent: false, reason: result.reason } });
 }
 
+async function sendEmailBulk(body) {
+  if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
+  const templateName = String(body.template_name || '').trim();
+  if (!templateName) return json(400, { error: 'template_name is required' });
+  const recipients = Array.isArray(body.recipients) ? body.recipients : [];
+  if (recipients.length === 0) return json(400, { error: 'recipients must be a non-empty array of { to, data? }' });
+  if (recipients.length > RESEND_BATCH_LIMIT) {
+    return json(400, { error: `recipients is capped at ${RESEND_BATCH_LIMIT} per request` });
+  }
+  const sharedData = isPlainObject(body.data) ? body.data : {};
+  const result = await sendTransactionalEmailBulk({ templateName, recipients, data: sharedData });
+  if (result.reason === 'no_template') return json(400, { error: `Unknown template_name "${templateName}"` });
+  if (result.reason === 'disabled') return json(503, { error: 'Email sending is currently disabled' });
+  return json(200, { data: result });
+}
+
 const PUSH_TYPES = new Set(['order_update', 'product', 'promotion', 'general']);
 
 async function sendOrSchedulePush(adminClient, body, { allowedAudiences, apiKeyName }) {
@@ -951,6 +967,12 @@ export const handler = async (event) => {
         if (auth.errorResponse) return auth.errorResponse;
         const body = JSON.parse(event.body || '{}');
         return await sendEmail(body);
+      }
+      if (segments.length === 3 && segments[1] === 'email' && segments[2] === 'bulk' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'notifications.email.send_bulk');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await sendEmailBulk(body);
       }
       if (segments.length === 2 && segments[1] === 'push' && method === 'POST') {
         const body = JSON.parse(event.body || '{}');

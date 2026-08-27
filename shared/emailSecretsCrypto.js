@@ -1,5 +1,5 @@
 /**
- * Reversible encryption for email_config secret fields (gmail_password, sendgrid_api_key, smtp_password).
+ * Reversible encryption for email_config secret fields (gmail_password, sendgrid_api_key, smtp_password, resend_api_key).
  * Hashing (bcrypt) cannot be used — SMTP requires the plaintext password at send time.
  *
  * Set EMAIL_SECRETS_ENCRYPTION_KEY to a 32-byte key: base64 (preferred) or 64 hex chars.
@@ -15,6 +15,7 @@ export const EMAIL_CONFIG_DB_FIELDS = [
   'gmail_user',
   'gmail_password',
   'sendgrid_api_key',
+  'resend_api_key',
   'smtp_host',
   'smtp_port',
   'smtp_user',
@@ -122,6 +123,7 @@ export function decryptEmailConfigSecrets(config) {
     ...config,
     gmail_password: decryptSecretFromStorage(config.gmail_password),
     sendgrid_api_key: decryptSecretFromStorage(config.sendgrid_api_key),
+    resend_api_key: decryptSecretFromStorage(config.resend_api_key),
     smtp_password: decryptSecretFromStorage(config.smtp_password),
   };
 }
@@ -156,6 +158,7 @@ export function encryptEmailConfigSecretsForStorage(config) {
     ...config,
     gmail_password: encryptSecretForStorage(config.gmail_password),
     sendgrid_api_key: encryptSecretForStorage(config.sendgrid_api_key),
+    resend_api_key: encryptSecretForStorage(config.resend_api_key),
     smtp_password: encryptSecretForStorage(config.smtp_password),
   };
 }
@@ -193,10 +196,12 @@ export function sanitizeEmailConfigForClient(config) {
     ...config,
     gmail_password: '',
     sendgrid_api_key: '',
+    resend_api_key: '',
     smtp_password: '',
     secrets_configured: {
       gmail_password: has('gmail_password'),
       sendgrid_api_key: has('sendgrid_api_key'),
+      resend_api_key: has('resend_api_key'),
       smtp_password: has('smtp_password'),
     },
     /** True when EMAIL_SECRETS_ENCRYPTION_KEY is valid in this process (check Network response if DB stays plaintext). */

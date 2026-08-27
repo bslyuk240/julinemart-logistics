@@ -174,6 +174,27 @@ Required for bulk emails. Add to footer:
 
 ---
 
+## Resend (recommended for bulk vendor mail)
+
+Resend delivers **operational** JLO templates (orders, vendor activation, bulk).
+Auth emails (invite, password reset, magic link) stay on **Supabase Custom SMTP** —
+do not point the Auth SMTP settings at Resend.
+
+1. Create an account at https://resend.com and verify `julinemart.com`.
+2. Create an API key with sending permission (`re_…`).
+3. In JLO **Email Management**, paste the Resend API key (leave fallback provider on SMTP).
+4. In the **Supabase** project → Authentication → SMTP, keep the existing SMTP host/user/password.
+
+Optional Netlify env (same split — do not set `EMAIL_PROVIDER=resend`):
+
+```env
+RESEND_API_KEY=re_xxxxxxxx
+EMAIL_FROM=JulineMart <noreply@julinemart.com>
+EMAIL_PROVIDER=smtp
+```
+
+---
+
 ## Custom SMTP Configuration
 
 If using another email provider:

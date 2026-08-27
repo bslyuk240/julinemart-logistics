@@ -4,16 +4,18 @@ import { emailTemplates } from './emailTemplates.js';
 import { createClient } from '@supabase/supabase-js';
 import { decryptEmailConfigSecrets } from '../../../shared/emailSecretsCrypto.js';
 import { buildCustomSmtpTransportOptions } from '../../../shared/smtpTransport.js';
+import { sendResendEmail } from '../../../shared/resendMail.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 type DbEmailConfig = {
-  provider: 'gmail' | 'sendgrid' | 'smtp';
+  provider: 'gmail' | 'sendgrid' | 'smtp' | 'resend';
   gmail_user: string | null;
   gmail_password: string | null;
   sendgrid_api_key: string | null;
+  resend_api_key: string | null;
   smtp_host: string | null;
   smtp_port: number | null;
   smtp_user: string | null;
@@ -27,8 +29,9 @@ type RuntimeEmailConfig = {
   enabled: boolean;
   from: string;
   portalUrl: string;
-  transportConfig: SMTPTransport.Options;
+  transportConfig: SMTPTransport.Options | null;
   transportKey: string;
+  resendApiKey?: string;
 };
 
 const CONFIG_CACHE_TTL_MS = 60_000;
@@ -119,7 +122,6 @@ function buildTransportConfigFromDb(config: DbEmailConfig): SMTPTransport.Option
 }
 
 function buildRuntimeConfigFromDb(config: DbEmailConfig): RuntimeEmailConfig {
-  const transportConfig = buildTransportConfigFromDb(config);
   const from =
     config.email_from ||
     config.gmail_user ||
@@ -130,16 +132,39 @@ function buildRuntimeConfigFromDb(config: DbEmailConfig): RuntimeEmailConfig {
   const portalUrl =
     config.portal_url || process.env.CUSTOMER_PORTAL_URL || 'http://localhost:3002';
   const enabled = config.email_enabled ?? true;
+  const resendApiKey = config.resend_api_key || process.env.RESEND_API_KEY || '';
+  if (resendApiKey) {
+    return {
+      enabled,
+      from,
+      portalUrl,
+      transportConfig: null,
+      transportKey: `resend:${from}`,
+      resendApiKey,
+    };
+  }
+  const transportConfig = buildTransportConfigFromDb(config);
   const transportKey = JSON.stringify({ provider: config.provider, transportConfig });
   return { enabled, from, portalUrl, transportConfig, transportKey };
 }
 
 function buildRuntimeConfigFromEnv(): RuntimeEmailConfig {
-  const transportConfig = getEnvEmailConfig();
-  const provider = process.env.EMAIL_PROVIDER || 'gmail';
   const from = process.env.EMAIL_FROM || process.env.EMAIL_USER || '';
   const portalUrl = process.env.CUSTOMER_PORTAL_URL || 'http://localhost:3002';
   const enabled = process.env.EMAIL_ENABLED ? process.env.EMAIL_ENABLED === 'true' : true;
+  const resendApiKey = process.env.RESEND_API_KEY || '';
+  if (resendApiKey) {
+    return {
+      enabled,
+      from,
+      portalUrl,
+      transportConfig: null,
+      transportKey: `resend:${from}`,
+      resendApiKey,
+    };
+  }
+  const transportConfig = getEnvEmailConfig();
+  const provider = process.env.EMAIL_PROVIDER || 'gmail';
   const transportKey = JSON.stringify({ provider, transportConfig });
   return { enabled, from, portalUrl, transportConfig, transportKey };
 }
@@ -284,17 +309,28 @@ export async function sendEmail(options: SendEmailOptions, orderId?: string): Pr
       return false;
     }
 
-    const transport = getTransporter(runtime.transportConfig, runtime.transportKey);
-    
-    const mailOptions = {
-      from: runtime.from,
-      to: options.to,
-      subject: options.subject,
-      html: options.html,
-      text: options.text,
-    };
-
-    await transport.sendMail(mailOptions);
+    if (runtime.resendApiKey) {
+      await sendResendEmail(runtime.resendApiKey, {
+        from: runtime.from,
+        to: options.to,
+        subject: options.subject,
+        html: options.html,
+        text: options.text,
+      });
+    } else {
+      if (!runtime.transportConfig) {
+        console.error('Email transport is not configured');
+        return false;
+      }
+      const transport = getTransporter(runtime.transportConfig, runtime.transportKey);
+      await transport.sendMail({
+        from: runtime.from,
+        to: options.to,
+        subject: options.subject,
+        html: options.html,
+        text: options.text,
+      });
+    }
     
     if (orderId) {
       await logEmail(orderId, options.to, options.subject, 'sent');

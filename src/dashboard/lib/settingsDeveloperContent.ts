@@ -200,6 +200,7 @@ export const API_ENDPOINT_GROUPS: ApiEndpointGroup[] = [
       { method: 'GET', path: '/api/v1/campaigns/:id', description: 'Campaign detail incl. offer/targeting config — campaigns.read', auth: 'service' },
       { method: 'GET', path: '/api/v1/notifications/email-templates', description: 'List sendable email templates — notifications.email_templates.list', auth: 'service' },
       { method: 'POST', path: '/api/v1/notifications/email', description: 'Send an existing template to one recipient — notifications.email.send', auth: 'service' },
+      { method: 'POST', path: '/api/v1/notifications/email/bulk', description: 'Send one template to many recipients (max 100) — notifications.email.send_bulk', auth: 'service' },
       { method: 'POST', path: '/api/v1/notifications/push', description: 'Send/schedule push — notifications.push.send (single) or notifications.push.broadcast (bulk/segment)', auth: 'service' },
       { method: 'GET', path: '/api/admin/service-api-keys', description: 'Mint/list/revoke service API keys + fetch the full capability catalog (Settings → Integrations)', auth: 'admin' },
       { method: 'POST', path: '/api/admin/webhook-endpoints', description: 'Configure outbound webhook URL + secret (Settings → Integrations)', auth: 'admin' },
@@ -306,7 +307,8 @@ export const ENV_VAR_GROUPS: EnvVarGroup[] = [
     title: 'Email',
     description: 'Transactional & broadcast email.',
     vars: [
-      { key: 'EMAIL_PROVIDER', note: 'gmail | sendgrid | smtp', serverOnly: true },
+      { key: 'EMAIL_PROVIDER', note: 'gmail | sendgrid | smtp — fallback only if no Resend key', serverOnly: true },
+      { key: 'RESEND_API_KEY', note: 'Operational mail (orders, bulk). Auth stays on Supabase SMTP.', serverOnly: true },
       { key: 'EMAIL_SECRETS_ENCRYPTION_KEY', note: 'Encrypt SMTP passwords in DB', serverOnly: true },
       { key: 'EMAIL_ENABLED', note: 'Master send toggle', serverOnly: true },
       { key: 'CUSTOMER_PORTAL_URL', note: 'Tracking links in emails' },

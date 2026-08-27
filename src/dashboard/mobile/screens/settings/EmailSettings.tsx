@@ -19,6 +19,7 @@ const defaultConfig: EmailConfig = {
   gmail_user: '',
   gmail_password: '',
   sendgrid_api_key: '',
+  resend_api_key: '',
   smtp_host: '',
   smtp_port: 587,
   smtp_user: '',
@@ -36,6 +37,7 @@ const PROVIDERS: { value: EmailConfig['provider']; label: string }[] = [
 ];
 
 function providerSecretsConfigured(config: EmailConfig) {
+  if (config.secrets_configured?.resend_api_key || config.resend_api_key) return true;
   switch (config.provider) {
     case 'gmail':
       return Boolean(config.secrets_configured?.gmail_password);
@@ -97,6 +99,7 @@ export default function MobileEmailSettings() {
         setConfig({
           ...defaultConfig,
           ...data,
+          provider: data.provider === 'resend' ? 'smtp' : data.provider,
           order_alert_emails: Array.isArray(data.order_alert_emails) ? data.order_alert_emails : [],
         });
         if (data.gmail_user) setTestTo(data.gmail_user);
@@ -178,10 +181,13 @@ export default function MobileEmailSettings() {
                     <Mail className="h-5 w-5 text-violet-600" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold capitalize text-gray-900">{config.provider} provider</p>
+                    <p className="text-sm font-semibold capitalize text-gray-900">
+                      {config.secrets_configured?.resend_api_key ? 'Resend (operational)' : `${config.provider} fallback`}
+                    </p>
                     <p className="mt-0.5 text-xs text-gray-500">
                       {config.email_enabled ? 'Outbound email enabled' : 'Outbound email disabled'}
                       {secretsReady ? ' · credentials saved' : ' · credentials needed'}
+                      {' · auth stays on Supabase SMTP'}
                     </p>
                   </div>
                   <button
@@ -215,8 +221,12 @@ export default function MobileEmailSettings() {
 
             <SectionCard title="Provider & credentials">
               <div className="space-y-3 px-4 py-3.5">
-                <Field label="Provider">
-                  <div className="grid grid-cols-3 gap-2">
+                <p className="text-xs text-gray-500">
+                  Resend key below sends operational mail (orders, vendor activation, Skola bulk).
+                  Auth invites and password resets stay on Supabase Custom SMTP.
+                </p>
+                <Field label="Fallback provider">
+                  <div className="grid grid-cols-2 gap-2">
                     {PROVIDERS.map(({ value, label }) => {
                       const active = config.provider === value;
                       return (
@@ -287,6 +297,17 @@ export default function MobileEmailSettings() {
                     />
                   </Field>
                 )}
+
+                <Field label="Resend API key (operational mail)">
+                  <input
+                    type="password"
+                    value={config.resend_api_key}
+                    onChange={(e) => setConfig((c) => ({ ...c, resend_api_key: e.target.value }))}
+                    className={inputCls}
+                    placeholder={config.secrets_configured?.resend_api_key ? 'Leave blank to keep existing' : 're_…'}
+                    autoComplete="new-password"
+                  />
+                </Field>
 
                 {config.provider === 'smtp' && (
                   <>

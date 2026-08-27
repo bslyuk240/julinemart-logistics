@@ -164,6 +164,7 @@ under two names for different consumer mental models).
 | `campaigns.read` | `GET /campaigns/:id` |
 | `notifications.email_templates.list` | `GET /notifications/email-templates` |
 | `notifications.email.send` | `POST /notifications/email` |
+| `notifications.email.send_bulk` | `POST /notifications/email/bulk` |
 | `notifications.push.send` | `POST /notifications/push` (audience: `single` only) |
 | `notifications.push.broadcast` | `POST /notifications/push` (any audience) |
 
@@ -526,6 +527,29 @@ curl -s -X POST "https://jlo.julinemart.com/api/v1/notifications/email" \
 ```
 A `{ "data": { "sent": false, "reason": "duplicate" } }` response means
 the dedup window caught a repeat send — not an error.
+
+#### `POST /notifications/email/bulk` — `notifications.email.send_bulk`
+Same templates as `notifications.email.send`, one call for many recipients
+(max 100). When a Resend API key is saved, this uses Resend's batch API.
+Otherwise it sends sequentially via the SMTP fallback. Auth mail is unchanged.
+
+```bash
+curl -s -X POST "https://jlo.julinemart.com/api/v1/notifications/email/bulk" \
+  -H "Authorization: Bearer $YOUR_TOKEN" -H "Content-Type: application/json" \
+  -d '{"template_name": "Vendor Activation Reminder",
+       "data": {"portal_products_url": "https://vendors.julinemart.com/products", "support_email": "support@julinemart.com"},
+       "recipients": [
+         {"to": "ada@example.com", "data": {"vendor_name": "Ada", "store_name": "Adafe"}},
+         {"to": "chidi@example.com", "data": {"vendor_name": "Chidi", "store_name": "Chidi Mart"}}
+       ]}'
+```
+
+```json
+{ "data": { "sent": 2, "failed": 0, "skipped": 0, "results": [
+  { "to": "ada@example.com", "sent": true },
+  { "to": "chidi@example.com", "sent": true }
+] } }
+```
 
 #### `POST /notifications/push` — `notifications.push.send` or `notifications.push.broadcast`
 ```bash

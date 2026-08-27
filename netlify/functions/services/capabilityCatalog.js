@@ -403,6 +403,18 @@ export const CAPABILITIES = [
     idempotency_required: false, approval_recommended: true, enabled: true,
   },
   {
+    id: 'notifications.email.send_bulk', domain: 'notifications', name: 'Send Email (bulk)',
+    description: 'Send one existing template to many recipients in a single call (max 100). Uses Resend batch delivery when Resend is the configured mailer. Cannot send arbitrary HTML — same templates as notifications.email.send.',
+    operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'high',
+    http_method: 'POST', endpoint: '/notifications/email/bulk',
+    input_schema: {
+      template_name: 'string (must match an active email_templates.name)',
+      recipients: 'array of { to: email, data?: object, order_id?: uuid } (max 100)',
+      data: 'object (optional shared {{variable}} defaults merged under each recipient)',
+    },
+    idempotency_required: false, approval_recommended: true, enabled: true,
+  },
+  {
     id: 'notifications.email.schedule', domain: 'notifications', name: 'Schedule Email',
     description: 'Queue a templated email for future delivery.',
     operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'medium',

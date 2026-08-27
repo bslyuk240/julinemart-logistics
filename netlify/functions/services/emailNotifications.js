@@ -20,6 +20,7 @@ import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 import { decryptEmailConfigSecrets } from '../../../shared/emailSecretsCrypto.js';
 import { buildCustomSmtpTransportOptions } from '../../../shared/smtpTransport.js';
+import { sendResendEmail, sendResendBatch, verifyResendKey, RESEND_BATCH_LIMIT } from '../../../shared/resendMail.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
@@ -29,7 +30,7 @@ const supabase = createClient(
 // ── Transport helpers ─────────────────────────────────────────────────────────
 
 function buildEnvTransport() {
-  const provider = (process.env.EMAIL_PROVIDER || 'gmail').toLowerCase();
+  const provider = envProvider() || 'gmail';
   if (provider === 'sendgrid') {
     return {
       host: 'smtp.sendgrid.net',
@@ -40,7 +41,6 @@ function buildEnvTransport() {
   if (provider === 'smtp') {
     const host = process.env.SMTP_HOST;
     const port = parseInt(process.env.SMTP_PORT || '587', 10);
-    // Port 465 = implicit SSL; 587 = STARTTLS
     const secure = process.env.SMTP_SECURE === 'true' || port === 465;
     return {
       host,
@@ -50,36 +50,104 @@ function buildEnvTransport() {
       ...(host ? { tls: { minVersion: 'TLSv1.2', servername: host } } : {}),
     };
   }
-  // gmail default
   return {
     service: 'gmail',
     auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASSWORD },
   };
 }
 
+function envProvider() {
+  return (process.env.EMAIL_PROVIDER || '').toLowerCase();
+}
+
+function wrapResendTransport(apiKey, from) {
+  return {
+    kind: 'resend',
+    apiKey,
+    from,
+    sendMail: async (opts) =>
+      sendResendEmail(apiKey, {
+        from: opts.from || from,
+        to: opts.to,
+        subject: opts.subject,
+        html: opts.html,
+        text: opts.text,
+        attachments: opts.attachments,
+        replyTo: opts.replyTo,
+      }),
+    verify: () => verifyResendKey(apiKey),
+  };
+}
+
+function wrapSmtpTransport(transportConfig, from) {
+  const transport = nodemailer.createTransport(transportConfig);
+  return {
+    kind: 'smtp',
+    from,
+    sendMail: (opts) => transport.sendMail({ from: opts.from || from, ...opts }),
+    verify: () => transport.verify(),
+  };
+}
+
+function mailerFromEnv(from) {
+  if (envProvider() === 'resend') {
+    const key = process.env.RESEND_API_KEY || '';
+    if (!key) return null;
+    return wrapResendTransport(key, from);
+  }
+  return wrapSmtpTransport(buildEnvTransport(), from);
+}
+
+function finish(mailer) {
+  if (!mailer) return null;
+  return { ...mailer, transport: mailer };
+}
+
 /**
- * Returns { transport, from } or null if email is disabled / not configured.
+ * Returns a mailer `{ kind, from, sendMail, verify, transport, apiKey? }` or null if
+ * email is disabled / not configured. `transport` is an alias of the mailer so
+ * existing `tc.transport.sendMail` callers keep working when the provider is Resend.
  */
 async function getTransport() {
   try {
     const { data: rawCfg } = await supabase.from('email_config').select('*').single();
 
-    // DB row controls email_enabled; env vars control the actual transport credentials.
-    // When EMAIL_PROVIDER is set in Netlify env, skip DB credential decryption entirely
-    // and build the transport from env vars — avoids encryption key mismatches.
     if (rawCfg) {
-      if (rawCfg.email_enabled === false) return null; // admin disabled emails
-
-      if (process.env.EMAIL_PROVIDER) {
-        const from =
-          rawCfg.email_from ||
-          process.env.EMAIL_FROM ||
-          process.env.EMAIL_USER ||
-          '';
-        return { transport: nodemailer.createTransport(buildEnvTransport()), from };
-      }
+      if (rawCfg.email_enabled === false) return null;
 
       const cfg = decryptEmailConfigSecrets(rawCfg);
+      const from =
+        cfg.email_from ||
+        rawCfg.email_from ||
+        process.env.EMAIL_FROM ||
+        process.env.EMAIL_USER ||
+        '';
+
+      // Operational mail (orders, vendor activation, Skola bulk, etc.) uses
+      // Resend whenever a key is present. Auth mail (invite, password reset,
+      // magic link) never comes through this function — it is sent by
+      // Supabase Auth using the project's Custom SMTP settings. Leave that
+      // SMTP as-is; do not point Auth at Resend.
+      const resendKey = cfg.resend_api_key || process.env.RESEND_API_KEY || '';
+      if (resendKey) {
+        return finish(wrapResendTransport(resendKey, from));
+      }
+
+      const resolvedFrom =
+        from ||
+        cfg.gmail_user ||
+        cfg.smtp_user ||
+        process.env.EMAIL_FROM ||
+        process.env.EMAIL_USER ||
+        '';
+
+      if (process.env.EMAIL_PROVIDER) {
+        return finish(mailerFromEnv(resolvedFrom));
+      }
+
+      if (cfg.provider === 'resend') {
+        return null;
+      }
 
       let transportConfig;
       switch (cfg.provider) {
@@ -100,33 +168,28 @@ async function getTransport() {
           transportConfig = buildCustomSmtpTransportOptions(cfg);
           break;
         default:
-          transportConfig = buildEnvTransport();
+          return finish(mailerFromEnv(resolvedFrom));
       }
 
-      const from =
-        cfg.email_from ||
-        cfg.gmail_user ||
-        cfg.smtp_user ||
-        process.env.EMAIL_FROM ||
-        process.env.EMAIL_USER ||
-        '';
-
-      return { transport: nodemailer.createTransport(transportConfig), from };
+      return finish(wrapSmtpTransport(transportConfig, resolvedFrom));
     }
   } catch (_e) {
     // DB unavailable — fall through to env
   }
 
-  // Env-var fallback (no DB row)
   if (process.env.EMAIL_ENABLED === 'false') return null;
 
   const from = process.env.EMAIL_FROM || process.env.EMAIL_USER || '';
-  if (!from) return null; // nothing configured at all
+  if (!from) return null;
 
-  return { transport: nodemailer.createTransport(buildEnvTransport()), from };
+  if (process.env.RESEND_API_KEY) {
+    return finish(wrapResendTransport(process.env.RESEND_API_KEY, from));
+  }
+
+  return finish(mailerFromEnv(from));
 }
 
-export { getTransport };
+export { getTransport, RESEND_BATCH_LIMIT };
 
 // ── Template rendering ────────────────────────────────────────────────────────
 
@@ -231,7 +294,7 @@ export async function sendTransactionalEmail({ templateName, to, data = {}, orde
     const html    = render(tpl.html_content, data, { escape: true });
     const text    = render(tpl.text_content, data);
 
-    await tc.transport.sendMail({ from: tc.from, to, subject, html, text });
+    await tc.sendMail({ from: tc.from, to, subject, html, text });
 
     await logEmail({ orderId, recipient: to, subject, status: 'sent' });
     console.log(`[emailNotifications] Sent "${templateName}" → ${to}`);
@@ -248,4 +311,102 @@ export async function sendTransactionalEmail({ templateName, to, data = {}, orde
     });
     return { sent: false, reason: err?.message };
   }
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Send one template to many recipients. Uses Resend's batch API when that
+ * is the configured provider (up to 100 per HTTP call); otherwise sends
+ * sequentially through SMTP.
+ *
+ * @param {object} opts
+ * @param {string} opts.templateName
+ * @param {Array<{ to: string, data?: object, order_id?: string }>} opts.recipients
+ * @param {object} [opts.data] shared {{variable}} defaults merged under each recipient
+ * @returns {{ sent: number, failed: number, skipped: number, results: object[] }}
+ */
+export async function sendTransactionalEmailBulk({ templateName, recipients, data: sharedData = {} }) {
+  const empty = { sent: 0, failed: 0, skipped: 0, results: [] };
+  if (!Array.isArray(recipients) || recipients.length === 0) {
+    return { ...empty, reason: 'no_recipients' };
+  }
+
+  const tc = await getTransport();
+  if (!tc) return { ...empty, reason: 'disabled' };
+
+  const { data: tpl } = await supabase
+    .from('email_templates')
+    .select('subject, html_content, text_content')
+    .eq('name', templateName)
+    .maybeSingle();
+  if (!tpl) return { ...empty, reason: 'no_template' };
+
+  const prepared = [];
+  for (const raw of recipients) {
+    const to = String(raw?.to || '').trim();
+    if (!EMAIL_RE.test(to)) {
+      empty.results.push({ to, sent: false, reason: 'invalid_to' });
+      empty.skipped += 1;
+      continue;
+    }
+    const merged = { ...sharedData, ...(raw.data && typeof raw.data === 'object' ? raw.data : {}) };
+    prepared.push({
+      to,
+      orderId: raw.order_id ? String(raw.order_id) : null,
+      subject: render(tpl.subject, merged),
+      html: render(tpl.html_content, merged, { escape: true }),
+      text: render(tpl.text_content, merged),
+    });
+  }
+
+  const results = [...empty.results];
+
+  if (tc.kind === 'resend' && tc.apiKey && prepared.length > 0) {
+    try {
+      await sendResendBatch(
+        tc.apiKey,
+        prepared.map((p) => ({ from: tc.from, to: [p.to], subject: p.subject, html: p.html, text: p.text })),
+      );
+      for (const p of prepared) {
+        await logEmail({ orderId: p.orderId, recipient: p.to, subject: p.subject, status: 'sent' });
+        results.push({ to: p.to, sent: true });
+        empty.sent += 1;
+      }
+    } catch (err) {
+      for (const p of prepared) {
+        await logEmail({
+          orderId: p.orderId,
+          recipient: p.to,
+          subject: p.subject,
+          status: 'failed',
+          errorMessage: err?.message,
+        });
+        results.push({ to: p.to, sent: false, reason: err?.message });
+        empty.failed += 1;
+      }
+    }
+    return { sent: empty.sent, failed: empty.failed, skipped: empty.skipped, results };
+  }
+
+  for (const p of prepared) {
+    try {
+      await tc.sendMail({ from: tc.from, to: p.to, subject: p.subject, html: p.html, text: p.text });
+      await logEmail({ orderId: p.orderId, recipient: p.to, subject: p.subject, status: 'sent' });
+      results.push({ to: p.to, sent: true });
+      empty.sent += 1;
+    } catch (err) {
+      await logEmail({
+        orderId: p.orderId,
+        recipient: p.to,
+        subject: p.subject,
+        status: 'failed',
+        errorMessage: err?.message,
+      });
+      results.push({ to: p.to, sent: false, reason: err?.message });
+      empty.failed += 1;
+    }
+  }
+
+  return { sent: empty.sent, failed: empty.failed, skipped: empty.skipped, results };
 }

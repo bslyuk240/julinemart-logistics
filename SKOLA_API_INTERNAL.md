@@ -364,15 +364,17 @@ pass — don't build against it without checking the table first.
 **`notifications`** is a different category entirely — it's the first
 capability domain with `side_effect_type: 'external_communication'`, i.e.
 it reaches real customer inboxes/devices, not just reads JLO's DB:
-- `notifications.email.send` wraps the existing
-  `services/emailNotifications.js:sendTransactionalEmail()` unchanged —
-  same dedup (10 min, keyed on `order_id` + template name), same
-  `email_logs` audit trail, same DB-then-env config resolution. The API
-  only accepts a `template_name` + `data` (variable values), never raw
-  HTML/subject — this is deliberate, not a missing feature. Composing
-  arbitrary email content through an external API key would be a much
-  larger trust decision than filling in an admin-approved template's
-  blanks.
+- `notifications.email.send` wraps
+  `services/emailNotifications.js:sendTransactionalEmail()` — same
+  templates, same `email_logs`. Delivery is **Resend** when
+  `email_config.resend_api_key` (or `RESEND_API_KEY`) is set; otherwise
+  Gmail / SendGrid / SMTP. Auth mail (invite, password reset) is **not**
+  this path — it stays on Supabase Custom SMTP.
+- `notifications.email.send_bulk` sends one template to up to 100
+  recipients. When the mailer is Resend it uses `POST /emails/batch`;
+  otherwise it loops SMTP.
+- The API only accepts a `template_name` + `data` (variable values), never
+  raw HTML/subject — templates stay in JLO, Resend is only the pipe.
 - `notifications.push.send` / `notifications.push.broadcast` wrap
   `services/pushSendProxy.js:sendPushViaPwa()` and, for future-dated
   sends, insert into `scheduled_push_notifications` — the exact same

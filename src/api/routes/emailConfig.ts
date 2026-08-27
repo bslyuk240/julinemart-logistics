@@ -14,6 +14,7 @@ import {
   normalizeSmtpAuthPass,
   normalizeSmtpAuthUser,
 } from '../../../shared/smtpTransport.js';
+import { verifyResendKey } from '../../../shared/resendMail.js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -39,6 +40,7 @@ export async function getEmailConfigHandler(req: AuthRequest, res: Response) {
       gmail_user: '',
       gmail_password: '',
       sendgrid_api_key: '',
+      resend_api_key: '',
       smtp_host: '',
       smtp_port: 587,
       smtp_user: '',
@@ -76,7 +78,7 @@ export async function saveEmailConfigHandler(req: AuthRequest, res: Response) {
       .limit(1)
       .maybeSingle();
 
-    const secretFields = ['gmail_password', 'sendgrid_api_key', 'smtp_password'] as const;
+    const secretFields = ['gmail_password', 'sendgrid_api_key', 'resend_api_key', 'smtp_password'] as const;
     const merged: Record<string, unknown> = { ...incoming };
     for (const field of secretFields) {
       const v = merged[field];
@@ -88,6 +90,7 @@ export async function saveEmailConfigHandler(req: AuthRequest, res: Response) {
 
     const toStore = encryptEmailConfigSecretsForStorage(merged);
     const row = pickEmailConfigForDatabase(toStore);
+    if (row.provider === 'resend') row.provider = 'smtp';
 
     let result;
     if (existingRow?.id) {
@@ -152,7 +155,7 @@ export async function testEmailConnectionHandler(req: AuthRequest, res: Response
       .select('*')
       .limit(1)
       .maybeSingle();
-    const secretFields = ['gmail_password', 'sendgrid_api_key', 'smtp_password'] as const;
+    const secretFields = ['gmail_password', 'sendgrid_api_key', 'resend_api_key', 'smtp_password'] as const;
     const merged: Record<string, unknown> = { ...body };
     for (const field of secretFields) {
       const v = merged[field];
@@ -166,11 +169,21 @@ export async function testEmailConnectionHandler(req: AuthRequest, res: Response
       gmail_user?: string;
       gmail_password?: string;
       sendgrid_api_key?: string;
+      resend_api_key?: string;
       smtp_host?: string;
       smtp_port?: number;
       smtp_user?: string;
       smtp_password?: string;
     };
+
+    const resendKey = config.resend_api_key || process.env.RESEND_API_KEY || '';
+    if (resendKey) {
+      await verifyResendKey(resendKey);
+      return res.status(200).json({
+        success: true,
+        message: 'Resend connection successful (operational mail)',
+      });
+    }
 
     const decryptErr = getSmtpDecryptFailureMessage(merged, config as Record<string, unknown>);
     if (decryptErr) {

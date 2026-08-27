@@ -5,25 +5,9 @@
  * POST /api/contact-form
  * Body: { name, email, subject, message }
  */
-import nodemailer from 'nodemailer';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { checkRateLimit } from './services/rate-limit.js';
-
-function buildTransport() {
-  const host = process.env.SMTP_HOST;
-  const port = parseInt(process.env.SMTP_PORT || '465', 10);
-  const secure = port === 465;
-  return nodemailer.createTransport({
-    host,
-    port,
-    secure,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASSWORD,
-    },
-    ...(host ? { tls: { minVersion: 'TLSv1.2', servername: host } } : {}),
-  });
-}
+import { getTransport } from './services/emailNotifications.js';
 
 export async function handler(event) {
   const origin = event.headers?.origin || event.headers?.Origin || '';
@@ -73,7 +57,8 @@ export async function handler(event) {
     };
   }
 
-  if (!process.env.SMTP_PASSWORD) {
+  const tc = await getTransport();
+  if (!tc) {
     return {
       statusCode: 503,
       headers: corsHeaders(origin),
@@ -127,9 +112,8 @@ export async function handler(event) {
 </body></html>`;
 
   try {
-    const transporter = buildTransport();
-    await transporter.sendMail({
-      from: process.env.EMAIL_FROM || 'JulineMart <info@julinemart.com>',
+    await tc.sendMail({
+      from: tc.from || process.env.EMAIL_FROM || 'JulineMart <info@julinemart.com>',
       to,
       replyTo: `${name} <${email}>`,
       subject: emailSubject,

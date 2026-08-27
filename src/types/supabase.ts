@@ -751,6 +751,7 @@ export type Database = {
           portal_url: string
           provider: string
           sendgrid_api_key: string | null
+          resend_api_key: string | null
           smtp_host: string | null
           smtp_password: string | null
           smtp_port: number | null
@@ -769,6 +770,7 @@ export type Database = {
           portal_url: string
           provider: string
           sendgrid_api_key?: string | null
+          resend_api_key?: string | null
           smtp_host?: string | null
           smtp_password?: string | null
           smtp_port?: number | null
@@ -787,6 +789,7 @@ export type Database = {
           portal_url?: string
           provider?: string
           sendgrid_api_key?: string | null
+          resend_api_key?: string | null
           smtp_host?: string | null
           smtp_password?: string | null
           smtp_port?: number | null

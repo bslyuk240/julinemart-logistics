@@ -27,10 +27,11 @@ function isEmailTab(value: string | null): value is EmailTab {
 }
 
 interface EmailConfig {
-  provider: 'gmail' | 'sendgrid' | 'smtp';
+  provider: 'gmail' | 'sendgrid' | 'smtp' | 'resend';
   gmail_user: string;
   gmail_password: string;
   sendgrid_api_key: string;
+  resend_api_key: string;
   smtp_host: string;
   smtp_port: number;
   smtp_user: string;
@@ -43,6 +44,7 @@ interface EmailConfig {
   secrets_configured?: {
     gmail_password: boolean;
     sendgrid_api_key: boolean;
+    resend_api_key: boolean;
     smtp_password: boolean;
   };
   /** Server sees a valid EMAIL_SECRETS_ENCRYPTION_KEY — if false, DB will store secrets in plaintext */
@@ -88,6 +90,7 @@ export function EmailSettingsPage() {
     gmail_user: '',
     gmail_password: '',
     sendgrid_api_key: '',
+    resend_api_key: '',
     smtp_host: '',
     smtp_port: 587,
     smtp_user: '',
@@ -155,6 +158,7 @@ export function EmailSettingsPage() {
       if (data.success) {
         setConfig({
           ...data.data,
+          provider: data.data.provider === 'resend' ? 'smtp' : data.data.provider,
           order_alert_emails: Array.isArray(data.data.order_alert_emails) ? data.data.order_alert_emails : [],
         });
       }
@@ -184,7 +188,10 @@ export function EmailSettingsPage() {
           'Content-Type': 'application/json',
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
-        body: JSON.stringify(config),
+        body: JSON.stringify({
+          ...config,
+          provider: config.provider === 'resend' ? 'smtp' : config.provider,
+        }),
       });
 
       const data = await response.json();
@@ -299,13 +306,70 @@ export function EmailSettingsPage() {
             <div className="flex items-start gap-3">
               <Info className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
               <div>
-                <h3 className="font-semibold text-blue-900">SMTP managed via server environment</h3>
+                <h3 className="font-semibold text-blue-900">Resend for operations, SMTP for auth</h3>
                 <p className="text-sm text-blue-800 mt-1">
-                  Email delivery credentials (<code className="text-xs bg-white/70 px-1 rounded">SMTP_HOST</code>,{' '}
-                  <code className="text-xs bg-white/70 px-1 rounded">SMTP_USER</code>,{' '}
-                  <code className="text-xs bg-white/70 px-1 rounded">SMTP_PASSWORD</code>) are configured as
-                  Netlify environment variables. No credentials are stored in the database.
+                  <strong>Operational</strong> mail (orders, shipping, vendor activation, Skola bulk)
+                  goes through Resend when an API key is saved.
+                  <strong> Auth</strong> mail (invite, password reset, magic link) is sent by Supabase Auth —
+                  keep Custom SMTP on the Supabase project. Do not point Auth at Resend.
                 </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Provider */}
+          <div className="card">
+            <h2 className="text-lg sm:text-xl font-bold mb-4">Operational mail — Resend</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Orders, shipping, vendor activation, and Skola bulk sends. Saving a Resend key
+              routes these here. It does not change invite or password-reset email.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">From address *</label>
+                <input
+                  type="text"
+                  value={config.email_from}
+                  onChange={(e) => setConfig({ ...config, email_from: e.target.value })}
+                  placeholder="JulineMart <noreply@julinemart.com>"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Must be on a domain verified in Resend.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Resend API key</label>
+                <input
+                  type="password"
+                  value={config.resend_api_key}
+                  onChange={(e) => setConfig({ ...config, resend_api_key: e.target.value })}
+                  placeholder={config.secrets_configured?.resend_api_key ? 'Leave blank to keep existing' : 're_…'}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  autoComplete="new-password"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <h2 className="text-lg sm:text-xl font-bold mb-4">Operational fallback</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Used only if no Resend key is saved. Invite and password-reset mail is configured in
+              the Supabase project under Authentication → SMTP, not on this page.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Fallback provider</label>
+                <select
+                  value={config.provider === 'resend' ? 'smtp' : config.provider}
+                  onChange={(e) => setConfig({ ...config, provider: e.target.value as EmailConfig['provider'] })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                >
+                  <option value="gmail">Gmail</option>
+                  <option value="sendgrid">SendGrid</option>
+                  <option value="smtp">SMTP</option>
+                </select>
               </div>
             </div>
           </div>
@@ -515,11 +579,11 @@ export function EmailSettingsPage() {
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <CheckCircle className={`w-5 h-5 flex-shrink-0 ${
-                  config.provider ? 'text-green-600' : 'text-gray-300'
+                  config.secrets_configured?.resend_api_key || config.resend_api_key ? 'text-green-600' : 'text-gray-300'
                 }`} />
                 <div>
-                  <p className="font-medium">Email provider selected</p>
-                  <p className="text-sm text-gray-600">Choose Gmail, SendGrid, or SMTP</p>
+                  <p className="font-medium">Resend API key (operational)</p>
+                  <p className="text-sm text-gray-600">Paste a re_ key so orders and bulk mail go through Resend</p>
                 </div>
               </div>
 
@@ -556,7 +620,7 @@ export function EmailSettingsPage() {
                 <h2 className="text-lg sm:text-xl font-bold">Email send log</h2>
                 <p className="text-sm text-gray-600 mt-1">
                   Recent attempts recorded when the app sends mail via your configured provider. &quot;Sent&quot; means the
-                  SMTP server accepted the message; inbox placement is not tracked here. Failed rows include the error
+                  Operational sends accepted by Resend (or the SMTP fallback). Inbox placement is not tracked here. Failed rows include the error
                   returned by the provider or transport.
                 </p>
               </div>

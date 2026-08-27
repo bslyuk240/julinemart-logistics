@@ -7,10 +7,8 @@
  * Body: { order_id, customer_email, file_name, pdf_base64 }
  */
 
-import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
-import { decryptEmailConfigSecrets } from '../../shared/emailSecretsCrypto.js';
-import { buildCustomSmtpTransportOptions } from '../../shared/smtpTransport.js';
+import { getTransport } from './services/emailNotifications.js';
 
 const ALLOWED_ORIGINS = [
   'https://julinemart.com',
@@ -30,59 +28,6 @@ function corsHeaders(origin) {
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Content-Type': 'application/json',
   };
-}
-
-function buildEnvTransport() {
-  const provider = (process.env.EMAIL_PROVIDER || 'gmail').toLowerCase();
-  if (provider === 'sendgrid') {
-    return { host: 'smtp.sendgrid.net', port: 587, auth: { user: 'apikey', pass: process.env.SENDGRID_API_KEY } };
-  }
-  if (provider === 'smtp') {
-    const host = process.env.SMTP_HOST;
-    const port = parseInt(process.env.SMTP_PORT || '587', 10);
-    const secure = process.env.SMTP_SECURE === 'true' || port === 465;
-    return { host, port, secure, auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD }, ...(host ? { tls: { minVersion: 'TLSv1.2', servername: host } } : {}) };
-  }
-  return { service: 'gmail', auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASSWORD } };
-}
-
-async function getTransport() {
-  try {
-    const { data: rawCfg } = await supabase.from('email_config').select('*').single();
-    if (rawCfg) {
-      if (rawCfg.email_enabled === false) return null;
-
-      if (process.env.EMAIL_PROVIDER) {
-        const from = rawCfg.email_from || process.env.EMAIL_FROM || process.env.EMAIL_USER || '';
-        return { transport: nodemailer.createTransport(buildEnvTransport()), from };
-      }
-
-      const cfg = decryptEmailConfigSecrets(rawCfg);
-      let transportConfig;
-      switch (cfg.provider) {
-        case 'gmail':
-          transportConfig = { service: 'gmail', auth: { user: cfg.gmail_user, pass: cfg.gmail_password } };
-          break;
-        case 'sendgrid':
-          transportConfig = { host: 'smtp.sendgrid.net', port: 587, auth: { user: 'apikey', pass: cfg.sendgrid_api_key } };
-          break;
-        case 'smtp':
-          transportConfig = buildCustomSmtpTransportOptions(cfg);
-          break;
-        default:
-          transportConfig = buildEnvTransport();
-      }
-      const from = cfg.email_from || cfg.gmail_user || cfg.smtp_user || process.env.EMAIL_FROM || process.env.EMAIL_USER || '';
-      return { transport: nodemailer.createTransport(transportConfig), from };
-    }
-  } catch (_e) {
-    // DB unavailable — fall through to env
-  }
-
-  if (process.env.EMAIL_ENABLED === 'false') return null;
-  const from = process.env.EMAIL_FROM || process.env.EMAIL_USER || '';
-  if (!from) return null;
-  return { transport: nodemailer.createTransport(buildEnvTransport()), from };
 }
 
 export const handler = async (event) => {

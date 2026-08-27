@@ -6,6 +6,7 @@ import nodemailer from 'nodemailer';
 import { decryptEmailConfigSecrets } from './emailSecretsCrypto.js';
 import { buildCustomSmtpTransportOptions } from './smtpTransport.js';
 import { buildVendorNewOrderInstructionHtml } from './vendorFulfillment.js';
+import { sendResendEmail } from './resendMail.js';
 
 export async function logOrderEmail(supabase, { orderId, recipient, subject, status, errorMessage }) {
   try {
@@ -389,20 +390,43 @@ async function loadEmailTransport(supabase) {
     return { cfg: null, transporter: null, from: null };
   }
 
-  let transportConfig;
-  let from;
-  if (cfg.provider === 'gmail') {
-    transportConfig = { service: 'gmail', auth: { user: cfg.gmail_user, pass: cfg.gmail_password } };
-    from = cfg.email_from || cfg.gmail_user;
-  } else if (cfg.provider === 'sendgrid') {
-    transportConfig = { host: 'smtp.sendgrid.net', port: 587, auth: { user: 'apikey', pass: cfg.sendgrid_api_key } };
-    from = cfg.email_from;
-  } else {
-    transportConfig = buildCustomSmtpTransportOptions(cfg);
-    from = cfg.email_from || cfg.smtp_user;
-  }
+  const from =
+    cfg.email_from ||
+    cfg.gmail_user ||
+    cfg.smtp_user ||
+    process.env.EMAIL_FROM ||
+    process.env.EMAIL_USER ||
+    '';
   if (!from) {
     return { cfg, transporter: null, from: null };
+  }
+
+  const resendKey = cfg.resend_api_key || process.env.RESEND_API_KEY || '';
+  if (resendKey) {
+    return {
+      cfg,
+      from,
+      transporter: {
+        sendMail: (opts) =>
+          sendResendEmail(resendKey, {
+            from: opts.from || from,
+            to: opts.to,
+            subject: opts.subject,
+            html: opts.html,
+            text: opts.text,
+            attachments: opts.attachments,
+          }),
+      },
+    };
+  }
+
+  let transportConfig;
+  if (cfg.provider === 'gmail') {
+    transportConfig = { service: 'gmail', auth: { user: cfg.gmail_user, pass: cfg.gmail_password } };
+  } else if (cfg.provider === 'sendgrid') {
+    transportConfig = { host: 'smtp.sendgrid.net', port: 587, auth: { user: 'apikey', pass: cfg.sendgrid_api_key } };
+  } else {
+    transportConfig = buildCustomSmtpTransportOptions(cfg);
   }
 
   return { cfg, transporter: nodemailer.createTransport(transportConfig), from };

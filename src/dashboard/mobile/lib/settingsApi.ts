@@ -53,10 +53,11 @@ export interface CourierSettingsRow {
 }
 
 export interface EmailConfig {
-  provider: 'gmail' | 'sendgrid' | 'smtp';
+  provider: 'gmail' | 'sendgrid' | 'smtp' | 'resend';
   gmail_user: string;
   gmail_password: string;
   sendgrid_api_key: string;
+  resend_api_key: string;
   smtp_host: string;
   smtp_port: number;
   smtp_user: string;
@@ -68,6 +69,7 @@ export interface EmailConfig {
   secrets_configured?: {
     gmail_password: boolean;
     sendgrid_api_key: boolean;
+    resend_api_key: boolean;
     smtp_password: boolean;
   };
   email_secrets_encryption_active?: boolean;

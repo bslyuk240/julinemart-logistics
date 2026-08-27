@@ -13,6 +13,7 @@ import {
   normalizeSmtpAuthPass,
   normalizeSmtpAuthUser,
 } from '../../shared/smtpTransport.js';
+import { sendResendEmail, verifyResendKey } from '../../shared/resendMail.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -155,13 +156,20 @@ const getRuntimeEmailConfig = async () => {
   }
 
   const config = data ? decryptEmailConfigSecrets(data) : null;
-  const transportConfig = config ? buildTransportConfigFromDb(config) : buildTransportConfigFromEnv();
   const from =
     (config && (config.email_from || config.gmail_user || config.smtp_user)) ||
     process.env.EMAIL_FROM ||
     process.env.EMAIL_USER ||
     '';
-  return { transportConfig, from };
+  const resendApiKey = config?.resend_api_key || process.env.RESEND_API_KEY || '';
+  // Test + template sends are operational — Resend when a key exists.
+  // Auth invites/resets do not use this function.
+  if (resendApiKey) {
+    return { provider: 'resend', from, resendApiKey };
+  }
+  const provider = (config?.provider || process.env.EMAIL_PROVIDER || 'gmail').toLowerCase();
+  const transportConfig = config ? buildTransportConfigFromDb(config) : buildTransportConfigFromEnv();
+  return { provider, transportConfig, from };
 };
 
 export async function handler(event) {
@@ -202,6 +210,7 @@ export async function handler(event) {
           gmail_user: '',
           gmail_password: '',
           sendgrid_api_key: '',
+          resend_api_key: '',
           smtp_host: '',
           smtp_port: 587,
           smtp_user: '',
@@ -225,7 +234,7 @@ export async function handler(event) {
         if (existingErr) {
           throw existingErr;
         }
-        const secretFields = ['gmail_password', 'sendgrid_api_key', 'smtp_password'];
+        const secretFields = ['gmail_password', 'sendgrid_api_key', 'resend_api_key', 'smtp_password'];
         const merged = { ...payload };
         for (const field of secretFields) {
           const v = merged[field];
@@ -236,6 +245,9 @@ export async function handler(event) {
         }
         const toStore = encryptEmailConfigSecretsForStorage(merged);
         const row = pickEmailConfigForDatabase(toStore);
+        // Resend is operational-only; keep SMTP/gmail/sendgrid as the fallback
+        // provider. Auth mail never reads this row.
+        if (row.provider === 'resend') row.provider = 'smtp';
         let result;
         if (existingRow?.id) {
           result = await supabase
@@ -271,7 +283,7 @@ export async function handler(event) {
           .limit(1)
           .maybeSingle();
 
-        const secretFields = ['gmail_password', 'sendgrid_api_key', 'smtp_password'];
+        const secretFields = ['gmail_password', 'sendgrid_api_key', 'resend_api_key', 'smtp_password'];
         const merged = { ...payload };
         for (const field of secretFields) {
           const v = merged[field];
@@ -281,6 +293,19 @@ export async function handler(event) {
           }
         }
         const config = decryptEmailConfigSecrets(merged);
+
+        const resendKey = config?.resend_api_key || process.env.RESEND_API_KEY || '';
+        if (resendKey) {
+          await verifyResendKey(resendKey);
+          return {
+            statusCode: 200,
+            headers,
+            body: JSON.stringify({
+              success: true,
+              message: 'Resend connection successful (operational mail)',
+            }),
+          };
+        }
 
         const decryptErr = getSmtpDecryptFailureMessage(merged, config);
         if (decryptErr) {
@@ -391,8 +416,8 @@ export async function handler(event) {
         return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Missing recipient email' }) };
       }
 
-      const { transportConfig, from } = await getRuntimeEmailConfig();
-      if (!from) {
+      const runtime = await getRuntimeEmailConfig();
+      if (!runtime.from) {
         return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Sender not configured' }) };
       }
 
@@ -429,14 +454,27 @@ export async function handler(event) {
         text = 'JulineMart Email System Test - If you received this, your email is working!';
       }
 
-      const transporter = nodemailer.createTransport(transportConfig);
-      await transporter.sendMail({
-        from,
-        to: recipient,
-        subject,
-        html,
-        text
-      });
+      if (runtime.provider === 'resend') {
+        if (!runtime.resendApiKey) {
+          return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Resend API key is missing' }) };
+        }
+        await sendResendEmail(runtime.resendApiKey, {
+          from: runtime.from,
+          to: recipient,
+          subject,
+          html,
+          text,
+        });
+      } else {
+        const transporter = nodemailer.createTransport(runtime.transportConfig);
+        await transporter.sendMail({
+          from: runtime.from,
+          to: recipient,
+          subject,
+          html,
+          text,
+        });
+      }
 
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }

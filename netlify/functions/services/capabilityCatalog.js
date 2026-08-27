@@ -404,7 +404,7 @@ export const CAPABILITIES = [
   },
   {
     id: 'notifications.email.send_bulk', domain: 'notifications', name: 'Send Email (bulk)',
-    description: 'Send one existing template to many recipients in a single call (max 100). Uses Resend batch delivery when Resend is the configured mailer. Cannot send arbitrary HTML — same templates as notifications.email.send.',
+    description: 'You CAN send bulk operational email with this tool: one existing template to many recipients in a single call (max 100). List templates first, then pass template_name plus recipients: [{ to, data? }]. Uses Resend batch when Resend is configured. Cannot send arbitrary HTML. Do not claim you cannot send bulk mail or that Mailchimp is required.',
     operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'high',
     http_method: 'POST', endpoint: '/notifications/email/bulk',
     input_schema: {

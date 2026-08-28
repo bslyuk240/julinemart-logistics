@@ -219,7 +219,7 @@ function render(template, data, { escape = false } = {}) {
 
 // ── Audit logging ─────────────────────────────────────────────────────────────
 
-async function logEmail({ orderId, recipient, subject, status, errorMessage }) {
+async function logEmail({ orderId, recipient, subject, status, errorMessage, resendMessageId }) {
   try {
     await supabase.from('email_logs').insert({
       order_id: orderId || null,
@@ -227,6 +227,7 @@ async function logEmail({ orderId, recipient, subject, status, errorMessage }) {
       subject,
       status,
       error_message: errorMessage || null,
+      resend_message_id: resendMessageId || null,
       sent_at: new Date().toISOString(),
     });
   } catch (e) {
@@ -294,9 +295,15 @@ export async function sendTransactionalEmail({ templateName, to, data = {}, orde
     const html    = render(tpl.html_content, data, { escape: true });
     const text    = render(tpl.text_content, data);
 
-    await tc.sendMail({ from: tc.from, to, subject, html, text });
+    const sendResult = await tc.sendMail({ from: tc.from, to, subject, html, text });
 
-    await logEmail({ orderId, recipient: to, subject, status: 'sent' });
+    await logEmail({
+      orderId,
+      recipient: to,
+      subject,
+      status: 'sent',
+      resendMessageId: tc.kind === 'resend' ? sendResult?.id : null,
+    });
     console.log(`[emailNotifications] Sent "${templateName}" → ${to}`);
     return { sent: true };
 
@@ -363,27 +370,66 @@ export async function sendTransactionalEmailBulk({ templateName, recipients, dat
   const results = [...empty.results];
 
   if (tc.kind === 'resend' && tc.apiKey && prepared.length > 0) {
-    try {
-      await sendResendBatch(
-        tc.apiKey,
-        prepared.map((p) => ({ from: tc.from, to: [p.to], subject: p.subject, html: p.html, text: p.text })),
-      );
-      for (const p of prepared) {
-        await logEmail({ orderId: p.orderId, recipient: p.to, subject: p.subject, status: 'sent' });
-        results.push({ to: p.to, sent: true });
-        empty.sent += 1;
+    // Chunk here (rather than relying on sendResendBatch's internal chunking)
+    // so a failure in one chunk's HTTP call only marks that chunk's recipients
+    // as failed, not every recipient across the whole batch.
+    for (let i = 0; i < prepared.length; i += RESEND_BATCH_LIMIT) {
+      const chunk = prepared.slice(i, i + RESEND_BATCH_LIMIT);
+      let items = null;
+      let chunkError = null;
+      try {
+        const [chunkRes] = await sendResendBatch(
+          tc.apiKey,
+          chunk.map((p) => ({ from: tc.from, to: [p.to], subject: p.subject, html: p.html, text: p.text })),
+        );
+        items = Array.isArray(chunkRes?.data) ? chunkRes.data : null;
+      } catch (err) {
+        chunkError = err;
       }
-    } catch (err) {
-      for (const p of prepared) {
-        await logEmail({
-          orderId: p.orderId,
-          recipient: p.to,
-          subject: p.subject,
-          status: 'failed',
-          errorMessage: err?.message,
-        });
-        results.push({ to: p.to, sent: false, reason: err?.message });
-        empty.failed += 1;
+
+      for (let j = 0; j < chunk.length; j++) {
+        const p = chunk[j];
+        const item = items ? items[j] : null;
+
+        if (chunkError) {
+          await logEmail({
+            orderId: p.orderId,
+            recipient: p.to,
+            subject: p.subject,
+            status: 'failed',
+            errorMessage: chunkError.message,
+          });
+          results.push({ to: p.to, sent: false, reason: chunkError.message });
+          empty.failed += 1;
+          continue;
+        }
+
+        // Resend only confirms a message as accepted when it comes back with
+        // an id. Anything else (an error entry, or a missing/short response)
+        // means this specific recipient was not actually accepted, even
+        // though the HTTP call for the batch itself returned 200.
+        if (item?.id) {
+          await logEmail({
+            orderId: p.orderId,
+            recipient: p.to,
+            subject: p.subject,
+            status: 'sent',
+            resendMessageId: item.id,
+          });
+          results.push({ to: p.to, sent: true, id: item.id });
+          empty.sent += 1;
+        } else {
+          const reason = item?.message || item?.error || 'Resend did not confirm this recipient';
+          await logEmail({
+            orderId: p.orderId,
+            recipient: p.to,
+            subject: p.subject,
+            status: 'failed',
+            errorMessage: reason,
+          });
+          results.push({ to: p.to, sent: false, reason });
+          empty.failed += 1;
+        }
       }
     }
     return { sent: empty.sent, failed: empty.failed, skipped: empty.skipped, results };

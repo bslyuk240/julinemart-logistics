@@ -1,14 +1,23 @@
 ﻿import { useEffect, useState } from 'react';
-import { Mail, CheckCircle, XCircle, RefreshCw, Send } from 'lucide-react';
+import { Mail, CheckCircle, XCircle, RefreshCw, Send, Clock, AlertTriangle } from 'lucide-react';
 
 interface EmailLog {
   id: string;
   recipient: string;
   subject: string;
-  status: 'sent' | 'failed';
+  status: 'sent' | 'failed' | 'delivered' | 'bounced' | 'complained' | 'delayed';
   error_message: string | null;
   sent_at: string;
 }
+
+const STATUS_DISPLAY: Record<EmailLog['status'], { icon: typeof CheckCircle; className: string; label: string }> = {
+  delivered: { icon: CheckCircle, className: 'text-green-600', label: 'Delivered' },
+  sent: { icon: Clock, className: 'text-gray-400', label: 'Sent (awaiting delivery confirmation)' },
+  delayed: { icon: Clock, className: 'text-amber-500', label: 'Delayed' },
+  bounced: { icon: XCircle, className: 'text-red-600', label: 'Bounced' },
+  complained: { icon: AlertTriangle, className: 'text-red-600', label: 'Marked as spam' },
+  failed: { icon: XCircle, className: 'text-red-600', label: 'Failed' },
+};
 
 interface EmailLogsProps {
   orderId: string;
@@ -87,24 +96,23 @@ export function EmailLogs({ orderId }: EmailLogsProps) {
         </div>
       ) : (
         <div className="space-y-3">
-          {logs.map((log) => (
+          {logs.map((log) => {
+            const display = STATUS_DISPLAY[log.status] || STATUS_DISPLAY.failed;
+            const StatusIcon = display.icon;
+            return (
             <div
               key={log.id}
               className="flex items-start gap-3 p-3 border border-gray-200 rounded-lg"
             >
-              <div className="flex-shrink-0 mt-1">
-                {log.status === 'sent' ? (
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                ) : (
-                  <XCircle className="w-5 h-5 text-red-600" />
-                )}
+              <div className="flex-shrink-0 mt-1" title={display.label}>
+                <StatusIcon className={`w-5 h-5 ${display.className}`} />
               </div>
-              
+
               <div className="flex-1 min-w-0">
                 <p className="font-medium text-gray-900">{log.subject}</p>
                 <p className="text-sm text-gray-600">To: {log.recipient}</p>
                 <p className="text-xs text-gray-500 mt-1">
-                  {new Date(log.sent_at).toLocaleString()}
+                  {display.label} · {new Date(log.sent_at).toLocaleString()}
                 </p>
                 {log.error_message && (
                   <p className="text-xs text-red-600 mt-1">
@@ -113,7 +121,7 @@ export function EmailLogs({ orderId }: EmailLogsProps) {
                 )}
               </div>
 
-              {log.status === 'failed' && (
+              {(log.status === 'failed' || log.status === 'bounced') && (
                 <button
                   onClick={() => resendEmail(log.subject.toLowerCase().split(' ')[0])}
                   disabled={resending === log.id}
@@ -124,7 +132,8 @@ export function EmailLogs({ orderId }: EmailLogsProps) {
                 </button>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

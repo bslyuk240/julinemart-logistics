@@ -698,11 +698,12 @@ async function callMetaAdsHandler(fn, ...args) {
 
 async function postFacebookPage(body) {
   if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
-  const message = String(body.message || '').trim();
-  if (!message) return json(400, { error: 'message is required' });
+  const imageUrl = body.image_url ? String(body.image_url).trim() : undefined;
+  const message = body.message ? String(body.message).trim() : undefined;
   const link = body.link ? String(body.link).trim() : undefined;
+  if (!imageUrl && !message) return json(400, { error: 'message is required (or image_url for a photo post)' });
   try {
-    const data = await postToFacebookPage({ message, link });
+    const data = await postToFacebookPage({ message, link, imageUrl });
     return json(200, { data });
   } catch (e) {
     return json(502, { error: e.message });

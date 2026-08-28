@@ -528,10 +528,10 @@ export const CAPABILITIES = [
   },
   {
     id: 'meta.social.facebook.post', domain: 'meta', name: 'Post to Facebook Page',
-    description: 'Publish an organic (unpaid) text/link post to the JulineMart Facebook Page feed. Public and immediate — no draft/approval step exists yet.',
+    description: 'Publish an organic (unpaid) post to the JulineMart Facebook Page feed: text with an optional link, OR a photo with an optional caption — not both a link and a photo in the same post (Meta does not support that combination). Public and immediate — no draft/approval step exists yet.',
     operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'high',
     http_method: 'POST', endpoint: '/meta/social/facebook/post',
-    input_schema: { message: 'string', link: 'string (optional, must be a trusted media host)' },
+    input_schema: { message: 'string (required unless image_url is set — used as the post text, or the photo caption)', link: 'string (optional, any https URL — mutually exclusive with image_url)', image_url: 'string (optional, must be a trusted media host — mutually exclusive with link)' },
     idempotency_required: false, approval_recommended: true, enabled: true,
   },
   {

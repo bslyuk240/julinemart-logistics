@@ -79,15 +79,32 @@ async function metaPost(path, params) {
 }
 
 /**
- * Publish a text/link post to the JulineMart Facebook Page feed.
- * @param {{ message: string, link?: string }} input
+ * Publish a post to the JulineMart Facebook Page feed — text/link, or a
+ * photo with caption. Meta's Page API has no single endpoint that does
+ * both: /feed takes message+link (no image), /photos takes url+caption
+ * (no link preview) and still lands as a normal feed post. Passing both
+ * imageUrl and link is rejected rather than silently dropping the link.
+ * @param {{ message?: string, link?: string, imageUrl?: string }} input
  * @returns {Promise<{ post_id: string }>}
  */
-export async function postToFacebookPage({ message, link }) {
+export async function postToFacebookPage({ message, link, imageUrl }) {
   if (!PAGE_ID) throw new Error('META_PAGE_ID is not configured');
   if (!PAGE_ACCESS_TOKEN) throw new Error('META_PAGE_ACCESS_TOKEN is not configured');
-  if (!message || !message.trim()) throw new Error('message is required');
+  if (imageUrl && link) throw new Error('A Facebook photo post cannot also carry a link preview — send imageUrl or link, not both.');
 
+  if (imageUrl) {
+    assertTrustedMediaUrl(imageUrl, 'imageUrl');
+    const json = await metaPost(`${PAGE_ID}/photos`, {
+      url: imageUrl,
+      ...(message ? { caption: message.trim() } : {}),
+      access_token: PAGE_ACCESS_TOKEN,
+    });
+    const postId = json.post_id || json.id;
+    await logOrganicAction('facebook_post_create', postId, { message, imageUrl });
+    return { post_id: postId };
+  }
+
+  if (!message || !message.trim()) throw new Error('message is required');
   if (link) assertHttpsUrl(link, 'link');
 
   const json = await metaPost(`${PAGE_ID}/feed`, {

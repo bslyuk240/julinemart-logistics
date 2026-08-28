@@ -12,13 +12,24 @@ const ANTHROPIC_KEY  = process.env.ANTHROPIC_API_KEY || '';
 const STORE_URL      = process.env.STORE_URL || 'https://julinemart.com';
 const META_APP_ID    = process.env.META_APP_ID || '';
 
-// Allowlist of trusted hostnames from which the server may fetch media.
-// Prevents SSRF attacks via user-supplied image/video/thumbnail URLs.
+// Allowlist of trusted hostnames from which the server may fetch media, and
+// (for image_url/url params passed straight through to Meta) which hosts an
+// agent is allowed to publish images from at all. Prevents SSRF attacks via
+// user-supplied image/video/thumbnail URLs, and limits public posting to
+// known-legitimate media sources.
 export const TRUSTED_MEDIA_HOSTS = (() => {
   const supabaseHost = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '')
     .replace(/^https?:\/\//, '').split('/')[0];
-  const defaults = ['res.cloudinary.com', 'storage.googleapis.com'];
-  return new Set([supabaseHost, ...defaults].filter(Boolean));
+  const defaults = [
+    'res.cloudinary.com',
+    'storage.googleapis.com',
+    // Skola Workforce's R2 object storage — generated content images
+    // (meta.social.*.post, content_calendar mediaUrl) are served from here.
+    'assets.workforce.skolahq.com',
+  ];
+  // Extra hosts without needing a redeploy — comma-separated.
+  const extra = (process.env.META_TRUSTED_MEDIA_HOSTS || '').split(',').map((h) => h.trim()).filter(Boolean);
+  return new Set([supabaseHost, ...defaults, ...extra].filter(Boolean));
 })();
 
 export function assertTrustedMediaUrl(url, label = 'URL') {

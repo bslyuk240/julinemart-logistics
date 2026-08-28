@@ -37,7 +37,16 @@ import {
   getAccountInfo as getMetaAccountInfo,
   getRecommendations as getMetaRecommendations,
 } from './meta-ads.js';
-import { postToFacebookPage, postToInstagram } from './services/metaOrganicPost.js';
+import {
+  postToFacebookPage,
+  postToInstagram,
+  getFacebookPageProfile,
+  listFacebookPagePosts,
+  getFacebookPageInsights,
+  getInstagramProfile,
+  listInstagramMedia,
+  getInstagramInsights,
+} from './services/metaOrganicPost.js';
 
 function json(statusCode, body) {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -700,6 +709,24 @@ async function postFacebookPage(body) {
   }
 }
 
+async function callMetaSocialRead(fn, ...args) {
+  try {
+    const data = await fn(...args);
+    return json(200, { data });
+  } catch (e) {
+    return json(502, { error: e.message });
+  }
+}
+
+function insightsQueryArgs(query) {
+  return {
+    metrics: query.metrics ? String(query.metrics).split(',').map((m) => m.trim()).filter(Boolean) : undefined,
+    period: query.period || undefined,
+    since: query.since || undefined,
+    until: query.until || undefined,
+  };
+}
+
 async function postInstagramImage(body) {
   if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
   const imageUrl = String(body.image_url || '').trim();
@@ -1197,6 +1224,36 @@ export const handler = async (event) => {
         if (auth.errorResponse) return auth.errorResponse;
         const body = JSON.parse(event.body || '{}');
         return await postInstagramImage(body);
+      }
+      if (segments.length === 4 && segments[2] === 'facebook' && segments[3] === 'page' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.social.page.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await callMetaSocialRead(getFacebookPageProfile);
+      }
+      if (segments.length === 4 && segments[2] === 'facebook' && segments[3] === 'posts' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.social.page.posts.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await callMetaSocialRead(listFacebookPagePosts, { limit: query.limit });
+      }
+      if (segments.length === 4 && segments[2] === 'facebook' && segments[3] === 'insights' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.social.page.insights.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await callMetaSocialRead(getFacebookPageInsights, insightsQueryArgs(query));
+      }
+      if (segments.length === 4 && segments[2] === 'instagram' && segments[3] === 'account' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.social.instagram.account.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await callMetaSocialRead(getInstagramProfile);
+      }
+      if (segments.length === 4 && segments[2] === 'instagram' && segments[3] === 'media' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.social.instagram.media.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await callMetaSocialRead(listInstagramMedia, { limit: query.limit });
+      }
+      if (segments.length === 4 && segments[2] === 'instagram' && segments[3] === 'insights' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.social.instagram.insights.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await callMetaSocialRead(getInstagramInsights, insightsQueryArgs(query));
       }
     }
 

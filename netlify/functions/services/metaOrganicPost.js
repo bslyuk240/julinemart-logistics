@@ -52,6 +52,18 @@ async function logOrganicAction(action, resourceId, details, status = 'success',
   }).then(() => {}, () => {});
 }
 
+async function metaGet(path, params = {}) {
+  const url = new URL(`${META_API_BASE}/${path}`);
+  url.searchParams.set('access_token', PAGE_ACCESS_TOKEN);
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
+  }
+  const res = await fetch(url.toString());
+  const json = await res.json();
+  if (!res.ok || json.error) throw new Error(json.error?.message || `Meta API error on ${path}`);
+  return json;
+}
+
 async function metaPost(path, params) {
   const url = new URL(`${META_API_BASE}/${path}`);
   const res = await fetch(url.toString(), {
@@ -121,4 +133,87 @@ export async function postToInstagram({ imageUrl, caption }) {
 
   await logOrganicAction('instagram_post_create', published.id, { imageUrl, caption });
   return { media_id: published.id };
+}
+
+// ── Analytics / read-only ─────────────────────────────────────────────────
+// Meta periodically renames/deprecates Insights metrics, so `metrics` (and
+// `extra` for edge cases like metric_type) are caller-overridable rather than
+// hardcoded-only — a stale default will surface as a clear Meta API error
+// naming the valid options, rather than silently doing the wrong thing.
+
+const DEFAULT_PAGE_INSIGHTS_METRICS = ['page_impressions_unique', 'page_engaged_users', 'page_post_engagements'];
+const DEFAULT_IG_INSIGHTS_METRICS = ['reach', 'profile_views'];
+
+/** Facebook Page profile basics — name, follower/fan counts, category. */
+export async function getFacebookPageProfile() {
+  if (!PAGE_ID) throw new Error('META_PAGE_ID is not configured');
+  if (!PAGE_ACCESS_TOKEN) throw new Error('META_PAGE_ACCESS_TOKEN is not configured');
+  return metaGet(PAGE_ID, { fields: 'name,category,followers_count,fan_count,link' });
+}
+
+/** Recent Page posts with engagement counts (likes/comments/shares) — stable fields, no Insights edge involved. */
+export async function listFacebookPagePosts({ limit = 10 } = {}) {
+  if (!PAGE_ID) throw new Error('META_PAGE_ID is not configured');
+  if (!PAGE_ACCESS_TOKEN) throw new Error('META_PAGE_ACCESS_TOKEN is not configured');
+  const data = await metaGet(`${PAGE_ID}/posts`, {
+    fields: 'id,message,created_time,permalink_url,likes.summary(true),comments.summary(true),shares',
+    limit: String(Math.min(50, Math.max(1, Number(limit) || 10))),
+  });
+  return (data.data || []).map((p) => ({
+    id: p.id,
+    message: p.message || null,
+    created_time: p.created_time,
+    permalink_url: p.permalink_url,
+    likes: p.likes?.summary?.total_count ?? 0,
+    comments: p.comments?.summary?.total_count ?? 0,
+    shares: p.shares?.count ?? 0,
+  }));
+}
+
+/** Page-level Insights (reach, engagement, etc.) — see comment above on `metrics`/`extra`. */
+export async function getFacebookPageInsights({ metrics, period = 'day', since, until, extra } = {}) {
+  if (!PAGE_ID) throw new Error('META_PAGE_ID is not configured');
+  if (!PAGE_ACCESS_TOKEN) throw new Error('META_PAGE_ACCESS_TOKEN is not configured');
+  const metricList = Array.isArray(metrics) && metrics.length ? metrics : DEFAULT_PAGE_INSIGHTS_METRICS;
+  const data = await metaGet(`${PAGE_ID}/insights`, {
+    metric: metricList.join(','),
+    period,
+    since,
+    until,
+    ...(extra && typeof extra === 'object' ? extra : {}),
+  });
+  return data.data || [];
+}
+
+/** Instagram Business Account profile basics — username, follower count, media count. */
+export async function getInstagramProfile() {
+  if (!IG_BUSINESS_ACCOUNT_ID) throw new Error('META_INSTAGRAM_BUSINESS_ACCOUNT_ID is not configured');
+  if (!PAGE_ACCESS_TOKEN) throw new Error('META_PAGE_ACCESS_TOKEN is not configured');
+  return metaGet(IG_BUSINESS_ACCOUNT_ID, { fields: 'username,name,followers_count,media_count' });
+}
+
+/** Recent Instagram media with like/comment counts — stable fields, no Insights edge involved. */
+export async function listInstagramMedia({ limit = 10 } = {}) {
+  if (!IG_BUSINESS_ACCOUNT_ID) throw new Error('META_INSTAGRAM_BUSINESS_ACCOUNT_ID is not configured');
+  if (!PAGE_ACCESS_TOKEN) throw new Error('META_PAGE_ACCESS_TOKEN is not configured');
+  const data = await metaGet(`${IG_BUSINESS_ACCOUNT_ID}/media`, {
+    fields: 'id,caption,media_type,timestamp,permalink,like_count,comments_count',
+    limit: String(Math.min(50, Math.max(1, Number(limit) || 10))),
+  });
+  return data.data || [];
+}
+
+/** Instagram account-level Insights (reach, profile views, etc.) — see comment above on `metrics`/`extra`. */
+export async function getInstagramInsights({ metrics, period = 'day', since, until, extra } = {}) {
+  if (!IG_BUSINESS_ACCOUNT_ID) throw new Error('META_INSTAGRAM_BUSINESS_ACCOUNT_ID is not configured');
+  if (!PAGE_ACCESS_TOKEN) throw new Error('META_PAGE_ACCESS_TOKEN is not configured');
+  const metricList = Array.isArray(metrics) && metrics.length ? metrics : DEFAULT_IG_INSIGHTS_METRICS;
+  const data = await metaGet(`${IG_BUSINESS_ACCOUNT_ID}/insights`, {
+    metric: metricList.join(','),
+    period,
+    since,
+    until,
+    ...(extra && typeof extra === 'object' ? extra : {}),
+  });
+  return data.data || [];
 }

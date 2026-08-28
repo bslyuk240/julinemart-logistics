@@ -551,7 +551,7 @@ export const CAPABILITIES = [
   },
   {
     id: 'meta.social.page.posts.list', domain: 'meta', name: 'List Facebook Page Posts',
-    description: 'Recent organic Page posts with like/comment/share counts.',
+    description: 'Recent organic Page posts (message, permalink, share count). Like/comment counts are NOT available here — Meta gates those behind its "Page Public Content Access" app feature, which requires a separate App Review submission this app has not completed. Do not claim like/comment counts for Facebook posts; use meta.social.instagram.media.list for Instagram engagement counts, which are not gated this way.',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
     http_method: 'GET', endpoint: '/meta/social/facebook/posts',
     input_schema: { limit: 'number (optional, default 10, max 50)' },

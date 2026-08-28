@@ -176,11 +176,17 @@ export async function getFacebookPageProfile() {
 }
 
 /** Recent Page posts with engagement counts (likes/comments/shares) — stable fields, no Insights edge involved. */
+// likes.summary(true) / comments.summary(true) are gated behind Meta's "Page
+// Public Content Access" feature (requires formal App Review approval, not
+// just a permission grant) — verified directly against the live API, both
+// fail with "(#10) requires ... 'Page Public Content Access' feature" even
+// with a fully-scoped token. shares works without it. Until/unless that
+// review is completed, likes/comments counts are unavailable here.
 export async function listFacebookPagePosts({ limit = 10 } = {}) {
   if (!PAGE_ID) throw new Error('META_PAGE_ID is not configured');
   if (!PAGE_ACCESS_TOKEN) throw new Error('META_PAGE_ACCESS_TOKEN is not configured');
   const data = await metaGet(`${PAGE_ID}/posts`, {
-    fields: 'id,message,created_time,permalink_url,likes.summary(true),comments.summary(true),shares',
+    fields: 'id,message,created_time,permalink_url,shares',
     limit: String(Math.min(50, Math.max(1, Number(limit) || 10))),
   });
   return (data.data || []).map((p) => ({
@@ -188,8 +194,6 @@ export async function listFacebookPagePosts({ limit = 10 } = {}) {
     message: p.message || null,
     created_time: p.created_time,
     permalink_url: p.permalink_url,
-    likes: p.likes?.summary?.total_count ?? 0,
-    comments: p.comments?.summary?.total_count ?? 0,
     shares: p.shares?.count ?? 0,
   }));
 }

@@ -158,8 +158,15 @@ export async function postToInstagram({ imageUrl, caption }) {
 // hardcoded-only — a stale default will surface as a clear Meta API error
 // naming the valid options, rather than silently doing the wrong thing.
 
-const DEFAULT_PAGE_INSIGHTS_METRICS = ['page_impressions_unique', 'page_engaged_users', 'page_post_engagements'];
-const DEFAULT_IG_INSIGHTS_METRICS = ['reach', 'profile_views'];
+// Verified working against the live API on 2026-08-28 (v21.0) — several
+// commonly-referenced metric names (page_impressions_unique, page_fans,
+// page_engaged_users, page_impressions) are rejected outright by Meta on
+// this API version despite being widely documented/expected; these three
+// are the ones that actually return data.
+const DEFAULT_PAGE_INSIGHTS_METRICS = ['page_post_engagements', 'page_views_total', 'page_follows'];
+// profile_views also works but requires metric_type=total_value (pass via
+// the `extra` param) — left out of the zero-config default for that reason.
+const DEFAULT_IG_INSIGHTS_METRICS = ['reach'];
 
 /** Facebook Page profile basics — name, follower/fan counts, category. */
 export async function getFacebookPageProfile() {

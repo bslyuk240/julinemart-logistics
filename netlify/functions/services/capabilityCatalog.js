@@ -563,7 +563,7 @@ export const CAPABILITIES = [
     description: "Page-level Insights metrics (reach, engaged users, post engagements by default — Meta's Insights metric names change over time, so a custom metrics list can be passed).",
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
     http_method: 'GET', endpoint: '/meta/social/facebook/insights',
-    input_schema: { metrics: 'comma-separated string (optional, defaults to page_impressions_unique,page_engaged_users,page_post_engagements)', period: 'day | week | days_28 (optional, default day)', since: 'ISO date (optional)', until: 'ISO date (optional)' },
+    input_schema: { metrics: 'comma-separated string (optional, defaults to page_post_engagements,page_views_total,page_follows)', period: 'day | week | days_28 (optional, default day)', since: 'ISO date (optional)', until: 'ISO date (optional)' },
     idempotency_required: false, approval_recommended: false, enabled: true,
   },
   {
@@ -587,7 +587,7 @@ export const CAPABILITIES = [
     description: "Account-level Insights metrics (reach, profile views by default — Meta's Insights metric names change over time, so a custom metrics list can be passed).",
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
     http_method: 'GET', endpoint: '/meta/social/instagram/insights',
-    input_schema: { metrics: 'comma-separated string (optional, defaults to reach,profile_views)', period: 'day | week | days_28 (optional, default day)', since: 'ISO date (optional)', until: 'ISO date (optional)' },
+    input_schema: { metrics: 'comma-separated string (optional, defaults to reach; profile_views also works but needs extra={metric_type:"total_value"})', period: 'day | week | days_28 (optional, default day)', since: 'ISO date (optional)', until: 'ISO date (optional)' },
     idempotency_required: false, approval_recommended: false, enabled: true,
   },
 

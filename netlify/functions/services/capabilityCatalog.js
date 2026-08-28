@@ -438,6 +438,111 @@ export const CAPABILITIES = [
     idempotency_required: false, approval_recommended: true, enabled: true,
   },
 
+  // ── META ADS & SOCIAL ────────────────────────────────────────────────
+  // Two distinct Graph API surfaces sharing one domain. meta.ads.* reuses
+  // the same logic (metaAds functions) that JLO's own internal Ads Manager
+  // dashboard uses — this is an additive extension of that code, not a
+  // fork of it. meta.social.* is new: JLO had no organic Page/Instagram
+  // posting capability before this. Both need env vars that must be
+  // configured before calling: meta.ads.* needs META_AD_ACCOUNT_ID /
+  // META_ADS_ACCESS_TOKEN / META_PAGE_ID (ad-account-scoped token);
+  // meta.social.* needs META_PAGE_ACCESS_TOKEN (a Page-scoped token, NOT
+  // the ads token — different permission set) and, for Instagram,
+  // META_INSTAGRAM_BUSINESS_ACCOUNT_ID.
+  {
+    id: 'meta.ads.campaigns.list', domain: 'meta', name: 'List Meta Ad Campaigns',
+    description: 'List cached Meta ad campaigns (name, status, budget, last-synced performance).',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/meta/ads/campaigns',
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'meta.ads.campaigns.sync', domain: 'meta', name: 'Sync Meta Ad Campaigns',
+    description: 'Pull latest campaigns + last-30-day performance from Meta into the cache.',
+    operation_type: 'create', side_effect_type: 'internal_write', risk_level: 'low',
+    http_method: 'POST', endpoint: '/meta/ads/campaigns/sync',
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'meta.ads.campaigns.status.update', domain: 'meta', name: 'Pause/Resume Meta Ad Campaign',
+    description: 'Set a live campaign to ACTIVE or PAUSED. Directly controls real ad delivery/spend.',
+    operation_type: 'update', side_effect_type: 'financial', risk_level: 'high',
+    http_method: 'PUT', endpoint: '/meta/ads/campaigns/:id/status',
+    input_schema: { campaign_id: 'string (Meta campaign id)', status: 'ACTIVE | PAUSED' },
+    idempotency_required: false, approval_recommended: true, enabled: true,
+  },
+  {
+    id: 'meta.ads.campaigns.budget.update', domain: 'meta', name: 'Update Meta Ad Campaign Budget',
+    description: "Change a live campaign's daily budget (NGN). Directly controls real ad spend.",
+    operation_type: 'update', side_effect_type: 'financial', risk_level: 'high',
+    http_method: 'PUT', endpoint: '/meta/ads/campaigns/:id/budget',
+    input_schema: { campaign_id: 'string (Meta campaign id)', daily_budget: 'number (NGN)' },
+    idempotency_required: false, approval_recommended: true, enabled: true,
+  },
+  {
+    id: 'meta.ads.drafts.list', domain: 'meta', name: 'List Meta Ad Drafts',
+    description: 'List ad drafts (draft/approved/rejected/published) awaiting or past review.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/meta/ads/drafts',
+    supports_pagination: false, supports_filtering: true, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'meta.ads.drafts.create', domain: 'meta', name: 'Create Meta Ad Draft',
+    description: 'Create a new ad draft (title, copy, image, target). Does not touch Meta until approved and published.',
+    operation_type: 'create', side_effect_type: 'internal_write', risk_level: 'low',
+    http_method: 'POST', endpoint: '/meta/ads/drafts',
+    input_schema: { title: 'string', headline: 'string (optional)', body_text: 'string', call_to_action: 'SHOP_NOW | LEARN_MORE | ORDER_NOW | GET_OFFER (optional)', image_url: 'string (optional, must be a trusted media host)', destination_url: 'string (optional)', target_audience: 'string (optional)', suggested_budget: 'number (optional, NGN)' },
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'meta.ads.drafts.approve', domain: 'meta', name: 'Approve Meta Ad Draft',
+    description: 'Approve a draft, allowing it to be published to Meta. Does not itself spend money.',
+    operation_type: 'update', side_effect_type: 'internal_write', risk_level: 'medium',
+    http_method: 'PUT', endpoint: '/meta/ads/drafts/:id/approve',
+    input_schema: { draft_id: 'string (uuid)' },
+    idempotency_required: false, approval_recommended: true, enabled: true,
+  },
+  {
+    id: 'meta.ads.drafts.publish', domain: 'meta', name: 'Publish Meta Ad Draft',
+    description: 'Publish an approved draft to Meta: creates a real ad creative/ad set/ad (created PAUSED — still requires a manual or a separate campaigns.status.update call to go live/spend).',
+    operation_type: 'execute', side_effect_type: 'financial', risk_level: 'high',
+    http_method: 'POST', endpoint: '/meta/ads/drafts/:id/publish',
+    input_schema: { draft_id: 'string (uuid)', campaign_id: 'string (optional, existing Meta campaign id)', new_campaign_name: 'string (required if campaign_id omitted)', daily_budget: 'number (NGN, required unless the target campaign already holds its own budget)' },
+    idempotency_required: false, approval_recommended: true, enabled: true,
+  },
+  {
+    id: 'meta.ads.account.read', domain: 'meta', name: 'Read Meta Ad Account Balance',
+    description: 'Ad account balance/spend/currency — for checking budget headroom before proposing spend.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/meta/ads/account',
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'meta.ads.recommendations.list', domain: 'meta', name: 'List Meta AI Recommendations',
+    description: "Pending AI-generated suggestions for improving ad performance (JLO's own recommendation engine, not Meta's).",
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/meta/ads/recommendations',
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'meta.social.facebook.post', domain: 'meta', name: 'Post to Facebook Page',
+    description: 'Publish an organic (unpaid) text/link post to the JulineMart Facebook Page feed. Public and immediate — no draft/approval step exists yet.',
+    operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'high',
+    http_method: 'POST', endpoint: '/meta/social/facebook/post',
+    input_schema: { message: 'string', link: 'string (optional, must be a trusted media host)' },
+    idempotency_required: false, approval_recommended: true, enabled: true,
+  },
+  {
+    id: 'meta.social.instagram.post', domain: 'meta', name: 'Post to Instagram',
+    description: 'Publish an organic (unpaid) image post to the JulineMart Instagram Business Account. Public and immediate — no draft/approval step exists yet.',
+    operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'high',
+    http_method: 'POST', endpoint: '/meta/social/instagram/post',
+    input_schema: { image_url: 'string (must be a trusted media host)', caption: 'string (optional)' },
+    idempotency_required: false, approval_recommended: true, enabled: true,
+  },
+
   // ── CATALOGUE ─────────────────────────────────────────────────────────
   {
     id: 'products.list', domain: 'catalogue', name: 'List Products',

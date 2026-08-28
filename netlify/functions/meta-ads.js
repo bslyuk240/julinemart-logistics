@@ -14,14 +14,14 @@ const META_APP_ID    = process.env.META_APP_ID || '';
 
 // Allowlist of trusted hostnames from which the server may fetch media.
 // Prevents SSRF attacks via user-supplied image/video/thumbnail URLs.
-const TRUSTED_MEDIA_HOSTS = (() => {
+export const TRUSTED_MEDIA_HOSTS = (() => {
   const supabaseHost = (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '')
     .replace(/^https?:\/\//, '').split('/')[0];
   const defaults = ['res.cloudinary.com', 'storage.googleapis.com'];
   return new Set([supabaseHost, ...defaults].filter(Boolean));
 })();
 
-function assertTrustedMediaUrl(url, label = 'URL') {
+export function assertTrustedMediaUrl(url, label = 'URL') {
   let parsed;
   try { parsed = new URL(url); } catch { throw new Error(`${label} is not a valid URL`); }
   if (parsed.protocol !== 'https:') throw new Error(`${label} must use HTTPS`);
@@ -121,7 +121,7 @@ async function uploadImageToMeta(imageUrl) {
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
-async function getCampaigns() {
+export async function getCampaigns() {
   let q = supabase.from('meta_campaigns_cache').select('*');
   if (AD_ACCOUNT_ID) q = q.eq('ad_account_id', AD_ACCOUNT_ID);
   const { data, error } = await q.order('synced_at', { ascending: false });
@@ -129,7 +129,7 @@ async function getCampaigns() {
   return ok(data || []);
 }
 
-async function syncCampaigns(userId) {
+export async function syncCampaigns(userId) {
   const fields = 'id,name,status,objective,daily_budget,lifetime_budget,spend_cap,start_time,stop_time';
   const data   = await metaGet(`${AD_ACCOUNT_ID}/campaigns`, { fields, limit: '100' });
   const campaigns = data.data || [];
@@ -180,7 +180,7 @@ async function syncCampaigns(userId) {
   return ok({ synced: rows.length });
 }
 
-async function getDrafts(status) {
+export async function getDrafts(status) {
   let q = supabase
     .from('meta_ad_drafts')
     .select('*, users!meta_ad_drafts_created_by_fkey(full_name, email)')
@@ -191,7 +191,7 @@ async function getDrafts(status) {
   return ok(data || []);
 }
 
-async function createDraft(body, userId) {
+export async function createDraft(body, userId) {
   const { title, headline, body_text, call_to_action, image_url, destination_url,
           source_products, source_context, target_audience, suggested_budget,
           ai_generated, ad_format, meta_video_id, carousel_elements } = body;
@@ -218,7 +218,7 @@ async function createDraft(body, userId) {
   return created(data);
 }
 
-async function approveDraft(id, userId) {
+export async function approveDraft(id, userId) {
   const { data, error } = await supabase
     .from('meta_ad_drafts')
     .update({ status: 'approved', approved_by: userId, approved_at: new Date().toISOString() })
@@ -312,7 +312,7 @@ Return a JSON array only, no extra text.`;
   return ok(variations);
 }
 
-async function getRecommendations() {
+export async function getRecommendations() {
   const { data, error } = await supabase
     .from('meta_ai_recommendations')
     .select('*')
@@ -607,7 +607,7 @@ async function uploadAdImage(body) {
 
 // ── Campaign budget update ────────────────────────────────────────────────────
 
-async function updateCampaignBudget(campaignId, dailyBudgetNgn, userId) {
+export async function updateCampaignBudget(campaignId, dailyBudgetNgn, userId) {
   const ngn = Number(dailyBudgetNgn);
   if (!ngn || ngn < META_MIN_DAILY_BUDGET_NGN)
     return err(`Budget must be at least ₦${META_MIN_DAILY_BUDGET_NGN.toLocaleString()}`, 400);
@@ -634,7 +634,7 @@ async function updateCampaignBudget(campaignId, dailyBudgetNgn, userId) {
 
 // ── Campaign status toggle (pause / resume via Meta API) ─────────────────────
 
-async function updateCampaignStatus(campaignId, status, userId) {
+export async function updateCampaignStatus(campaignId, status, userId) {
   if (!['ACTIVE', 'PAUSED'].includes(status)) return err('status must be ACTIVE or PAUSED', 400);
 
   const url = new URL(`${META_API_BASE}/${campaignId}`);
@@ -661,7 +661,7 @@ async function updateCampaignStatus(campaignId, status, userId) {
 // ── Publish approved draft → Meta Ad ─────────────────────────────────────────
 // Flow: Ad Creative → Ad Set (under chosen campaign) → Ad
 
-async function publishDraft(draftId, body, userId) {
+export async function publishDraft(draftId, body, userId) {
   if (!META_PAGE_ID) return err('META_PAGE_ID env var is not configured', 500);
   if (!AD_ACCOUNT_ID) return err('META_AD_ACCOUNT_ID env var is not configured', 500);
 
@@ -952,7 +952,7 @@ async function setVideoThumbnail(body) {
   return ok({ set: true });
 }
 
-async function getAccountInfo() {
+export async function getAccountInfo() {
   if (!AD_ACCOUNT_ID) return err('META_AD_ACCOUNT_ID not configured', 500);
 
   // Note: Meta Marketing API does not expose the Funds wallet balance with

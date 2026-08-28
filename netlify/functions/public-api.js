@@ -25,6 +25,19 @@ import { getCapabilityManifest } from './services/capabilityCatalog.js';
 import { sendTransactionalEmail, sendTransactionalEmailBulk, RESEND_BATCH_LIMIT } from './services/emailNotifications.js';
 import { sendPushViaPwa } from './services/pushSendProxy.js';
 import { logNotificationHistory, PUSH_HISTORY_ACTION } from './services/notificationHistory.js';
+import {
+  getCampaigns as getMetaCampaigns,
+  syncCampaigns as syncMetaCampaigns,
+  getDrafts as getMetaDrafts,
+  createDraft as createMetaDraft,
+  approveDraft as approveMetaDraft,
+  updateCampaignBudget as updateMetaCampaignBudget,
+  updateCampaignStatus as updateMetaCampaignStatus,
+  publishDraft as publishMetaDraft,
+  getAccountInfo as getMetaAccountInfo,
+  getRecommendations as getMetaRecommendations,
+} from './meta-ads.js';
+import { postToFacebookPage, postToInstagram } from './services/metaOrganicPost.js';
 
 function json(statusCode, body) {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -654,6 +667,52 @@ async function getCampaign(adminClient, id) {
   return json(200, { data });
 }
 
+// ── meta.ads.* / meta.social.* ──────────────────────────────────────────
+// meta.ads.* wraps meta-ads.js's own functions unchanged — same logic JLO's
+// internal Ads Manager dashboard uses, reused rather than duplicated. Those
+// functions return { statusCode, body: JSON.stringify({ success, data|error }) }
+// (meta-ads.js's own response convention); this adapts that into this
+// router's { data } / { error } convention. No user session exists on this
+// path, so their optional userId/audit-log argument is passed as null —
+// same as any other unauthenticated-user call those functions already support.
+async function callMetaAdsHandler(fn, ...args) {
+  const res = await fn(...args);
+  let parsed;
+  try {
+    parsed = JSON.parse(res.body);
+  } catch {
+    return json(502, { error: 'Unexpected response from Meta Ads module' });
+  }
+  if (parsed.success) return json(res.statusCode, { data: parsed.data });
+  return json(res.statusCode, { error: parsed.error });
+}
+
+async function postFacebookPage(body) {
+  if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
+  const message = String(body.message || '').trim();
+  if (!message) return json(400, { error: 'message is required' });
+  const link = body.link ? String(body.link).trim() : undefined;
+  try {
+    const data = await postToFacebookPage({ message, link });
+    return json(200, { data });
+  } catch (e) {
+    return json(502, { error: e.message });
+  }
+}
+
+async function postInstagramImage(body) {
+  if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
+  const imageUrl = String(body.image_url || '').trim();
+  if (!imageUrl) return json(400, { error: 'image_url is required' });
+  const caption = body.caption ? String(body.caption).trim() : undefined;
+  try {
+    const data = await postToInstagram({ imageUrl, caption });
+    return json(200, { data });
+  } catch (e) {
+    return json(502, { error: e.message });
+  }
+}
+
 // ── notifications.* ─────────────────────────────────────────────────────
 async function listEmailTemplates(adminClient, query) {
   const { limit, offset } = paginationParams(query);
@@ -1066,6 +1125,78 @@ export const handler = async (event) => {
           ? new Set(['single', 'all_customers', 'all_vendors', 'all_staff', 'segment'])
           : new Set(['single']);
         return await sendOrSchedulePush(auth.adminClient, body, { allowedAudiences, apiKeyName: auth.apiKey.name });
+      }
+    }
+
+    // --- meta (ads + organic social) ---
+    if (segments[0] === 'meta' && segments[1] === 'ads') {
+      if (segments.length === 3 && segments[2] === 'campaigns' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.ads.campaigns.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await callMetaAdsHandler(getMetaCampaigns);
+      }
+      if (segments.length === 4 && segments[2] === 'campaigns' && segments[3] === 'sync' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.ads.campaigns.sync');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await callMetaAdsHandler(syncMetaCampaigns, null);
+      }
+      if (segments.length === 5 && segments[2] === 'campaigns' && segments[4] === 'status' && method === 'PUT') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.ads.campaigns.status.update');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await callMetaAdsHandler(updateMetaCampaignStatus, segments[3], body.status, null);
+      }
+      if (segments.length === 5 && segments[2] === 'campaigns' && segments[4] === 'budget' && method === 'PUT') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.ads.campaigns.budget.update');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await callMetaAdsHandler(updateMetaCampaignBudget, segments[3], body.daily_budget, null);
+      }
+      if (segments.length === 3 && segments[2] === 'drafts' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.ads.drafts.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await callMetaAdsHandler(getMetaDrafts, query.status);
+      }
+      if (segments.length === 3 && segments[2] === 'drafts' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.ads.drafts.create');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await callMetaAdsHandler(createMetaDraft, body, null);
+      }
+      if (segments.length === 5 && segments[2] === 'drafts' && segments[4] === 'approve' && method === 'PUT') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.ads.drafts.approve');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await callMetaAdsHandler(approveMetaDraft, segments[3], null);
+      }
+      if (segments.length === 5 && segments[2] === 'drafts' && segments[4] === 'publish' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.ads.drafts.publish');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await callMetaAdsHandler(publishMetaDraft, segments[3], body, null);
+      }
+      if (segments.length === 3 && segments[2] === 'account' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.ads.account.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await callMetaAdsHandler(getMetaAccountInfo);
+      }
+      if (segments.length === 3 && segments[2] === 'recommendations' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.ads.recommendations.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await callMetaAdsHandler(getMetaRecommendations);
+      }
+    }
+    if (segments[0] === 'meta' && segments[1] === 'social') {
+      if (segments.length === 4 && segments[2] === 'facebook' && segments[3] === 'post' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.social.facebook.post');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await postFacebookPage(body);
+      }
+      if (segments.length === 4 && segments[2] === 'instagram' && segments[3] === 'post' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.social.instagram.post');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await postInstagramImage(body);
       }
     }
 

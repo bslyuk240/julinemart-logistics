@@ -222,6 +222,9 @@
 [functions."resend-webhook"]
   timeout = 10
 
+[functions."internal-whatsapp-webhook"]
+  timeout = 10
+
 [functions."vendor-invite"]
   timeout = 15
 

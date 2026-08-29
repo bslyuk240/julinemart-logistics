@@ -47,6 +47,13 @@ import {
   listInstagramMedia,
   getInstagramInsights,
 } from './services/metaOrganicPost.js';
+import {
+  sendWhatsAppText,
+  sendWhatsAppTemplate,
+  listWhatsAppThreads,
+  readWhatsAppThread,
+  listWhatsAppTemplates,
+} from './services/internalWhatsapp.js';
 
 function json(statusCode, body) {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -741,6 +748,81 @@ async function postInstagramImage(body) {
   }
 }
 
+// ── whatsapp.* (internal outreach — vendors/leads, not customer care) ───
+async function sendWhatsAppMessageRoute(body) {
+  if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
+  const to = String(body.to || '').trim();
+  const message = String(body.message || '').trim();
+  if (!to) return json(400, { error: 'to is required' });
+  if (!message) return json(400, { error: 'message is required' });
+  try {
+    const data = await sendWhatsAppText({
+      to,
+      message,
+      contactName: body.contact_name ? String(body.contact_name).trim() : undefined,
+      contactType: body.contact_type === 'vendor' ? 'vendor' : 'lead',
+      vendorId: body.vendor_id ? String(body.vendor_id) : undefined,
+      sentByAgent: body.sent_by_agent ? String(body.sent_by_agent) : undefined,
+    });
+    return json(200, { data });
+  } catch (e) {
+    return json(502, { error: e.message });
+  }
+}
+
+async function sendWhatsAppTemplateRoute(body) {
+  if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
+  const to = String(body.to || '').trim();
+  const templateName = String(body.template_name || '').trim();
+  if (!to) return json(400, { error: 'to is required' });
+  if (!templateName) return json(400, { error: 'template_name is required' });
+  const variables = Array.isArray(body.variables) ? body.variables.map(String) : [];
+  try {
+    const data = await sendWhatsAppTemplate({
+      to,
+      templateName,
+      variables,
+      language: body.language ? String(body.language) : undefined,
+      contactName: body.contact_name ? String(body.contact_name).trim() : undefined,
+      contactType: body.contact_type === 'vendor' ? 'vendor' : 'lead',
+      vendorId: body.vendor_id ? String(body.vendor_id) : undefined,
+      sentByAgent: body.sent_by_agent ? String(body.sent_by_agent) : undefined,
+    });
+    return json(200, { data });
+  } catch (e) {
+    return json(502, { error: e.message });
+  }
+}
+
+async function listWhatsAppThreadsRoute(query) {
+  try {
+    const data = await listWhatsAppThreads({ contactType: query.contact_type || undefined });
+    return json(200, { data });
+  } catch (e) {
+    return json(502, { error: e.message });
+  }
+}
+
+async function readWhatsAppThreadRoute(query) {
+  const phone = String(query.phone || '').trim();
+  if (!phone) return json(400, { error: 'phone is required' });
+  try {
+    const data = await readWhatsAppThread({ phone, limit: query.limit ? Number(query.limit) : undefined });
+    return json(200, { data });
+  } catch (e) {
+    return json(502, { error: e.message });
+  }
+}
+
+async function listWhatsAppTemplatesRoute() {
+  try {
+    const data = await listWhatsAppTemplates();
+    return json(200, { data });
+  } catch (e) {
+    return json(502, { error: e.message });
+  }
+}
+
 // ── notifications.* ─────────────────────────────────────────────────────
 async function listEmailTemplates(adminClient, query) {
   const { limit, offset } = paginationParams(query);
@@ -1255,6 +1337,37 @@ export const handler = async (event) => {
         const auth = await authenticateServiceApiRequest(event, 'meta.social.instagram.insights.read');
         if (auth.errorResponse) return auth.errorResponse;
         return await callMetaSocialRead(getInstagramInsights, insightsQueryArgs(query));
+      }
+    }
+
+    // --- whatsapp.* (internal outreach) ---
+    if (segments[0] === 'whatsapp') {
+      if (segments.length === 2 && segments[1] === 'threads' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'whatsapp.threads.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listWhatsAppThreadsRoute(query);
+      }
+      if (segments.length === 2 && segments[1] === 'thread' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'whatsapp.thread.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await readWhatsAppThreadRoute(query);
+      }
+      if (segments.length === 2 && segments[1] === 'templates' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'whatsapp.templates.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listWhatsAppTemplatesRoute();
+      }
+      if (segments.length === 2 && segments[1] === 'message' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'whatsapp.message.send');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await sendWhatsAppMessageRoute(body);
+      }
+      if (segments.length === 2 && segments[1] === 'template' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'whatsapp.template.send');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await sendWhatsAppTemplateRoute(body);
       }
     }
 

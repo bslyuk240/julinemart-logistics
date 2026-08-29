@@ -660,6 +660,56 @@ export const CAPABILITIES = [
     http_method: 'GET', endpoint: '/operations/summary',
     idempotency_required: false, approval_recommended: false, enabled: false,
   },
+
+  // ── INTERNAL WHATSAPP OUTREACH ────────────────────────────────────────
+  // Agent-driven messaging to vendors and leads (Sales Rep / Ops Manager),
+  // not a public customer-care number. Separate WhatsApp Business number
+  // from any customer-support one — see services/internalWhatsapp.js and
+  // migration 20260828120000_internal_whatsapp_outreach.sql. Needs
+  // WHATSAPP_PHONE_NUMBER_ID / WHATSAPP_ACCESS_TOKEN configured (the
+  // phone number must be registered/verified with Meta) before any of
+  // these actually send.
+  {
+    id: 'whatsapp.threads.list', domain: 'whatsapp', name: 'List WhatsApp Threads',
+    description: 'List internal WhatsApp conversation threads with vendors/leads, newest activity first.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/whatsapp/threads',
+    input_schema: { contact_type: 'vendor | lead (optional filter)' },
+    supports_pagination: false, supports_filtering: true, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'whatsapp.thread.read', domain: 'whatsapp', name: 'Read WhatsApp Thread',
+    description: 'Full message history for one contact by phone number, including whether their 24h service window is currently open (freeform text allowed) or closed (a template is required).',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/whatsapp/thread',
+    input_schema: { phone: 'string (E.164-ish, digits with optional leading +)', limit: 'number (optional, default 30)' },
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'whatsapp.templates.list', domain: 'whatsapp', name: 'List WhatsApp Templates',
+    description: 'List active message templates available for whatsapp.template.send, with their content and Meta approval status.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/whatsapp/templates',
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'whatsapp.message.send', domain: 'whatsapp', name: 'Send WhatsApp Message',
+    description: 'Send freeform text to a vendor/lead. Only works within their 24h service window (they messaged in recently) — fails with a clear error otherwise. Use whatsapp.template.send to reach someone outside that window.',
+    operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'high',
+    http_method: 'POST', endpoint: '/whatsapp/message',
+    input_schema: { to: 'string (phone number)', message: 'string', contact_name: 'string (optional)', contact_type: 'vendor | lead (optional, default lead)', vendor_id: 'string (uuid, optional)' },
+    idempotency_required: false, approval_recommended: true, enabled: true,
+  },
+  {
+    id: 'whatsapp.template.send', domain: 'whatsapp', name: 'Send WhatsApp Template',
+    description: 'Send an approved message template — the only way to message someone outside their 24h window, or reach them for the first time (e.g. a vendor broadcast). Cannot send arbitrary text this way, only an existing template\'s {{variables}} filled in.',
+    operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'high',
+    http_method: 'POST', endpoint: '/whatsapp/template',
+    input_schema: { to: 'string (phone number)', template_name: 'string (must match an active internal_whatsapp_templates.name)', variables: 'array of string (optional, fills {{1}}, {{2}}, ... in order)', language: 'string (optional, defaults to the template\'s own language)', contact_name: 'string (optional)', contact_type: 'vendor | lead (optional, default lead)', vendor_id: 'string (uuid, optional)' },
+    idempotency_required: false, approval_recommended: true, enabled: true,
+  },
 ];
 
 export const EVENTS = [

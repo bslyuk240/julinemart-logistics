@@ -412,7 +412,7 @@ export async function getEmailLogsHandler(req: AuthRequest, res: Response) {
     const { data, error, count } = await supabase
       .from('email_logs')
       .select(
-        'id, order_id, recipient, subject, status, error_message, sent_at, created_at, orders(order_number)',
+        'id, order_id, recipient, subject, status, error_message, source, sent_at, created_at, orders(order_number)',
         { count: 'exact' },
       )
       .order('sent_at', { ascending: false })

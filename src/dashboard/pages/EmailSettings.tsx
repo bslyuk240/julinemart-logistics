@@ -69,12 +69,22 @@ interface EmailLogRow {
   order_id: string | null;
   recipient: string;
   subject: string;
-  status: 'sent' | 'failed';
+  status: 'sent' | 'failed' | 'delivered' | 'bounced' | 'complained' | 'delayed';
   error_message: string | null;
+  source: string | null;
   sent_at: string;
   created_at?: string;
   orders?: { order_number: string | number } | null;
 }
+
+const LOG_STATUS_DISPLAY: Record<EmailLogRow['status'], { icon: typeof CheckCircle; className: string; label: string }> = {
+  delivered: { icon: CheckCircle, className: 'text-green-700', label: 'Delivered' },
+  sent: { icon: CheckCircle, className: 'text-green-700', label: 'Sent' },
+  delayed: { icon: AlertCircle, className: 'text-amber-600', label: 'Delayed' },
+  bounced: { icon: XCircle, className: 'text-red-700', label: 'Bounced' },
+  complained: { icon: XCircle, className: 'text-red-700', label: 'Marked as spam' },
+  failed: { icon: XCircle, className: 'text-red-700', label: 'Failed' },
+};
 
 export function EmailSettingsPage() {
   const notification = useNotification();
@@ -657,19 +667,14 @@ export function EmailSettingsPage() {
                   {emailLogs.map((row) => {
                     const orderNum = row.orders?.order_number;
                     const orderHref = row.order_id ? `/admin/orders/${row.order_id}` : undefined;
-                    const isSent = row.status === 'sent';
+                    const display = LOG_STATUS_DISPLAY[row.status] ?? LOG_STATUS_DISPLAY.failed;
+                    const StatusIcon = display.icon;
                     return (
                       <div key={row.id} className="border border-gray-200 rounded-lg p-3 space-y-1.5">
                         <div className="flex items-center justify-between gap-2">
-                          {isSent ? (
-                            <span className="inline-flex items-center gap-1 text-green-700 text-sm font-medium">
-                              <CheckCircle className="w-4 h-4" /> Sent
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-red-700 text-sm font-medium">
-                              <XCircle className="w-4 h-4" /> Failed
-                            </span>
-                          )}
+                          <span className={`inline-flex items-center gap-1 text-sm font-medium ${display.className}`}>
+                            <StatusIcon className="w-4 h-4" /> {display.label}
+                          </span>
                           <span className="text-xs text-gray-500">
                             {row.sent_at
                               ? new Date(row.sent_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
@@ -678,6 +683,9 @@ export function EmailSettingsPage() {
                         </div>
                         <p className="text-sm text-gray-700 break-all">{row.recipient}</p>
                         <p className="text-xs text-gray-500 leading-snug">{row.subject}</p>
+                        {row.source && (
+                          <p className="text-xs text-gray-400">Sent by: {row.source}</p>
+                        )}
                         {orderHref && (
                           <a href={orderHref} className="text-xs text-primary-600 hover:underline">
                             {orderNum != null ? `Order #${orderNum}` : 'View order'}
@@ -701,6 +709,7 @@ export function EmailSettingsPage() {
                         <th className="pb-2 pr-4 font-medium">Recipient</th>
                         <th className="pb-2 pr-4 font-medium min-w-[12rem]">Subject</th>
                         <th className="pb-2 pr-4 font-medium">Order</th>
+                        <th className="pb-2 pr-4 font-medium">Source</th>
                         <th className="pb-2 font-medium min-w-[10rem]">Error</th>
                       </tr>
                     </thead>
@@ -708,6 +717,8 @@ export function EmailSettingsPage() {
                       {emailLogs.map((row) => {
                         const orderNum = row.orders?.order_number;
                         const orderHref = row.order_id ? `/admin/orders/${row.order_id}` : undefined;
+                        const display = LOG_STATUS_DISPLAY[row.status] ?? LOG_STATUS_DISPLAY.failed;
+                        const StatusIcon = display.icon;
                         return (
                           <tr key={row.id} className="align-top">
                             <td className="py-2 pr-4 whitespace-nowrap text-gray-700">
@@ -719,15 +730,9 @@ export function EmailSettingsPage() {
                                 : '—'}
                             </td>
                             <td className="py-2 pr-4">
-                              {row.status === 'sent' ? (
-                                <span className="inline-flex items-center gap-1 text-green-700">
-                                  <CheckCircle className="w-4 h-4" /> Sent
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-red-700">
-                                  <XCircle className="w-4 h-4" /> Failed
-                                </span>
-                              )}
+                              <span className={`inline-flex items-center gap-1 ${display.className}`}>
+                                <StatusIcon className="w-4 h-4" /> {display.label}
+                              </span>
                             </td>
                             <td className="py-2 pr-4 break-all max-w-[14rem]">{row.recipient}</td>
                             <td className="py-2 pr-4 text-gray-800">{row.subject}</td>
@@ -740,6 +745,7 @@ export function EmailSettingsPage() {
                                 '—'
                               )}
                             </td>
+                            <td className="py-2 pr-4 text-gray-500 whitespace-nowrap">{row.source || '—'}</td>
                             <td className="py-2 text-red-700 break-words max-w-md">
                               {row.error_message || '—'}
                             </td>

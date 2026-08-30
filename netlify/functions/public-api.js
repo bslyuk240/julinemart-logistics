@@ -840,7 +840,7 @@ async function listEmailTemplates(adminClient, query) {
   return json(200, { data, count });
 }
 
-async function sendEmail(body) {
+async function sendEmail(body, source) {
   if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
   const templateName = String(body.template_name || '').trim();
   const to = String(body.to || '').trim();
@@ -850,14 +850,14 @@ async function sendEmail(body) {
   const data = isPlainObject(body.data) ? body.data : {};
   const orderId = body.order_id ? String(body.order_id) : null;
 
-  const result = await sendTransactionalEmail({ templateName, to, data, orderId });
+  const result = await sendTransactionalEmail({ templateName, to, data, orderId, source });
   if (result.sent) return json(200, { data: { sent: true } });
   if (result.reason === 'no_template') return json(400, { error: `Unknown template_name "${templateName}"` });
   if (result.reason === 'disabled') return json(503, { error: 'Email sending is currently disabled' });
   return json(200, { data: { sent: false, reason: result.reason } });
 }
 
-async function sendEmailBulk(body) {
+async function sendEmailBulk(body, source) {
   if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
   const templateName = String(body.template_name || '').trim();
   if (!templateName) return json(400, { error: 'template_name is required' });
@@ -867,7 +867,7 @@ async function sendEmailBulk(body) {
     return json(400, { error: `recipients is capped at ${RESEND_BATCH_LIMIT} per request` });
   }
   const sharedData = isPlainObject(body.data) ? body.data : {};
-  const result = await sendTransactionalEmailBulk({ templateName, recipients, data: sharedData });
+  const result = await sendTransactionalEmailBulk({ templateName, recipients, data: sharedData, source });
   if (result.reason === 'no_template') return json(400, { error: `Unknown template_name "${templateName}"` });
   if (result.reason === 'disabled') return json(503, { error: 'Email sending is currently disabled' });
   return json(200, { data: result });
@@ -1214,13 +1214,13 @@ export const handler = async (event) => {
         const auth = await authenticateServiceApiRequest(event, 'notifications.email.send');
         if (auth.errorResponse) return auth.errorResponse;
         const body = JSON.parse(event.body || '{}');
-        return await sendEmail(body);
+        return await sendEmail(body, auth.apiKey?.name || null);
       }
       if (segments.length === 3 && segments[1] === 'email' && segments[2] === 'bulk' && method === 'POST') {
         const auth = await authenticateServiceApiRequest(event, 'notifications.email.send_bulk');
         if (auth.errorResponse) return auth.errorResponse;
         const body = JSON.parse(event.body || '{}');
-        return await sendEmailBulk(body);
+        return await sendEmailBulk(body, auth.apiKey?.name || null);
       }
       if (segments.length === 2 && segments[1] === 'push' && method === 'POST') {
         const body = JSON.parse(event.body || '{}');

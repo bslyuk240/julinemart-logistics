@@ -219,7 +219,7 @@ function render(template, data, { escape = false } = {}) {
 
 // ── Audit logging ─────────────────────────────────────────────────────────────
 
-async function logEmail({ orderId, recipient, subject, status, errorMessage, resendMessageId }) {
+async function logEmail({ orderId, recipient, subject, status, errorMessage, resendMessageId, source }) {
   try {
     await supabase.from('email_logs').insert({
       order_id: orderId || null,
@@ -228,6 +228,7 @@ async function logEmail({ orderId, recipient, subject, status, errorMessage, res
       status,
       error_message: errorMessage || null,
       resend_message_id: resendMessageId || null,
+      source: source || null,
       sent_at: new Date().toISOString(),
     });
   } catch (e) {
@@ -247,7 +248,7 @@ async function logEmail({ orderId, recipient, subject, status, errorMessage, res
  * @param {string} [opts.orderId]      — Supabase order UUID (for dedup + audit)
  * @returns {{ sent: boolean, reason?: string }}
  */
-export async function sendTransactionalEmail({ templateName, to, data = {}, orderId = null }) {
+export async function sendTransactionalEmail({ templateName, to, data = {}, orderId = null, source = null }) {
   try {
     if (!to) {
       console.warn('[emailNotifications] No recipient address, skipping', templateName);
@@ -303,6 +304,7 @@ export async function sendTransactionalEmail({ templateName, to, data = {}, orde
       subject,
       status: 'sent',
       resendMessageId: tc.kind === 'resend' ? sendResult?.id : null,
+      source,
     });
     console.log(`[emailNotifications] Sent "${templateName}" → ${to}`);
     return { sent: true };
@@ -315,6 +317,7 @@ export async function sendTransactionalEmail({ templateName, to, data = {}, orde
       subject: templateName,
       status: 'failed',
       errorMessage: err?.message,
+      source,
     });
     return { sent: false, reason: err?.message };
   }
@@ -333,7 +336,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * @param {object} [opts.data] shared {{variable}} defaults merged under each recipient
  * @returns {{ sent: number, failed: number, skipped: number, results: object[] }}
  */
-export async function sendTransactionalEmailBulk({ templateName, recipients, data: sharedData = {} }) {
+export async function sendTransactionalEmailBulk({ templateName, recipients, data: sharedData = {}, source = null }) {
   const empty = { sent: 0, failed: 0, skipped: 0, results: [] };
   if (!Array.isArray(recipients) || recipients.length === 0) {
     return { ...empty, reason: 'no_recipients' };
@@ -398,6 +401,7 @@ export async function sendTransactionalEmailBulk({ templateName, recipients, dat
             subject: p.subject,
             status: 'failed',
             errorMessage: chunkError.message,
+            source,
           });
           results.push({ to: p.to, sent: false, reason: chunkError.message });
           empty.failed += 1;
@@ -415,6 +419,7 @@ export async function sendTransactionalEmailBulk({ templateName, recipients, dat
             subject: p.subject,
             status: 'sent',
             resendMessageId: item.id,
+            source,
           });
           results.push({ to: p.to, sent: true, id: item.id });
           empty.sent += 1;
@@ -426,6 +431,7 @@ export async function sendTransactionalEmailBulk({ templateName, recipients, dat
             subject: p.subject,
             status: 'failed',
             errorMessage: reason,
+            source,
           });
           results.push({ to: p.to, sent: false, reason });
           empty.failed += 1;
@@ -438,7 +444,7 @@ export async function sendTransactionalEmailBulk({ templateName, recipients, dat
   for (const p of prepared) {
     try {
       await tc.sendMail({ from: tc.from, to: p.to, subject: p.subject, html: p.html, text: p.text });
-      await logEmail({ orderId: p.orderId, recipient: p.to, subject: p.subject, status: 'sent' });
+      await logEmail({ orderId: p.orderId, recipient: p.to, subject: p.subject, status: 'sent', source });
       results.push({ to: p.to, sent: true });
       empty.sent += 1;
     } catch (err) {
@@ -448,6 +454,7 @@ export async function sendTransactionalEmailBulk({ templateName, recipients, dat
         subject: p.subject,
         status: 'failed',
         errorMessage: err?.message,
+        source,
       });
       results.push({ to: p.to, sent: false, reason: err?.message });
       empty.failed += 1;

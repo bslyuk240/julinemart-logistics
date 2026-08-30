@@ -63,13 +63,14 @@ function buildHtml(subject, body, from) {
 </html>`;
 }
 
-async function logEmailAttempt({ recipient, subject, status, errorMessage }) {
+async function logEmailAttempt({ recipient, subject, status, errorMessage, source }) {
   try {
     await adminClient.from('email_logs').insert({
       recipient,
       subject,
       status,
       error_message: errorMessage,
+      source: source || null,
       sent_at: new Date().toISOString(),
     });
   } catch (e) {
@@ -77,7 +78,7 @@ async function logEmailAttempt({ recipient, subject, status, errorMessage }) {
   }
 }
 
-async function sendOneRecipient(tx, email, subject, textBody, html) {
+async function sendOneRecipient(tx, email, subject, textBody, html, source) {
   try {
     await tx.transport.sendMail({
       from: tx.from,
@@ -86,17 +87,17 @@ async function sendOneRecipient(tx, email, subject, textBody, html) {
       text: textBody,
       html,
     });
-    await logEmailAttempt({ recipient: email, subject, status: 'sent', errorMessage: null });
+    await logEmailAttempt({ recipient: email, subject, status: 'sent', errorMessage: null, source });
     return { ok: true };
   } catch (err) {
     const errorMessage = err?.message || 'Unknown error';
     console.error(`[broadcast-email] Failed to send to ${email}:`, errorMessage);
-    await logEmailAttempt({ recipient: email, subject, status: 'failed', errorMessage });
+    await logEmailAttempt({ recipient: email, subject, status: 'failed', errorMessage, source });
     return { ok: false, error: errorMessage };
   }
 }
 
-async function sendInBatches(tx, emails, subject, textBody, html) {
+async function sendInBatches(tx, emails, subject, textBody, html, source) {
   const list = [...emails];
   let sent = 0;
   let failed = 0;
@@ -105,7 +106,7 @@ async function sendInBatches(tx, emails, subject, textBody, html) {
   for (let i = 0; i < list.length; i += SEND_CONCURRENCY) {
     const batch = list.slice(i, i + SEND_CONCURRENCY);
     const results = await Promise.all(
-      batch.map((email) => sendOneRecipient(tx, email, subject, textBody, html)),
+      batch.map((email) => sendOneRecipient(tx, email, subject, textBody, html, source)),
     );
     for (const result of results) {
       if (result.ok) sent += 1;
@@ -209,7 +210,14 @@ export const handler = async (event) => {
     const bodyTrimmed = emailBody.trim();
     const html = buildHtml(subjectTrimmed, bodyTrimmed, tx.from);
 
-    const { sent, failed, errors } = await sendInBatches(tx, emails, subjectTrimmed, bodyTrimmed, html);
+    const { sent, failed, errors } = await sendInBatches(
+      tx,
+      emails,
+      subjectTrimmed,
+      bodyTrimmed,
+      html,
+      `admin:${user.email}`,
+    );
 
     const responseBody = {
       success: failed === 0,

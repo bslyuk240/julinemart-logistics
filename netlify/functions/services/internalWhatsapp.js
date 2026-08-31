@@ -20,6 +20,9 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
 const WA_API_BASE = 'https://graph.facebook.com/v21.0';
+// These must be scoped to "functions"/"runtime" in Netlify's env var
+// settings, not just "builds" — a builds-only scope leaves this undefined
+// here at runtime even though `netlify env:get` shows a value is set.
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
 const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN || '';
 

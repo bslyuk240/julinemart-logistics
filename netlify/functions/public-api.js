@@ -787,6 +787,7 @@ async function sendWhatsAppTemplateRoute(body) {
       contactType: body.contact_type === 'vendor' ? 'vendor' : 'lead',
       vendorId: body.vendor_id ? String(body.vendor_id) : undefined,
       sentByAgent: body.sent_by_agent ? String(body.sent_by_agent) : undefined,
+      headerImageUrl: body.header_image_url ? String(body.header_image_url).trim() : undefined,
     });
     return json(200, { data });
   } catch (e) {

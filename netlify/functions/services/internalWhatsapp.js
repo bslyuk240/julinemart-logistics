@@ -75,13 +75,14 @@ function substituteTemplateVariables(body, variables = []) {
   });
 }
 
-async function recordMessage({ threadId, direction, messageType, content, templateName, metaMessageId, status, sentByAgent, errorMessage }) {
+async function recordMessage({ threadId, direction, messageType, content, templateName, mediaUrl, metaMessageId, status, sentByAgent, errorMessage }) {
   const { error } = await supabase.from('internal_whatsapp_messages').insert({
     thread_id: threadId,
     direction,
     message_type: messageType,
     content: content || null,
     template_name: templateName || null,
+    media_url: mediaUrl || null,
     meta_message_id: metaMessageId || null,
     status,
     sent_by_agent: sentByAgent || null,
@@ -127,7 +128,7 @@ export async function sendWhatsAppText({ to, message, contactName, contactType =
  * which is more trustworthy than this function's own possibly-stale copy
  * of the approval state.
  */
-export async function sendWhatsAppTemplate({ to, templateName, variables = [], language, contactName, contactType = 'lead', vendorId, sentByAgent }) {
+export async function sendWhatsAppTemplate({ to, templateName, variables = [], language, contactName, contactType = 'lead', vendorId, sentByAgent, headerImageUrl }) {
   if (!to) throw new Error('to (phone number) is required');
   if (!templateName) throw new Error('templateName is required');
 
@@ -142,9 +143,13 @@ export async function sendWhatsAppTemplate({ to, templateName, variables = [], l
 
   const thread = await getOrCreateThread({ phone: to, contactName, contactType, vendorId });
 
-  const components = variables.length
-    ? [{ type: 'body', parameters: variables.map((v) => ({ type: 'text', text: String(v) })) }]
-    : [];
+  // Only relevant if the template itself was created with an image header in
+  // WhatsApp Manager — Meta rejects a header component on a template that
+  // doesn't have one, so this is opt-in per call, not automatic.
+  const components = [
+    ...(headerImageUrl ? [{ type: 'header', parameters: [{ type: 'image', image: { link: headerImageUrl } }] }] : []),
+    ...(variables.length ? [{ type: 'body', parameters: variables.map((v) => ({ type: 'text', text: String(v) })) }] : []),
+  ];
 
   try {
     const result = await waPost('messages', {
@@ -159,11 +164,11 @@ export async function sendWhatsAppTemplate({ to, templateName, variables = [], l
     });
     const metaMessageId = result.messages?.[0]?.id || null;
     const sentContent = substituteTemplateVariables(template.template_content, variables);
-    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName, content: sentContent, metaMessageId, status: 'sent', sentByAgent });
+    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName, content: sentContent, mediaUrl: headerImageUrl, metaMessageId, status: 'sent', sentByAgent });
     return { thread_id: thread.id, message_id: metaMessageId };
   } catch (e) {
     const attemptedContent = substituteTemplateVariables(template.template_content, variables);
-    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName, content: attemptedContent, status: 'failed', sentByAgent, errorMessage: e.message });
+    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName, content: attemptedContent, mediaUrl: headerImageUrl, status: 'failed', sentByAgent, errorMessage: e.message });
     throw e;
   }
 }

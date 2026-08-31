@@ -72,6 +72,20 @@ function normalizePhone(phone) {
   return String(phone || '').replace(/[^\d+]/g, '').replace(/^\+/, '');
 }
 
+/**
+ * Template names are stored lowercase_snake_case, but callers (agents
+ * especially) keep sending a title-cased or spaced version — "Lead Intro"
+ * instead of "lead_intro" — despite being told the exact name. Normalizing
+ * here fixes it regardless of what actually gets typed, rather than relying
+ * on that instruction being followed every time.
+ */
+function normalizeTemplateName(name) {
+  return String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+}
+
 async function getOrCreateThread({ phone, contactName, contactType, vendorId }) {
   const normalized = normalizePhone(phone);
   const { data: existing } = await supabase
@@ -162,10 +176,11 @@ export async function sendWhatsAppTemplate({ to, templateName, variables = [], l
   if (!templateName) throw new Error('templateName is required');
   if (headerImageUrl) await validateHeaderImage(headerImageUrl);
 
+  const normalizedName = normalizeTemplateName(templateName);
   const { data: template, error: templateErr } = await supabase
     .from('internal_whatsapp_templates')
     .select('*')
-    .eq('name', templateName)
+    .eq('name', normalizedName)
     .eq('is_active', true)
     .maybeSingle();
   if (templateErr) throw templateErr;
@@ -187,18 +202,18 @@ export async function sendWhatsAppTemplate({ to, templateName, variables = [], l
       to: normalizePhone(to),
       type: 'template',
       template: {
-        name: templateName,
+        name: template.name,
         language: { code: language || template.language || 'en' },
         ...(components.length ? { components } : {}),
       },
     });
     const metaMessageId = result.messages?.[0]?.id || null;
     const sentContent = substituteTemplateVariables(template.template_content, variables);
-    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName, content: sentContent, mediaUrl: headerImageUrl, metaMessageId, status: 'sent', sentByAgent });
+    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName: template.name, content: sentContent, mediaUrl: headerImageUrl, metaMessageId, status: 'sent', sentByAgent });
     return { thread_id: thread.id, message_id: metaMessageId };
   } catch (e) {
     const attemptedContent = substituteTemplateVariables(template.template_content, variables);
-    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName, content: attemptedContent, mediaUrl: headerImageUrl, status: 'failed', sentByAgent, errorMessage: e.message });
+    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName: template.name, content: attemptedContent, mediaUrl: headerImageUrl, status: 'failed', sentByAgent, errorMessage: e.message });
     throw e;
   }
 }

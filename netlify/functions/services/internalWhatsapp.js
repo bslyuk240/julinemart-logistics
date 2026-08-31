@@ -66,6 +66,15 @@ async function getOrCreateThread({ phone, contactName, contactType, vendorId }) 
   return created;
 }
 
+/** Fills a template's {{1}}, {{2}}, ... slots with the real values that were actually sent, so stored history reflects what the recipient saw — not the raw pattern. Leaves an unmatched slot as-is rather than blanking it. */
+function substituteTemplateVariables(body, variables = []) {
+  if (!body) return body;
+  return body.replace(/\{\{(\d+)\}\}/g, (match, n) => {
+    const value = variables[Number(n) - 1];
+    return value != null ? String(value) : match;
+  });
+}
+
 async function recordMessage({ threadId, direction, messageType, content, templateName, metaMessageId, status, sentByAgent, errorMessage }) {
   const { error } = await supabase.from('internal_whatsapp_messages').insert({
     thread_id: threadId,
@@ -149,10 +158,12 @@ export async function sendWhatsAppTemplate({ to, templateName, variables = [], l
       },
     });
     const metaMessageId = result.messages?.[0]?.id || null;
-    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName, content: template.template_content, metaMessageId, status: 'sent', sentByAgent });
+    const sentContent = substituteTemplateVariables(template.template_content, variables);
+    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName, content: sentContent, metaMessageId, status: 'sent', sentByAgent });
     return { thread_id: thread.id, message_id: metaMessageId };
   } catch (e) {
-    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName, status: 'failed', sentByAgent, errorMessage: e.message });
+    const attemptedContent = substituteTemplateVariables(template.template_content, variables);
+    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName, content: attemptedContent, status: 'failed', sentByAgent, errorMessage: e.message });
     throw e;
   }
 }

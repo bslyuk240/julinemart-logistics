@@ -26,6 +26,35 @@ const WA_API_BASE = 'https://graph.facebook.com/v21.0';
 const PHONE_NUMBER_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '';
 const ACCESS_TOKEN = process.env.WHATSAPP_ACCESS_TOKEN || '';
 
+const MAX_HEADER_IMAGE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_HEADER_IMAGE_TYPES = ['image/jpeg', 'image/png'];
+
+/**
+ * Best-effort pre-check against Meta's own image requirements (JPEG/PNG,
+ * <=5MB — https://developers.facebook.com/docs/whatsapp/cloud-api/reference/media)
+ * so a bad header image URL fails with a clear reason here instead of an
+ * opaque rejection from Meta's API. If the URL doesn't cooperate with HEAD
+ * (no content-type/length, or unreachable), this deliberately lets the real
+ * send attempt proceed rather than block on an inconclusive check.
+ */
+async function validateHeaderImage(url) {
+  let res;
+  try {
+    res = await fetch(url, { method: 'HEAD' });
+  } catch {
+    return;
+  }
+  if (!res.ok) return;
+  const contentType = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (contentType && !ALLOWED_HEADER_IMAGE_TYPES.includes(contentType)) {
+    throw new Error(`Header image must be JPEG or PNG (got "${contentType}").`);
+  }
+  const contentLength = Number(res.headers.get('content-length') || 0);
+  if (contentLength && contentLength > MAX_HEADER_IMAGE_BYTES) {
+    throw new Error(`Header image is ${(contentLength / 1024 / 1024).toFixed(1)}MB — WhatsApp's limit is 5MB.`);
+  }
+}
+
 async function waPost(path, body) {
   if (!PHONE_NUMBER_ID) throw new Error('WHATSAPP_PHONE_NUMBER_ID is not configured');
   if (!ACCESS_TOKEN) throw new Error('WHATSAPP_ACCESS_TOKEN is not configured');
@@ -131,6 +160,7 @@ export async function sendWhatsAppText({ to, message, contactName, contactType =
 export async function sendWhatsAppTemplate({ to, templateName, variables = [], language, contactName, contactType = 'lead', vendorId, sentByAgent, headerImageUrl }) {
   if (!to) throw new Error('to (phone number) is required');
   if (!templateName) throw new Error('templateName is required');
+  if (headerImageUrl) await validateHeaderImage(headerImageUrl);
 
   const { data: template, error: templateErr } = await supabase
     .from('internal_whatsapp_templates')

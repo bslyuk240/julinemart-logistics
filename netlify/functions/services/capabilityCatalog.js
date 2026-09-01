@@ -377,6 +377,20 @@ export const CAPABILITIES = [
     http_method: 'GET', endpoint: '/campaigns/:id/analytics',
     idempotency_required: false, approval_recommended: false, enabled: false,
   },
+  {
+    id: 'campaigns.giveaway.submit', domain: 'campaigns', name: 'Submit Giveaway Campaign for Review',
+    description: 'Propose a new secret-code giveaway campaign — marketing facts only (title, prize description, secret code, entry/early-bird limits, dates, hero copy). Cannot set voucher/discount terms and does not go live: lands as a pending submission in JulineMart\'s own campaign approval queue (same pipeline vendor-submitted campaigns use), where a human reviews, attaches the real reward vouchers, and separately activates it. Like meta.ads.drafts.create, review happens in JulineMart\'s queue after submission, not gated before it.',
+    operation_type: 'create', side_effect_type: 'internal_write', risk_level: 'low',
+    http_method: 'POST', endpoint: '/campaigns',
+    input_schema: {
+      public_title: 'string', secret_code: 'string', grand_prize_description: 'string',
+      hero_headline: 'string (optional)', hero_subtitle: 'string (optional)',
+      start_date: 'string (ISO datetime, optional)', end_date: 'string (ISO datetime, optional)',
+      entry_limit: 'number (optional, blank = unlimited)', early_bird_limit: 'number (optional)',
+    },
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
 
   // ── NOTIFICATIONS ─────────────────────────────────────────────────────
   // Real external communication — these actually reach customers/vendors,

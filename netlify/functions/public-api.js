@@ -683,6 +683,92 @@ async function getCampaign(adminClient, id) {
   return json(200, { data });
 }
 
+function slugifyCampaignTitle(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
+/**
+ * campaigns.giveaway.submit — deliberately narrow input surface. Whitelists
+ * exactly the marketing-facts fields an agent may set; anything financial
+ * (voucher links, discount terms) or lifecycle-controlling (status,
+ * approval_status, campaign_kind) is fixed server-side, never taken from the
+ * caller, so a Custom API key can't grant itself more than "propose a draft."
+ * Lands as approval_status='pending' in the SAME queue vendor-submitted
+ * campaigns use (admin-vendor-campaigns.js) — no separate approval path.
+ */
+async function submitGiveawayCampaign(adminClient, body) {
+  const publicTitle = String(body.public_title || '').trim();
+  const secretCode = String(body.secret_code || '').trim();
+  const grandPrizeDescription = String(body.grand_prize_description || '').trim();
+  if (!publicTitle || !secretCode || !grandPrizeDescription) {
+    return json(400, { error: 'public_title, secret_code, and grand_prize_description are required' });
+  }
+
+  const heroHeadline = String(body.hero_headline || publicTitle).trim();
+  const heroSubtitle = String(body.hero_subtitle || '').trim();
+  const startDate = body.start_date ? new Date(body.start_date).toISOString() : null;
+  const endDate = body.end_date ? new Date(body.end_date).toISOString() : null;
+  const entryLimit = body.entry_limit != null ? Number(body.entry_limit) : null;
+  const earlyBirdLimit = body.early_bird_limit != null ? Number(body.early_bird_limit) : null;
+
+  const baseSlug = slugifyCampaignTitle(publicTitle) || 'giveaway';
+  const slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
+
+  const payload = {
+    internal_name: `[Skola proposal] ${publicTitle}`.slice(0, 120),
+    public_title: publicTitle,
+    slug,
+    campaign_objective: 'ai_proposed_giveaway',
+    status: 'draft',
+    campaign_kind: 'giveaway',
+    target_type: 'general',
+    approval_status: 'pending',
+    submitted_via: 'skola_agent',
+    submitted_at: new Date().toISOString(),
+    start_date: startDate,
+    end_date: endDate,
+    secret_code: secretCode,
+    entry_limit: Number.isFinite(entryLimit) ? entryLimit : null,
+    early_bird_limit: Number.isFinite(earlyBirdLimit) ? earlyBirdLimit : null,
+    grand_prize_description: grandPrizeDescription,
+    hero_config: { headline: heroHeadline, subtitle: heroSubtitle, ctaLabel: 'Enter Now' },
+    product_selection_rules: {},
+    review_rules: {},
+  };
+
+  const { data: created, error: insertError } = await adminClient
+    .from('campaigns')
+    .insert(payload)
+    .select('id, slug, approval_status, status')
+    .single();
+
+  if (insertError) {
+    if (insertError.code === '23505') {
+      return json(409, { error: 'Generated slug collided — retry the request' });
+    }
+    return json(500, { error: insertError.message });
+  }
+
+  const sections = [
+    { campaign_id: created.id, section_type: 'hero', order_index: 0, is_visible: true, config: {} },
+    { campaign_id: created.id, section_type: 'giveaway_entry', order_index: 1, is_visible: true, config: {} },
+    { campaign_id: created.id, section_type: 'cta_footer', order_index: 2, is_visible: true, config: {} },
+  ];
+  const { error: sectionError } = await adminClient.from('campaign_sections').insert(sections);
+  if (sectionError) return json(500, { error: sectionError.message });
+
+  return json(201, {
+    data: {
+      ...created,
+      message: 'Submitted for review in JulineMart\'s campaign approval queue — a human will attach the real reward voucher(s) and activate it after review.',
+    },
+  });
+}
+
 // ── meta.ads.* / meta.social.* ──────────────────────────────────────────
 // meta.ads.* wraps meta-ads.js's own functions unchanged — same logic JLO's
 // internal Ads Manager dashboard uses, reused rather than duplicated. Those
@@ -1201,6 +1287,12 @@ export const handler = async (event) => {
         const auth = await authenticateServiceApiRequest(event, 'campaigns.read');
         if (auth.errorResponse) return auth.errorResponse;
         return await getCampaign(auth.adminClient, segments[1]);
+      }
+      if (segments.length === 1 && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'campaigns.giveaway.submit');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await submitGiveawayCampaign(auth.adminClient, body);
       }
     }
 

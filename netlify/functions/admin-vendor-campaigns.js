@@ -1,5 +1,12 @@
 /**
- * Admin queue for vendor-submitted campaigns.
+ * Admin queue for campaigns submitted for review — vendor-submitted
+ * (vendor_id set) and, as of the giveaway engine's Skola integration,
+ * agent-proposed giveaway campaigns (submitted_via='skola_agent', no vendor)
+ * via campaigns.giveaway.submit in public-api.js. Same queue, same
+ * approval_status lifecycle — kept as one function rather than forking a
+ * second approval pipeline. See admin-vendor-campaigns.js's approve branch
+ * for the one behavioral difference: vendor campaigns auto-activate on
+ * approval, agent-proposed ones don't.
  * GET  /api/admin-vendor-campaigns?status=pending|approved|rejected|all
  * POST /api/admin-vendor-campaign-approve { id, action: approve|reject, review_notes? }
  */
@@ -46,11 +53,11 @@ export async function handler(event) {
       let query = adminClient
         .from('campaigns')
         .select(`
-          id, slug, public_title, status, approval_status, submitted_at, reviewed_at, review_notes,
-          hero_config, offer_config, created_at, updated_at,
+          id, slug, public_title, status, approval_status, submitted_via, submitted_at, reviewed_at, review_notes,
+          hero_config, offer_config, secret_code, grand_prize_description, created_at, updated_at,
           vendors ( id, store_name, email, city, state, woocommerce_vendor_id )
         `)
-        .not('vendor_id', 'is', null)
+        .not('submitted_via', 'is', null)
         .order('submitted_at', { ascending: false, nullsFirst: false })
         .limit(100);
 
@@ -75,13 +82,13 @@ export async function handler(event) {
 
       const { data: campaign, error: fetchErr } = await adminClient
         .from('campaigns')
-        .select('id, vendor_id, approval_status, start_date, end_date')
+        .select('id, vendor_id, submitted_via, approval_status, start_date, end_date')
         .eq('id', id)
-        .not('vendor_id', 'is', null)
+        .not('submitted_via', 'is', null)
         .maybeSingle();
 
       if (fetchErr) throw fetchErr;
-      if (!campaign) throw new Error('Vendor campaign not found');
+      if (!campaign) throw new Error('Campaign submission not found');
 
       const now = new Date().toISOString();
       const updates = {
@@ -92,7 +99,14 @@ export async function handler(event) {
         updated_at: now,
       };
 
-      if (action === 'approve') {
+      // Vendor campaigns auto-activate on approval — low-stakes, the
+      // vendor's own products, matches existing behavior. Skola-agent
+      // giveaway proposals do NOT: approval only unlocks it for a human to
+      // finish in the Giveaways admin page (attach the real reward
+      // voucher(s), double check the secret code, confirm dates) before it
+      // goes live — a real prize going straight live off an AI draft is a
+      // different risk than a vendor's own promo page doing the same.
+      if (action === 'approve' && campaign.submitted_via === 'vendor') {
         updates.status = 'active';
         if (!campaign.start_date) updates.start_date = now;
         const endOk = !campaign.end_date || new Date(campaign.end_date).getTime() > Date.now();

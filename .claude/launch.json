@@ -24,6 +24,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "api:dev"],
       "port": 3001
+    },
+    {
+      "name": "julinemart-pwa",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "C:/Users/user/julinemart-pwa", "run", "dev", "--", "-p", "3002"],
+      "port": 3002
     }
   ]
 }

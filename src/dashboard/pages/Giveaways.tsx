@@ -1,0 +1,763 @@
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Gift, Plus, Edit, Loader2, Users, Trophy, X, CheckCircle,
+  Clock, PauseCircle, Archive as ArchiveIcon, FileEdit, RotateCcw,
+} from 'lucide-react';
+import { supabase, useAuth } from '../contexts/AuthContext';
+import { useNotification } from '../contexts/NotificationContext';
+import { logActivity } from '../lib/logActivity';
+
+// Giveaway / Secret-Code Drop engine (Campaign Engine Phase 1). Deliberately a
+// separate, lighter page rather than folding into Campaigns.tsx's 1900-line
+// merchandising builder — a giveaway campaign needs a much smaller field set
+// (no product/review rules, no vendor story) plus two things merchandising
+// campaigns don't have at all: an entries table and a winner draw. Writes
+// directly to Supabase from the browser (RLS-gated to role='admin'), matching
+// this repo's established convention for Campaigns/Vouchers rather than
+// routing admin actions through a Netlify function.
+
+type CampaignStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'expired' | 'archived';
+type WinnerStatus = 'none' | 'selected' | 'contacted' | 'verified' | 'processing' | 'delivered' | 'forfeited';
+
+interface GiveawayCampaignRow {
+  id: string;
+  slug: string;
+  internal_name: string;
+  public_title: string;
+  campaign_objective: string | null;
+  status: CampaignStatus;
+  start_date: string | null;
+  end_date: string | null;
+  secret_code: string | null;
+  entry_limit: number | null;
+  early_bird_limit: number | null;
+  early_bird_voucher_id: string | null;
+  grand_prize_voucher_id: string | null;
+  grand_prize_description: string | null;
+  hero_config: { headline?: string; subtitle?: string; ctaLabel?: string } | null;
+  created_at: string;
+}
+
+interface VoucherOption {
+  id: string;
+  code: string;
+  campaign_name: string;
+}
+
+interface EntryRow {
+  id: string;
+  full_name: string;
+  whatsapp_number: string;
+  email: string | null;
+  location: string | null;
+  status: 'valid' | 'duplicate' | 'invalid';
+  entry_position: number | null;
+  reward_tier: string | null;
+  winner_status: WinnerStatus;
+  created_at: string;
+}
+
+interface DrawRow {
+  id: string;
+  winning_entry_id: string;
+  eligible_entry_count: number;
+  drawn_at: string;
+  status: 'completed' | 'forfeited';
+  forfeit_reason: string | null;
+  redraw_of: string | null;
+}
+
+interface FormState {
+  internal_name: string;
+  public_title: string;
+  slug: string;
+  campaign_objective: string;
+  status: CampaignStatus;
+  start_date: string;
+  end_date: string;
+  hero_headline: string;
+  hero_subtitle: string;
+  hero_cta_label: string;
+  secret_code: string;
+  entry_limit: number | '';
+  early_bird_limit: number | '';
+  early_bird_voucher_id: string;
+  grand_prize_voucher_id: string;
+  grand_prize_description: string;
+}
+
+const emptyForm: FormState = {
+  internal_name: '',
+  public_title: '',
+  slug: '',
+  campaign_objective: '',
+  status: 'draft',
+  start_date: '',
+  end_date: '',
+  hero_headline: '',
+  hero_subtitle: '',
+  hero_cta_label: 'Enter Now',
+  secret_code: '',
+  entry_limit: '',
+  early_bird_limit: '',
+  early_bird_voucher_id: '',
+  grand_prize_voucher_id: '',
+  grand_prize_description: '',
+};
+
+const statusStyles: Record<CampaignStatus, string> = {
+  draft: 'bg-gray-100 text-gray-700',
+  scheduled: 'bg-blue-100 text-blue-800',
+  active: 'bg-green-100 text-green-800',
+  paused: 'bg-yellow-100 text-yellow-800',
+  expired: 'bg-red-100 text-red-800',
+  archived: 'bg-gray-100 text-gray-500',
+};
+
+const statusIcons: Record<CampaignStatus, typeof Clock> = {
+  draft: FileEdit,
+  scheduled: Clock,
+  active: CheckCircle,
+  paused: PauseCircle,
+  expired: Clock,
+  archived: ArchiveIcon,
+};
+
+const WINNER_STEPS: WinnerStatus[] = ['selected', 'contacted', 'verified', 'processing', 'delivered'];
+
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+export function GiveawaysPage() {
+  const { user } = useAuth();
+  const notification = useNotification();
+
+  const [campaigns, setCampaigns] = useState<GiveawayCampaignRow[]>([]);
+  const [entryCounts, setEntryCounts] = useState<Record<string, { valid: number; duplicate: number; invalid: number }>>({});
+  const [vouchers, setVouchers] = useState<VoucherOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formData, setFormData] = useState<FormState>(emptyForm);
+  const [slugTouched, setSlugTouched] = useState(false);
+
+  const [entriesCampaign, setEntriesCampaign] = useState<GiveawayCampaignRow | null>(null);
+  const [entries, setEntries] = useState<EntryRow[]>([]);
+  const [draws, setDraws] = useState<DrawRow[]>([]);
+  const [entriesLoading, setEntriesLoading] = useState(false);
+  const [drawing, setDrawing] = useState(false);
+
+  useEffect(() => {
+    loadCampaigns();
+    loadVoucherOptions();
+  }, []);
+
+  async function loadCampaigns() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('campaigns')
+      .select(
+        'id, slug, internal_name, public_title, campaign_objective, status, start_date, end_date, secret_code, entry_limit, early_bird_limit, early_bird_voucher_id, grand_prize_voucher_id, grand_prize_description, hero_config, created_at'
+      )
+      .eq('campaign_kind', 'giveaway')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      notification.error('Failed to load giveaways', error.message);
+      setLoading(false);
+      return;
+    }
+
+    const rows = (data || []) as GiveawayCampaignRow[];
+    setCampaigns(rows);
+
+    if (rows.length > 0) {
+      const { data: entryRows } = await supabase
+        .from('giveaway_entries')
+        .select('campaign_id, status')
+        .in('campaign_id', rows.map((r) => r.id));
+
+      const counts: Record<string, { valid: number; duplicate: number; invalid: number }> = {};
+      for (const row of entryRows || []) {
+        counts[row.campaign_id] ||= { valid: 0, duplicate: 0, invalid: 0 };
+        counts[row.campaign_id][row.status as 'valid' | 'duplicate' | 'invalid'] += 1;
+      }
+      setEntryCounts(counts);
+    }
+
+    setLoading(false);
+  }
+
+  async function loadVoucherOptions() {
+    const { data } = await supabase
+      .from('campaign_vouchers')
+      .select('id, code, campaign_name')
+      .eq('status', 'active')
+      .order('created_at', { ascending: false });
+    setVouchers((data || []) as VoucherOption[]);
+  }
+
+  function openCreate() {
+    setEditingId(null);
+    setFormData(emptyForm);
+    setSlugTouched(false);
+    setFormOpen(true);
+  }
+
+  function openEdit(campaign: GiveawayCampaignRow) {
+    setEditingId(campaign.id);
+    setSlugTouched(true);
+    setFormData({
+      internal_name: campaign.internal_name,
+      public_title: campaign.public_title,
+      slug: campaign.slug,
+      campaign_objective: campaign.campaign_objective || '',
+      status: campaign.status,
+      start_date: campaign.start_date ? campaign.start_date.slice(0, 16) : '',
+      end_date: campaign.end_date ? campaign.end_date.slice(0, 16) : '',
+      hero_headline: campaign.hero_config?.headline || '',
+      hero_subtitle: campaign.hero_config?.subtitle || '',
+      hero_cta_label: campaign.hero_config?.ctaLabel || 'Enter Now',
+      secret_code: campaign.secret_code || '',
+      entry_limit: campaign.entry_limit ?? '',
+      early_bird_limit: campaign.early_bird_limit ?? '',
+      early_bird_voucher_id: campaign.early_bird_voucher_id || '',
+      grand_prize_voucher_id: campaign.grand_prize_voucher_id || '',
+      grand_prize_description: campaign.grand_prize_description || '',
+    });
+    setFormOpen(true);
+  }
+
+  async function handleSave() {
+    if (!formData.internal_name.trim() || !formData.public_title.trim() || !formData.slug.trim()) {
+      notification.error('Missing fields', 'Internal name, public title, and slug are required.');
+      return;
+    }
+    if (!formData.secret_code.trim()) {
+      notification.error('Missing secret code', 'A secret code is required for a giveaway campaign.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const payload = {
+        internal_name: formData.internal_name.trim(),
+        public_title: formData.public_title.trim(),
+        slug: formData.slug.trim(),
+        campaign_objective: formData.campaign_objective.trim() || null,
+        status: formData.status,
+        start_date: formData.start_date ? new Date(formData.start_date).toISOString() : null,
+        end_date: formData.end_date ? new Date(formData.end_date).toISOString() : null,
+        campaign_kind: 'giveaway' as const,
+        target_type: 'general' as const,
+        hero_config: {
+          headline: formData.hero_headline.trim(),
+          subtitle: formData.hero_subtitle.trim(),
+          ctaLabel: formData.hero_cta_label.trim() || 'Enter Now',
+        },
+        product_selection_rules: {},
+        review_rules: {},
+        secret_code: formData.secret_code.trim(),
+        entry_limit: formData.entry_limit === '' ? null : Number(formData.entry_limit),
+        early_bird_limit: formData.early_bird_limit === '' ? null : Number(formData.early_bird_limit),
+        early_bird_voucher_id: formData.early_bird_voucher_id || null,
+        grand_prize_voucher_id: formData.grand_prize_voucher_id || null,
+        grand_prize_description: formData.grand_prize_description.trim() || null,
+      };
+
+      if (editingId) {
+        const { error } = await supabase.from('campaigns').update(payload).eq('id', editingId);
+        if (error) throw error;
+        await logActivity({ action: 'GIVEAWAY_UPDATE', resource_type: 'campaign', resource_id: editingId, details: { slug: payload.slug } });
+        notification.success('Giveaway updated', payload.public_title);
+      } else {
+        const { data: created, error } = await supabase.from('campaigns').insert(payload).select('id').single();
+        if (error) throw error;
+
+        // Fixed, minimal section layout for a giveaway landing page — hero +
+        // the giveaway entry widget + footer. Not reorderable in v1 (unlike
+        // merchandising campaigns' drag-free-but-numbered section list in
+        // Campaigns.tsx) since a giveaway page's structure doesn't vary.
+        const sections = [
+          { campaign_id: created.id, section_type: 'hero', order_index: 0, is_visible: true, config: {} },
+          { campaign_id: created.id, section_type: 'giveaway_entry', order_index: 1, is_visible: true, config: {} },
+          { campaign_id: created.id, section_type: 'cta_footer', order_index: 2, is_visible: true, config: {} },
+        ];
+        const { error: sectionError } = await supabase.from('campaign_sections').insert(sections);
+        if (sectionError) throw sectionError;
+
+        await logActivity({ action: 'GIVEAWAY_CREATE', resource_type: 'campaign', resource_id: created.id, details: { slug: payload.slug } });
+        notification.success('Giveaway created', payload.public_title);
+      }
+
+      setFormOpen(false);
+      await loadCampaigns();
+    } catch (error: any) {
+      notification.error('Failed to save giveaway', error?.message || 'Unknown error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function openEntries(campaign: GiveawayCampaignRow) {
+    setEntriesCampaign(campaign);
+    setEntriesLoading(true);
+    const [{ data: entryRows, error: entryError }, { data: drawRows, error: drawError }] = await Promise.all([
+      supabase
+        .from('giveaway_entries')
+        .select('id, full_name, whatsapp_number, email, location, status, entry_position, reward_tier, winner_status, created_at')
+        .eq('campaign_id', campaign.id)
+        .order('created_at', { ascending: false })
+        .limit(500),
+      supabase
+        .from('giveaway_draws')
+        .select('id, winning_entry_id, eligible_entry_count, drawn_at, status, forfeit_reason, redraw_of')
+        .eq('campaign_id', campaign.id)
+        .order('drawn_at', { ascending: false }),
+    ]);
+
+    if (entryError) notification.error('Failed to load entries', entryError.message);
+    if (drawError) notification.error('Failed to load draw history', drawError.message);
+
+    setEntries((entryRows || []) as EntryRow[]);
+    setDraws((drawRows || []) as DrawRow[]);
+    setEntriesLoading(false);
+  }
+
+  const eligibleCount = useMemo(
+    () => entries.filter((e) => e.status === 'valid' && e.winner_status === 'none').length,
+    [entries]
+  );
+  const hasCompletedDraw = draws.some((d) => d.status === 'completed');
+  const currentWinner = hasCompletedDraw
+    ? entries.find((e) => e.id === draws.find((d) => d.status === 'completed')?.winning_entry_id)
+    : null;
+
+  async function handleDraw() {
+    if (!entriesCampaign) return;
+    setDrawing(true);
+    try {
+      const { error } = await supabase.rpc('draw_giveaway_winner', { p_campaign_id: entriesCampaign.id });
+      if (error) throw error;
+      await logActivity({ action: 'GIVEAWAY_DRAW', resource_type: 'campaign', resource_id: entriesCampaign.id });
+      notification.success('Winner drawn', 'The draw is recorded — see the Draw History below.');
+      await openEntries(entriesCampaign);
+    } catch (error: any) {
+      notification.error('Draw failed', error?.message || 'Unknown error');
+    } finally {
+      setDrawing(false);
+    }
+  }
+
+  async function handleForfeitAndRedraw() {
+    if (!entriesCampaign) return;
+    const reason = window.prompt('Reason for forfeiting the current winner and redrawing?');
+    if (!reason || !reason.trim()) return;
+
+    setDrawing(true);
+    try {
+      const { error } = await supabase.rpc('forfeit_and_redraw_giveaway_winner', {
+        p_campaign_id: entriesCampaign.id,
+        p_reason: reason.trim(),
+      });
+      if (error) throw error;
+      await logActivity({ action: 'GIVEAWAY_REDRAW', resource_type: 'campaign', resource_id: entriesCampaign.id, details: { reason: reason.trim() } });
+      notification.success('Redrawn', 'A new winner has been selected; the prior draw is kept on record as forfeited.');
+      await openEntries(entriesCampaign);
+    } catch (error: any) {
+      notification.error('Redraw failed', error?.message || 'Unknown error');
+    } finally {
+      setDrawing(false);
+    }
+  }
+
+  async function advanceWinnerStatus(entry: EntryRow) {
+    const currentIndex = WINNER_STEPS.indexOf(entry.winner_status as (typeof WINNER_STEPS)[number]);
+    const next = WINNER_STEPS[currentIndex + 1];
+    if (!next) return;
+
+    const { error } = await supabase.from('giveaway_entries').update({ winner_status: next }).eq('id', entry.id);
+    if (error) {
+      notification.error('Failed to update winner status', error.message);
+      return;
+    }
+    setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, winner_status: next } : e)));
+    await logActivity({ action: 'GIVEAWAY_WINNER_STATUS', resource_type: 'giveaway_entry', resource_id: entry.id, details: { winner_status: next } });
+  }
+
+  if (!['admin', 'manager'].includes(user?.role || '')) {
+    return (
+      <div className="p-6 text-sm text-gray-600">
+        You don't have permission to view giveaway entries and draw results.
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Gift className="w-6 h-6 text-purple-600" />
+          <h1 className="text-xl font-semibold text-gray-900">Giveaways</h1>
+        </div>
+        <button
+          onClick={openCreate}
+          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium"
+        >
+          <Plus className="w-4 h-4" /> New Giveaway
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
+      ) : campaigns.length === 0 ? (
+        <div className="text-center py-12 text-gray-500 text-sm">
+          No giveaway campaigns yet. Click "New Giveaway" to set up a secret-code drop.
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {campaigns.map((campaign) => {
+            const StatusIcon = statusIcons[campaign.status];
+            const counts = entryCounts[campaign.id] || { valid: 0, duplicate: 0, invalid: 0 };
+            return (
+              <div key={campaign.id} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-medium text-gray-900">{campaign.public_title}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${statusStyles[campaign.status]}`}>
+                      <StatusIcon className="w-3 h-3" /> {campaign.status}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    /campaigns/{campaign.slug} · code {campaign.secret_code || '—'} · {counts.valid} valid, {counts.duplicate} duplicate, {counts.invalid} invalid
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => openEntries(campaign)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+                  >
+                    <Users className="w-4 h-4" /> Entries & Draw
+                  </button>
+                  <button
+                    onClick={() => openEdit(campaign)}
+                    className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {formOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 sticky top-0 bg-white">
+              <h2 className="font-semibold text-gray-900">{editingId ? 'Edit Giveaway' : 'New Giveaway'}</h2>
+              <button onClick={() => setFormOpen(false)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="text-xs font-medium text-gray-600">Public title</label>
+                  <input
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.public_title}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setFormData((prev) => ({
+                        ...prev,
+                        public_title: value,
+                        slug: slugTouched ? prev.slug : slugify(value),
+                      }));
+                    }}
+                    placeholder="Mirror Glow Secret Drop"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Internal name</label>
+                  <input
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.internal_name}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, internal_name: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Slug (julinemart.com/campaigns/…)</label>
+                  <input
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.slug}
+                    onChange={(e) => {
+                      setSlugTouched(true);
+                      setFormData((prev) => ({ ...prev, slug: slugify(e.target.value) }));
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Status</label>
+                  <select
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.status}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value as CampaignStatus }))}
+                  >
+                    {(['draft', 'scheduled', 'active', 'paused', 'expired', 'archived'] as CampaignStatus[]).map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Secret code</label>
+                  <input
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm uppercase"
+                    value={formData.secret_code}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, secret_code: e.target.value }))}
+                    placeholder="MIRRORGLOW"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Start date</label>
+                  <input
+                    type="datetime-local"
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.start_date}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, start_date: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">End date (entries close)</label>
+                  <input
+                    type="datetime-local"
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.end_date}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, end_date: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Entry limit (blank = unlimited)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.entry_limit}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, entry_limit: e.target.value === '' ? '' : Number(e.target.value) }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Early-bird limit (first N entrants)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.early_bird_limit}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, early_bird_limit: e.target.value === '' ? '' : Number(e.target.value) }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Early-bird reward voucher</label>
+                  <select
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.early_bird_voucher_id}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, early_bird_voucher_id: e.target.value }))}
+                  >
+                    <option value="">— none —</option>
+                    {vouchers.map((v) => (
+                      <option key={v.id} value={v.id}>{v.code} ({v.campaign_name})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Grand prize voucher (optional)</label>
+                  <select
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.grand_prize_voucher_id}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, grand_prize_voucher_id: e.target.value }))}
+                  >
+                    <option value="">— none —</option>
+                    {vouchers.map((v) => (
+                      <option key={v.id} value={v.id}>{v.code} ({v.campaign_name})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs font-medium text-gray-600">Grand prize description</label>
+                  <input
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.grand_prize_description}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, grand_prize_description: e.target.value }))}
+                    placeholder="LED Makeup Mirror"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs font-medium text-gray-600">Hero headline</label>
+                  <input
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.hero_headline}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, hero_headline: e.target.value }))}
+                    placeholder="Win an LED Makeup Mirror"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs font-medium text-gray-600">Hero subtitle</label>
+                  <input
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.hero_subtitle}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, hero_subtitle: e.target.value }))}
+                    placeholder="The secret code drops Friday at 6PM"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="p-4 border-t border-gray-200 flex justify-end gap-2 sticky bottom-0 bg-white">
+              <button onClick={() => setFormOpen(false)} className="px-4 py-2 text-sm border border-gray-300 rounded-lg">Cancel</button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />} Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {entriesCampaign && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200 sticky top-0 bg-white">
+              <h2 className="font-semibold text-gray-900">{entriesCampaign.public_title} — Entries & Draw</h2>
+              <button onClick={() => setEntriesCampaign(null)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <div className="p-4 space-y-4">
+              {entriesLoading ? (
+                <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-4 gap-3 text-center">
+                    <div className="bg-gray-50 rounded-lg p-3">
+                      <div className="text-lg font-semibold text-gray-900">{entries.length}</div>
+                      <div className="text-xs text-gray-500">Total submissions</div>
+                    </div>
+                    <div className="bg-green-50 rounded-lg p-3">
+                      <div className="text-lg font-semibold text-green-700">{entries.filter((e) => e.status === 'valid').length}</div>
+                      <div className="text-xs text-gray-500">Valid</div>
+                    </div>
+                    <div className="bg-yellow-50 rounded-lg p-3">
+                      <div className="text-lg font-semibold text-yellow-700">{entries.filter((e) => e.status === 'duplicate').length}</div>
+                      <div className="text-xs text-gray-500">Duplicate</div>
+                    </div>
+                    <div className="bg-red-50 rounded-lg p-3">
+                      <div className="text-lg font-semibold text-red-700">{entries.filter((e) => e.status === 'invalid').length}</div>
+                      <div className="text-xs text-gray-500">Invalid</div>
+                    </div>
+                  </div>
+
+                  <div className="bg-purple-50 rounded-lg p-4 flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium text-purple-900 flex items-center gap-2">
+                        <Trophy className="w-4 h-4" /> Draw
+                      </div>
+                      <div className="text-xs text-purple-700 mt-1">
+                        {hasCompletedDraw
+                          ? currentWinner
+                            ? `Winner: ${currentWinner.full_name} (entry #${currentWinner.entry_position})`
+                            : 'Winner drawn (details loading)'
+                          : `${eligibleCount} eligible entr${eligibleCount === 1 ? 'y' : 'ies'} to draw from`}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      {!hasCompletedDraw ? (
+                        <button
+                          onClick={handleDraw}
+                          disabled={drawing || eligibleCount === 0}
+                          className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+                        >
+                          {drawing && <Loader2 className="w-4 h-4 animate-spin" />} Draw Winner
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleForfeitAndRedraw}
+                          disabled={drawing}
+                          className="px-4 py-2 text-sm border border-purple-300 text-purple-700 rounded-lg hover:bg-purple-100 disabled:opacity-50 flex items-center gap-2"
+                        >
+                          {drawing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />} Forfeit & Redraw
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {draws.length > 0 && (
+                    <div className="text-xs text-gray-500 space-y-1">
+                      <div className="font-medium text-gray-700">Draw history</div>
+                      {draws.map((d) => (
+                        <div key={d.id}>
+                          {new Date(d.drawn_at).toLocaleString()} — {d.status}
+                          {d.status === 'forfeited' && d.forfeit_reason ? ` (${d.forfeit_reason})` : ''}
+                          {' '}· {d.eligible_entry_count} eligible entries
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-gray-500 border-b border-gray-200">
+                          <th className="py-2 pr-3">#</th>
+                          <th className="py-2 pr-3">Name</th>
+                          <th className="py-2 pr-3">WhatsApp</th>
+                          <th className="py-2 pr-3">Location</th>
+                          <th className="py-2 pr-3">Status</th>
+                          <th className="py-2 pr-3">Reward</th>
+                          <th className="py-2 pr-3">Winner status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {entries.map((entry) => (
+                          <tr key={entry.id} className="border-b border-gray-100">
+                            <td className="py-2 pr-3">{entry.entry_position ?? '—'}</td>
+                            <td className="py-2 pr-3">{entry.full_name}</td>
+                            <td className="py-2 pr-3">{entry.whatsapp_number}</td>
+                            <td className="py-2 pr-3">{entry.location || '—'}</td>
+                            <td className="py-2 pr-3 capitalize">{entry.status}</td>
+                            <td className="py-2 pr-3">{entry.reward_tier || '—'}</td>
+                            <td className="py-2 pr-3">
+                              {entry.winner_status === 'none' ? (
+                                '—'
+                              ) : entry.winner_status === 'forfeited' ? (
+                                <span className="text-red-600">forfeited</span>
+                              ) : (
+                                <button
+                                  onClick={() => advanceWinnerStatus(entry)}
+                                  disabled={entry.winner_status === 'delivered'}
+                                  className="text-purple-700 hover:underline disabled:no-underline disabled:text-gray-500 capitalize"
+                                  title={entry.winner_status === 'delivered' ? undefined : 'Click to advance to the next stage'}
+                                >
+                                  {entry.winner_status}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

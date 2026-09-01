@@ -12,11 +12,62 @@ export type CampaignSectionType =
   | 'offer'
   | 'reviews'
   | 'media_gallery'
-  | 'cta_footer';
+  | 'cta_footer'
+  | 'giveaway_entry';
 
 export type CampaignStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'expired' | 'archived';
 
 export type CampaignTargetType = 'vendor' | 'category' | 'product' | 'collection' | 'multi_vendor' | 'general';
+
+// Giveaway / Secret-Code Drop engine (Campaign Engine Phase 1). 'merchandising'
+// is every campaign that existed before this — landing page + product offer.
+// 'giveaway' campaigns use the giveaway_* fields below instead of (or in
+// addition to) product_selection_rules, and render a `giveaway_entry` section
+// rather than (or alongside) `products`/`offer`.
+export type CampaignKind = 'merchandising' | 'giveaway';
+
+export type GiveawayEntryStatus = 'valid' | 'duplicate' | 'invalid';
+export type GiveawayRewardTier = 'early_bird' | 'standard';
+export type GiveawayWinnerStatus =
+  | 'none'
+  | 'selected'
+  | 'contacted'
+  | 'verified'
+  | 'processing'
+  | 'delivered'
+  | 'forfeited';
+export type GiveawayDrawStatus = 'completed' | 'forfeited';
+
+export interface GiveawayEntry {
+  id: string;
+  campaignId: string;
+  fullName: string;
+  whatsappNumber: string;
+  email?: string | null;
+  location?: string | null;
+  customerId?: string | null;
+  source?: string | null;
+  status: GiveawayEntryStatus;
+  invalidReason?: string | null;
+  entryPosition?: number | null;
+  rewardTier?: GiveawayRewardTier | null;
+  marketingOptIn: boolean;
+  winnerStatus: GiveawayWinnerStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GiveawayDraw {
+  id: string;
+  campaignId: string;
+  winningEntryId: string;
+  eligibleEntryCount: number;
+  drawnBy?: string | null;
+  drawnAt: string;
+  status: GiveawayDrawStatus;
+  forfeitReason?: string | null;
+  redrawOf?: string | null;
+}
 
 export type CampaignAnalyticsEventType =
   | 'scan'
@@ -174,6 +225,18 @@ export interface Campaign {
   reviewRules: CampaignReviewRules;
   offerConfig?: CampaignOfferConfig;
   metaSeo?: { title?: string; description?: string; ogImage?: string };
+
+  // Giveaway / Secret-Code Drop fields — only meaningful when campaignKind
+  // is 'giveaway'. See GiveawayEntry/GiveawayDraw above. campaignKind is
+  // optional (defaults to 'merchandising') so every pre-existing literal
+  // Campaign object in tests/fixtures doesn't need updating for this field.
+  campaignKind?: CampaignKind;
+  secretCode?: string | null;
+  entryLimit?: number | null;
+  earlyBirdLimit?: number | null;
+  earlyBirdVoucherId?: string | null;
+  grandPrizeVoucherId?: string | null;
+  grandPrizeDescription?: string | null;
 
   createdAt: string;
   updatedAt: string;

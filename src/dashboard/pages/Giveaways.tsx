@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Gift, Plus, Edit, Loader2, Users, Trophy, X, CheckCircle,
-  Clock, PauseCircle, Archive as ArchiveIcon, FileEdit, RotateCcw,
+  Clock, PauseCircle, Archive as ArchiveIcon, FileEdit, RotateCcw, Send,
 } from 'lucide-react';
 import { supabase, useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
@@ -65,6 +65,23 @@ interface DrawRow {
   status: 'completed' | 'forfeited';
   forfeit_reason: string | null;
   redraw_of: string | null;
+}
+
+interface WhatsAppTemplateOption {
+  name: string;
+  category: string;
+  meta_template_status: string;
+}
+
+interface BroadcastRow {
+  id: string;
+  template_name: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  recipient_count: number;
+  sent_count: number;
+  failed_count: number;
+  started_at: string;
+  completed_at: string | null;
 }
 
 interface FormState {
@@ -153,6 +170,13 @@ export function GiveawaysPage() {
   const [draws, setDraws] = useState<DrawRow[]>([]);
   const [entriesLoading, setEntriesLoading] = useState(false);
   const [drawing, setDrawing] = useState(false);
+
+  const [whatsappTemplates, setWhatsappTemplates] = useState<WhatsAppTemplateOption[]>([]);
+  const [broadcasts, setBroadcasts] = useState<BroadcastRow[]>([]);
+  const [optInCount, setOptInCount] = useState<number | null>(null);
+  const [broadcastTemplateName, setBroadcastTemplateName] = useState('');
+  const [broadcastVariables, setBroadcastVariables] = useState('');
+  const [broadcasting, setBroadcasting] = useState(false);
 
   useEffect(() => {
     loadCampaigns();
@@ -309,7 +333,16 @@ export function GiveawaysPage() {
   async function openEntries(campaign: GiveawayCampaignRow) {
     setEntriesCampaign(campaign);
     setEntriesLoading(true);
-    const [{ data: entryRows, error: entryError }, { data: drawRows, error: drawError }] = await Promise.all([
+    setBroadcastTemplateName('');
+    setBroadcastVariables('');
+
+    const [
+      { data: entryRows, error: entryError },
+      { data: drawRows, error: drawError },
+      { data: templateRows, error: templateError },
+      { data: broadcastRows, error: broadcastError },
+      { count: optInTotal, error: optInError },
+    ] = await Promise.all([
       supabase
         .from('giveaway_entries')
         .select('id, full_name, whatsapp_number, email, location, status, entry_position, reward_tier, winner_status, created_at')
@@ -321,14 +354,85 @@ export function GiveawaysPage() {
         .select('id, winning_entry_id, eligible_entry_count, drawn_at, status, forfeit_reason, redraw_of')
         .eq('campaign_id', campaign.id)
         .order('drawn_at', { ascending: false }),
+      supabase
+        .from('internal_whatsapp_templates')
+        .select('name, category, meta_template_status')
+        .eq('is_active', true)
+        .order('name', { ascending: true }),
+      supabase
+        .from('giveaway_broadcasts')
+        .select('id, template_name, status, recipient_count, sent_count, failed_count, started_at, completed_at')
+        .eq('campaign_id', campaign.id)
+        .order('started_at', { ascending: false }),
+      supabase
+        .from('whatsapp_marketing_consent')
+        .select('id', { count: 'exact', head: true })
+        .eq('opted_in', true),
     ]);
 
     if (entryError) notification.error('Failed to load entries', entryError.message);
     if (drawError) notification.error('Failed to load draw history', drawError.message);
+    if (templateError) notification.error('Failed to load WhatsApp templates', templateError.message);
+    if (broadcastError) notification.error('Failed to load broadcast history', broadcastError.message);
+    if (optInError) notification.error('Failed to load opt-in count', optInError.message);
 
     setEntries((entryRows || []) as EntryRow[]);
     setDraws((drawRows || []) as DrawRow[]);
+    setWhatsappTemplates((templateRows || []) as WhatsAppTemplateOption[]);
+    setBroadcasts((broadcastRows || []) as BroadcastRow[]);
+    setOptInCount(optInTotal ?? 0);
     setEntriesLoading(false);
+  }
+
+  /** Bearer-token call to a JLO Netlify function — same pattern as logActivity.ts. */
+  async function callAdminFunction(name: string, payload: Record<string, unknown>) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error('Not signed in');
+    const res = await fetch(`/.netlify/functions/${name}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.success) throw new Error(data?.error || `Request failed (${res.status})`);
+    return data.data;
+  }
+
+  async function handleSendBroadcast() {
+    if (!entriesCampaign) return;
+    if (!broadcastTemplateName) {
+      notification.error('Choose a template', 'Pick the approved WhatsApp template to send.');
+      return;
+    }
+    if (optInCount === 0) {
+      notification.error('No recipients', 'Nobody has opted in to WhatsApp marketing yet.');
+      return;
+    }
+    if (!window.confirm(`Send "${broadcastTemplateName}" to ${optInCount} opted-in contact(s) now? This cannot be undone.`)) {
+      return;
+    }
+
+    setBroadcasting(true);
+    try {
+      const variables = broadcastVariables
+        .split(',')
+        .map((v) => v.trim())
+        .filter(Boolean);
+      const result = await callAdminFunction('admin-giveaway-broadcast', {
+        campaign_id: entriesCampaign.id,
+        template_name: broadcastTemplateName,
+        variables,
+      });
+      notification.success(
+        'Broadcast sent',
+        `${result.sentCount}/${result.recipientCount} delivered, ${result.failedCount} failed.`
+      );
+      await openEntries(entriesCampaign);
+    } catch (error: any) {
+      notification.error('Broadcast failed', error?.message || 'Unknown error');
+    } finally {
+      setBroadcasting(false);
+    }
   }
 
   const eligibleCount = useMemo(
@@ -708,6 +812,66 @@ export function GiveawaysPage() {
                       ))}
                     </div>
                   )}
+
+                  <div className="bg-green-50 rounded-lg p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="text-sm font-medium text-green-900 flex items-center gap-2">
+                        <Send className="w-4 h-4" /> Send secret code via WhatsApp
+                      </div>
+                      <div className="text-xs text-green-700">
+                        {optInCount ?? '—'} opted-in contact{optInCount === 1 ? '' : 's'}
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Requires a WhatsApp template already <strong>approved by Meta</strong> as Marketing category —
+                      approval happens in Meta Business Manager, not here.
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs font-medium text-gray-600">Template</label>
+                        <select
+                          className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          value={broadcastTemplateName}
+                          onChange={(e) => setBroadcastTemplateName(e.target.value)}
+                        >
+                          <option value="">— choose a template —</option>
+                          {whatsappTemplates.map((t) => (
+                            <option key={t.name} value={t.name}>
+                              {t.name} ({t.meta_template_status})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600">Template variables (comma-separated, in order)</label>
+                        <input
+                          className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          value={broadcastVariables}
+                          onChange={(e) => setBroadcastVariables(e.target.value)}
+                          placeholder={`${entriesCampaign.public_title}, ${entriesCampaign.secret_code || ''}`}
+                        />
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleSendBroadcast}
+                      disabled={broadcasting || !broadcastTemplateName}
+                      className="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {broadcasting && <Loader2 className="w-4 h-4 animate-spin" />} Send Now
+                    </button>
+
+                    {broadcasts.length > 0 && (
+                      <div className="text-xs text-gray-500 space-y-1 pt-1 border-t border-green-100">
+                        <div className="font-medium text-gray-700">Broadcast history</div>
+                        {broadcasts.map((b) => (
+                          <div key={b.id}>
+                            {new Date(b.started_at).toLocaleString()} — {b.template_name} — {b.status}
+                            {' '}· {b.sent_count}/{b.recipient_count} sent, {b.failed_count} failed
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">

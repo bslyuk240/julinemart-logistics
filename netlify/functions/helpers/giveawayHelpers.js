@@ -127,3 +127,29 @@ export async function findExistingCustomer({ phone, email }) {
   }
   return null;
 }
+
+/**
+ * Phase 2 — records/refreshes a durable, cross-campaign opt-in so a future
+ * campaign's "code just dropped" broadcast can reach this person, not just
+ * this one entry. Upserted by phone: re-entering a later giveaway with the
+ * box checked again just refreshes opted_in_at, it doesn't duplicate rows.
+ * Never downgrades an existing opt-OUT — someone who opted out and enters a
+ * new giveaway without checking the box again stays opted out.
+ */
+export async function recordMarketingOptIn({ phone, customerId, source }) {
+  if (!phone) return;
+  await supabase
+    .from('whatsapp_marketing_consent')
+    .upsert(
+      {
+        phone,
+        customer_id: customerId || null,
+        opted_in: true,
+        source: source || null,
+        opted_in_at: new Date().toISOString(),
+        opted_out_at: null,
+        opted_out_reason: null,
+      },
+      { onConflict: 'phone' }
+    );
+}

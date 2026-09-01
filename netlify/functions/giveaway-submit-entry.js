@@ -18,6 +18,7 @@ import {
   normalizeNigerianPhone,
   resolveRewardVoucher,
   findExistingCustomer,
+  recordMarketingOptIn,
 } from './helpers/giveawayHelpers.js';
 
 function jsonResponse(statusCode, headers, body) {
@@ -218,6 +219,17 @@ export async function handler(event) {
 
     const reward =
       rewardTier === 'early_bird' ? await resolveRewardVoucher(campaign.early_bird_voucher_id) : null;
+
+    if (marketingOptIn) {
+      // Fire-and-forget-ish (still awaited, but failure here must never fail
+      // an otherwise-successful entry) — feeds the cross-campaign broadcast
+      // list, not just this campaign's own records.
+      await recordMarketingOptIn({
+        phone: normalizedPhone,
+        customerId,
+        source: `giveaway_entry:${campaign.id}`,
+      }).catch((error) => console.error('Failed to record marketing opt-in:', error));
+    }
 
     return jsonResponse(200, headers, {
       success: true,

@@ -332,7 +332,7 @@ export async function handler(event) {
     if (voucher_code?.trim()) {
       const { data: voucher } = await adminClient
         .from('campaign_vouchers')
-        .select('id, code, discount_type, discount_value, max_uses, current_uses, valid_from, valid_until, status')
+        .select('id, code, discount_type, discount_value, max_uses, current_uses, valid_from, valid_until, status, campaign_id')
         .eq('code', voucher_code.trim().toUpperCase())
         .eq('status', 'active')
         .maybeSingle();
@@ -414,6 +414,10 @@ export async function handler(event) {
         total_amount: totalAmount,
         shipping_fee_paid: shippingFee,
         discount_amount: discountAmount,
+        // Attribution: piggybacks on the redeemed voucher's own campaign_id
+        // rather than a separate checkout payload field — a campaign-linked
+        // voucher IS the evidence the order came from that campaign.
+        campaign_id: voucherRow?.campaign_id || null,
         payment_status: 'pending',
         overall_status: 'pending',
         payment_reference: paymentReference,

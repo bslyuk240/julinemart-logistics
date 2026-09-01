@@ -1,8 +1,13 @@
-// Admin-triggered: sends a WhatsApp template message (e.g. "the secret code
-// just dropped") to everyone on the cross-campaign opt-in list
-// (whatsapp_marketing_consent). Reuses the existing internal WhatsApp send
-// primitive (sendWhatsAppTemplate) rather than a parallel integration — see
-// helpers/giveawayHelpers.js's recordMarketingOptIn for how the list is built.
+// Admin-triggered: sends a WhatsApp template message to one of two audiences
+// (body.audience):
+//   'opted_in_list' (default)   — everyone on the cross-campaign opt-in list,
+//                                  e.g. "the secret code just dropped".
+//   'campaign_non_winners'      — THIS campaign's valid, opted-in entrants
+//                                  who did not win, e.g. Phase 4's "didn't
+//                                  win? here's a reward anyway" remarketing.
+// Reuses the existing internal WhatsApp send primitive (sendWhatsAppTemplate)
+// rather than a parallel integration — see helpers/giveawayHelpers.js's
+// recordMarketingOptIn for how the opt-in list is built.
 //
 // Real prerequisite this cannot satisfy from code: `templateName` must refer
 // to a template that has actually been approved by Meta as MARKETING category
@@ -35,8 +40,9 @@ export async function handler(event) {
   const templateName = String(body.template_name || '').trim();
   const variables = Array.isArray(body.variables) ? body.variables.map((v) => String(v ?? '')) : [];
   const previewOnly = Boolean(body.preview_only);
+  const audience = body.audience === 'campaign_non_winners' ? 'campaign_non_winners' : 'opted_in_list';
 
-  if (!campaignId || !templateName) {
+  if (!campaignId || (!templateName && !previewOnly)) {
     return jsonResponse(400, { success: false, error: 'campaign_id and template_name are required' });
   }
 
@@ -49,13 +55,46 @@ export async function handler(event) {
   if (campaignError) return jsonResponse(500, { success: false, error: campaignError.message });
   if (!campaign) return jsonResponse(404, { success: false, error: 'Giveaway campaign not found' });
 
-  const { data: recipients, error: recipientsError } = await adminClient
-    .from('whatsapp_marketing_consent')
-    .select('phone, customer_id')
-    .eq('opted_in', true);
-  if (recipientsError) return jsonResponse(500, { success: false, error: recipientsError.message });
+  let recipients;
+  if (audience === 'campaign_non_winners') {
+    // This campaign's valid entrants who did NOT win, filtered against the
+    // durable opt-in list (an entry's own marketing_opt_in flag reflects
+    // consent at entry time — this join also respects any opt-out since).
+    const { data: entryRows, error: entriesError } = await adminClient
+      .from('giveaway_entries')
+      .select('whatsapp_number, customer_id')
+      .eq('campaign_id', campaignId)
+      .eq('status', 'valid')
+      .eq('marketing_opt_in', true)
+      .neq('winner_status', 'selected')
+      .neq('winner_status', 'contacted')
+      .neq('winner_status', 'verified')
+      .neq('winner_status', 'processing')
+      .neq('winner_status', 'delivered');
+    if (entriesError) return jsonResponse(500, { success: false, error: entriesError.message });
 
-  const recipientCount = recipients?.length || 0;
+    const phones = [...new Set((entryRows || []).map((e) => e.whatsapp_number))];
+    if (phones.length === 0) {
+      recipients = [];
+    } else {
+      const { data: consentRows, error: consentError } = await adminClient
+        .from('whatsapp_marketing_consent')
+        .select('phone, customer_id')
+        .eq('opted_in', true)
+        .in('phone', phones);
+      if (consentError) return jsonResponse(500, { success: false, error: consentError.message });
+      recipients = consentRows || [];
+    }
+  } else {
+    const { data: consentRows, error: recipientsError } = await adminClient
+      .from('whatsapp_marketing_consent')
+      .select('phone, customer_id')
+      .eq('opted_in', true);
+    if (recipientsError) return jsonResponse(500, { success: false, error: recipientsError.message });
+    recipients = consentRows || [];
+  }
+
+  const recipientCount = recipients.length;
   if (previewOnly) {
     return jsonResponse(200, { success: true, data: { recipientCount } });
   }
@@ -68,6 +107,7 @@ export async function handler(event) {
     .insert({
       campaign_id: campaign.id,
       template_name: templateName,
+      audience,
       status: 'running',
       recipient_count: recipientCount,
       triggered_by: auth.authUser.id,

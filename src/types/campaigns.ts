@@ -237,6 +237,7 @@ export interface Campaign {
   earlyBirdVoucherId?: string | null;
   grandPrizeVoucherId?: string | null;
   grandPrizeDescription?: string | null;
+  consolationVoucherId?: string | null;
 
   createdAt: string;
   updatedAt: string;

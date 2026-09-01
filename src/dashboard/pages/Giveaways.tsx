@@ -34,6 +34,7 @@ interface GiveawayCampaignRow {
   early_bird_voucher_id: string | null;
   grand_prize_voucher_id: string | null;
   grand_prize_description: string | null;
+  consolation_voucher_id: string | null;
   hero_config: { headline?: string; subtitle?: string; ctaLabel?: string } | null;
   created_at: string;
 }
@@ -76,6 +77,7 @@ interface WhatsAppTemplateOption {
 interface BroadcastRow {
   id: string;
   template_name: string;
+  audience: 'opted_in_list' | 'campaign_non_winners';
   status: 'pending' | 'running' | 'completed' | 'failed';
   recipient_count: number;
   sent_count: number;
@@ -101,6 +103,7 @@ interface FormState {
   early_bird_voucher_id: string;
   grand_prize_voucher_id: string;
   grand_prize_description: string;
+  consolation_voucher_id: string;
 }
 
 const emptyForm: FormState = {
@@ -120,6 +123,7 @@ const emptyForm: FormState = {
   early_bird_voucher_id: '',
   grand_prize_voucher_id: '',
   grand_prize_description: '',
+  consolation_voucher_id: '',
 };
 
 const statusStyles: Record<CampaignStatus, string> = {
@@ -176,6 +180,10 @@ export function GiveawaysPage() {
   const [optInCount, setOptInCount] = useState<number | null>(null);
   const [broadcastTemplateName, setBroadcastTemplateName] = useState('');
   const [broadcastVariables, setBroadcastVariables] = useState('');
+  const [broadcastAudience, setBroadcastAudience] = useState<'opted_in_list' | 'campaign_non_winners'>('opted_in_list');
+  const [nonWinnerCount, setNonWinnerCount] = useState<number | null>(null);
+  const [redrawModalOpen, setRedrawModalOpen] = useState(false);
+  const [redrawReason, setRedrawReason] = useState('');
   const [broadcasting, setBroadcasting] = useState(false);
 
   useEffect(() => {
@@ -183,12 +191,16 @@ export function GiveawaysPage() {
     loadVoucherOptions();
   }, []);
 
+  useEffect(() => {
+    if (entriesCampaign) refreshAudiencePreview(entriesCampaign, broadcastAudience);
+  }, [entriesCampaign, broadcastAudience]);
+
   async function loadCampaigns() {
     setLoading(true);
     const { data, error } = await supabase
       .from('campaigns')
       .select(
-        'id, slug, internal_name, public_title, campaign_objective, status, start_date, end_date, secret_code, entry_limit, early_bird_limit, early_bird_voucher_id, grand_prize_voucher_id, grand_prize_description, hero_config, created_at'
+        'id, slug, internal_name, public_title, campaign_objective, status, start_date, end_date, secret_code, entry_limit, early_bird_limit, early_bird_voucher_id, grand_prize_voucher_id, grand_prize_description, consolation_voucher_id, hero_config, created_at'
       )
       .eq('campaign_kind', 'giveaway')
       .order('created_at', { ascending: false });
@@ -255,6 +267,7 @@ export function GiveawaysPage() {
       early_bird_voucher_id: campaign.early_bird_voucher_id || '',
       grand_prize_voucher_id: campaign.grand_prize_voucher_id || '',
       grand_prize_description: campaign.grand_prize_description || '',
+      consolation_voucher_id: campaign.consolation_voucher_id || '',
     });
     setFormOpen(true);
   }
@@ -294,6 +307,7 @@ export function GiveawaysPage() {
         early_bird_voucher_id: formData.early_bird_voucher_id || null,
         grand_prize_voucher_id: formData.grand_prize_voucher_id || null,
         grand_prize_description: formData.grand_prize_description.trim() || null,
+        consolation_voucher_id: formData.consolation_voucher_id || null,
       };
 
       if (editingId) {
@@ -337,6 +351,8 @@ export function GiveawaysPage() {
     setEntriesLoading(true);
     setBroadcastTemplateName('');
     setBroadcastVariables('');
+    setBroadcastAudience('opted_in_list');
+    setNonWinnerCount(null);
 
     const [
       { data: entryRows, error: entryError },
@@ -363,7 +379,7 @@ export function GiveawaysPage() {
         .order('name', { ascending: true }),
       supabase
         .from('giveaway_broadcasts')
-        .select('id, template_name, status, recipient_count, sent_count, failed_count, started_at, completed_at')
+        .select('id, template_name, audience, status, recipient_count, sent_count, failed_count, started_at, completed_at')
         .eq('campaign_id', campaign.id)
         .order('started_at', { ascending: false }),
       supabase
@@ -413,17 +429,33 @@ export function GiveawaysPage() {
     });
   }
 
+  async function refreshAudiencePreview(campaign: GiveawayCampaignRow, audience: 'opted_in_list' | 'campaign_non_winners') {
+    if (audience !== 'campaign_non_winners') return;
+    try {
+      const result = await callAdminFunction('admin-giveaway-broadcast', {
+        campaign_id: campaign.id,
+        audience,
+        preview_only: true,
+      });
+      setNonWinnerCount(result.recipientCount);
+    } catch {
+      setNonWinnerCount(null);
+    }
+  }
+
   async function handleSendBroadcast() {
     if (!entriesCampaign) return;
     if (!broadcastTemplateName) {
       notification.error('Choose a template', 'Pick the approved WhatsApp template to send.');
       return;
     }
-    if (optInCount === 0) {
-      notification.error('No recipients', 'Nobody has opted in to WhatsApp marketing yet.');
+    const targetCount = broadcastAudience === 'campaign_non_winners' ? nonWinnerCount : optInCount;
+    if (!targetCount) {
+      notification.error('No recipients', 'There is nobody to send this to right now.');
       return;
     }
-    if (!window.confirm(`Send "${broadcastTemplateName}" to ${optInCount} opted-in contact(s) now? This cannot be undone.`)) {
+    const audienceLabel = broadcastAudience === 'campaign_non_winners' ? "this campaign's non-winning entrants" : 'the opted-in contact list';
+    if (!window.confirm(`Send "${broadcastTemplateName}" to ${targetCount} recipient(s) in ${audienceLabel} now? This cannot be undone.`)) {
       return;
     }
 
@@ -436,6 +468,7 @@ export function GiveawaysPage() {
       const result = await callAdminFunction('admin-giveaway-broadcast', {
         campaign_id: entriesCampaign.id,
         template_name: broadcastTemplateName,
+        audience: broadcastAudience,
         variables,
       });
       notification.success(
@@ -476,21 +509,26 @@ export function GiveawaysPage() {
     }
   }
 
-  async function handleForfeitAndRedraw() {
+  async function submitForfeitAndRedraw() {
     if (!entriesCampaign) return;
-    const reason = window.prompt('Reason for forfeiting the current winner and redrawing?');
-    if (!reason || !reason.trim()) return;
+    if (!redrawReason.trim()) {
+      notification.error('Reason required', 'Explain why the current winner is being forfeited.');
+      return;
+    }
+    const reason = redrawReason.trim();
 
     setDrawing(true);
     try {
       const { error } = await supabase.rpc('forfeit_and_redraw_giveaway_winner', {
         p_campaign_id: entriesCampaign.id,
-        p_reason: reason.trim(),
+        p_reason: reason,
       });
       if (error) throw error;
-      await logActivity({ action: 'GIVEAWAY_REDRAW', resource_type: 'campaign', resource_id: entriesCampaign.id, details: { reason: reason.trim() } });
+      await logActivity({ action: 'GIVEAWAY_REDRAW', resource_type: 'campaign', resource_id: entriesCampaign.id, details: { reason } });
       notifySkola('giveaway.winner_redrawn', entriesCampaign.id);
       notification.success('Redrawn', 'A new winner has been selected; the prior draw is kept on record as forfeited.');
+      setRedrawModalOpen(false);
+      setRedrawReason('');
       await openEntries(entriesCampaign);
     } catch (error: any) {
       notification.error('Redraw failed', error?.message || 'Unknown error');
@@ -719,6 +757,22 @@ export function GiveawaysPage() {
                   />
                 </div>
                 <div className="col-span-2">
+                  <label className="text-xs font-medium text-gray-600">Consolation voucher for non-winners (optional)</label>
+                  <select
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.consolation_voucher_id}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, consolation_voucher_id: e.target.value }))}
+                  >
+                    <option value="">— none —</option>
+                    {vouchers.map((v) => (
+                      <option key={v.id} value={v.id}>{v.code} ({v.campaign_name})</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Offered to non-winning entrants after the draw via the "Entries &amp; Draw" panel's remarketing broadcast.
+                  </p>
+                </div>
+                <div className="col-span-2">
                   <label className="text-xs font-medium text-gray-600">Hero headline</label>
                   <input
                     className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
@@ -807,7 +861,7 @@ export function GiveawaysPage() {
                         </button>
                       ) : (
                         <button
-                          onClick={handleForfeitAndRedraw}
+                          onClick={() => setRedrawModalOpen(true)}
                           disabled={drawing}
                           className="px-4 py-2 text-sm border border-purple-300 text-purple-700 rounded-lg hover:bg-purple-100 disabled:opacity-50 flex items-center gap-2"
                         >
@@ -820,29 +874,54 @@ export function GiveawaysPage() {
                   {draws.length > 0 && (
                     <div className="text-xs text-gray-500 space-y-1">
                       <div className="font-medium text-gray-700">Draw history</div>
-                      {draws.map((d) => (
-                        <div key={d.id}>
-                          {new Date(d.drawn_at).toLocaleString()} — {d.status}
-                          {d.status === 'forfeited' && d.forfeit_reason ? ` (${d.forfeit_reason})` : ''}
-                          {' '}· {d.eligible_entry_count} eligible entries
-                        </div>
-                      ))}
+                      {draws.map((d) => {
+                        const winnerEntry = entries.find((e) => e.id === d.winning_entry_id);
+                        return (
+                          <div key={d.id}>
+                            {new Date(d.drawn_at).toLocaleString()} — {d.status}
+                            {d.status === 'forfeited' && d.forfeit_reason ? ` (${d.forfeit_reason})` : ''}
+                            {' '}· {d.eligible_entry_count} eligible entries
+                            {winnerEntry ? ` · winner: ${winnerEntry.full_name} (#${winnerEntry.entry_position})` : ''}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
                   <div className="bg-green-50 rounded-lg p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="text-sm font-medium text-green-900 flex items-center gap-2">
-                        <Send className="w-4 h-4" /> Send secret code via WhatsApp
+                        <Send className="w-4 h-4" /> Send WhatsApp broadcast
                       </div>
                       <div className="text-xs text-green-700">
-                        {optInCount ?? '—'} opted-in contact{optInCount === 1 ? '' : 's'}
+                        {(broadcastAudience === 'campaign_non_winners' ? nonWinnerCount : optInCount) ?? '—'} recipient(s)
                       </div>
                     </div>
                     <p className="text-xs text-gray-500">
                       Requires a WhatsApp template already <strong>approved by Meta</strong> as Marketing category —
                       approval happens in Meta Business Manager, not here.
                     </p>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600">Audience</label>
+                      <select
+                        className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                        value={broadcastAudience}
+                        onChange={(e) => setBroadcastAudience(e.target.value as typeof broadcastAudience)}
+                      >
+                        <option value="opted_in_list">All opted-in contacts (e.g. "the code just dropped")</option>
+                        <option value="campaign_non_winners">This campaign's non-winning entrants (e.g. "didn't win? here's a reward")</option>
+                      </select>
+                      {broadcastAudience === 'campaign_non_winners' && entriesCampaign.consolation_voucher_id && (
+                        <p className="mt-1 text-xs text-gray-500">
+                          Consolation voucher linked: <strong>{vouchers.find((v) => v.id === entriesCampaign.consolation_voucher_id)?.code || entriesCampaign.consolation_voucher_id}</strong> — include its code in your template variables below.
+                        </p>
+                      )}
+                      {broadcastAudience === 'campaign_non_winners' && !entriesCampaign.consolation_voucher_id && (
+                        <p className="mt-1 text-xs text-amber-600">
+                          No consolation voucher linked to this campaign — edit the giveaway to add one, or reference an existing code manually in your template variables.
+                        </p>
+                      )}
+                    </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="text-xs font-medium text-gray-600">Template</label>
@@ -883,6 +962,7 @@ export function GiveawaysPage() {
                         {broadcasts.map((b) => (
                           <div key={b.id}>
                             {new Date(b.started_at).toLocaleString()} — {b.template_name} — {b.status}
+                            {' '}· {b.audience === 'campaign_non_winners' ? 'non-winners' : 'opt-in list'}
                             {' '}· {b.sent_count}/{b.recipient_count} sent, {b.failed_count} failed
                           </div>
                         ))}
@@ -935,6 +1015,48 @@ export function GiveawaysPage() {
                   </div>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {redrawModalOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white rounded-xl max-w-sm w-full">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h2 className="font-semibold text-gray-900">Forfeit &amp; Redraw</h2>
+              <button onClick={() => { setRedrawModalOpen(false); setRedrawReason(''); }}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-sm text-gray-600">
+                The current winner will be marked forfeited (kept on record) and a new winner drawn from the remaining eligible entries.
+              </p>
+              <div>
+                <label className="text-xs font-medium text-gray-600">Reason (required)</label>
+                <textarea
+                  className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  rows={3}
+                  value={redrawReason}
+                  onChange={(e) => setRedrawReason(e.target.value)}
+                  placeholder="e.g. Winner unreachable after 48 hours"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="p-4 border-t border-gray-200 flex justify-end gap-2">
+              <button
+                onClick={() => { setRedrawModalOpen(false); setRedrawReason(''); }}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-lg"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitForfeitAndRedraw}
+                disabled={drawing || !redrawReason.trim()}
+                className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+              >
+                {drawing && <Loader2 className="w-4 h-4 animate-spin" />} Confirm Redraw
+              </button>
             </div>
           </div>
         </div>

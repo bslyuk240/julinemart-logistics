@@ -116,6 +116,7 @@ export const navigationSections: NavSection[] = [
     label: 'Marketing',
     items: [
       { name: 'Campaigns', href: '/admin/campaigns', icon: Megaphone, roles: ['admin', 'manager', 'social_media_manager'] },
+      { name: 'Giveaways', href: '/admin/giveaways', icon: Gift, roles: ['admin', 'manager'] },
       { name: 'Vendor campaigns', href: '/admin/vendor-campaign-approvals', icon: Megaphone, roles: ['admin', 'manager'] },
       { name: 'Vouchers', href: '/admin/vouchers', icon: Ticket, roles: ['admin'] },
       { name: 'Shipping Discounts', href: '/admin/discounts', icon: Percent, roles: ['admin'] },

@@ -12,8 +12,10 @@ type CampaignRow = {
   public_title: string;
   approval_status: string | null;
   status: string;
+  submitted_via: 'vendor' | 'skola_agent' | null;
   submitted_at: string | null;
   review_notes: string | null;
+  grand_prize_description?: string | null;
   hero_config?: { headline?: string; subtitle?: string; heroImageMobile?: string } | null;
   vendors?: { store_name?: string; email?: string; city?: string; state?: string } | null;
 };
@@ -69,7 +71,15 @@ export default function VendorCampaignApprovalsPage() {
       });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload?.error || 'Action failed');
-      notification.success(action === 'approve' ? 'Campaign approved and live' : 'Campaign rejected');
+      const approvedRow = items.find((r) => r.id === id);
+      const autoActivated = approvedRow?.submitted_via === 'vendor';
+      notification.success(
+        action === 'approve'
+          ? autoActivated
+            ? 'Campaign approved and live'
+            : 'Approved — finish setup (reward voucher, secret code) in Giveaways to publish'
+          : 'Campaign rejected'
+      );
       setRejectId(null);
       setRejectNotes('');
       load();
@@ -85,9 +95,11 @@ export default function VendorCampaignApprovalsPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <Megaphone className="h-6 w-6 text-primary-600" />
-          Vendor campaign approvals
+          Campaign submissions
         </h1>
-        <p className="text-sm text-gray-500 mt-1">Review seller-created promotion pages before they go live.</p>
+        <p className="text-sm text-gray-500 mt-1">
+          Review seller-created promotion pages and Skola AI-proposed giveaways before they go live.
+        </p>
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -117,8 +129,15 @@ export default function VendorCampaignApprovalsPage() {
                 <div>
                   <p className="font-semibold text-gray-900">{row.public_title}</p>
                   <p className="text-sm text-gray-500">
-                    {row.vendors?.store_name || 'Vendor'} · {row.vendors?.city || row.vendors?.state || '—'}
+                    {row.submitted_via === 'skola_agent' ? (
+                      <span className="inline-flex items-center gap-1 font-medium text-purple-700">🤖 Skola AI proposal</span>
+                    ) : (
+                      <>{row.vendors?.store_name || 'Vendor'} · {row.vendors?.city || row.vendors?.state || '—'}</>
+                    )}
                   </p>
+                  {row.submitted_via === 'skola_agent' && row.grand_prize_description && (
+                    <p className="text-xs text-gray-500 mt-0.5">Prize: {row.grand_prize_description}</p>
+                  )}
                   <p className="text-xs text-gray-400 mt-1">
                     <a
                       href={`${STOREFRONT}/campaigns/${row.slug}`}
@@ -146,7 +165,8 @@ export default function VendorCampaignApprovalsPage() {
                     onClick={() => runAction(row.id, 'approve')}
                     className="inline-flex items-center gap-1.5 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
                   >
-                    <CheckCircle className="h-4 w-4" /> Approve & publish
+                    <CheckCircle className="h-4 w-4" />
+                    {row.submitted_via === 'skola_agent' ? 'Approve (finish setup after)' : 'Approve & publish'}
                   </button>
                   <button
                     type="button"
@@ -156,6 +176,16 @@ export default function VendorCampaignApprovalsPage() {
                   >
                     <XCircle className="h-4 w-4" /> Reject
                   </button>
+                </div>
+              )}
+
+              {row.approval_status === 'approved' && row.submitted_via === 'skola_agent' && row.status !== 'active' && (
+                <div className="mt-3 rounded-lg border border-purple-100 bg-purple-50 p-3 text-sm text-purple-800">
+                  Approved but not live yet — go to{' '}
+                  <a href="/admin/giveaways" className="font-semibold underline">
+                    Giveaways
+                  </a>{' '}
+                  to attach the reward voucher(s), confirm the secret code, and activate it.
                 </div>
               )}
 

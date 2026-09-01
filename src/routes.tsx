@@ -131,6 +131,7 @@ import SupportInbox from './dashboard/pages/SupportInbox';
 import SupportChatView from './dashboard/pages/SupportChatView';
 import { VouchersPage } from './dashboard/pages/Vouchers';
 import { CampaignsPage } from './dashboard/pages/Campaigns';
+import { GiveawaysPage } from './dashboard/pages/Giveaways';
 import { CustomersPage } from './dashboard/pages/Customers';
 import { VendorsPage } from './dashboard/pages/Vendors';
 import SellerVerificationsPage from './dashboard/pages/SellerVerifications';
@@ -639,6 +640,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'activity-logs', element: <ActivityLogsRoute /> },
   { path: 'vouchers', element: <VouchersRoute /> },
   { path: 'campaigns', element: <CampaignsRoute />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
+  { path: 'giveaways', element: <GiveawaysPage />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendors', element: <VendorsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'seller-verifications', element: <SellerVerificationsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'riders', element: <RidersRoute />, allowedRoles: ['admin', 'manager'] },

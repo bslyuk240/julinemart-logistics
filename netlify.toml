@@ -195,6 +195,9 @@
 [functions."google-ads"]
   timeout = 60
 
+[functions."admin-giveaway-broadcast"]
+  timeout = 60
+
 [functions."catalog-products"]
   timeout = 15
 

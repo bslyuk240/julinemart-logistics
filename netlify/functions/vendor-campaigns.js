@@ -142,6 +142,7 @@ export async function handler(event) {
         .insert({
           ...payload,
           approval_status,
+          submitted_via: 'vendor',
           submitted_at: submit ? new Date().toISOString() : null,
         })
         .select('id, slug, approval_status, status')

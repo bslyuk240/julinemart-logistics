@@ -300,6 +300,7 @@ export function GiveawaysPage() {
         const { error } = await supabase.from('campaigns').update(payload).eq('id', editingId);
         if (error) throw error;
         await logActivity({ action: 'GIVEAWAY_UPDATE', resource_type: 'campaign', resource_id: editingId, details: { slug: payload.slug } });
+        if (payload.status === 'active') notifySkola('campaign.launched', editingId);
         notification.success('Giveaway updated', payload.public_title);
       } else {
         const { data: created, error } = await supabase.from('campaigns').insert(payload).select('id').single();
@@ -318,6 +319,7 @@ export function GiveawaysPage() {
         if (sectionError) throw sectionError;
 
         await logActivity({ action: 'GIVEAWAY_CREATE', resource_type: 'campaign', resource_id: created.id, details: { slug: payload.slug } });
+        if (payload.status === 'active') notifySkola('campaign.launched', created.id);
         notification.success('Giveaway created', payload.public_title);
       }
 
@@ -398,6 +400,19 @@ export function GiveawaysPage() {
     return data.data;
   }
 
+  /**
+   * Fire-and-forget, same spirit as logActivity() — a Skola outage or missing
+   * SKOLA_WEBHOOK_URL/SECRET config must never block a giveaway save/draw.
+   * Phase 3 is JLO-side only: this just delivers the event into Skola's
+   * existing generic webhook receiver; nothing there routes it to an agent
+   * yet (deliberately out of scope — see project memory).
+   */
+  function notifySkola(eventType: 'campaign.launched' | 'giveaway.winner_drawn' | 'giveaway.winner_redrawn', campaignId: string) {
+    callAdminFunction('notify-skola-giveaway-event', { event_type: eventType, campaign_id: campaignId }).catch((error) => {
+      console.warn('Skola notification failed (non-blocking):', error);
+    });
+  }
+
   async function handleSendBroadcast() {
     if (!entriesCampaign) return;
     if (!broadcastTemplateName) {
@@ -451,6 +466,7 @@ export function GiveawaysPage() {
       const { error } = await supabase.rpc('draw_giveaway_winner', { p_campaign_id: entriesCampaign.id });
       if (error) throw error;
       await logActivity({ action: 'GIVEAWAY_DRAW', resource_type: 'campaign', resource_id: entriesCampaign.id });
+      notifySkola('giveaway.winner_drawn', entriesCampaign.id);
       notification.success('Winner drawn', 'The draw is recorded — see the Draw History below.');
       await openEntries(entriesCampaign);
     } catch (error: any) {
@@ -473,6 +489,7 @@ export function GiveawaysPage() {
       });
       if (error) throw error;
       await logActivity({ action: 'GIVEAWAY_REDRAW', resource_type: 'campaign', resource_id: entriesCampaign.id, details: { reason: reason.trim() } });
+      notifySkola('giveaway.winner_redrawn', entriesCampaign.id);
       notification.success('Redrawn', 'A new winner has been selected; the prior draw is kept on record as forfeited.');
       await openEntries(entriesCampaign);
     } catch (error: any) {

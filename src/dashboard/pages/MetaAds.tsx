@@ -222,9 +222,10 @@ function CampaignCard({ campaign, onStatusChange, onBudgetChange }: {
       </div>
 
       {/* Budget row — shows current daily/lifetime cap with inline editor.
-           NOTE: campaign.spend is a 30-day total, NOT today's spend, so we
-           intentionally don't show a spend-vs-budget progress bar here to
-           avoid a misleading "overspent" red bar. */}
+           NOTE: campaign.spend is the campaign's lifetime total, NOT today's
+           spend or a recent window, so we intentionally don't show a
+           spend-vs-budget progress bar here to avoid a misleading
+           "overspent" red bar. */}
       {budget > 0 && (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs text-gray-500">
@@ -233,7 +234,7 @@ function CampaignCard({ campaign, onStatusChange, onBudgetChange }: {
               <div className="flex items-center gap-1.5">
                 <span className="font-medium text-gray-700">{fmt(budget)}</span>
                 <span className="text-gray-300">·</span>
-                <span>30d spend {fmt(campaign.spend)}</span>
+                <span>Total spend {fmt(campaign.spend)}</span>
                 {campaign.daily_budget && (
                   <button
                     onClick={handleBudgetEdit}

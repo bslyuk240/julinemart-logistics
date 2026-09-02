@@ -36,7 +36,7 @@ export async function syncCampaigns() {
       const insights = await metaGet(`${AD_ACCOUNT_ID}/insights`, {
         fields: 'campaign_id,impressions,reach,clicks,spend,ctr,cpc,cpm',
         level: 'campaign',
-        date_preset: 'last_30d',
+        date_preset: 'maximum', // see netlify/functions/meta-ads.js's syncCampaigns for why not last_30d
         limit: '100',
       });
       for (const row of insights.data || []) {

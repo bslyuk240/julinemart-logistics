@@ -272,6 +272,10 @@
   timeout = 60
   schedule = "*/30 * * * *"
 
+[functions."sync-whatsapp-templates-scheduled"]
+  timeout = 30
+  schedule = "0 3 * * *"
+
 [functions."public-api"]
   timeout = 15
 

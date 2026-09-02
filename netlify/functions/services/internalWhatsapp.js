@@ -252,6 +252,78 @@ export async function listWhatsAppTemplates() {
   return data || [];
 }
 
+const WHATSAPP_BUSINESS_ACCOUNT_ID = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || '';
+
+/**
+ * `internal_whatsapp_templates.meta_template_status` is only ever a locally
+ * stored copy of what Meta reported at *creation* time — nothing previously
+ * kept it in sync, so a template approved on Meta's side (Manager shows
+ * "Active") could sit at 'PENDING' here indefinitely. sendWhatsAppTemplate()
+ * deliberately doesn't gate on this field for send decisions (see its own
+ * comment — it trusts the real API response instead), but the stale value is
+ * still what admins see in the UI, which is misleading. This pulls the real
+ * status from Meta's Graph API and updates the local copy to match.
+ *
+ * Requires WHATSAPP_BUSINESS_ACCOUNT_ID (the WABA id, not the phone number
+ * id) — a real value only available from Meta Business Manager, same as the
+ * phone/token pair. No-ops (does not throw) if it isn't set, so a missing
+ * env var degrades to "nothing synced" rather than breaking the caller.
+ */
+export async function syncWhatsAppTemplateStatuses() {
+  if (!WHATSAPP_BUSINESS_ACCOUNT_ID) {
+    console.warn('[syncWhatsAppTemplateStatuses] WHATSAPP_BUSINESS_ACCOUNT_ID not configured — skipping');
+    return { synced: false, reason: 'not_configured' };
+  }
+  if (!ACCESS_TOKEN) {
+    console.warn('[syncWhatsAppTemplateStatuses] WHATSAPP_ACCESS_TOKEN not configured — skipping');
+    return { synced: false, reason: 'not_configured' };
+  }
+
+  const metaTemplates = [];
+  let url = `${WA_API_BASE}/${WHATSAPP_BUSINESS_ACCOUNT_ID}/message_templates?fields=name,status,category,language&limit=250`;
+  while (url) {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } });
+    const json = await res.json();
+    if (!res.ok || json.error) throw new Error(json.error?.message || 'Failed to list templates from Meta');
+    metaTemplates.push(...(json.data || []));
+    url = json.paging?.next || null;
+  }
+
+  // Meta allows the same template name in multiple languages — keep the
+  // first (most recently created, per Meta's default ordering) match per
+  // name+language pair rather than per name alone, matching how templates
+  // are looked up by name in sendWhatsAppTemplate (name only, language is a
+  // per-send override) — good enough since this project has one language
+  // per template today, and this doesn't regress if that changes.
+  const metaByNameAndLanguage = new Map(
+    metaTemplates.map((t) => [`${normalizeTemplateName(t.name)}::${t.language}`, t])
+  );
+
+  const { data: localTemplates, error: localError } = await supabase
+    .from('internal_whatsapp_templates')
+    .select('id, name, language, meta_template_status, category');
+  if (localError) throw localError;
+
+  let updated = 0;
+  const unmatched = [];
+  for (const local of localTemplates || []) {
+    const match = metaByNameAndLanguage.get(`${normalizeTemplateName(local.name)}::${local.language}`);
+    if (!match) {
+      unmatched.push(local.name);
+      continue;
+    }
+    if (match.status !== local.meta_template_status || match.category !== local.category) {
+      await supabase
+        .from('internal_whatsapp_templates')
+        .update({ meta_template_status: match.status, category: match.category, updated_at: new Date().toISOString() })
+        .eq('id', local.id);
+      updated += 1;
+    }
+  }
+
+  return { synced: true, checked: (localTemplates || []).length, updated, unmatchedInMeta: unmatched };
+}
+
 /** Records an inbound message + advances the 24h window — called by the webhook handler. */
 export async function recordInboundWhatsAppMessage({ from, contactName, text, metaMessageId }) {
   const thread = await getOrCreateThread({ phone: from, contactName, contactType: 'lead' });

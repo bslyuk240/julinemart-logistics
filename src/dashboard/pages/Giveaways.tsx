@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Gift, Plus, Edit, Loader2, Users, Trophy, X, CheckCircle,
-  Clock, PauseCircle, Archive as ArchiveIcon, FileEdit, RotateCcw, Send,
+  Clock, PauseCircle, Archive as ArchiveIcon, FileEdit, RotateCcw, Send, RefreshCw,
 } from 'lucide-react';
 import { supabase, useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
@@ -182,6 +182,7 @@ export function GiveawaysPage() {
   const [broadcastVariables, setBroadcastVariables] = useState('');
   const [broadcastAudience, setBroadcastAudience] = useState<'opted_in_list' | 'campaign_non_winners'>('opted_in_list');
   const [nonWinnerCount, setNonWinnerCount] = useState<number | null>(null);
+  const [syncingTemplates, setSyncingTemplates] = useState(false);
   const [redrawModalOpen, setRedrawModalOpen] = useState(false);
   const [redrawReason, setRedrawReason] = useState('');
   const [broadcasting, setBroadcasting] = useState(false);
@@ -427,6 +428,26 @@ export function GiveawaysPage() {
     callAdminFunction('notify-skola-giveaway-event', { event_type: eventType, campaign_id: campaignId }).catch((error) => {
       console.warn('Skola notification failed (non-blocking):', error);
     });
+  }
+
+  /** Pulls real approval status/category from Meta so the dropdown below stops showing a stale local cache. */
+  async function handleSyncTemplates() {
+    setSyncingTemplates(true);
+    try {
+      const result = await callAdminFunction('admin-sync-whatsapp-templates', {});
+      notification.success('Templates synced', `${result.updated} of ${result.checked} updated from Meta.`);
+      const { data: templateRows, error } = await supabase
+        .from('internal_whatsapp_templates')
+        .select('name, category, meta_template_status')
+        .eq('is_active', true)
+        .order('name', { ascending: true });
+      if (error) throw error;
+      setWhatsappTemplates((templateRows || []) as WhatsAppTemplateOption[]);
+    } catch (error: any) {
+      notification.error('Sync failed', error?.message || 'Unknown error');
+    } finally {
+      setSyncingTemplates(false);
+    }
   }
 
   async function refreshAudiencePreview(campaign: GiveawayCampaignRow, audience: 'opted_in_list' | 'campaign_non_winners') {
@@ -924,7 +945,18 @@ export function GiveawaysPage() {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="text-xs font-medium text-gray-600">Template</label>
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-medium text-gray-600">Template</label>
+                          <button
+                            type="button"
+                            onClick={handleSyncTemplates}
+                            disabled={syncingTemplates}
+                            title="Refresh approval status from Meta"
+                            className="flex items-center gap-1 text-xs text-green-700 hover:underline disabled:opacity-50"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${syncingTemplates ? 'animate-spin' : ''}`} /> Sync
+                          </button>
+                        </div>
                         <select
                           className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
                           value={broadcastTemplateName}

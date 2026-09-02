@@ -54,6 +54,7 @@ import {
   readWhatsAppThread,
   listWhatsAppTemplates,
 } from './services/internalWhatsapp.js';
+import { sendWhatsAppTemplateToRecipients } from './helpers/giveawayHelpers.js';
 
 function json(statusCode, body) {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -881,6 +882,61 @@ async function sendWhatsAppTemplateRoute(body) {
   }
 }
 
+// ── Marketing: send to opted-in giveaway leads, audience-based (see
+// capabilityCatalog.js's marketing.leads.* — the agent never receives the
+// underlying recipient list, only counts/results) ──────────────────────────
+
+async function getMarketingLeadCountRoute(adminClient) {
+  const [{ count: whatsappCount, error: waError }, { count: emailCount, error: emailError }] = await Promise.all([
+    adminClient.from('whatsapp_marketing_consent').select('id', { count: 'exact', head: true }).eq('opted_in', true).not('phone', 'is', null),
+    adminClient.from('whatsapp_marketing_consent').select('id', { count: 'exact', head: true }).eq('opted_in', true).not('email', 'is', null),
+  ]);
+  if (waError) return json(500, { error: waError.message });
+  if (emailError) return json(500, { error: emailError.message });
+  return json(200, { data: { whatsappCount: whatsappCount || 0, emailCount: emailCount || 0 } });
+}
+
+async function sendMarketingLeadsWhatsAppRoute(adminClient, body) {
+  if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
+  const templateName = String(body.template_name || '').trim();
+  if (!templateName) return json(400, { error: 'template_name is required' });
+  const variables = Array.isArray(body.variables) ? body.variables.map(String) : [];
+
+  const { data: recipients, error } = await adminClient
+    .from('whatsapp_marketing_consent')
+    .select('phone')
+    .eq('opted_in', true)
+    .not('phone', 'is', null);
+  if (error) return json(500, { error: error.message });
+  if (!recipients?.length) return json(400, { error: 'No opted-in WhatsApp leads to send to' });
+
+  const result = await sendWhatsAppTemplateToRecipients(recipients, { templateName, variables });
+  return json(200, { data: result });
+}
+
+async function sendMarketingLeadsEmailRoute(adminClient, body) {
+  if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
+  const templateName = String(body.template_name || '').trim();
+  if (!templateName) return json(400, { error: 'template_name is required' });
+  const sharedData = isPlainObject(body.data) ? body.data : {};
+
+  const { data: leads, error } = await adminClient
+    .from('whatsapp_marketing_consent')
+    .select('email')
+    .eq('opted_in', true)
+    .not('email', 'is', null);
+  if (error) return json(500, { error: error.message });
+  if (!leads?.length) return json(400, { error: 'No opted-in email leads to send to' });
+
+  const result = await sendTransactionalEmailBulk({
+    templateName,
+    recipients: leads.map((l) => ({ to: l.email })),
+    data: sharedData,
+    source: 'marketing.leads.send_email',
+  });
+  return json(200, { data: result });
+}
+
 async function listWhatsAppThreadsRoute(query) {
   try {
     const data = await listWhatsAppThreads({ contactType: query.contact_type || undefined });
@@ -1461,6 +1517,26 @@ export const handler = async (event) => {
         if (auth.errorResponse) return auth.errorResponse;
         const body = JSON.parse(event.body || '{}');
         return await sendWhatsAppTemplateRoute(body);
+      }
+    }
+
+    if (segments[0] === 'marketing') {
+      if (segments.length === 3 && segments[1] === 'leads' && segments[2] === 'count' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'marketing.leads.preview_count');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getMarketingLeadCountRoute(auth.adminClient);
+      }
+      if (segments.length === 3 && segments[1] === 'leads' && segments[2] === 'whatsapp' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'marketing.leads.send_whatsapp');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await sendMarketingLeadsWhatsAppRoute(auth.adminClient, body);
+      }
+      if (segments.length === 3 && segments[1] === 'leads' && segments[2] === 'email' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'marketing.leads.send_email');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await sendMarketingLeadsEmailRoute(auth.adminClient, body);
       }
     }
 

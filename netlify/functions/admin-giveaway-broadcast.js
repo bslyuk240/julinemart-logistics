@@ -17,13 +17,7 @@
 // the template isn't approved; it does not pretend to verify that itself.
 
 import { requireAdmin, headers, jsonResponse, parseJsonBody } from './services/global-sourcing-utils.js';
-import { sendWhatsAppTemplate } from './services/internalWhatsapp.js';
-
-const SEND_DELAY_MS = 150; // gentle pacing, not a hard Meta rate-limit calculation
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
+import { sendWhatsAppTemplateToRecipients } from './helpers/giveawayHelpers.js';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
@@ -116,26 +110,11 @@ export async function handler(event) {
     .single();
   if (broadcastError) return jsonResponse(500, { success: false, error: broadcastError.message });
 
-  let sentCount = 0;
-  let failedCount = 0;
-
-  // Sequential, not Promise.all — deliberately paced so one admin click can't
-  // burst-fire hundreds of simultaneous Cloud API calls.
-  for (const recipient of recipients) {
-    try {
-      await sendWhatsAppTemplate({
-        to: recipient.phone,
-        templateName,
-        variables,
-        contactType: 'customer',
-      });
-      sentCount += 1;
-    } catch (error) {
-      console.error(`Broadcast send failed for ${recipient.phone}:`, error.message);
-      failedCount += 1;
-    }
-    await sleep(SEND_DELAY_MS);
-  }
+  // Sequential, not Promise.all — deliberately paced (see
+  // sendWhatsAppTemplateToRecipients) so one admin click can't burst-fire
+  // hundreds of simultaneous Cloud API calls. Shared with the agent-facing
+  // marketing.leads.send_whatsapp capability so the two paths can't diverge.
+  const { sentCount, failedCount } = await sendWhatsAppTemplateToRecipients(recipients, { templateName, variables });
 
   const finalStatus = failedCount === recipientCount ? 'failed' : 'completed';
   await adminClient

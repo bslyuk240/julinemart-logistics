@@ -192,7 +192,7 @@ export async function recordMarketingOptIn({ phone, email, customerId, source })
  * (public-api.js), so the two paths can't drift into different pacing or
  * error-handling behavior over time.
  */
-export async function sendWhatsAppTemplateToRecipients(recipients, { templateName, variables = [] }) {
+export async function sendWhatsAppTemplateToRecipients(recipients, { templateName, variables = [], broadcastId }) {
   let sentCount = 0;
   let failedCount = 0;
 
@@ -203,6 +203,7 @@ export async function sendWhatsAppTemplateToRecipients(recipients, { templateNam
         templateName,
         variables,
         contactType: 'customer',
+        broadcastId,
       });
       sentCount += 1;
     } catch (error) {

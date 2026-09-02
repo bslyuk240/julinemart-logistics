@@ -118,7 +118,7 @@ function substituteTemplateVariables(body, variables = []) {
   });
 }
 
-async function recordMessage({ threadId, direction, messageType, content, templateName, mediaUrl, metaMessageId, status, sentByAgent, errorMessage }) {
+async function recordMessage({ threadId, direction, messageType, content, templateName, mediaUrl, metaMessageId, status, sentByAgent, errorMessage, broadcastId }) {
   const { error } = await supabase.from('internal_whatsapp_messages').insert({
     thread_id: threadId,
     direction,
@@ -130,6 +130,7 @@ async function recordMessage({ threadId, direction, messageType, content, templa
     status,
     sent_by_agent: sentByAgent || null,
     error_message: errorMessage || null,
+    broadcast_id: broadcastId || null,
   });
   if (error) throw error;
 }
@@ -171,7 +172,7 @@ export async function sendWhatsAppText({ to, message, contactName, contactType =
  * which is more trustworthy than this function's own possibly-stale copy
  * of the approval state.
  */
-export async function sendWhatsAppTemplate({ to, templateName, variables = [], language, contactName, contactType = 'lead', vendorId, sentByAgent, headerImageUrl }) {
+export async function sendWhatsAppTemplate({ to, templateName, variables = [], language, contactName, contactType = 'lead', vendorId, sentByAgent, headerImageUrl, broadcastId }) {
   if (!to) throw new Error('to (phone number) is required');
   if (!templateName) throw new Error('templateName is required');
   if (headerImageUrl) await validateHeaderImage(headerImageUrl);
@@ -209,11 +210,11 @@ export async function sendWhatsAppTemplate({ to, templateName, variables = [], l
     });
     const metaMessageId = result.messages?.[0]?.id || null;
     const sentContent = substituteTemplateVariables(template.template_content, variables);
-    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName: template.name, content: sentContent, mediaUrl: headerImageUrl, metaMessageId, status: 'sent', sentByAgent });
+    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName: template.name, content: sentContent, mediaUrl: headerImageUrl, metaMessageId, status: 'sent', sentByAgent, broadcastId });
     return { thread_id: thread.id, message_id: metaMessageId };
   } catch (e) {
     const attemptedContent = substituteTemplateVariables(template.template_content, variables);
-    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName: template.name, content: attemptedContent, mediaUrl: headerImageUrl, status: 'failed', sentByAgent, errorMessage: e.message });
+    await recordMessage({ threadId: thread.id, direction: 'outbound', messageType: 'template', templateName: template.name, content: attemptedContent, mediaUrl: headerImageUrl, status: 'failed', sentByAgent, errorMessage: e.message, broadcastId });
     throw e;
   }
 }

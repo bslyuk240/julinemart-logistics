@@ -724,6 +724,38 @@ export const CAPABILITIES = [
     input_schema: { to: 'string (phone number)', template_name: 'string (must match an active internal_whatsapp_templates.name)', variables: 'array of string (optional, fills {{1}}, {{2}}, ... in order)', language: 'string (optional, defaults to the template\'s own language)', contact_name: 'string (optional)', contact_type: 'vendor | lead (optional, default lead)', vendor_id: 'string (uuid, optional)' },
     idempotency_required: false, approval_recommended: true, enabled: true,
   },
+
+  // ── MARKETING (giveaway-derived leads) ──────────────────────────────────
+  // Deliberately audience-based, not recipient-list-based: the caller never
+  // receives raw phone numbers or emails, only a count. JLO resolves the
+  // actual opted-in list (whatsapp_marketing_consent) server-side and sends
+  // to it — the same "capability, not raw data" pattern already used for
+  // notifications.email.send_bulk. These leads originate from giveaway
+  // entries where the entrant explicitly opted in to be contacted again;
+  // this is not a general customer-list export.
+  {
+    id: 'marketing.leads.preview_count', domain: 'marketing', name: 'Preview Marketing Lead Count',
+    description: 'Count of opted-in giveaway leads reachable by WhatsApp and by email, without sending anything or seeing any contact detail.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/marketing/leads/count',
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'marketing.leads.send_whatsapp', domain: 'marketing', name: 'Send WhatsApp to Opted-In Leads',
+    description: 'Send an approved WhatsApp template to every opted-in giveaway lead with a phone number. The caller never sees the recipient list — only a sent/failed count comes back. Cannot send arbitrary free text, only an existing template\'s {{variables}} filled in.',
+    operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'high',
+    http_method: 'POST', endpoint: '/marketing/leads/whatsapp',
+    input_schema: { template_name: 'string (must match an active internal_whatsapp_templates.name)', variables: 'array of string (optional, fills {{1}}, {{2}}, ... in order)' },
+    idempotency_required: false, approval_recommended: true, enabled: true,
+  },
+  {
+    id: 'marketing.leads.send_email', domain: 'marketing', name: 'Send Email to Opted-In Leads',
+    description: 'Send an existing approved email template to every opted-in giveaway lead with an email address. The caller never sees the recipient list — only a sent/failed count comes back. Cannot send arbitrary HTML, only an existing template\'s {{variables}} filled in.',
+    operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'high',
+    http_method: 'POST', endpoint: '/marketing/leads/email',
+    input_schema: { template_name: 'string (must match an active email_templates.name)', data: 'object (optional, {{variable}} values shared across all recipients)' },
+    idempotency_required: false, approval_recommended: true, enabled: true,
+  },
 ];
 
 export const EVENTS = [

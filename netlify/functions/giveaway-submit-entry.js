@@ -242,6 +242,7 @@ export async function handler(event) {
       // list, not just this campaign's own records.
       await recordMarketingOptIn({
         phone: normalizedPhone,
+        email,
         customerId,
         source: `giveaway_entry:${campaign.id}`,
       }).catch((error) => console.error('Failed to record marketing opt-in:', error));

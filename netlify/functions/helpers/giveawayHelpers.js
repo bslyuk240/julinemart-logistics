@@ -9,6 +9,7 @@
 // path at checkout instead of duplicating it.
 
 import { createClient } from '@supabase/supabase-js';
+import { sendWhatsAppTemplate } from '../services/internalWhatsapp.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE_KEY =
@@ -165,13 +166,14 @@ export async function findExistingCustomer({ phone, email }) {
  * Never downgrades an existing opt-OUT — someone who opted out and enters a
  * new giveaway without checking the box again stays opted out.
  */
-export async function recordMarketingOptIn({ phone, customerId, source }) {
+export async function recordMarketingOptIn({ phone, email, customerId, source }) {
   if (!phone) return;
   await supabase
     .from('whatsapp_marketing_consent')
     .upsert(
       {
         phone,
+        email: email || null,
         customer_id: customerId || null,
         opted_in: true,
         source: source || null,
@@ -181,4 +183,34 @@ export async function recordMarketingOptIn({ phone, customerId, source }) {
       },
       { onConflict: 'phone' }
     );
+}
+
+/**
+ * Sequential, paced WhatsApp template send to a list of recipients — shared
+ * by both the admin-triggered broadcast panel (admin-giveaway-broadcast.js)
+ * and the agent-facing marketing.leads.send_whatsapp capability
+ * (public-api.js), so the two paths can't drift into different pacing or
+ * error-handling behavior over time.
+ */
+export async function sendWhatsAppTemplateToRecipients(recipients, { templateName, variables = [] }) {
+  let sentCount = 0;
+  let failedCount = 0;
+
+  for (const recipient of recipients) {
+    try {
+      await sendWhatsAppTemplate({
+        to: recipient.phone,
+        templateName,
+        variables,
+        contactType: 'customer',
+      });
+      sentCount += 1;
+    } catch (error) {
+      console.error(`Broadcast send failed for ${recipient.phone}:`, error.message);
+      failedCount += 1;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150)); // gentle pacing, not a hard Meta rate-limit calculation
+  }
+
+  return { sentCount, failedCount, recipientCount: recipients.length };
 }

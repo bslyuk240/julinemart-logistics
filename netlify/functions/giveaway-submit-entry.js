@@ -19,7 +19,10 @@ import {
   resolveRewardVoucher,
   findExistingCustomer,
   recordMarketingOptIn,
+  isCampaignEntryRateExceeded,
 } from './helpers/giveawayHelpers.js';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function jsonResponse(statusCode, headers, body) {
   return { statusCode, headers, body: JSON.stringify(body) };
@@ -57,16 +60,21 @@ export async function handler(event) {
   const code = (payload.code || '').toString();
   const fullName = (payload.full_name || payload.fullName || '').toString().trim();
   const rawPhone = (payload.whatsapp_number || payload.whatsappNumber || '').toString().trim();
-  const email = (payload.email || '').toString().trim() || null;
+  // Now required — winner/reward notifications need a real address to send
+  // to, and WhatsApp-only entries had no way to receive them.
+  const email = (payload.email || '').toString().trim();
   const location = (payload.location || '').toString().trim() || null;
   const marketingOptIn = Boolean(payload.marketing_opt_in ?? payload.marketingOptIn);
   const source = (payload.source || '').toString().trim() || null;
 
-  if ((!campaignId && !slug) || !code || !fullName || !rawPhone) {
+  if ((!campaignId && !slug) || !code || !fullName || !rawPhone || !email) {
     return jsonResponse(400, headers, {
       success: false,
-      error: 'Missing required field(s): campaign_id/slug, code, full_name, whatsapp_number',
+      error: 'Missing required field(s): campaign_id/slug, code, full_name, whatsapp_number, email',
     });
+  }
+  if (!EMAIL_RE.test(email)) {
+    return jsonResponse(400, headers, { success: false, error: 'Enter a valid email address' });
   }
 
   const normalizedPhone = normalizeNigerianPhone(rawPhone);
@@ -81,6 +89,14 @@ export async function handler(event) {
   if (reason) {
     return jsonResponse(409, headers, { success: false, error: 'campaign_not_open', campaignState: reason });
   }
+
+  // Per-campaign ceiling, independent of IP — see isCampaignEntryRateExceeded's
+  // own comment for why this exists alongside (not instead of) the IP-based
+  // checkRateLimit above.
+  if (await isCampaignEntryRateExceeded(campaign.id)) {
+    return jsonResponse(429, headers, { success: false, error: 'Too many entries right now — try again shortly.' });
+  }
+
   if (!codeMatches(campaign, code)) {
     return jsonResponse(400, headers, { success: false, error: 'invalid_code' });
   }

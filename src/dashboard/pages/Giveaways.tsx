@@ -34,6 +34,7 @@ interface GiveawayCampaignRow {
   early_bird_voucher_id: string | null;
   grand_prize_voucher_id: string | null;
   grand_prize_description: string | null;
+  grand_prize_product_url: string | null;
   consolation_voucher_id: string | null;
   hero_config: { headline?: string; subtitle?: string; ctaLabel?: string } | null;
   created_at: string;
@@ -103,6 +104,7 @@ interface FormState {
   early_bird_voucher_id: string;
   grand_prize_voucher_id: string;
   grand_prize_description: string;
+  grand_prize_product_url: string;
   consolation_voucher_id: string;
 }
 
@@ -123,6 +125,7 @@ const emptyForm: FormState = {
   early_bird_voucher_id: '',
   grand_prize_voucher_id: '',
   grand_prize_description: '',
+  grand_prize_product_url: '',
   consolation_voucher_id: '',
 };
 
@@ -201,7 +204,7 @@ export function GiveawaysPage() {
     const { data, error } = await supabase
       .from('campaigns')
       .select(
-        'id, slug, internal_name, public_title, campaign_objective, status, start_date, end_date, secret_code, entry_limit, early_bird_limit, early_bird_voucher_id, grand_prize_voucher_id, grand_prize_description, consolation_voucher_id, hero_config, created_at'
+        'id, slug, internal_name, public_title, campaign_objective, status, start_date, end_date, secret_code, entry_limit, early_bird_limit, early_bird_voucher_id, grand_prize_voucher_id, grand_prize_description, grand_prize_product_url, consolation_voucher_id, hero_config, created_at'
       )
       .eq('campaign_kind', 'giveaway')
       .order('created_at', { ascending: false });
@@ -268,6 +271,7 @@ export function GiveawaysPage() {
       early_bird_voucher_id: campaign.early_bird_voucher_id || '',
       grand_prize_voucher_id: campaign.grand_prize_voucher_id || '',
       grand_prize_description: campaign.grand_prize_description || '',
+      grand_prize_product_url: campaign.grand_prize_product_url || '',
       consolation_voucher_id: campaign.consolation_voucher_id || '',
     });
     setFormOpen(true);
@@ -308,6 +312,7 @@ export function GiveawaysPage() {
         early_bird_voucher_id: formData.early_bird_voucher_id || null,
         grand_prize_voucher_id: formData.grand_prize_voucher_id || null,
         grand_prize_description: formData.grand_prize_description.trim() || null,
+        grand_prize_product_url: formData.grand_prize_product_url.trim() || null,
         consolation_voucher_id: formData.consolation_voucher_id || null,
       };
 
@@ -776,6 +781,17 @@ export function GiveawaysPage() {
                     onChange={(e) => setFormData((prev) => ({ ...prev, grand_prize_description: e.target.value }))}
                     placeholder="LED Makeup Mirror"
                   />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs font-medium text-gray-600">Grand prize product link</label>
+                  <input
+                    type="url"
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    value={formData.grand_prize_product_url}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, grand_prize_product_url: e.target.value }))}
+                    placeholder="https://julinemart.com/product/led-makeup-mirror"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Sent to the winner in their prize email — the exact page the reward code applies to.</p>
                 </div>
                 <div className="col-span-2">
                   <label className="text-xs font-medium text-gray-600">Consolation voucher for non-winners (optional)</label>

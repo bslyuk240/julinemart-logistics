@@ -465,7 +465,8 @@ export function GiveawaysPage() {
     setSyncingTemplates(true);
     try {
       const result = await callAdminFunction('admin-sync-whatsapp-templates', {});
-      notification.success('Templates synced', `${result.updated} of ${result.checked} updated from Meta.`);
+      const seededNote = result.seeded ? `, ${result.seeded} new template(s) added` : '';
+      notification.success('Templates synced', `${result.updated} of ${result.checked} updated from Meta${seededNote}.`);
       const { data: templateRows, error } = await supabase
         .from('internal_whatsapp_templates')
         .select('name, category, meta_template_status')

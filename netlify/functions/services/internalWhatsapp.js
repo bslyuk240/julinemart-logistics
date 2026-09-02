@@ -268,6 +268,14 @@ const WHATSAPP_BUSINESS_ACCOUNT_ID = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID ||
  * id) — a real value only available from Meta Business Manager, same as the
  * phone/token pair. No-ops (does not throw) if it isn't set, so a missing
  * env var degrades to "nothing synced" rather than breaking the caller.
+ *
+ * Also seeds any template that exists on Meta but has no local row at all —
+ * previously this only ever refreshed rows that already existed (every
+ * template had to be added by hand via a migration), so a template created
+ * directly in Meta Business Manager could never appear here no matter how
+ * many times this ran. Body text for a newly-seeded row is pulled from
+ * Meta's own BODY component, same text `sendWhatsAppTemplate()` will
+ * substitute {{n}} into when actually sending.
  */
 export async function syncWhatsAppTemplateStatuses() {
   if (!WHATSAPP_BUSINESS_ACCOUNT_ID) {
@@ -280,7 +288,7 @@ export async function syncWhatsAppTemplateStatuses() {
   }
 
   const metaTemplates = [];
-  let url = `${WA_API_BASE}/${WHATSAPP_BUSINESS_ACCOUNT_ID}/message_templates?fields=name,status,category,language&limit=250`;
+  let url = `${WA_API_BASE}/${WHATSAPP_BUSINESS_ACCOUNT_ID}/message_templates?fields=name,status,category,language,components&limit=250`;
   while (url) {
     const res = await fetch(url, { headers: { Authorization: `Bearer ${ACCESS_TOKEN}` } });
     const json = await res.json();
@@ -306,7 +314,9 @@ export async function syncWhatsAppTemplateStatuses() {
 
   let updated = 0;
   const unmatched = [];
+  const localKeys = new Set();
   for (const local of localTemplates || []) {
+    localKeys.add(`${normalizeTemplateName(local.name)}::${local.language}`);
     const match = metaByNameAndLanguage.get(`${normalizeTemplateName(local.name)}::${local.language}`);
     if (!match) {
       unmatched.push(local.name);
@@ -321,7 +331,25 @@ export async function syncWhatsAppTemplateStatuses() {
     }
   }
 
-  return { synced: true, checked: (localTemplates || []).length, updated, unmatchedInMeta: unmatched };
+  let seeded = 0;
+  for (const meta of metaTemplates) {
+    const key = `${normalizeTemplateName(meta.name)}::${meta.language}`;
+    if (localKeys.has(key)) continue;
+    localKeys.add(key); // guards against Meta listing the same name+language twice across pages
+    const bodyText = (meta.components || []).find((c) => c.type === 'BODY')?.text;
+    if (!bodyText) continue; // no BODY component (e.g. media-only template) — nothing to substitute variables into, skip rather than seed a broken row
+    const { error: insertError } = await supabase.from('internal_whatsapp_templates').insert({
+      name: meta.name,
+      category: meta.category,
+      language: meta.language,
+      template_content: bodyText,
+      meta_template_status: meta.status,
+      is_active: true,
+    });
+    if (!insertError) seeded += 1;
+  }
+
+  return { synced: true, checked: (localTemplates || []).length, updated, seeded, unmatchedInMeta: unmatched };
 }
 
 /** Records an inbound message + advances the 24h window — called by the webhook handler. */

@@ -36,7 +36,14 @@ interface GiveawayCampaignRow {
   grand_prize_description: string | null;
   grand_prize_product_url: string | null;
   consolation_voucher_id: string | null;
-  hero_config: { headline?: string; subtitle?: string; ctaLabel?: string } | null;
+  hero_config: {
+    headline?: string;
+    subtitle?: string;
+    ctaLabel?: string;
+    heroImageDesktop?: string;
+    heroImageMobile?: string;
+    [key: string]: unknown;
+  } | null;
   created_at: string;
 }
 
@@ -98,6 +105,8 @@ interface FormState {
   hero_headline: string;
   hero_subtitle: string;
   hero_cta_label: string;
+  hero_image_desktop: string;
+  hero_image_mobile: string;
   secret_code: string;
   entry_limit: number | '';
   early_bird_limit: number | '';
@@ -119,6 +128,8 @@ const emptyForm: FormState = {
   hero_headline: '',
   hero_subtitle: '',
   hero_cta_label: 'Enter Now',
+  hero_image_desktop: '',
+  hero_image_mobile: '',
   secret_code: '',
   entry_limit: '',
   early_bird_limit: '',
@@ -171,6 +182,10 @@ export function GiveawaysPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<FormState>(emptyForm);
   const [slugTouched, setSlugTouched] = useState(false);
+  // Preserves any hero_config keys this form doesn't render (e.g. set once via
+  // the general Campaigns page) so saving here never silently wipes them —
+  // see handleSave, which spreads this underneath the fields below it.
+  const [originalHeroConfig, setOriginalHeroConfig] = useState<Record<string, unknown>>({});
 
   const [entriesCampaign, setEntriesCampaign] = useState<GiveawayCampaignRow | null>(null);
   const [entries, setEntries] = useState<EntryRow[]>([]);
@@ -247,6 +262,7 @@ export function GiveawaysPage() {
   function openCreate() {
     setEditingId(null);
     setFormData(emptyForm);
+    setOriginalHeroConfig({});
     setSlugTouched(false);
     setFormOpen(true);
   }
@@ -254,6 +270,7 @@ export function GiveawaysPage() {
   function openEdit(campaign: GiveawayCampaignRow) {
     setEditingId(campaign.id);
     setSlugTouched(true);
+    setOriginalHeroConfig(campaign.hero_config || {});
     setFormData({
       internal_name: campaign.internal_name,
       public_title: campaign.public_title,
@@ -265,6 +282,8 @@ export function GiveawaysPage() {
       hero_headline: campaign.hero_config?.headline || '',
       hero_subtitle: campaign.hero_config?.subtitle || '',
       hero_cta_label: campaign.hero_config?.ctaLabel || 'Enter Now',
+      hero_image_desktop: campaign.hero_config?.heroImageDesktop || '',
+      hero_image_mobile: campaign.hero_config?.heroImageMobile || '',
       secret_code: campaign.secret_code || '',
       entry_limit: campaign.entry_limit ?? '',
       early_bird_limit: campaign.early_bird_limit ?? '',
@@ -299,10 +318,16 @@ export function GiveawaysPage() {
         end_date: formData.end_date ? new Date(formData.end_date).toISOString() : null,
         campaign_kind: 'giveaway' as const,
         target_type: 'general' as const,
+        // Spread on top of whatever hero_config already had — never a bare
+        // replace — so a key this form doesn't render (set once via the
+        // general Campaigns page, or by a future field) survives a save here.
         hero_config: {
+          ...originalHeroConfig,
           headline: formData.hero_headline.trim(),
           subtitle: formData.hero_subtitle.trim(),
           ctaLabel: formData.hero_cta_label.trim() || 'Enter Now',
+          heroImageDesktop: formData.hero_image_desktop.trim() || formData.hero_image_mobile.trim() || undefined,
+          heroImageMobile: formData.hero_image_mobile.trim() || formData.hero_image_desktop.trim() || undefined,
         },
         product_selection_rules: {},
         review_rules: {},
@@ -825,6 +850,26 @@ export function GiveawaysPage() {
                     value={formData.hero_subtitle}
                     onChange={(e) => setFormData((prev) => ({ ...prev, hero_subtitle: e.target.value }))}
                     placeholder="The secret code drops Friday at 6PM"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Hero image (desktop)</label>
+                  <input
+                    type="url"
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm"
+                    value={formData.hero_image_desktop}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, hero_image_desktop: e.target.value }))}
+                    placeholder="https://... (Supabase Storage or Cloudinary)"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Hero image (mobile, optional)</label>
+                  <input
+                    type="url"
+                    className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm"
+                    value={formData.hero_image_mobile}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, hero_image_mobile: e.target.value }))}
+                    placeholder="Optional — falls back to desktop image"
                   />
                 </div>
               </div>

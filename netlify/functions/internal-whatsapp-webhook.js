@@ -86,6 +86,13 @@ export async function handler(event) {
         if (!status.id) continue;
         const mapped = { sent: 'sent', delivered: 'delivered', read: 'read', failed: 'failed' }[status.status];
         if (!mapped) continue;
+
+        const { data: existingMessage } = await adminClient
+          .from('internal_whatsapp_messages')
+          .select('status, broadcast_id')
+          .eq('meta_message_id', status.id)
+          .maybeSingle();
+
         await adminClient
           .from('internal_whatsapp_messages')
           .update({
@@ -95,6 +102,32 @@ export async function handler(event) {
             ...(mapped === 'failed' ? { error_message: status.errors?.[0]?.title || null } : {}),
           })
           .eq('meta_message_id', status.id);
+
+        // A message Meta already accepted (and counted as "sent" in a
+        // broadcast's summary at send time) can later flip to failed via
+        // this async callback — e.g. "User's number is part of an
+        // experiment" only surfaces here, well after the synchronous send
+        // response reported success. Keep giveaway_broadcasts' own counts
+        // honest instead of leaving them frozen at the send-time snapshot.
+        // Guarded on the message's own prior status (not just re-checking
+        // the mapped value) so a duplicate webhook redelivery — Meta retries
+        // aggressively — can't double-decrement.
+        if (mapped === 'failed' && existingMessage?.broadcast_id && existingMessage.status !== 'failed') {
+          const { data: broadcast } = await adminClient
+            .from('giveaway_broadcasts')
+            .select('sent_count, failed_count')
+            .eq('id', existingMessage.broadcast_id)
+            .maybeSingle();
+          if (broadcast) {
+            await adminClient
+              .from('giveaway_broadcasts')
+              .update({
+                sent_count: Math.max(0, broadcast.sent_count - 1),
+                failed_count: broadcast.failed_count + 1,
+              })
+              .eq('id', existingMessage.broadcast_id);
+          }
+        }
       }
     }
   } catch (err) {

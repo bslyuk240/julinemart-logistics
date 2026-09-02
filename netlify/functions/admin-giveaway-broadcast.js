@@ -114,7 +114,11 @@ export async function handler(event) {
   // sendWhatsAppTemplateToRecipients) so one admin click can't burst-fire
   // hundreds of simultaneous Cloud API calls. Shared with the agent-facing
   // marketing.leads.send_whatsapp capability so the two paths can't diverge.
-  const { sentCount, failedCount } = await sendWhatsAppTemplateToRecipients(recipients, { templateName, variables });
+  const { sentCount, failedCount } = await sendWhatsAppTemplateToRecipients(recipients, {
+    templateName,
+    variables,
+    broadcastId: broadcast.id,
+  });
 
   const finalStatus = failedCount === recipientCount ? 'failed' : 'completed';
   await adminClient

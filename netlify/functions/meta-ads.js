@@ -148,9 +148,14 @@ export async function syncCampaigns(userId) {
   const insightMap = {};
   if (campaigns.length > 0) {
     try {
+      // 'maximum' (Meta's full lifetime lookback), not 'last_30d' — several
+      // real campaigns here are long since PAUSED, so a rolling 30-day
+      // window silently shows ₦0/0 for every metric forever once a
+      // campaign's actual spend period falls outside it, even though real
+      // spend/impressions/clicks are still sitting in Meta's own records.
       const insights = await metaGet(`${AD_ACCOUNT_ID}/insights`, {
         fields: 'campaign_id,impressions,reach,clicks,spend,ctr,cpc,cpm',
-        level: 'campaign', date_preset: 'last_30d', limit: '100',
+        level: 'campaign', date_preset: 'maximum', limit: '100',
       });
       for (const row of insights.data || []) insightMap[row.campaign_id] = row;
     } catch { /* insights optional */ }

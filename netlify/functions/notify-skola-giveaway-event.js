@@ -5,19 +5,26 @@
 // shouldn't be something the browser dictates what gets sent to a
 // third-party product.
 //
-// Delivery itself goes through the EXISTING generic outbound webhook
-// dispatcher (services/webhookDelivery.js's sendWebhookEvent — already used
-// for order.updated/shipment.delayed), not a bespoke sender: it already signs
-// with the exact scheme Skola's receiver expects, already has a configured,
-// active "Skola Workforce" row in webhook_endpoints with its secret encrypted
-// at rest, and already retries on failure (process-webhook-retries-scheduled.js)
-// — none of which a one-off implementation would get for free. An earlier
-// version of this file rolled its own HMAC signing + fetch + env-var secret;
-// that was redundant with infrastructure that already existed and already
-// covers this project, and has been removed.
+// Two things happen on a draw/redraw, independently of each other (one
+// failing must not block the other):
+//   1. A Skola event (public-safe name/location only) via the EXISTING
+//      generic outbound webhook dispatcher (services/webhookDelivery.js's
+//      sendWebhookEvent — already used for order.updated/shipment.delayed).
+//      It already signs with the exact scheme Skola's receiver expects, has
+//      a configured "Skola Workforce" endpoint, and retries on failure — none
+//      of which a one-off sender would get for free. An earlier version of
+//      this file rolled its own HMAC signing + fetch + env-var secret; that
+//      was redundant with infrastructure that already existed and has been
+//      removed.
+//   2. The winner's own prize email — full name, the actual voucher code,
+//      and a link to the prize product — via the EXISTING transactional
+//      email sender (services/emailNotifications.js), same pattern as
+//      vendor-waitlist.js's confirmation email.
 
 import { requireAdmin, headers, jsonResponse, parseJsonBody } from './services/global-sourcing-utils.js';
 import { sendWebhookEvent } from './services/webhookDelivery.js';
+import { sendTransactionalEmail } from './services/emailNotifications.js';
+import { resolveRewardVoucher } from './helpers/giveawayHelpers.js';
 
 const KNOWN_EVENT_TYPES = ['campaign.launched', 'giveaway.winner_drawn', 'giveaway.winner_redrawn'];
 
@@ -48,7 +55,7 @@ export async function handler(event) {
 
   const { data: campaign, error: campaignError } = await adminClient
     .from('campaigns')
-    .select('id, slug, public_title, campaign_kind, start_date, end_date, grand_prize_description')
+    .select('id, slug, public_title, campaign_kind, start_date, end_date, grand_prize_description, grand_prize_voucher_id, grand_prize_product_url')
     .eq('id', campaignId)
     .eq('campaign_kind', 'giveaway')
     .maybeSingle();
@@ -87,11 +94,13 @@ export async function handler(event) {
 
   const { data: winningEntry, error: entryError } = await adminClient
     .from('giveaway_entries')
-    .select('full_name, location, entry_position')
+    .select('full_name, email, location, entry_position')
     .eq('id', draw.winning_entry_id)
     .maybeSingle();
   if (entryError) return jsonResponse(500, { success: false, error: entryError.message });
 
+  let skolaDispatched = false;
+  let skolaError = null;
   try {
     await sendWebhookEvent(eventType, {
       campaign: campaignPayload,
@@ -103,9 +112,33 @@ export async function handler(event) {
       eligible_entry_count: draw.eligible_entry_count,
       drawn_at: draw.drawn_at,
     });
+    skolaDispatched = true;
   } catch (err) {
-    return jsonResponse(500, { success: false, error: err.message });
+    skolaError = err.message;
   }
 
-  return jsonResponse(200, { success: true, data: { dispatched: true } });
+  // Independent of the Skola dispatch above — a failure in one must not
+  // silence the other, since the winner still needs to hear from us even if
+  // the social-content pipeline hiccups (and vice versa).
+  let emailResult = { sent: false, reason: 'no_email' };
+  if (winningEntry?.email) {
+    const reward = await resolveRewardVoucher(campaign.grand_prize_voucher_id);
+    emailResult = await sendTransactionalEmail({
+      templateName: 'Giveaway Winner Announcement',
+      to: winningEntry.email,
+      data: {
+        winnerName: winningEntry.full_name || 'there',
+        campaignTitle: campaign.public_title,
+        prizeDescription: campaign.grand_prize_description || 'your prize',
+        voucherCode: reward?.code || 'Contact our team for your prize code',
+        productUrl: campaign.grand_prize_product_url || campaignPayload.url,
+      },
+      source: `giveaway_${eventType}`,
+    });
+  }
+
+  return jsonResponse(200, {
+    success: true,
+    data: { skolaDispatched, skolaError, winnerEmail: emailResult },
+  });
 }

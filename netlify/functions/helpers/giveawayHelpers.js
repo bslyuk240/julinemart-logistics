@@ -112,6 +112,35 @@ export async function resolveRewardVoucher(voucherId) {
   };
 }
 
+/**
+ * Per-campaign entry-submission ceiling, independent of IP — closes the gap
+ * where the shared IP-based rate limiter (services/rate-limit.js) can be
+ * bypassed by distributing fake submissions across many IPs (residential
+ * proxies, mobile carrier NAT churn). Backed by a plain count query against
+ * giveaway_entries itself, not Redis — so unlike the shared limiter, there is
+ * no "fails open silently if Redis is unreachable" failure mode to worry
+ * about here; if the DB is unreachable the request fails loudly like every
+ * other DB-dependent step in this handler already does.
+ */
+export async function isCampaignEntryRateExceeded(campaignId, { maxPerWindow = 40, windowSeconds = 60 } = {}) {
+  const since = new Date(Date.now() - windowSeconds * 1000).toISOString();
+  const { count, error } = await supabase
+    .from('giveaway_entries')
+    .select('id', { count: 'exact', head: true })
+    .eq('campaign_id', campaignId)
+    .gte('created_at', since);
+
+  if (error) {
+    // Same posture as the rest of this file: a query failure here shouldn't
+    // itself become the reason a legitimate entrant gets blocked, but it's
+    // logged loudly rather than silently swallowed.
+    console.error('[isCampaignEntryRateExceeded] count query failed:', error.message);
+    return false;
+  }
+
+  return (count || 0) >= maxPerWindow;
+}
+
 export async function findExistingCustomer({ phone, email }) {
   if (phone) {
     const { data } = await supabase.from('customers').select('id').eq('phone', phone).maybeSingle();

@@ -51,6 +51,16 @@ interface VoucherOption {
   id: string;
   code: string;
   campaign_name: string;
+  discount_type: 'percentage' | 'fixed' | 'free' | string;
+  discount_value: number | null;
+}
+
+/** "here's {{2}} on us" needs a short phrase, not the voucher's own full-sentence description. */
+function formatRewardPhrase(voucher: VoucherOption | undefined): string {
+  if (!voucher) return '';
+  if (voucher.discount_type === 'percentage') return `${voucher.discount_value}% off your next order`;
+  if (voucher.discount_type === 'fixed') return `₦${voucher.discount_value?.toLocaleString()} off your next order`;
+  return 'a free reward';
 }
 
 interface EntryRow {
@@ -253,7 +263,7 @@ export function GiveawaysPage() {
   async function loadVoucherOptions() {
     const { data } = await supabase
       .from('campaign_vouchers')
-      .select('id, code, campaign_name')
+      .select('id, code, campaign_name, discount_type, discount_value')
       .eq('status', 'active')
       .order('created_at', { ascending: false });
     setVouchers((data || []) as VoucherOption[]);
@@ -479,6 +489,29 @@ export function GiveawaysPage() {
     } finally {
       setSyncingTemplates(false);
     }
+  }
+
+  /**
+   * Prefills the free-text "template variables" field from what's already
+   * set on this campaign, for the two known giveaway template names — the
+   * field stays a plain comma-separated string for any template a future
+   * campaign might use, this only special-cases the two built for this
+   * feature. {{1}} is always a generic greeting, never a real name: one
+   * broadcast sends identical text to every recipient in the audience, so
+   * there is no single correct per-recipient name to put there.
+   */
+  function computeDefaultVariables(templateName: string): string {
+    if (!entriesCampaign) return '';
+    if (templateName === 'giveaway_code_drop') {
+      const url = `https://julinemart.com/campaigns/${entriesCampaign.slug}`;
+      return `there, ${entriesCampaign.secret_code || ''}, ${url}`;
+    }
+    if (templateName === 'giveaway_consolation') {
+      const voucher = vouchers.find((v) => v.id === entriesCampaign.consolation_voucher_id);
+      if (!voucher) return '';
+      return `there, ${formatRewardPhrase(voucher)}, ${voucher.code}`;
+    }
+    return '';
   }
 
   async function refreshAudiencePreview(campaign: GiveawayCampaignRow, audience: 'opted_in_list' | 'campaign_non_winners') {
@@ -1022,7 +1055,16 @@ export function GiveawaysPage() {
                         <select
                           className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
                           value={broadcastTemplateName}
-                          onChange={(e) => setBroadcastTemplateName(e.target.value)}
+                          onChange={(e) => {
+                            const nextTemplate = e.target.value;
+                            setBroadcastTemplateName(nextTemplate);
+                            // Only auto-fill an empty field — never stomp on
+                            // something the admin already typed, e.g. after
+                            // switching templates back and forth.
+                            if (!broadcastVariables.trim()) {
+                              setBroadcastVariables(computeDefaultVariables(nextTemplate));
+                            }
+                          }}
                         >
                           <option value="">— choose a template —</option>
                           {whatsappTemplates.map((t) => (
@@ -1040,6 +1082,9 @@ export function GiveawaysPage() {
                           onChange={(e) => setBroadcastVariables(e.target.value)}
                           placeholder={`${entriesCampaign.public_title}, ${entriesCampaign.secret_code || ''}`}
                         />
+                        <p className="mt-1 text-xs text-gray-500">
+                          Pre-filled from this campaign for known templates — {'{{1}}'} is a generic greeting since one broadcast reaches everyone with the same text, not a real per-recipient name.
+                        </p>
                       </div>
                     </div>
                     <button

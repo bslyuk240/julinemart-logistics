@@ -509,7 +509,7 @@ Respond with ONLY a JSON array, no explanation:
 
 // ── Upload video to Meta (/advideos) ─────────────────────────────────────────
 
-async function uploadVideoToMeta(body) {
+export async function uploadVideoToMeta(body) {
   const { video_url, file_base64, content_type, title } = body;
   if (!video_url && !file_base64) return err('video_url or file_base64 is required', 400);
   if (!content_type) return err('content_type is required', 400);
@@ -927,7 +927,7 @@ export async function publishDraft(draftId, body, userId) {
   return ok({ creative_id: creative.id, adset_id: adSet.id, ad_id: ad.id });
 }
 
-async function setVideoThumbnail(body) {
+export async function setVideoThumbnail(body) {
   const { video_id, thumb_url } = body;
   if (!video_id || !thumb_url) return err('video_id and thumb_url are required', 400);
   if (!ACCESS_TOKEN) return err('META_ADS_ACCESS_TOKEN not configured', 500);

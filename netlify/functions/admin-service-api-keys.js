@@ -6,6 +6,7 @@
  *
  *   GET    /api/admin/service-api-keys                     list (no secrets)
  *   POST   /api/admin/service-api-keys                     { name, scopes: string[] } -> { token, ... } once
+ *   PATCH  /api/admin/service-api-keys/:id                 { scopes: string[] } -> update an existing key's granted capabilities in place
  *   DELETE /api/admin/service-api-keys/:id                  revoke (soft — is_active=false)
  *   DELETE /api/admin/service-api-keys/:id?permanent=true   hard-delete a key that's already revoked
  */
@@ -27,7 +28,7 @@ function generateToken() {
 
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 200, headers: { 'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization' }, body: '' };
+    return { statusCode: 200, headers: { 'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization' }, body: '' };
   }
 
   const auth = await requireAdmin(event, ['admin']);
@@ -82,6 +83,44 @@ export const handler = async (event) => {
 
     // token is returned exactly once — the DB only ever holds its hash.
     return jsonResponse(201, { success: true, data: { ...data, token } });
+  }
+
+  if (event.httpMethod === 'PATCH' && keyId) {
+    const body = parseJsonBody(event.body);
+    if (body === null) return jsonResponse(400, { success: false, error: 'Invalid JSON body' });
+
+    const scopes = Array.isArray(body.scopes) ? body.scopes.filter((s) => GRANTABLE_CAPABILITIES.includes(s)) : [];
+    if (scopes.length === 0) {
+      return jsonResponse(400, { success: false, error: `scopes must include at least one enabled capability: ${GRANTABLE_CAPABILITIES.join(', ')}` });
+    }
+
+    const { data: existing, error: fetchErr } = await adminClient
+      .from('service_api_keys')
+      .select('id, name, scopes, is_active')
+      .eq('id', keyId)
+      .maybeSingle();
+
+    if (fetchErr) return jsonResponse(500, { success: false, error: fetchErr.message });
+    if (!existing) return jsonResponse(404, { success: false, error: 'API key not found' });
+    if (!existing.is_active) return jsonResponse(409, { success: false, error: 'This key is revoked — create a new one instead of editing it' });
+
+    const { data, error } = await adminClient
+      .from('service_api_keys')
+      .update({ scopes })
+      .eq('id', keyId)
+      .select('id, name, key_prefix, scopes, is_active, created_at, revoked_at, last_used_at')
+      .single();
+
+    if (error) return jsonResponse(500, { success: false, error: error.message });
+
+    await recordStaffAudit(event, authUser, {
+      action: 'SERVICE_API_KEY_SCOPES_UPDATED',
+      resource_type: 'service_api_key',
+      resource_id: data.id,
+      details: { name: data.name, previous_scopes: existing.scopes, scopes },
+    });
+
+    return jsonResponse(200, { success: true, data });
   }
 
   if (event.httpMethod === 'DELETE' && keyId) {

@@ -132,6 +132,7 @@ import SupportChatView from './dashboard/pages/SupportChatView';
 import { VouchersPage } from './dashboard/pages/Vouchers';
 import { CampaignsPage } from './dashboard/pages/Campaigns';
 import { GiveawaysPage } from './dashboard/pages/Giveaways';
+import DrawLivePage from './dashboard/pages/DrawLive';
 import { CustomersPage } from './dashboard/pages/Customers';
 import { VendorsPage } from './dashboard/pages/Vendors';
 import SellerVerificationsPage from './dashboard/pages/SellerVerifications';
@@ -706,6 +707,19 @@ export const router = createBrowserRouter([
   {
     path: '/unauthorized',
     element: <UnauthorizedPage />,
+  },
+  {
+    // Deliberately top-level, NOT nested under /admin's AdminShell — this is
+    // a chrome-free presentation view meant to be screen-recorded/streamed,
+    // so it must never render inside the sidebar/dashboard layout. Still
+    // real: it performs the actual draw via the same RPC the main Giveaways
+    // page uses, just gated the same way (admin/manager only).
+    path: '/draw-live/:campaignId',
+    element: (
+      <ProtectedRoute allowedRoles={['admin', 'manager']}>
+        <DrawLivePage />
+      </ProtectedRoute>
+    ),
   },
   {
     path: '/admin',

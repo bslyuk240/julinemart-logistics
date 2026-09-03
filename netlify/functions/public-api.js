@@ -36,6 +36,8 @@ import {
   publishDraft as publishMetaDraft,
   getAccountInfo as getMetaAccountInfo,
   getRecommendations as getMetaRecommendations,
+  uploadVideoToMeta as uploadMetaVideo,
+  setVideoThumbnail as setMetaVideoThumbnail,
 } from './meta-ads.js';
 import {
   postToFacebookPage,
@@ -1442,6 +1444,18 @@ export const handler = async (event) => {
         const auth = await authenticateServiceApiRequest(event, 'meta.ads.recommendations.list');
         if (auth.errorResponse) return auth.errorResponse;
         return await callMetaAdsHandler(getMetaRecommendations);
+      }
+      if (segments.length === 3 && segments[2] === 'upload-video' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.ads.video.upload');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await callMetaAdsHandler(uploadMetaVideo, body);
+      }
+      if (segments.length === 3 && segments[2] === 'video-thumbnail' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'meta.ads.video.thumbnail');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await callMetaAdsHandler(setMetaVideoThumbnail, body);
       }
     }
     if (segments[0] === 'meta' && segments[1] === 'social') {

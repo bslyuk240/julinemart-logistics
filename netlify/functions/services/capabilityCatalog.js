@@ -504,10 +504,26 @@ export const CAPABILITIES = [
   },
   {
     id: 'meta.ads.drafts.create', domain: 'meta', name: 'Create Meta Ad Draft',
-    description: 'Create a new ad draft (title, copy, image, target). Does not touch Meta until approved and published.',
+    description: 'Create a new ad draft: image, video, or carousel (title, copy, creative, target). Does not touch Meta until approved and published. For a video draft, call meta.ads.video.upload first to get a meta_video_id.',
     operation_type: 'create', side_effect_type: 'internal_write', risk_level: 'low',
     http_method: 'POST', endpoint: '/meta/ads/drafts',
-    input_schema: { title: 'string', headline: 'string (optional)', body_text: 'string', call_to_action: 'SHOP_NOW | LEARN_MORE | ORDER_NOW | GET_OFFER (optional)', image_url: 'string (optional, must be a trusted media host)', destination_url: 'string (optional)', target_audience: 'string (optional)', suggested_budget: 'number (optional, NGN)' },
+    input_schema: { title: 'string', headline: 'string (optional)', body_text: 'string', call_to_action: 'SHOP_NOW | LEARN_MORE | ORDER_NOW | GET_OFFER (optional)', ad_format: 'image | video | carousel (optional, default image)', image_url: 'string (optional, must be a trusted media host — the creative image for ad_format=image, or the video thumbnail for ad_format=video)', meta_video_id: 'string (required if ad_format=video — the id returned by meta.ads.video.upload)', carousel_elements: 'array of { image_url, headline (optional), description (optional), link (optional) } (required if ad_format=carousel, minimum 2 elements — each image_url must be a trusted media host)', destination_url: 'string (optional)', target_audience: 'string (optional)', suggested_budget: 'number (optional, NGN)' },
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'meta.ads.video.upload', domain: 'meta', name: 'Upload Video for Meta Ad',
+    description: 'Upload an MP4/video file to Meta so it can be used as a video ad creative. Returns a meta_video_id to pass into meta.ads.drafts.create as meta_video_id (with ad_format=video). Does not itself create a draft or spend money.',
+    operation_type: 'create', side_effect_type: 'internal_write', risk_level: 'low',
+    http_method: 'POST', endpoint: '/meta/ads/upload-video',
+    input_schema: { video_url: 'string (must be a trusted media host — preferred over file_base64)', file_base64: 'string (optional legacy alternative to video_url, base64-encoded, max ~50MB)', content_type: 'string (required, e.g. "video/mp4")', title: 'string (optional)' },
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'meta.ads.video.thumbnail', domain: 'meta', name: 'Set Meta Ad Video Thumbnail',
+    description: "Set/override the thumbnail image Meta uses for an uploaded ad video (from meta.ads.video.upload). Optional — meta.ads.drafts.publish will auto-fetch one of Meta's own generated thumbnails if the draft has no image_url.",
+    operation_type: 'update', side_effect_type: 'internal_write', risk_level: 'low',
+    http_method: 'POST', endpoint: '/meta/ads/video-thumbnail',
+    input_schema: { video_id: 'string (Meta video id from meta.ads.video.upload)', thumb_url: 'string (must be a trusted media host)' },
     idempotency_required: false, approval_recommended: false, enabled: true,
   },
   {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Gift, Plus, Edit, Loader2, Users, Trophy, X, CheckCircle,
-  Clock, PauseCircle, Archive as ArchiveIcon, FileEdit, RotateCcw, Send, RefreshCw,
+  Clock, PauseCircle, Archive as ArchiveIcon, FileEdit, RotateCcw, Send, RefreshCw, Radio,
 } from 'lucide-react';
 import { supabase, useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
@@ -967,6 +967,15 @@ export function GiveawaysPage() {
                       </div>
                     </div>
                     <div className="flex gap-2">
+                      <a
+                        href={`/draw-live/${entriesCampaign.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Open a chrome-free fullscreen page for streaming/recording the live draw"
+                        className="px-4 py-2 text-sm border border-purple-300 text-purple-700 rounded-lg hover:bg-purple-100 flex items-center gap-2"
+                      >
+                        <Radio className="w-4 h-4" /> Draw Live
+                      </a>
                       {!hasCompletedDraw ? (
                         <button
                           onClick={handleDraw}

@@ -63,13 +63,14 @@ function buildHtml(subject, body, from) {
 </html>`;
 }
 
-async function logEmailAttempt({ recipient, subject, status, errorMessage, source }) {
+async function logEmailAttempt({ recipient, subject, status, errorMessage, resendMessageId, source }) {
   try {
     await adminClient.from('email_logs').insert({
       recipient,
       subject,
       status,
       error_message: errorMessage,
+      resend_message_id: resendMessageId || null,
       source: source || null,
       sent_at: new Date().toISOString(),
     });
@@ -80,14 +81,18 @@ async function logEmailAttempt({ recipient, subject, status, errorMessage, sourc
 
 async function sendOneRecipient(tx, email, subject, textBody, html, source) {
   try {
-    await tx.transport.sendMail({
+    const result = await tx.transport.sendMail({
       from: tx.from,
       to: email,
       subject,
       text: textBody,
       html,
     });
-    await logEmailAttempt({ recipient: email, subject, status: 'sent', errorMessage: null, source });
+    // Resend's response carries the message id (SMTP transports don't) — without
+    // this, resend-webhook.js has no key to match its later delivered/bounced
+    // update back to this row, and the row is stuck at 'sent' forever even
+    // though Resend's own dashboard shows the real outcome.
+    await logEmailAttempt({ recipient: email, subject, status: 'sent', errorMessage: null, resendMessageId: result?.id, source });
     return { ok: true };
   } catch (err) {
     const errorMessage = err?.message || 'Unknown error';

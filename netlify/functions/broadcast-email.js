@@ -5,7 +5,11 @@
  * Body:
  *   audience   : 'customers' | 'vendors' | 'both'
  *   subject    : string
- *   body       : string  (plain text — rendered inside a simple wrapper)
+ *   body       : string  (plain text — rendered inside a simple wrapper.
+ *                Supports inline images via ![alt](https://...) — see
+ *                renderInlineImages below. Everything else is escaped as
+ *                literal text; a malformed or non-https url is left as the
+ *                original literal text rather than becoming a broken/live tag.)
  *   image_url  : string  (optional — must be https; rendered as a header image.
  *                Get one from POST /api/meta/upload-image, the same upload
  *                endpoint the Meta Ads composer uses.)
@@ -35,17 +39,47 @@ function json(statusCode, body) {
   };
 }
 
+// Matches ![alt](https://...) — both captures use bounded, negated single-char
+// classes (no nested/overlapping quantifiers), so this can't ReDoS on adversarial
+// input. Runs AFTER the &/</> escaping pass below, so a literal & inside a query
+// string already reads as &amp; here — that's correct, not a bug, since it must
+// stay that way inside the eventual src="..." attribute.
+const INLINE_IMAGE_RE = /!\[([^\]\r\n]{0,200})\]\((https:\/\/[^\s")'<>]{1,2000})\)/g;
+const MAX_INLINE_IMAGES = 10;
+
+function escapeAttr(value) {
+  // The &/</> pass already ran on this text; only quotes remain unescaped,
+  // and this string is about to be spliced into a "..."-delimited attribute.
+  return value.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Body text has already been through the &/</> escaping pass when this runs,
+// so a match's alt/url captures are themselves already escaped — the only
+// extra step needed before using them in an attribute is quote-escaping.
+// Anything that isn't a well-formed https url (checked by un-escaping just for
+// validation, never for output) is left as the original literal text — never
+// silently dropped, never rendered as a broken or unexpectedly-live tag.
+function renderInlineImages(escapedBody) {
+  let count = 0;
+  return escapedBody.replace(INLINE_IMAGE_RE, (match, altEscaped, urlEscaped) => {
+    if (count >= MAX_INLINE_IMAGES) return match;
+    const urlForValidation = urlEscaped.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+    if (!isValidImageUrl(urlForValidation)) return match;
+    count += 1;
+    return `<img src="${escapeAttr(urlEscaped)}" alt="${escapeAttr(altEscaped)}" style="display:block;max-width:100%;height:auto;margin:12px 0;border:0">`;
+  });
+}
+
 function buildHtml(subject, body, from, imageUrl) {
-  const escaped = body
+  const escapedRaw = body
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .split('\n')
-    .join('<br>');
+    .replace(/>/g, '&gt;');
+  const escaped = renderInlineImages(escapedRaw).split('\n').join('<br>');
   // imageUrl already passed isValidImageUrl() at the call site (https only) —
   // still escape quotes before splicing into the src attribute.
   const imageRow = imageUrl
-    ? `<tr><td style="padding:0"><img src="${imageUrl.replace(/"/g, '&quot;')}" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0"></td></tr>`
+    ? `<tr><td style="padding:0"><img src="${escapeAttr(imageUrl)}" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0"></td></tr>`
     : '';
   return `<!DOCTYPE html>
 <html>

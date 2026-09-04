@@ -228,6 +228,55 @@ export function NotificationsNewPage() {
     }
   };
 
+  // Inline images (optional, plural) — inserted into Message as ![alt](url) at
+  // the cursor position. broadcast-email.js only ever turns a well-formed
+  // https ![...](...) match into a real <img> tag; anything else it sees stays
+  // literal escaped text, so there's nothing here to keep in sync security-wise —
+  // this button is purely a convenience for writing that syntax by hand.
+  const [emailInlineImageUploading, setEmailInlineImageUploading] = useState(false);
+  const emailInlineImageInputRef = useRef<HTMLInputElement>(null);
+  const emailBodyRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleInsertInlineImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!session?.access_token) { notification.error('Unauthorized', 'Please sign in again.'); return; }
+    if (file.size > 4 * 1024 * 1024) { notification.error('Too large', 'File must be 4 MB or smaller'); return; }
+    setEmailInlineImageUploading(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch('/api/meta/upload-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ file_base64: base64, content_type: file.type }),
+      });
+      const json = await res.json();
+      if (!json.success) { notification.error('Upload failed', json.error || 'Upload failed'); return; }
+
+      const markdown = `![](${json.data.url})`;
+      const el = emailBodyRef.current;
+      const start = el?.selectionStart ?? emailBody.length;
+      const end = el?.selectionEnd ?? emailBody.length;
+      const next = `${emailBody.slice(0, start)}${markdown}${emailBody.slice(end)}`;
+      setEmailBody(next);
+      const cursor = start + markdown.length;
+      requestAnimationFrame(() => {
+        el?.focus();
+        el?.setSelectionRange(cursor, cursor);
+      });
+    } catch {
+      notification.error('Upload failed', 'Upload failed');
+    } finally {
+      setEmailInlineImageUploading(false);
+    }
+  };
+
   // AI email draft state
   const [emailAiOpen, setEmailAiOpen] = useState(false);
   const [emailAiPurpose, setEmailAiPurpose] = useState('flash_sale');
@@ -655,8 +704,30 @@ export function NotificationsNewPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Message *</label>
+            <div className="mb-1 flex items-center justify-between">
+              <label className="block text-sm font-medium text-gray-700">Message *</label>
+              <input
+                ref={emailInlineImageInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={handleInsertInlineImage}
+              />
+              <button
+                type="button"
+                onClick={() => emailInlineImageInputRef.current?.click()}
+                disabled={emailInlineImageUploading}
+                className="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700 disabled:opacity-50"
+              >
+                {emailInlineImageUploading ? (
+                  <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Uploading…</>
+                ) : (
+                  <><ImageIcon className="h-3.5 w-3.5" /> Insert image</>
+                )}
+              </button>
+            </div>
             <textarea
+              ref={emailBodyRef}
               value={emailBody}
               onChange={(e) => setEmailBody(e.target.value)}
               placeholder="Write your message here. Keep it clear and friendly."
@@ -664,7 +735,10 @@ export function NotificationsNewPage() {
               className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:ring-2 focus:ring-primary-500"
               required
             />
-            <p className="mt-1 text-xs text-gray-500">Plain text — line breaks are preserved in the email.</p>
+            <p className="mt-1 text-xs text-gray-500">
+              Plain text — line breaks are preserved. "Insert image" uploads a file and drops it in at your cursor as{' '}
+              <code className="font-mono">![](url)</code> — anywhere else in the text stays exactly as typed.
+            </p>
           </div>
 
           <div className="flex items-center justify-between border-t border-gray-200 pt-4">

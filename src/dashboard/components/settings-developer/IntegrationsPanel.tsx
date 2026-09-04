@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Check, Copy, Plus, Trash2, AlertTriangle, Globe, Key, Webhook } from 'lucide-react';
+import { Check, Copy, Plus, Trash2, AlertTriangle, Globe, Key, Webhook, Pencil, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
 import { buildApiUrl } from '../../lib/settingsDeveloperUtils';
@@ -67,6 +67,10 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
   const [newKeyScopes, setNewKeyScopes] = useState<string[]>([]);
   const [creatingKey, setCreatingKey] = useState(false);
   const [mintedToken, setMintedToken] = useState<{ name: string; token: string; scopes: string[] } | null>(null);
+
+  const [editingKeyId, setEditingKeyId] = useState<string | null>(null);
+  const [editingScopes, setEditingScopes] = useState<string[]>([]);
+  const [savingScopes, setSavingScopes] = useState(false);
 
   const [showWebhookForm, setShowWebhookForm] = useState(false);
   const [webhookName, setWebhookName] = useState('');
@@ -155,6 +159,38 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
     }
   };
 
+  const startEditScopes = (k: ApiKeyRow) => {
+    setEditingKeyId(k.id);
+    setEditingScopes([...k.scopes]);
+  };
+
+  const cancelEditScopes = () => {
+    setEditingKeyId(null);
+    setEditingScopes([]);
+  };
+
+  const toggleEditScope = (scope: string) => {
+    setEditingScopes((prev) => (prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]));
+  };
+
+  const saveScopes = async (id: string) => {
+    if (editingScopes.length === 0) {
+      notification.error('Missing info', 'At least one capability is required');
+      return;
+    }
+    setSavingScopes(true);
+    try {
+      await callAdminApi(session, `/api/admin/service-api-keys/${id}`, 'PATCH', { scopes: editingScopes });
+      notification.success('Scopes updated', 'This key can now use the newly granted capabilities immediately — no token rotation needed.');
+      cancelEditScopes();
+      await load();
+    } catch (e) {
+      notification.error('Failed to update scopes', e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingScopes(false);
+    }
+  };
+
   const saveWebhook = async () => {
     if (!webhookName.trim() || !webhookUrl.trim() || !webhookSecret.trim()) {
       notification.error('Missing info', 'Name, URL, and secret are required');
@@ -215,6 +251,32 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
     high: 'bg-orange-100 text-orange-700',
     critical: 'bg-red-100 text-red-700',
   };
+
+  const renderCapabilityChecklist = (selected: string[], onToggle: (id: string) => void) => (
+    <>
+      {Object.entries(capabilitiesByDomain).map(([domain, caps]) => (
+        <div key={domain}>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">{domain}</p>
+          <div className="flex flex-wrap gap-2">
+            {caps.map((cap) => (
+              <label
+                key={cap.id}
+                title={cap.enabled ? cap.description : `${cap.description} (not built yet)`}
+                className={`flex items-center gap-1.5 text-xs border rounded px-2 py-1 ${
+                  cap.enabled ? 'bg-gray-50 border-gray-200' : 'bg-gray-50 border-gray-100 opacity-50 cursor-not-allowed'
+                }`}
+              >
+                <input type="checkbox" disabled={!cap.enabled} checked={selected.includes(cap.id)} onChange={() => onToggle(cap.id)} />
+                <span className="font-mono">{cap.id}</span>
+                {cap.risk_level !== 'low' ? <span className={`text-[9px] px-1 rounded ${RISK_BADGE[cap.risk_level]}`}>{cap.risk_level}</span> : null}
+                {!cap.enabled ? <span className="text-[9px] text-gray-400">soon</span> : null}
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
+    </>
+  );
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -277,46 +339,80 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
             <p className="text-sm text-gray-500">No API keys yet.</p>
           ) : (
             <div className="divide-y divide-gray-100 border border-gray-200 rounded-lg">
-              {keys.map((k) => (
-                <div key={k.id} className="p-3 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                      {k.name}
-                      {!k.is_active ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">Revoked</span> : null}
-                    </p>
-                    <p className="text-xs font-mono text-gray-500 mt-0.5">{k.key_prefix}…</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-1">
-                      {k.scopes.map((s) => (
-                        <span key={s} className="text-[10px] px-1.5 py-0.5 rounded bg-primary-50 text-primary-700 font-mono">{s}</span>
-                      ))}
-                      <button
-                        type="button"
-                        title="Copy all capabilities as a comma-separated list"
-                        onClick={() => copy(k.scopes.join(','), `scopes_${k.id}`)}
-                        className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-500 hover:bg-gray-50"
-                      >
-                        {copiedItem === `scopes_${k.id}` ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                        Copy all
-                      </button>
+              {keys.map((k) => {
+                const isEditing = editingKeyId === k.id;
+                return (
+                  <div key={k.id} className="p-3 flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                        {k.name}
+                        {!k.is_active ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">Revoked</span> : null}
+                      </p>
+                      <p className="text-xs font-mono text-gray-500 mt-0.5">{k.key_prefix}…</p>
+
+                      {isEditing ? (
+                        <div className="mt-2 space-y-2 border border-gray-200 rounded-lg p-2 bg-gray-50/50">
+                          {renderCapabilityChecklist(editingScopes, toggleEditScope)}
+                          <div className="flex gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => void saveScopes(k.id)}
+                              disabled={savingScopes}
+                              className="btn-primary btn-sm text-xs flex items-center gap-1"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              {savingScopes ? 'Saving…' : 'Save scopes'}
+                            </button>
+                            <button type="button" onClick={cancelEditScopes} disabled={savingScopes} className="btn-secondary btn-sm text-xs flex items-center gap-1">
+                              <X className="w-3.5 h-3.5" />
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                          {k.scopes.map((s) => (
+                            <span key={s} className="text-[10px] px-1.5 py-0.5 rounded bg-primary-50 text-primary-700 font-mono">{s}</span>
+                          ))}
+                          <button
+                            type="button"
+                            title="Copy all capabilities as a comma-separated list"
+                            onClick={() => copy(k.scopes.join(','), `scopes_${k.id}`)}
+                            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-gray-200 text-gray-500 hover:bg-gray-50"
+                          >
+                            {copiedItem === `scopes_${k.id}` ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                            Copy all
+                          </button>
+                        </div>
+                      )}
+
+                      <p className="text-[11px] text-gray-400 mt-1">
+                        Created {new Date(k.created_at).toLocaleDateString()}
+                        {k.last_used_at ? ` · last used ${new Date(k.last_used_at).toLocaleString()}` : ' · never used'}
+                      </p>
                     </div>
-                    <p className="text-[11px] text-gray-400 mt-1">
-                      Created {new Date(k.created_at).toLocaleDateString()}
-                      {k.last_used_at ? ` · last used ${new Date(k.last_used_at).toLocaleString()}` : ' · never used'}
-                    </p>
+                    {!isEditing ? (
+                      k.is_active ? (
+                        <div className="flex flex-col gap-1 shrink-0">
+                          <button type="button" onClick={() => startEditScopes(k)} className="btn-secondary btn-sm text-xs flex items-center gap-1">
+                            <Pencil className="w-3.5 h-3.5" />
+                            Edit scopes
+                          </button>
+                          <button type="button" onClick={() => void revokeKey(k.id, k.name)} className={dangerBtnClass}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Revoke
+                          </button>
+                        </div>
+                      ) : (
+                        <button type="button" onClick={() => void deleteKey(k.id, k.name)} className={dangerBtnClass}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Delete
+                        </button>
+                      )
+                    ) : null}
                   </div>
-                  {k.is_active ? (
-                    <button type="button" onClick={() => void revokeKey(k.id, k.name)} className={dangerBtnClass}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Revoke
-                    </button>
-                  ) : (
-                    <button type="button" onClick={() => void deleteKey(k.id, k.name)} className={dangerBtnClass}>
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Delete
-                    </button>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -332,34 +428,7 @@ export function IntegrationsPanel({ compact = false }: IntegrationsPanelProps) {
               These are business capabilities, not agent roles — grant whatever this connection might ever need;
               which subset a given agent actually uses is decided on the platform side.
             </p>
-            {Object.entries(capabilitiesByDomain).map(([domain, caps]) => (
-              <div key={domain}>
-                <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400 mb-1">{domain}</p>
-                <div className="flex flex-wrap gap-2">
-                  {caps.map((cap) => (
-                    <label
-                      key={cap.id}
-                      title={cap.enabled ? cap.description : `${cap.description} (not built yet)`}
-                      className={`flex items-center gap-1.5 text-xs border rounded px-2 py-1 ${
-                        cap.enabled ? 'bg-gray-50 border-gray-200' : 'bg-gray-50 border-gray-100 opacity-50 cursor-not-allowed'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        disabled={!cap.enabled}
-                        checked={newKeyScopes.includes(cap.id)}
-                        onChange={() => toggleScope(cap.id)}
-                      />
-                      <span className="font-mono">{cap.id}</span>
-                      {cap.risk_level !== 'low' ? (
-                        <span className={`text-[9px] px-1 rounded ${RISK_BADGE[cap.risk_level]}`}>{cap.risk_level}</span>
-                      ) : null}
-                      {!cap.enabled ? <span className="text-[9px] text-gray-400">soon</span> : null}
-                    </label>
-                  ))}
-                </div>
-              </div>
-            ))}
+            {renderCapabilityChecklist(newKeyScopes, toggleScope)}
             <button type="button" onClick={() => void createKey()} disabled={creatingKey} className="btn-primary btn-sm text-xs flex items-center gap-1">
               <Plus className="w-3.5 h-3.5" />
               {creatingKey ? 'Creating…' : 'Create key'}

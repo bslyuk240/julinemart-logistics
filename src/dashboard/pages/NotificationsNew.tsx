@@ -1,6 +1,6 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, CalendarClock, ChevronDown, ChevronUp, Loader2, Mail, Send, Sparkles, Users } from 'lucide-react';
+import { Bell, CalendarClock, ChevronDown, ChevronUp, ImageIcon, Loader2, Mail, Send, Sparkles, Upload, Users, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
 import {
@@ -192,6 +192,42 @@ export function NotificationsNewPage() {
   const [emailBody, setEmailBody] = useState('');
   const [emailSending, setEmailSending] = useState(false);
 
+  // Header image (optional) — uploaded via the same endpoint the Meta Ads composer uses
+  const [emailImageUrl, setEmailImageUrl] = useState('');
+  const [emailImageUploading, setEmailImageUploading] = useState(false);
+  const [emailImageError, setEmailImageError] = useState('');
+  const emailImageInputRef = useRef<HTMLInputElement>(null);
+
+  const handleEmailImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!session?.access_token) { notification.error('Unauthorized', 'Please sign in again.'); return; }
+    if (file.size > 4 * 1024 * 1024) { setEmailImageError('File must be 4 MB or smaller'); return; }
+    setEmailImageError('');
+    setEmailImageUploading(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const res = await fetch('/api/meta/upload-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ file_base64: base64, content_type: file.type }),
+      });
+      const json = await res.json();
+      if (json.success) setEmailImageUrl(json.data.url);
+      else setEmailImageError(json.error || 'Upload failed');
+    } catch {
+      setEmailImageError('Upload failed');
+    } finally {
+      setEmailImageUploading(false);
+    }
+  };
+
   // AI email draft state
   const [emailAiOpen, setEmailAiOpen] = useState(false);
   const [emailAiPurpose, setEmailAiPurpose] = useState('flash_sale');
@@ -229,7 +265,12 @@ export function NotificationsNewPage() {
       const res = await fetch(`${functionsBase}/broadcast-email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ audience: emailAudience, subject: emailSubject.trim(), body: emailBody.trim() }),
+        body: JSON.stringify({
+          audience: emailAudience,
+          subject: emailSubject.trim(),
+          body: emailBody.trim(),
+          ...(emailImageUrl ? { image_url: emailImageUrl } : {}),
+        }),
       });
       const raw = await res.text();
       let data: Record<string, unknown> = {};
@@ -570,6 +611,47 @@ export function NotificationsNewPage() {
               className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:ring-2 focus:ring-primary-500"
               required
             />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Header image (optional)</label>
+            <input
+              ref={emailImageInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={handleEmailImageUpload}
+            />
+            {emailImageUrl ? (
+              <div className="flex items-center gap-3 rounded-lg border border-gray-200 p-2">
+                <img src={emailImageUrl} alt="" className="h-16 w-28 rounded object-cover" />
+                <span className="min-w-0 flex-1 truncate text-xs text-gray-500">{emailImageUrl}</span>
+                <button
+                  type="button"
+                  onClick={() => setEmailImageUrl('')}
+                  className="flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-500 hover:bg-gray-50"
+                >
+                  <X className="h-3.5 w-3.5" /> Remove
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => emailImageInputRef.current?.click()}
+                disabled={emailImageUploading}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-3 text-sm text-gray-600 transition-colors hover:border-primary-400 hover:text-primary-600 disabled:opacity-50"
+              >
+                {emailImageUploading ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</>
+                ) : (
+                  <><Upload className="h-4 w-4" /> Upload a header image (JPG / PNG / WebP, max 4 MB)</>
+                )}
+              </button>
+            )}
+            {emailImageError && <p className="mt-1 text-xs text-red-600">{emailImageError}</p>}
+            <p className="mt-1 flex items-center gap-1 text-xs text-gray-500">
+              <ImageIcon className="h-3.5 w-3.5" /> Shown at the top of the email, above the subject.
+            </p>
           </div>
 
           <div>

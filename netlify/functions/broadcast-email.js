@@ -3,9 +3,12 @@
  * Sends a newsletter / broadcast email to customers, vendors, or both.
  *
  * Body:
- *   audience  : 'customers' | 'vendors' | 'both'
- *   subject   : string
- *   body      : string  (plain text — rendered inside a simple wrapper)
+ *   audience   : 'customers' | 'vendors' | 'both'
+ *   subject    : string
+ *   body       : string  (plain text — rendered inside a simple wrapper)
+ *   image_url  : string  (optional — must be https; rendered as a header image.
+ *                Get one from POST /api/meta/upload-image, the same upload
+ *                endpoint the Meta Ads composer uses.)
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -32,13 +35,18 @@ function json(statusCode, body) {
   };
 }
 
-function buildHtml(subject, body, from) {
+function buildHtml(subject, body, from, imageUrl) {
   const escaped = body
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .split('\n')
     .join('<br>');
+  // imageUrl already passed isValidImageUrl() at the call site (https only) —
+  // still escape quotes before splicing into the src attribute.
+  const imageRow = imageUrl
+    ? `<tr><td style="padding:0"><img src="${imageUrl.replace(/"/g, '&quot;')}" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0"></td></tr>`
+    : '';
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -49,6 +57,7 @@ function buildHtml(subject, body, from) {
         <tr><td style="background:#7c3aed;padding:24px 32px">
           <h1 style="margin:0;color:#fff;font-size:20px">JulineMart</h1>
         </td></tr>
+        ${imageRow}
         <tr><td style="padding:32px">
           <h2 style="margin:0 0 16px;color:#111827;font-size:18px">${subject}</h2>
           <p style="margin:0;color:#374151;font-size:15px;line-height:1.7">${escaped}</p>
@@ -61,6 +70,15 @@ function buildHtml(subject, body, from) {
   </table>
 </body>
 </html>`;
+}
+
+function isValidImageUrl(value) {
+  if (!value) return true; // optional field
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 async function logEmailAttempt({ recipient, subject, status, errorMessage, resendMessageId, source }) {
@@ -158,12 +176,15 @@ export const handler = async (event) => {
       return json(400, { success: false, error: 'Invalid JSON' });
     }
 
-    const { audience, subject, body: emailBody } = body;
+    const { audience, subject, body: emailBody, image_url: imageUrl } = body;
     if (!audience || !subject?.trim() || !emailBody?.trim()) {
       return json(400, { success: false, error: 'audience, subject, and body are required' });
     }
     if (!['customers', 'vendors', 'both'].includes(audience)) {
       return json(400, { success: false, error: 'audience must be customers | vendors | both' });
+    }
+    if (imageUrl && !isValidImageUrl(imageUrl)) {
+      return json(400, { success: false, error: 'image_url must be a valid https URL' });
     }
 
     const emails = new Set();
@@ -213,7 +234,7 @@ export const handler = async (event) => {
 
     const subjectTrimmed = subject.trim();
     const bodyTrimmed = emailBody.trim();
-    const html = buildHtml(subjectTrimmed, bodyTrimmed, tx.from);
+    const html = buildHtml(subjectTrimmed, bodyTrimmed, tx.from, imageUrl || null);
 
     const { sent, failed, errors } = await sendInBatches(
       tx,
@@ -248,7 +269,7 @@ export const handler = async (event) => {
         title: subjectTrimmed,
         message: bodyTrimmed,
         type: 'general',
-        data: { channel: 'email', emailAudience: audience, sent, failed, total: emails.size },
+        data: { channel: 'email', emailAudience: audience, sent, failed, total: emails.size, imageUrl: imageUrl || null },
       },
       response: responseBody,
       success: responseBody.success,

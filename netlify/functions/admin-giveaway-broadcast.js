@@ -1,10 +1,19 @@
-// Admin-triggered: sends a WhatsApp template message to one of two audiences
-// (body.audience):
+// Admin-triggered: sends a WhatsApp template message to one of three
+// audiences (body.audience):
 //   'opted_in_list' (default)   — everyone on the cross-campaign opt-in list,
 //                                  e.g. "the secret code just dropped".
 //   'campaign_non_winners'      — THIS campaign's valid, opted-in entrants
 //                                  who did not win, e.g. Phase 4's "didn't
 //                                  win? here's a reward anyway" remarketing.
+//   'campaign_entrants'         — THIS campaign's valid, opted-in entrants
+//                                  regardless of win status, for a feedback
+//                                  request — each recipient's message carries
+//                                  their OWN review link (giveaway_entries.id
+//                                  is the link's access token, see
+//                                  giveaway-get-review-context.js), so this
+//                                  audience always builds per-recipient
+//                                  variables and ignores any admin-supplied
+//                                  `variables` array.
 // Reuses the existing internal WhatsApp send primitive (sendWhatsAppTemplate)
 // rather than a parallel integration — see helpers/giveawayHelpers.js's
 // recordMarketingOptIn for how the opt-in list is built.
@@ -34,7 +43,7 @@ export async function handler(event) {
   const templateName = String(body.template_name || '').trim();
   const variables = Array.isArray(body.variables) ? body.variables.map((v) => String(v ?? '')) : [];
   const previewOnly = Boolean(body.preview_only);
-  const audience = body.audience === 'campaign_non_winners' ? 'campaign_non_winners' : 'opted_in_list';
+  const audience = ['campaign_non_winners', 'campaign_entrants'].includes(body.audience) ? body.audience : 'opted_in_list';
 
   if (!campaignId || (!templateName && !previewOnly)) {
     return jsonResponse(400, { success: false, error: 'campaign_id and template_name are required' });
@@ -42,7 +51,7 @@ export async function handler(event) {
 
   const { data: campaign, error: campaignError } = await adminClient
     .from('campaigns')
-    .select('id, public_title, campaign_kind')
+    .select('id, public_title, slug, campaign_kind')
     .eq('id', campaignId)
     .eq('campaign_kind', 'giveaway')
     .maybeSingle();
@@ -50,7 +59,42 @@ export async function handler(event) {
   if (!campaign) return jsonResponse(404, { success: false, error: 'Giveaway campaign not found' });
 
   let recipients;
-  if (audience === 'campaign_non_winners') {
+  let buildVariables;
+  if (audience === 'campaign_entrants') {
+    // Every valid, opted-in entrant regardless of win status — unlike
+    // campaign_non_winners, a feedback request goes to winners too.
+    const { data: entryRows, error: entriesError } = await adminClient
+      .from('giveaway_entries')
+      .select('id, whatsapp_number, full_name')
+      .eq('campaign_id', campaignId)
+      .eq('status', 'valid')
+      .eq('marketing_opt_in', true);
+    if (entriesError) return jsonResponse(500, { success: false, error: entriesError.message });
+
+    const phones = [...new Set((entryRows || []).map((e) => e.whatsapp_number))];
+    if (phones.length === 0) {
+      recipients = [];
+    } else {
+      const { data: consentRows, error: consentError } = await adminClient
+        .from('whatsapp_marketing_consent')
+        .select('phone')
+        .eq('opted_in', true)
+        .in('phone', phones);
+      if (consentError) return jsonResponse(500, { success: false, error: consentError.message });
+      const optedInPhones = new Set((consentRows || []).map((c) => c.phone));
+      // One entry per phone is already enforced at signup, so this join is 1:1.
+      recipients = (entryRows || [])
+        .filter((e) => optedInPhones.has(e.whatsapp_number))
+        .map((e) => ({ phone: e.whatsapp_number, entryId: e.id, firstName: (e.full_name || '').trim().split(/\s+/)[0] || 'there' }));
+    }
+
+    const pwaBase = (process.env.PWA_BASE_URL || 'https://julinemart.com').replace(/\/$/, '');
+    buildVariables = (recipient) => [
+      recipient.firstName,
+      campaign.public_title,
+      `${pwaBase}/campaigns/${campaign.slug}/review/${recipient.entryId}`,
+    ];
+  } else if (audience === 'campaign_non_winners') {
     // This campaign's valid entrants who did NOT win, filtered against the
     // durable opt-in list (an entry's own marketing_opt_in flag reflects
     // consent at entry time — this join also respects any opt-out since).
@@ -117,6 +161,7 @@ export async function handler(event) {
   const { sentCount, failedCount } = await sendWhatsAppTemplateToRecipients(recipients, {
     templateName,
     variables,
+    buildVariables,
     broadcastId: broadcast.id,
   });
 

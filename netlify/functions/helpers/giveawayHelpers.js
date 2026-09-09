@@ -191,8 +191,14 @@ export async function recordMarketingOptIn({ phone, email, customerId, source })
  * and the agent-facing marketing.leads.send_whatsapp capability
  * (public-api.js), so the two paths can't drift into different pacing or
  * error-handling behavior over time.
+ *
+ * `variables` is the same array sent to every recipient (the original,
+ * still-default behavior — e.g. "the code just dropped"). Pass
+ * `buildVariables(recipient)` instead when each person needs their own
+ * values — e.g. a feedback-request template whose {{3}} is that entrant's
+ * own review link, which can't be a single shared value.
  */
-export async function sendWhatsAppTemplateToRecipients(recipients, { templateName, variables = [], broadcastId }) {
+export async function sendWhatsAppTemplateToRecipients(recipients, { templateName, variables = [], buildVariables, broadcastId }) {
   let sentCount = 0;
   let failedCount = 0;
 
@@ -201,7 +207,7 @@ export async function sendWhatsAppTemplateToRecipients(recipients, { templateNam
       await sendWhatsAppTemplate({
         to: recipient.phone,
         templateName,
-        variables,
+        variables: buildVariables ? buildVariables(recipient) : variables,
         contactType: 'customer',
         broadcastId,
       });

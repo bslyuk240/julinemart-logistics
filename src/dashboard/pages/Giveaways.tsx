@@ -18,6 +18,7 @@ import { logActivity } from '../lib/logActivity';
 
 type CampaignStatus = 'draft' | 'scheduled' | 'active' | 'paused' | 'expired' | 'archived';
 type WinnerStatus = 'none' | 'selected' | 'contacted' | 'verified' | 'processing' | 'delivered' | 'forfeited';
+type BroadcastAudience = 'opted_in_list' | 'campaign_non_winners' | 'campaign_entrants';
 
 interface GiveawayCampaignRow {
   id: string;
@@ -95,13 +96,22 @@ interface WhatsAppTemplateOption {
 interface BroadcastRow {
   id: string;
   template_name: string;
-  audience: 'opted_in_list' | 'campaign_non_winners';
+  audience: BroadcastAudience;
   status: 'pending' | 'running' | 'completed' | 'failed';
   recipient_count: number;
   sent_count: number;
   failed_count: number;
   started_at: string;
   completed_at: string | null;
+}
+
+interface ReviewRow {
+  id: string;
+  reviewer_name: string;
+  rating: number;
+  body: string;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
 }
 
 interface FormState {
@@ -224,12 +234,16 @@ export function GiveawaysPage() {
   const [optInCount, setOptInCount] = useState<number | null>(null);
   const [broadcastTemplateName, setBroadcastTemplateName] = useState('');
   const [broadcastVariables, setBroadcastVariables] = useState('');
-  const [broadcastAudience, setBroadcastAudience] = useState<'opted_in_list' | 'campaign_non_winners'>('opted_in_list');
+  const [broadcastAudience, setBroadcastAudience] = useState<BroadcastAudience>('opted_in_list');
   const [nonWinnerCount, setNonWinnerCount] = useState<number | null>(null);
+  const [entrantsCount, setEntrantsCount] = useState<number | null>(null);
   const [syncingTemplates, setSyncingTemplates] = useState(false);
   const [redrawModalOpen, setRedrawModalOpen] = useState(false);
   const [redrawReason, setRedrawReason] = useState('');
   const [broadcasting, setBroadcasting] = useState(false);
+
+  const [reviews, setReviews] = useState<ReviewRow[]>([]);
+  const [reviewActioningId, setReviewActioningId] = useState<string | null>(null);
 
   useEffect(() => {
     loadCampaigns();
@@ -410,6 +424,7 @@ export function GiveawaysPage() {
     setBroadcastVariables('');
     setBroadcastAudience('opted_in_list');
     setNonWinnerCount(null);
+    setEntrantsCount(null);
 
     const [
       { data: entryRows, error: entryError },
@@ -417,6 +432,7 @@ export function GiveawaysPage() {
       { data: templateRows, error: templateError },
       { data: broadcastRows, error: broadcastError },
       { count: optInTotal, error: optInError },
+      { data: reviewRows, error: reviewError },
     ] = await Promise.all([
       supabase
         .from('giveaway_entries')
@@ -443,6 +459,11 @@ export function GiveawaysPage() {
         .from('whatsapp_marketing_consent')
         .select('id', { count: 'exact', head: true })
         .eq('opted_in', true),
+      supabase
+        .from('campaign_reviews')
+        .select('id, reviewer_name, rating, body, status, created_at')
+        .eq('campaign_id', campaign.id)
+        .order('created_at', { ascending: false }),
     ]);
 
     if (entryError) notification.error('Failed to load entries', entryError.message);
@@ -450,13 +471,29 @@ export function GiveawaysPage() {
     if (templateError) notification.error('Failed to load WhatsApp templates', templateError.message);
     if (broadcastError) notification.error('Failed to load broadcast history', broadcastError.message);
     if (optInError) notification.error('Failed to load opt-in count', optInError.message);
+    if (reviewError) notification.error('Failed to load reviews', reviewError.message);
 
     setEntries((entryRows || []) as EntryRow[]);
     setDraws((drawRows || []) as DrawRow[]);
     setWhatsappTemplates((templateRows || []) as WhatsAppTemplateOption[]);
     setBroadcasts((broadcastRows || []) as BroadcastRow[]);
     setOptInCount(optInTotal ?? 0);
+    setReviews((reviewRows || []) as ReviewRow[]);
     setEntriesLoading(false);
+  }
+
+  async function setReviewStatus(reviewId: string, status: 'approved' | 'rejected') {
+    setReviewActioningId(reviewId);
+    try {
+      const { error } = await supabase.from('campaign_reviews').update({ status, updated_at: new Date().toISOString() }).eq('id', reviewId);
+      if (error) throw error;
+      setReviews((prev) => prev.map((r) => (r.id === reviewId ? { ...r, status } : r)));
+      await logActivity({ action: 'GIVEAWAY_REVIEW_MODERATE', resource_type: 'campaign_review', resource_id: reviewId, details: { status } });
+    } catch (error: any) {
+      notification.error('Failed to update review', error?.message || 'Unknown error');
+    } finally {
+      setReviewActioningId(null);
+    }
   }
 
   /** Bearer-token call to a JLO Netlify function — same pattern as logActivity.ts. */
@@ -530,17 +567,19 @@ export function GiveawaysPage() {
     return '';
   }
 
-  async function refreshAudiencePreview(campaign: GiveawayCampaignRow, audience: 'opted_in_list' | 'campaign_non_winners') {
-    if (audience !== 'campaign_non_winners') return;
+  async function refreshAudiencePreview(campaign: GiveawayCampaignRow, audience: BroadcastAudience) {
+    if (audience === 'opted_in_list') return;
     try {
       const result = await callAdminFunction('admin-giveaway-broadcast', {
         campaign_id: campaign.id,
         audience,
         preview_only: true,
       });
-      setNonWinnerCount(result.recipientCount);
+      if (audience === 'campaign_non_winners') setNonWinnerCount(result.recipientCount);
+      else setEntrantsCount(result.recipientCount);
     } catch {
-      setNonWinnerCount(null);
+      if (audience === 'campaign_non_winners') setNonWinnerCount(null);
+      else setEntrantsCount(null);
     }
   }
 
@@ -550,18 +589,27 @@ export function GiveawaysPage() {
       notification.error('Choose a template', 'Pick the approved WhatsApp template to send.');
       return;
     }
-    const targetCount = broadcastAudience === 'campaign_non_winners' ? nonWinnerCount : optInCount;
+    const targetCount =
+      broadcastAudience === 'campaign_non_winners' ? nonWinnerCount
+      : broadcastAudience === 'campaign_entrants' ? entrantsCount
+      : optInCount;
     if (!targetCount) {
       notification.error('No recipients', 'There is nobody to send this to right now.');
       return;
     }
-    const audienceLabel = broadcastAudience === 'campaign_non_winners' ? "this campaign's non-winning entrants" : 'the opted-in contact list';
+    const audienceLabel =
+      broadcastAudience === 'campaign_non_winners' ? "this campaign's non-winning entrants"
+      : broadcastAudience === 'campaign_entrants' ? "this campaign's entrants (each gets their own review link)"
+      : 'the opted-in contact list';
     if (!window.confirm(`Send "${broadcastTemplateName}" to ${targetCount} recipient(s) in ${audienceLabel} now? This cannot be undone.`)) {
       return;
     }
 
     setBroadcasting(true);
     try {
+      // Ignored server-side for 'campaign_entrants' — each recipient's
+      // variables are built per-person there (their own review link), a
+      // single shared array from this field can't represent that.
       const variables = broadcastVariables
         .split(',')
         .map((v) => v.trim())
@@ -1035,7 +1083,7 @@ export function GiveawaysPage() {
                         <Send className="w-4 h-4" /> Send WhatsApp broadcast
                       </div>
                       <div className="text-xs text-green-700">
-                        {(broadcastAudience === 'campaign_non_winners' ? nonWinnerCount : optInCount) ?? '—'} recipient(s)
+                        {(broadcastAudience === 'campaign_non_winners' ? nonWinnerCount : broadcastAudience === 'campaign_entrants' ? entrantsCount : optInCount) ?? '—'} recipient(s)
                       </div>
                     </div>
                     <p className="text-xs text-gray-500">
@@ -1047,10 +1095,11 @@ export function GiveawaysPage() {
                       <select
                         className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
                         value={broadcastAudience}
-                        onChange={(e) => setBroadcastAudience(e.target.value as typeof broadcastAudience)}
+                        onChange={(e) => setBroadcastAudience(e.target.value as BroadcastAudience)}
                       >
                         <option value="opted_in_list">All opted-in contacts (e.g. "the code just dropped")</option>
                         <option value="campaign_non_winners">This campaign's non-winning entrants (e.g. "didn't win? here's a reward")</option>
+                        <option value="campaign_entrants">This campaign's entrants — feedback request (each gets their own review link)</option>
                       </select>
                       {broadcastAudience === 'campaign_non_winners' && entriesCampaign.consolation_voucher_id && (
                         <p className="mt-1 text-xs text-gray-500">
@@ -1099,18 +1148,27 @@ export function GiveawaysPage() {
                           ))}
                         </select>
                       </div>
-                      <div>
-                        <label className="text-xs font-medium text-gray-600">Template variables (comma-separated, in order)</label>
-                        <input
-                          className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                          value={broadcastVariables}
-                          onChange={(e) => setBroadcastVariables(e.target.value)}
-                          placeholder={`${entriesCampaign.public_title}, ${entriesCampaign.secret_code || ''}`}
-                        />
-                        <p className="mt-1 text-xs text-gray-500">
-                          Pre-filled from this campaign for known templates — {'{{1}}'} is a generic greeting since one broadcast reaches everyone with the same text, not a real per-recipient name.
-                        </p>
-                      </div>
+                      {broadcastAudience === 'campaign_entrants' ? (
+                        <div>
+                          <label className="text-xs font-medium text-gray-600">Template variables</label>
+                          <div className="mt-1 px-3 py-2 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 bg-gray-50">
+                            Built automatically per recipient — name, campaign title, and their own review link.
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="text-xs font-medium text-gray-600">Template variables (comma-separated, in order)</label>
+                          <input
+                            className="w-full mt-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            value={broadcastVariables}
+                            onChange={(e) => setBroadcastVariables(e.target.value)}
+                            placeholder={`${entriesCampaign.public_title}, ${entriesCampaign.secret_code || ''}`}
+                          />
+                          <p className="mt-1 text-xs text-gray-500">
+                            Pre-filled from this campaign for known templates — {'{{1}}'} is a generic greeting since one broadcast reaches everyone with the same text, not a real per-recipient name.
+                          </p>
+                        </div>
+                      )}
                     </div>
                     <button
                       onClick={handleSendBroadcast}
@@ -1126,8 +1184,57 @@ export function GiveawaysPage() {
                         {broadcasts.map((b) => (
                           <div key={b.id}>
                             {new Date(b.started_at).toLocaleString()} — {b.template_name} — {b.status}
-                            {' '}· {b.audience === 'campaign_non_winners' ? 'non-winners' : 'opt-in list'}
+                            {' '}· {b.audience === 'campaign_non_winners' ? 'non-winners' : b.audience === 'campaign_entrants' ? 'entrants (feedback)' : 'opt-in list'}
                             {' '}· {b.sent_count}/{b.recipient_count} sent, {b.failed_count} failed
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-amber-50 rounded-lg p-4 space-y-3">
+                    <div className="text-sm font-medium text-amber-900">Feedback ({reviews.filter((r) => r.status === 'pending').length} pending)</div>
+                    {reviews.length === 0 ? (
+                      <p className="text-xs text-gray-500">
+                        No reviews yet. Send a "campaign entrants" WhatsApp broadcast above with a feedback-request template to invite them.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {reviews.map((r) => (
+                          <div key={r.id} className="bg-white rounded-lg p-3 border border-amber-100">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-sm font-medium text-gray-900">
+                                {r.reviewer_name} <span className="text-amber-600">{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
+                              </div>
+                              <span
+                                className={`text-xs px-2 py-0.5 rounded-full capitalize ${
+                                  r.status === 'approved' ? 'bg-green-100 text-green-800'
+                                  : r.status === 'rejected' ? 'bg-red-100 text-red-700'
+                                  : 'bg-yellow-100 text-yellow-800'
+                                }`}
+                              >
+                                {r.status}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-700 mt-1">{r.body}</p>
+                            {r.status === 'pending' && (
+                              <div className="flex gap-2 mt-2">
+                                <button
+                                  onClick={() => setReviewStatus(r.id, 'approved')}
+                                  disabled={reviewActioningId === r.id}
+                                  className="px-3 py-1 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                                >
+                                  Approve — show on homepage
+                                </button>
+                                <button
+                                  onClick={() => setReviewStatus(r.id, 'rejected')}
+                                  disabled={reviewActioningId === r.id}
+                                  className="px-3 py-1 text-xs border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

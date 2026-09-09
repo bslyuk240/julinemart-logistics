@@ -178,6 +178,22 @@ function slugify(input: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+/**
+ * DB timestamps are UTC ISO strings; a `datetime-local` input wants a
+ * wall-clock string with no timezone. `.slice(0, 16)` on the raw UTC string
+ * silently treats UTC as if it were already local time — on save,
+ * `new Date(formData.start_date).toISOString()` correctly converts the
+ * entered local time to UTC, but reopening the form without this
+ * conversion shows that UTC value as if it were local, off by the
+ * browser's UTC offset (e.g. 1 hour early in WAT/UTC+1).
+ */
+function toDatetimeLocalValue(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const localMs = d.getTime() - d.getTimezoneOffset() * 60000;
+  return new Date(localMs).toISOString().slice(0, 16);
+}
+
 export function GiveawaysPage() {
   const { user } = useAuth();
   const notification = useNotification();
@@ -287,8 +303,8 @@ export function GiveawaysPage() {
       slug: campaign.slug,
       campaign_objective: campaign.campaign_objective || '',
       status: campaign.status,
-      start_date: campaign.start_date ? campaign.start_date.slice(0, 16) : '',
-      end_date: campaign.end_date ? campaign.end_date.slice(0, 16) : '',
+      start_date: toDatetimeLocalValue(campaign.start_date),
+      end_date: toDatetimeLocalValue(campaign.end_date),
       hero_headline: campaign.hero_config?.headline || '',
       hero_subtitle: campaign.hero_config?.subtitle || '',
       hero_cta_label: campaign.hero_config?.ctaLabel || 'Enter Now',

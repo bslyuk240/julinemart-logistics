@@ -86,6 +86,8 @@ import MobileSettingsWebhooks from './dashboard/mobile/screens/settings/Settings
 import MobileSettingsApi from './dashboard/mobile/screens/settings/SettingsApi';
 import MobileSettingsDatabase from './dashboard/mobile/screens/settings/SettingsDatabase';
 import MobileEmailLogs from './dashboard/mobile/screens/settings/EmailLogs';
+import MobileGiveaways from './dashboard/mobile/screens/Giveaways';
+import MobileAiKnowledge from './dashboard/mobile/screens/AiKnowledge';
 import { useIsMobile } from './dashboard/hooks/useIsMobile';
 import { ActivityLogsPage } from './dashboard/pages/ActivityLogs';
 import { AnalyticsPage } from './dashboard/pages/Analytics';
@@ -157,6 +159,7 @@ import { MetaAdsPage } from './dashboard/pages/MetaAds';
 import { GoogleAdsPage } from './dashboard/pages/GoogleAds';
 import { PWAMonitoringPage } from './dashboard/pages/PWAMonitoring';
 import { ProfilePage } from './dashboard/pages/Profile';
+import { AiKnowledgePage } from './dashboard/pages/AiKnowledge';
 
 // Branch point for the mobile shell: viewport-gated, not user-agent
 // sniffed, so resizing/rotating switches shells live. Desktop's DashboardLayout
@@ -538,6 +541,16 @@ function EmailSettingsRoute() {
   return isMobile ? <Navigate to="/admin/settings/email" replace /> : <EmailSettingsPage />;
 }
 
+function GiveawaysRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileGiveaways /> : <GiveawaysPage />;
+}
+
+function AiKnowledgeRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileAiKnowledge /> : <AiKnowledgePage />;
+}
+
 // Routes accessible by both admin and agent
 const sharedRoutes = [
   { path: '', element: <AdminLanding /> },
@@ -641,7 +654,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'activity-logs', element: <ActivityLogsRoute /> },
   { path: 'vouchers', element: <VouchersRoute /> },
   { path: 'campaigns', element: <CampaignsRoute />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
-  { path: 'giveaways', element: <GiveawaysPage />, allowedRoles: ['admin', 'manager'] },
+  { path: 'giveaways', element: <GiveawaysRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'vendors', element: <VendorsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'seller-verifications', element: <SellerVerificationsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'riders', element: <RidersRoute />, allowedRoles: ['admin', 'manager'] },
@@ -665,6 +678,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'notifications/tokens', element: <PushTokenRegistryRoute /> },
   { path: 'notifications/:id', element: <NotificationDetailsRoute /> },
   { path: 'pwa-monitoring', element: <PWAMonitoringRoute /> },
+  { path: 'ai-knowledge', element: <AiKnowledgeRoute /> },
 ];
 
 const customerChildRoutes = [

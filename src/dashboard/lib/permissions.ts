@@ -35,6 +35,7 @@ import {
   Gift,
   Sparkles,
   Bike,
+  BrainCircuit,
 } from 'lucide-react';
 import type { User } from '../contexts/AuthContext';
 
@@ -178,6 +179,7 @@ export const navigationSections: NavSection[] = [
       { name: 'Settings', href: '/admin/settings', icon: Settings, roles: ['admin'] },
       { name: 'Email', href: '/admin/settings/email', icon: Mail, roles: ['admin'] },
       { name: 'Notifications', href: '/admin/notifications', icon: BellRing, roles: ['admin'] },
+      { name: 'AI Assistant Knowledge', href: '/admin/ai-knowledge', icon: BrainCircuit, roles: ['admin'] },
     ],
   },
 ];

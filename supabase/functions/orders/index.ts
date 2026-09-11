@@ -106,7 +106,9 @@ async function requireStaff(req: Request, supabase: any) {
     .eq("id", userData.user.id)
     .single();
 
-  if (profileError || !profile?.is_active || !["admin", "agent"].includes(profile.role)) {
+  // Keep in sync with the Dashboard/Orders roles in src/dashboard/lib/permissions.ts —
+  // those pages route managers and viewers here, so the backend must allow them too.
+  if (profileError || !profile?.is_active || !["admin", "agent", "manager", "viewer"].includes(profile.role)) {
     return { ok: false, status: 403, error: "forbidden" };
   }
 

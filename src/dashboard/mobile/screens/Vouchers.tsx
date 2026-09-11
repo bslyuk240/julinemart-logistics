@@ -16,6 +16,8 @@ interface CampaignVoucher {
   description: string | null;
   discount_type: 'free' | 'percentage' | 'fixed_amount';
   discount_value: number | null;
+  shipping_discount_type: 'none' | 'percentage' | 'fixed' | 'free';
+  shipping_discount_value: number | null;
   product_ids: string[] | null;
   product_skus: string[] | null;
   vendor_ids: string[] | null;
@@ -48,6 +50,9 @@ interface FormState {
   description: string;
   discount_type: 'free' | 'percentage' | 'fixed_amount';
   discount_value: number | '';
+  apply_shipping_discount: boolean;
+  shipping_discount_type: 'percentage' | 'fixed' | 'free';
+  shipping_discount_value: number | '';
   product_ids: string;
   product_skus: string;
   vendor_ids: string;
@@ -68,6 +73,9 @@ const emptyForm: FormState = {
   description: '',
   discount_type: 'free',
   discount_value: '',
+  apply_shipping_discount: false,
+  shipping_discount_type: 'percentage',
+  shipping_discount_value: '',
   product_ids: '',
   product_skus: '',
   vendor_ids: '',
@@ -99,6 +107,13 @@ function discountLabel(v: CampaignVoucher) {
   if (v.discount_type === 'free') return 'Free product';
   if (v.discount_type === 'percentage') return `${v.discount_value}% off`;
   return formatNaira(v.discount_value || 0);
+}
+
+function shippingDiscountLabel(v: CampaignVoucher) {
+  if (v.shipping_discount_type === 'free') return 'Free shipping';
+  if (v.shipping_discount_type === 'percentage') return `${v.shipping_discount_value}% off shipping`;
+  if (v.shipping_discount_type === 'fixed') return `${formatNaira(v.shipping_discount_value || 0)} off shipping`;
+  return null;
 }
 
 export default function MobileVouchers() {
@@ -154,6 +169,9 @@ export default function MobileVouchers() {
       description: v.description || '',
       discount_type: v.discount_type,
       discount_value: v.discount_value ?? '',
+      apply_shipping_discount: Boolean(v.shipping_discount_type && v.shipping_discount_type !== 'none'),
+      shipping_discount_type: v.shipping_discount_type && v.shipping_discount_type !== 'none' ? v.shipping_discount_type : 'percentage',
+      shipping_discount_value: v.shipping_discount_value ?? '',
       product_ids: (v.product_ids || []).join(', '),
       product_skus: (v.product_skus || []).join(', '),
       vendor_ids: (v.vendor_ids || []).join(', '),
@@ -176,12 +194,23 @@ export default function MobileVouchers() {
       notification.error('Validation', 'Code and campaign name are required');
       return;
     }
+    if (
+      form.apply_shipping_discount &&
+      form.shipping_discount_type !== 'free' &&
+      (!form.shipping_discount_value || Number(form.shipping_discount_value) <= 0)
+    ) {
+      notification.error('Validation', 'Shipping discount value must be greater than 0');
+      return;
+    }
     const payload = {
       code: form.code.trim().toUpperCase(),
       campaign_name: form.campaign_name.trim(),
       description: form.description.trim() || null,
       discount_type: form.discount_type,
       discount_value: form.discount_type === 'free' ? 0 : Number(form.discount_value),
+      shipping_discount_type: form.apply_shipping_discount ? form.shipping_discount_type : 'none',
+      shipping_discount_value:
+        form.apply_shipping_discount && form.shipping_discount_type !== 'free' ? Number(form.shipping_discount_value) : 0,
       product_ids: parseArray(form.product_ids),
       product_skus: parseArray(form.product_skus).map((sku) => sku.toUpperCase()),
       vendor_ids: parseArray(form.vendor_ids),
@@ -319,6 +348,9 @@ export default function MobileVouchers() {
                         {v.status}
                       </span>
                       <span className="text-[10px] text-gray-400">{discountLabel(v)}</span>
+                      {shippingDiscountLabel(v) && (
+                        <span className="text-[10px] text-blue-500">{shippingDiscountLabel(v)}</span>
+                      )}
                       <span className="text-[10px] text-gray-400">
                         {v.current_uses}/{v.max_uses} uses
                       </span>
@@ -347,6 +379,42 @@ export default function MobileVouchers() {
           {form.discount_type !== 'free' && (
             <input type="number" value={form.discount_value} onChange={(e) => setForm((f) => ({ ...f, discount_value: e.target.value === '' ? '' : Number(e.target.value) }))} placeholder="Discount value" className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm" style={{ fontSize: '16px' }} />
           )}
+
+          <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-3 space-y-2">
+            <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+              <input
+                type="checkbox"
+                checked={form.apply_shipping_discount}
+                onChange={(e) => setForm((f) => ({ ...f, apply_shipping_discount: e.target.checked }))}
+                className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              />
+              Also discount shipping cost
+            </label>
+            {form.apply_shipping_discount && (
+              <>
+                <select
+                  value={form.shipping_discount_type}
+                  onChange={(e) => setForm((f) => ({ ...f, shipping_discount_type: e.target.value as FormState['shipping_discount_type'] }))}
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
+                  style={{ fontSize: '16px' }}
+                >
+                  <option value="free">Free shipping (100% off)</option>
+                  <option value="percentage">Percentage off shipping</option>
+                  <option value="fixed">Flat amount off shipping</option>
+                </select>
+                {form.shipping_discount_type !== 'free' && (
+                  <input
+                    type="number"
+                    value={form.shipping_discount_value}
+                    onChange={(e) => setForm((f) => ({ ...f, shipping_discount_value: e.target.value === '' ? '' : Number(e.target.value) }))}
+                    placeholder={form.shipping_discount_type === 'percentage' ? 'Shipping discount %' : 'Shipping discount ₦'}
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
+                    style={{ fontSize: '16px' }}
+                  />
+                )}
+              </>
+            )}
+          </div>
 
           <div>
             <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
@@ -400,7 +468,10 @@ export default function MobileVouchers() {
           <>
             <h3 className="font-mono text-base font-bold">{selected.code}</h3>
             <p className="text-sm text-gray-600">{selected.campaign_name}</p>
-            <p className="text-xs text-gray-500">{discountLabel(selected)} · {selected.current_uses}/{selected.max_uses} uses</p>
+            <p className="text-xs text-gray-500">
+              {discountLabel(selected)}
+              {shippingDiscountLabel(selected) ? ` · ${shippingDiscountLabel(selected)}` : ''} · {selected.current_uses}/{selected.max_uses} uses
+            </p>
             {selected.description && <p className="text-sm text-gray-700">{selected.description}</p>}
             <button
               type="button"

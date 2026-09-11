@@ -17,6 +17,8 @@ interface CampaignVoucher {
   description: string | null;
   discount_type: 'free' | 'percentage' | 'fixed_amount';
   discount_value: number | null;
+  shipping_discount_type: 'none' | 'percentage' | 'fixed' | 'free';
+  shipping_discount_value: number | null;
   product_ids: string[] | null;
   product_skus: string[] | null;
   vendor_ids: string[] | null;
@@ -57,6 +59,9 @@ interface FormState {
   description: string;
   discount_type: 'free' | 'percentage' | 'fixed_amount';
   discount_value: number | '';
+  apply_shipping_discount: boolean;
+  shipping_discount_type: 'percentage' | 'fixed' | 'free';
+  shipping_discount_value: number | '';
   product_ids: string;
   product_skus: string;
   vendor_ids: string;
@@ -77,6 +82,9 @@ const emptyForm: FormState = {
   description: '',
   discount_type: 'free',
   discount_value: '',
+  apply_shipping_discount: false,
+  shipping_discount_type: 'percentage',
+  shipping_discount_value: '',
   product_ids: '',
   product_skus: '',
   vendor_ids: '',
@@ -186,6 +194,11 @@ export function VouchersPage() {
       description: voucher.description || '',
       discount_type: voucher.discount_type,
       discount_value: voucher.discount_value ?? '',
+      apply_shipping_discount: Boolean(voucher.shipping_discount_type && voucher.shipping_discount_type !== 'none'),
+      shipping_discount_type: voucher.shipping_discount_type && voucher.shipping_discount_type !== 'none'
+        ? voucher.shipping_discount_type
+        : 'percentage',
+      shipping_discount_value: voucher.shipping_discount_value ?? '',
       product_ids: (voucher.product_ids || []).join(', '),
       product_skus: (voucher.product_skus || []).join(', '),
       vendor_ids: (voucher.vendor_ids || []).join(', '),
@@ -225,6 +238,15 @@ export function VouchersPage() {
       return;
     }
 
+    if (
+      formData.apply_shipping_discount &&
+      formData.shipping_discount_type !== 'free' &&
+      (!formData.shipping_discount_value || Number(formData.shipping_discount_value) <= 0)
+    ) {
+      notification.error('Validation', 'Shipping discount value must be greater than 0');
+      return;
+    }
+
     const parseArray = (value: string) =>
       value
         .split(',')
@@ -237,6 +259,11 @@ export function VouchersPage() {
       description: formData.description.trim() || null,
       discount_type: formData.discount_type,
       discount_value: formData.discount_type === 'free' ? 0 : Number(formData.discount_value),
+      shipping_discount_type: formData.apply_shipping_discount ? formData.shipping_discount_type : 'none',
+      shipping_discount_value:
+        formData.apply_shipping_discount && formData.shipping_discount_type !== 'free'
+          ? Number(formData.shipping_discount_value)
+          : 0,
       product_ids: parseArray(formData.product_ids),
       product_skus: parseArray(formData.product_skus).map((sku) => sku.toUpperCase()),
       vendor_ids: parseArray(formData.vendor_ids),
@@ -376,6 +403,19 @@ export function VouchersPage() {
     }
   };
 
+  const getShippingDiscountLabel = (voucher: CampaignVoucher) => {
+    switch (voucher.shipping_discount_type) {
+      case 'free':
+        return 'Free shipping';
+      case 'percentage':
+        return `${voucher.shipping_discount_value}% off shipping`;
+      case 'fixed':
+        return `${formatCurrency(voucher.shipping_discount_value || 0)} off shipping`;
+      default:
+        return null;
+    }
+  };
+
   const stats = useMemo(() => {
     const active = vouchers.filter(v => v.status === 'active').length;
     const totalAbsorbed = vouchers.reduce((sum, v) => sum + (v.total_cost_absorbed || 0), 0);
@@ -500,6 +540,11 @@ export function VouchersPage() {
                     <Package className="w-4 h-4" />
                     {getDiscountLabel(voucher)}
                   </div>
+                  {getShippingDiscountLabel(voucher) && (
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">
+                      {getShippingDiscountLabel(voucher)}
+                    </div>
+                  )}
                   {voucher.campaign_id && (
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-medium">
                       <Megaphone className="w-3.5 h-3.5" />
@@ -686,6 +731,58 @@ export function VouchersPage() {
                     />
                   </div>
                 )}
+              </div>
+
+              <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={formData.apply_shipping_discount}
+                    onChange={(e) => setFormData({ ...formData, apply_shipping_discount: e.target.checked })}
+                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  Also discount shipping cost
+                </label>
+
+                {formData.apply_shipping_discount && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Shipping Discount Type
+                      </label>
+                      <select
+                        value={formData.shipping_discount_type}
+                        onChange={(e) => setFormData({ ...formData, shipping_discount_type: e.target.value as any })}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                      >
+                        <option value="free">Free shipping (100% off)</option>
+                        <option value="percentage">Percentage off shipping</option>
+                        <option value="fixed">Flat amount off shipping</option>
+                      </select>
+                    </div>
+
+                    {formData.shipping_discount_type !== 'free' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Shipping Discount Value {formData.shipping_discount_type === 'percentage' ? '(%)' : '(₦)'}
+                        </label>
+                        <input
+                          type="number"
+                          value={formData.shipping_discount_value}
+                          onChange={(e) => setFormData({ ...formData, shipping_discount_value: e.target.value === '' ? '' : Number(e.target.value) })}
+                          placeholder={formData.shipping_discount_type === 'percentage' ? 'e.g., 50' : 'e.g., 500'}
+                          min="0"
+                          step="0.01"
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
+                          required
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-blue-800">
+                  Applies on top of the product discount above, up to 100% of the shipping fee. Leave unchecked to only discount products.
+                </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -924,6 +1021,10 @@ export function VouchersPage() {
                 <div>
                   <p className="text-sm text-gray-600">Discount</p>
                   <p className="font-semibold">{getDiscountLabel(selectedVoucher)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Shipping</p>
+                  <p className="font-semibold">{getShippingDiscountLabel(selectedVoucher) || 'Not discounted'}</p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Usage</p>

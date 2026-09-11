@@ -27,7 +27,9 @@ import {
 } from './services/global-sourcing-utils.js';
 import { checkRateLimit } from './services/rate-limit.js';
 // CJ auto-ordering removed — supplier orders are placed manually via Global Sourcing → Inbound Shipments
-import { computeInfluencerShippingDiscount } from './services/influencer-order-sale.js';
+// Generic percentage/fixed/free shipping-discount calculator — used for both
+// influencer coupons and campaign vouchers (same shipping_discount_type/value shape).
+import { computeInfluencerShippingDiscount as computeShippingDiscount } from './services/influencer-order-sale.js';
 import {
   computeCustomisationAdjustment,
   validateCustomisation,
@@ -332,7 +334,7 @@ export async function handler(event) {
     if (voucher_code?.trim()) {
       const { data: voucher } = await adminClient
         .from('campaign_vouchers')
-        .select('id, code, discount_type, discount_value, max_uses, current_uses, valid_from, valid_until, status, campaign_id')
+        .select('id, code, discount_type, discount_value, shipping_discount_type, shipping_discount_value, max_uses, current_uses, valid_from, valid_until, status, campaign_id')
         .eq('code', voucher_code.trim().toUpperCase())
         .eq('status', 'active')
         .maybeSingle();
@@ -382,7 +384,7 @@ export async function handler(event) {
         });
       }
 
-      influencerShippingDiscount = computeInfluencerShippingDiscount(influencer, shippingFeeBase);
+      influencerShippingDiscount = computeShippingDiscount(influencer, shippingFeeBase);
       influencerMeta = {
         influencer_id: influencer.id,
         coupon_code: influencer.coupon_code,
@@ -391,8 +393,13 @@ export async function handler(event) {
       };
     }
 
+    // Campaign vouchers can also carry a shipping discount (set on the voucher
+    // itself, independent of any influencer coupon) — stacks with the influencer
+    // discount above, capped to the shipping fee itself.
+    const voucherShippingDiscount = voucherRow ? computeShippingDiscount(voucherRow, shippingFeeBase) : 0;
+
     // ── Totals ─────────────────────────────────────────────────────────────
-    const shippingFee = Math.max(shippingFeeBase - influencerShippingDiscount, 0);
+    const shippingFee = Math.max(shippingFeeBase - influencerShippingDiscount - voucherShippingDiscount, 0);
     const totalAmount = Math.max(subtotal - discountAmount + shippingFee, 0);
     const paymentReference = generateRef();
 
@@ -432,6 +439,7 @@ export async function handler(event) {
           : {}),
         metadata: {
           voucher_code: voucherRow ? voucherRow.code : null,
+          voucher_shipping_discount: voucherShippingDiscount,
           source: 'pwa',
           fulfillment_method: isReservation ? 'reservation' : isStorePickup ? 'store_pickup' : 'delivery',
           /** DB webhook skips duplicate confirmation when this is set */
@@ -810,6 +818,7 @@ export async function handler(event) {
         discount_amount: discountAmount,
         shipping_fee: shippingFee,
         influencer_shipping_discount: influencerShippingDiscount,
+        voucher_shipping_discount: voucherShippingDiscount,
         total_amount: totalAmount,
         item_count: resolvedItems.length,
       },

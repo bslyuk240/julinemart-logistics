@@ -3,6 +3,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { checkRateLimit } from '../services/rate-limit.js';
+import { computeInfluencerShippingDiscount as computeShippingDiscount } from '../services/influencer-order-sale.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE_KEY =
@@ -584,6 +585,12 @@ export async function handler(event) {
       Number.isFinite(overrideDiscount) ? overrideDiscount : 0
     );
 
+    // Voucher-level shipping discount (separate from the product discount above) —
+    // computed from the caller's current shipping_cost so the storefront can show
+    // and charge the correct discounted shipping amount.
+    const shippingCostInput = Number(payload.shipping_cost) || 0;
+    const shippingDiscountAmount = computeShippingDiscount(voucher, shippingCostInput);
+
     // ✅ FIXED: Return product_discount instead of shipping_discount
     const responseData = {
       id: voucher.id,
@@ -591,6 +598,9 @@ export async function handler(event) {
       discount_type: voucher.discount_type,
       discount_value: Number(voucher.discount_value ?? financials.discountApplied) || 0,
       product_discount: Number(financials.discountApplied) || 0, // ✅ Product discount
+      shipping_discount_type: voucher.shipping_discount_type || 'none',
+      shipping_discount_value: Number(voucher.shipping_discount_value) || 0,
+      shipping_discount: shippingDiscountAmount, // ₦ amount off the shipping_cost sent in the request
       matching_items_count: itemValidation.matchingItems.length, // ✅ Count of matching items
       total_items_count: items.length, // ✅ Total items in cart
       campaign_name: voucher.campaign_name,

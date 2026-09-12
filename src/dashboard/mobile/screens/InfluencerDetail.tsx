@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Loader } from 'lucide-react';
+import { ArrowLeft, Loader, Send } from 'lucide-react';
 import { useNotification } from '../../contexts/NotificationContext';
 import { PullToRefresh } from '../PullToRefresh';
 import { Sheet } from '../Sheet';
@@ -8,6 +8,7 @@ import { SectionLabel } from '../components/MobileDetailParts';
 import { TABBAR_SPACE } from '../lib/functionsAuth';
 import { formatNaira } from '../lib/displayUtils';
 import { influencerFetch } from '../lib/marketingApi';
+import { vendorPost } from '../lib/vendorApi';
 
 interface Influencer {
   id: string;
@@ -30,6 +31,7 @@ interface Influencer {
   total_shipping_discounts: number;
   last_sale_date: string;
   created_at: string;
+  user_id: string | null;
 }
 
 interface Sale {
@@ -61,6 +63,7 @@ export default function MobileInfluencerDetail() {
   const [payAmount, setPayAmount] = useState('');
   const [payRef, setPayRef] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [inviting, setInviting] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -160,6 +163,30 @@ export default function MobileInfluencerDetail() {
           {pending > 0 && (
             <button type="button" onClick={() => { setPayOpen(true); setPayAmount(String(Math.round(pending))); }} className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white">
               Pay {formatNaira(pending)} commission
+            </button>
+          )}
+
+          {influencer.email && (
+            <button
+              type="button"
+              disabled={inviting}
+              onClick={async () => {
+                setInviting(true);
+                const res = await vendorPost<{ success?: boolean; message?: string; error?: string }>('influencer-invite', {
+                  influencer_id: influencer.id,
+                });
+                setInviting(false);
+                if (res.success) {
+                  notification.success('Invite sent', res.message || 'Influencer invite sent');
+                  load();
+                } else {
+                  notification.error('Invite failed', res.message || res.error || 'Unable to send invite');
+                }
+              }}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-purple-200 bg-purple-50 py-3 text-sm font-semibold text-purple-700 disabled:opacity-50"
+            >
+              {inviting ? <Loader className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {influencer.user_id ? 'Resend Portal Invite' : 'Send Portal Invite'}
             </button>
           )}
 

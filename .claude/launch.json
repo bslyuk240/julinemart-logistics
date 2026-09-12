@@ -30,6 +30,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "C:/Users/user/julinemart-pwa", "run", "dev", "--", "-p", "3002"],
       "port": 3002
+    },
+    {
+      "name": "influencer-portal",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "influencer-portal", "run", "dev"],
+      "port": 5176
     }
   ]
 }

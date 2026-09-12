@@ -3,6 +3,8 @@ const ALLOWED_ORIGINS = [
   'https://jlo.julinemart.com',
   'https://vendors.julinemart.com',
   'https://vendors-julinemart.netlify.app',
+  'https://influencers.julinemart.com',
+  'https://influencers-julinemart.netlify.app',
 ];
 
 export function corsHeaders(requestOrigin) {

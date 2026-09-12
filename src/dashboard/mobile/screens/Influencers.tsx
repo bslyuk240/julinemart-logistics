@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, Loader, Plus, Users } from 'lucide-react';
+import { ChevronRight, Loader, Plus, Send, Users } from 'lucide-react';
 import { useNotification } from '../../contexts/NotificationContext';
 import { PullToRefresh } from '../PullToRefresh';
 import { Sheet } from '../Sheet';
 import { TABBAR_SPACE } from '../lib/functionsAuth';
 import { formatNaira } from '../lib/displayUtils';
 import { fmtNgn, influencerFetch } from '../lib/marketingApi';
+import { vendorPost } from '../lib/vendorApi';
 
 interface Influencer {
   id: string;
@@ -23,6 +24,7 @@ interface Influencer {
   total_sales: number;
   total_commission_earned: number;
   total_commission_paid: number;
+  user_id: string | null;
 }
 
 export default function MobileInfluencers() {
@@ -35,6 +37,7 @@ export default function MobileInfluencers() {
   const [payAmount, setPayAmount] = useState('');
   const [payRef, setPayRef] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [inviting, setInviting] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -180,6 +183,29 @@ export default function MobileInfluencers() {
                         className="mt-2 w-full rounded-lg border border-green-200 bg-green-50 py-2 text-xs font-semibold text-green-700"
                       >
                         Pay {formatNaira(pending)} commission
+                      </button>
+                    )}
+                    {i.email && (
+                      <button
+                        type="button"
+                        disabled={inviting === i.id}
+                        onClick={async () => {
+                          setInviting(i.id);
+                          const res = await vendorPost<{ success?: boolean; message?: string; error?: string }>('influencer-invite', {
+                            influencer_id: i.id,
+                          });
+                          setInviting(null);
+                          if (res.success) {
+                            notification.success('Invite sent', res.message || 'Influencer invite sent');
+                            load();
+                          } else {
+                            notification.error('Invite failed', res.message || res.error || 'Unable to send invite');
+                          }
+                        }}
+                        className="mt-2 flex w-full items-center justify-center gap-1 rounded-lg border border-purple-200 bg-purple-50 py-2 text-xs font-semibold text-purple-700 disabled:opacity-50"
+                      >
+                        {inviting === i.id ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                        {i.user_id ? 'Resend Portal Invite' : 'Send Portal Invite'}
                       </button>
                     )}
                   </div>

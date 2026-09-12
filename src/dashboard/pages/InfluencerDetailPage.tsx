@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Package, DollarSign, Percent } from 'lucide-react';
+import { ArrowLeft, Package, DollarSign, Percent, Send } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 
 interface Influencer {
   id: string;
@@ -23,6 +24,24 @@ interface Influencer {
   total_shipping_discounts: number;
   last_sale_date: string;
   created_at: string;
+  user_id: string | null;
+}
+
+async function getStaffToken() {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token || '';
+}
+
+const JLO_API = import.meta.env.VITE_API_URL || '';
+
+async function inviteInfluencer(influencerId: string) {
+  const token = await getStaffToken();
+  const res = await fetch(`${JLO_API}/.netlify/functions/influencer-invite`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ influencer_id: influencerId }),
+  });
+  return res.json();
 }
 
 interface Sale {
@@ -49,6 +68,8 @@ export default function InfluencerDetailPage() {
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState('this_month');
   const [showEditModal, setShowEditModal] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState<{ msg: string; ok: boolean } | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -207,8 +228,28 @@ export default function InfluencerDetailPage() {
                 Process Payment
               </button>
             )}
+            {influencer.email && (
+              <button
+                onClick={async () => {
+                  setInviting(true);
+                  setInviteMsg(null);
+                  const res = await inviteInfluencer(influencer.id);
+                  setInviteMsg({ msg: res.message || res.error || 'Unknown error', ok: !!res.success });
+                  setInviting(false);
+                  if (res.success) loadData();
+                }}
+                disabled={inviting}
+                className="w-full sm:w-auto px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors inline-flex items-center justify-center gap-1.5"
+              >
+                <Send className="w-4 h-4" />
+                {inviting ? 'Sending…' : influencer.user_id ? 'Resend Portal Invite' : 'Send Portal Invite'}
+              </button>
+            )}
           </div>
         </div>
+        {inviteMsg && (
+          <p className={`mt-2 text-sm ${inviteMsg.ok ? 'text-green-600' : 'text-red-500'}`}>{inviteMsg.msg}</p>
+        )}
 
         {/* Coupon Info */}
         <div className="mt-6 p-4 bg-purple-50 rounded-lg border border-purple-200">

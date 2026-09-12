@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Package, DollarSign, BarChart3, UserX } from 'lucide-react';
+import { Users, Package, DollarSign, BarChart3, UserX, Send } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 
 interface Influencer {
   id: string;
@@ -23,6 +24,24 @@ interface Influencer {
   total_shipping_discounts: number;
   last_sale_date: string;
   created_at: string;
+  user_id: string | null;
+}
+
+async function getStaffToken() {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.access_token || '';
+}
+
+const JLO_API = import.meta.env.VITE_API_URL || '';
+
+async function inviteInfluencer(influencerId: string) {
+  const token = await getStaffToken();
+  const res = await fetch(`${JLO_API}/.netlify/functions/influencer-invite`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ influencer_id: influencerId }),
+  });
+  return res.json();
 }
 
 interface Stats {
@@ -44,6 +63,8 @@ export default function InfluencersPage() {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [payModal, setPayModal] = useState<PayModalState | null>(null);
+  const [inviting, setInviting] = useState<string | null>(null);
+  const [inviteMsg, setInviteMsg] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
   const [stats, setStats] = useState<Stats>({
     total_influencers: 0,
     active_influencers: 0,
@@ -95,6 +116,15 @@ export default function InfluencersPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleInvite(influencerId: string) {
+    setInviting(influencerId);
+    setInviteMsg(null);
+    const res = await inviteInfluencer(influencerId);
+    setInviteMsg({ id: influencerId, msg: res.message || res.error || 'Unknown error', ok: !!res.success });
+    setInviting(null);
+    if (res.success) loadInfluencers();
   }
 
   if (loading) {
@@ -290,7 +320,20 @@ export default function InfluencersPage() {
                           Pay
                         </button>
                       )}
+                      {influencer.email && (
+                        <button
+                          onClick={() => handleInvite(influencer.id)}
+                          disabled={inviting === influencer.id}
+                          className="px-3 py-1.5 text-xs bg-purple-50 text-purple-700 rounded-lg disabled:opacity-50 inline-flex items-center gap-1"
+                        >
+                          <Send className="w-3 h-3" />
+                          {inviting === influencer.id ? 'Sending…' : influencer.user_id ? 'Resend Invite' : 'Send Invite'}
+                        </button>
+                      )}
                     </div>
+                    {inviteMsg?.id === influencer.id && (
+                      <p className={`text-xs mt-2 ${inviteMsg.ok ? 'text-green-600' : 'text-red-500'}`}>{inviteMsg.msg}</p>
+                    )}
                   </div>
                 );
               })}
@@ -333,6 +376,9 @@ export default function InfluencersPage() {
                     influencer={influencer}
                     onViewDetails={() => navigate(`/admin/influencers/${influencer.id}`)}
                     onPay={(pendingAmount) => setPayModal({ influencer, pendingAmount })}
+                    inviting={inviting}
+                    inviteMsg={inviteMsg}
+                    onInvite={handleInvite}
                   />
                 ))}
               </tbody>
@@ -400,10 +446,16 @@ function InfluencerRow({
   influencer,
   onViewDetails,
   onPay,
+  inviting,
+  inviteMsg,
+  onInvite,
 }: {
   influencer: Influencer;
   onViewDetails: () => void;
   onPay: (pendingAmount: number) => void;
+  inviting: string | null;
+  inviteMsg: { id: string; msg: string; ok: boolean } | null;
+  onInvite: (id: string) => void;
 }) {
   const pendingCommission = (influencer.total_commission_earned || 0) - (influencer.total_commission_paid || 0);
 
@@ -528,7 +580,19 @@ function InfluencerRow({
               Pay
             </button>
           )}
+          {influencer.email && (
+            <button
+              onClick={() => onInvite(influencer.id)}
+              disabled={inviting === influencer.id}
+              className="text-purple-600 hover:text-purple-800 text-sm font-medium disabled:opacity-50"
+            >
+              {inviting === influencer.id ? 'Sending…' : influencer.user_id ? 'Resend Invite' : 'Send Invite'}
+            </button>
+          )}
         </div>
+        {inviteMsg?.id === influencer.id && (
+          <p className={`text-xs mt-1 ${inviteMsg.ok ? 'text-green-600' : 'text-red-500'}`}>{inviteMsg.msg}</p>
+        )}
       </td>
     </tr>
   );

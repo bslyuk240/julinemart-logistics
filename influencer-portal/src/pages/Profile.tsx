@@ -1,9 +1,12 @@
 import { useState, FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { LogOut } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { api } from '../lib/api';
 
 export default function Profile() {
-  const { influencer, refreshInfluencer } = useAuth();
+  const { influencer, refreshInfluencer, signOut } = useAuth();
+  const navigate = useNavigate();
   const [form, setForm] = useState({
     phone: influencer?.phone || '',
     platform: influencer?.platform || 'instagram',
@@ -17,6 +20,11 @@ export default function Profile() {
   const [saved, setSaved] = useState(false);
 
   if (!influencer) return null;
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/login');
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -150,6 +158,14 @@ export default function Profile() {
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
       </form>
+
+      <button
+        onClick={handleSignOut}
+        className="lg:hidden flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-medium text-gray-500 hover:bg-red-50 hover:text-red-600 transition-colors border border-gray-200"
+      >
+        <LogOut className="w-4 h-4" />
+        Sign Out
+      </button>
     </div>
   );
 }

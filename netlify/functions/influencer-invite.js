@@ -73,7 +73,7 @@ export const handler = async (event) => {
     };
   }
 
-  const influencerPortalUrl = (process.env.INFLUENCER_PORTAL_URL || 'https://influencers.julinemart.com').replace(/\/+$/, '');
+  const influencerPortalUrl = (process.env.INFLUENCER_PORTAL_URL || 'https://influencer.julinemart.com').replace(/\/+$/, '');
   const redirectTo = `${influencerPortalUrl}/set-password`;
 
   // If already linked, send a password-reset email so they can set/change their password.

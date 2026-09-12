@@ -114,7 +114,7 @@ export async function handler(event) {
 
       try {
         await adminClient.from('ledger_expenses').insert({
-          source: 'influencer_withdrawal',
+          source: 'automatic',
           source_reference: id,
           category: 'marketing',
           subcategory: 'influencer_commission',

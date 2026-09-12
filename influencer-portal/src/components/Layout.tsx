@@ -1,12 +1,13 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Receipt, User, LogOut, Megaphone } from 'lucide-react';
+import { LayoutDashboard, Receipt, Wallet, User, LogOut, Megaphone } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { JulineMartLogo } from './JulineMartLogo';
 
 const nav = [
-  { to: '/',         label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/sales',    label: 'Sales',     icon: Receipt },
-  { to: '/profile',  label: 'Profile',   icon: User },
+  { to: '/',            label: 'Dashboard',   icon: LayoutDashboard },
+  { to: '/sales',       label: 'Sales',       icon: Receipt },
+  { to: '/withdrawals', label: 'Withdrawals', icon: Wallet },
+  { to: '/profile',     label: 'Profile',     icon: User },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {

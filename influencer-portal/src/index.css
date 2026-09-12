@@ -52,6 +52,7 @@
   .badge-purple { @apply bg-primary-100 text-primary-700; }
   .badge-orange { @apply bg-secondary-100 text-secondary-700; }
   .badge-green { @apply bg-green-100 text-green-700; }
+  .badge-red { @apply bg-red-100 text-red-700; }
 
   .brand-gradient {
     background: linear-gradient(135deg, #77088a 0%, #50055d 100%);

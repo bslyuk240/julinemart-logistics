@@ -108,6 +108,7 @@ export const navigationSections: NavSection[] = [
       { name: 'Vendors', href: '/admin/vendors', icon: Store, roles: ['admin', 'manager'] },
       { name: 'Seller Verifications', href: '/admin/seller-verifications', icon: Shield, roles: ['admin', 'manager'] },
       { name: 'Vendor Payouts', href: '/admin/vendor-withdrawals', icon: Wallet, roles: ['admin', 'manager'] },
+      { name: 'Influencer Payouts', href: '/admin/influencer-withdrawals', icon: Wallet, roles: ['admin', 'manager'] },
       { name: 'Vendor Debits', href: '/admin/vendor-debits', icon: AlertCircle, roles: ['admin', 'manager'] },
       { name: 'Vendor Locations', href: '/admin/vendor-locations', icon: MapPin, roles: ['admin', 'manager'] },
     ],

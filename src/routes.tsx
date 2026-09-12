@@ -71,6 +71,7 @@ import MobileVouchers from './dashboard/mobile/screens/Vouchers';
 import MobileShippingDiscounts from './dashboard/mobile/screens/ShippingDiscounts';
 import MobileInfluencers from './dashboard/mobile/screens/Influencers';
 import MobileInfluencerDetail from './dashboard/mobile/screens/InfluencerDetail';
+import MobileInfluencerWithdrawals from './dashboard/mobile/screens/InfluencerWithdrawals';
 import MobileMetaAds from './dashboard/mobile/screens/MetaAds';
 import MobileGoogleAds from './dashboard/mobile/screens/GoogleAds';
 import MobileFinance from './dashboard/mobile/screens/Finance';
@@ -116,6 +117,7 @@ import { HubsPage } from './dashboard/pages/Hubs';
 import { HubDispatchPage } from './dashboard/pages/HubDispatch';
 import InfluencerDetailPage from './dashboard/pages/InfluencerDetailPage.tsx';
 import InfluencersPage from './dashboard/pages/InfluencersPage.tsx';
+import InfluencerWithdrawals from './dashboard/pages/InfluencerWithdrawals';
 import { NotificationDetailsPage } from './dashboard/pages/NotificationDetails';
 import { NotificationsNewPage } from './dashboard/pages/NotificationsNew';
 import { NotificationsPage } from './dashboard/pages/Notifications';
@@ -456,6 +458,11 @@ function InfluencerDetailRoute() {
   return isMobile ? <MobileInfluencerDetail /> : <InfluencerDetailPage />;
 }
 
+function InfluencerWithdrawalsRoute() {
+  const isMobile = useIsMobile();
+  return isMobile ? <MobileInfluencerWithdrawals /> : <InfluencerWithdrawals />;
+}
+
 function MetaAdsRoute() {
   const isMobile = useIsMobile();
   return isMobile ? <MobileMetaAds /> : <MetaAdsPage />;
@@ -638,6 +645,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'google-ads', element: <GoogleAdsRoute />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
   { path: 'influencers', element: <InfluencersRoute /> },
   { path: 'influencers/:id', element: <InfluencerDetailRoute /> },
+  { path: 'influencer-withdrawals', element: <InfluencerWithdrawalsRoute />, allowedRoles: ['admin', 'manager'] },
   { path: 'courier-settings', element: <CourierSettingsRoute /> },
   { path: 'settings', element: <SettingsRoute /> },
   { path: 'settings/global-sourcing', element: <SettingsGlobalSourcingRoute /> },

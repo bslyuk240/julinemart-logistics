@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Loader, Send } from 'lucide-react';
 import { useNotification } from '../../contexts/NotificationContext';
 import { PullToRefresh } from '../PullToRefresh';
-import { Sheet } from '../Sheet';
 import { SectionLabel } from '../components/MobileDetailParts';
 import { TABBAR_SPACE } from '../lib/functionsAuth';
 import { formatNaira } from '../lib/displayUtils';
@@ -59,10 +58,6 @@ export default function MobileInfluencerDetail() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [period, setPeriod] = useState('this_month');
   const [loading, setLoading] = useState(true);
-  const [payOpen, setPayOpen] = useState(false);
-  const [payAmount, setPayAmount] = useState('');
-  const [payRef, setPayRef] = useState('');
-  const [submitting, setSubmitting] = useState(false);
   const [inviting, setInviting] = useState(false);
 
   const load = useCallback(async () => {
@@ -85,27 +80,6 @@ export default function MobileInfluencerDetail() {
   useEffect(() => {
     load();
   }, [load]);
-
-  const pay = async () => {
-    if (!id) return;
-    const amount = Number(payAmount);
-    if (!amount || amount <= 0) return;
-    setSubmitting(true);
-    try {
-      const res = await influencerFetch<{ success?: boolean; error?: string }>(`/influencers/${id}/pay`, {
-        method: 'POST',
-        body: JSON.stringify({ amount, payment_reference: payRef.trim() || undefined }),
-      });
-      if (!res.success) throw new Error(res.error || 'Failed');
-      notification.success('Paid', 'Commission recorded');
-      setPayOpen(false);
-      load();
-    } catch (err) {
-      notification.error('Payment failed', err instanceof Error ? err.message : 'Unable to pay');
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -159,12 +133,6 @@ export default function MobileInfluencerDetail() {
               <p className="text-sm font-bold text-green-700">{formatNaira(pending)}</p>
             </div>
           </div>
-
-          {pending > 0 && (
-            <button type="button" onClick={() => { setPayOpen(true); setPayAmount(String(Math.round(pending))); }} className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white">
-              Pay {formatNaira(pending)} commission
-            </button>
-          )}
 
           {influencer.email && (
             <button
@@ -230,15 +198,6 @@ export default function MobileInfluencerDetail() {
           )}
         </div>
       </PullToRefresh>
-
-      <Sheet open={payOpen} onClose={() => setPayOpen(false)} ariaLabel="Pay commission">
-        <h3 className="text-base font-bold">Record payment</h3>
-        <input type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm" style={{ fontSize: '16px' }} />
-        <input value={payRef} onChange={(e) => setPayRef(e.target.value)} placeholder="Reference (optional)" className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm" style={{ fontSize: '16px' }} />
-        <button type="button" disabled={submitting} onClick={() => void pay()} className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white disabled:opacity-60">
-          {submitting ? 'Saving…' : 'Confirm payment'}
-        </button>
-      </Sheet>
     </>
   );
 }

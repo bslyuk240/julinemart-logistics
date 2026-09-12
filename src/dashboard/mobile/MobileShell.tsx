@@ -63,6 +63,7 @@ const MOBILE_NATIVE_PATHS = new Set([
   '/admin/vouchers',
   '/admin/discounts',
   '/admin/influencers',
+  '/admin/influencer-withdrawals',
   '/admin/meta-ads',
   '/admin/google-ads',
   '/admin/finance',

@@ -5,6 +5,7 @@ import Login from './pages/Login';
 import SetPassword from './pages/SetPassword';
 import Dashboard from './pages/Dashboard';
 import Sales from './pages/Sales';
+import Withdrawals from './pages/Withdrawals';
 import Profile from './pages/Profile';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -37,9 +38,10 @@ function AppRoutes() {
         <PrivateRoute>
           <Layout>
             <Routes>
-              <Route path="/"        element={<Dashboard />} />
-              <Route path="/sales"   element={<Sales />} />
-              <Route path="/profile" element={<Profile />} />
+              <Route path="/"            element={<Dashboard />} />
+              <Route path="/sales"       element={<Sales />} />
+              <Route path="/withdrawals" element={<Withdrawals />} />
+              <Route path="/profile"     element={<Profile />} />
               <Route path="*"        element={<Navigate to="/" replace />} />
             </Routes>
           </Layout>

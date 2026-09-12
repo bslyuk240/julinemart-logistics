@@ -33,9 +33,6 @@ export default function MobileInfluencers() {
   const [rows, setRows] = useState<Influencer[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
-  const [payOpen, setPayOpen] = useState<Influencer | null>(null);
-  const [payAmount, setPayAmount] = useState('');
-  const [payRef, setPayRef] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [inviting, setInviting] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -96,32 +93,6 @@ export default function MobileInfluencers() {
     }
   };
 
-  const pay = async () => {
-    if (!payOpen) return;
-    const amount = Number(payAmount);
-    if (!amount || amount <= 0) {
-      notification.error('Validation', 'Enter a valid amount');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const res = await influencerFetch<{ success?: boolean; error?: string }>(`/influencers/${payOpen.id}/pay`, {
-        method: 'POST',
-        body: JSON.stringify({ amount, payment_reference: payRef.trim() || undefined }),
-      });
-      if (!res.success) throw new Error(res.error || 'Payment failed');
-      notification.success('Paid', 'Commission payment recorded');
-      setPayOpen(null);
-      setPayAmount('');
-      setPayRef('');
-      load();
-    } catch (err) {
-      notification.error('Payment failed', err instanceof Error ? err.message : 'Unable to pay');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
     <>
       <PullToRefresh onRefresh={load}>
@@ -159,7 +130,6 @@ export default function MobileInfluencers() {
           ) : (
             <div className="space-y-2">
               {rows.map((i) => {
-                const pending = i.total_commission_earned - i.total_commission_paid;
                 return (
                   <div key={i.id} className="rounded-xl bg-white p-3 ring-1 ring-gray-100">
                     <button type="button" onClick={() => navigate(`/admin/influencers/${i.id}`)} className="flex w-full items-center gap-3 text-left">
@@ -173,18 +143,6 @@ export default function MobileInfluencers() {
                       </div>
                       <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" />
                     </button>
-                    {pending > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPayOpen(i);
-                          setPayAmount(String(Math.round(pending)));
-                        }}
-                        className="mt-2 w-full rounded-lg border border-green-200 bg-green-50 py-2 text-xs font-semibold text-green-700"
-                      >
-                        Pay {formatNaira(pending)} commission
-                      </button>
-                    )}
                     {i.email && (
                       <button
                         type="button"
@@ -228,19 +186,6 @@ export default function MobileInfluencers() {
         <button type="button" disabled={submitting} onClick={() => void create()} className="mt-3 w-full rounded-xl bg-primary-600 py-3 text-sm font-semibold text-white disabled:opacity-60">
           {submitting ? 'Creating…' : 'Create influencer'}
         </button>
-      </Sheet>
-
-      <Sheet open={!!payOpen} onClose={() => setPayOpen(null)} ariaLabel="Pay commission">
-        {payOpen && (
-          <>
-            <h3 className="text-base font-bold">Pay {payOpen.name}</h3>
-            <input type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="Amount (NGN)" className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm" style={{ fontSize: '16px' }} />
-            <input value={payRef} onChange={(e) => setPayRef(e.target.value)} placeholder="Payment reference (optional)" className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm" style={{ fontSize: '16px' }} />
-            <button type="button" disabled={submitting} onClick={() => void pay()} className="w-full rounded-xl bg-green-600 py-3 text-sm font-semibold text-white disabled:opacity-60">
-              {submitting ? 'Processing…' : 'Record payment'}
-            </button>
-          </>
-        )}
       </Sheet>
     </>
   );

@@ -223,11 +223,6 @@ export default function InfluencerDetailPage() {
                 Terminate Contract
               </button>
             )}
-            {pendingCommission > 0 && (
-              <button className="w-full sm:w-auto px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
-                Process Payment
-              </button>
-            )}
             {influencer.email && (
               <button
                 onClick={async () => {

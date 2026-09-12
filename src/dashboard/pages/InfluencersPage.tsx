@@ -52,17 +52,11 @@ interface Stats {
   avg_order_value: number;
 }
 
-interface PayModalState {
-  influencer: Influencer;
-  pendingAmount: number;
-}
-
 export default function InfluencersPage() {
   const navigate = useNavigate();
   const [influencers, setInfluencers] = useState<Influencer[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [payModal, setPayModal] = useState<PayModalState | null>(null);
   const [inviting, setInviting] = useState<string | null>(null);
   const [inviteMsg, setInviteMsg] = useState<{ id: string; msg: string; ok: boolean } | null>(null);
   const [stats, setStats] = useState<Stats>({
@@ -312,14 +306,6 @@ export default function InfluencersPage() {
                           Terminate
                         </button>
                       )}
-                      {pendingCommission > 0 && (
-                        <button
-                          onClick={() => setPayModal({ influencer, pendingAmount: pendingCommission })}
-                          className="px-3 py-1.5 text-xs bg-green-50 text-green-700 rounded-lg"
-                        >
-                          Pay
-                        </button>
-                      )}
                       {influencer.email && (
                         <button
                           onClick={() => handleInvite(influencer.id)}
@@ -375,7 +361,6 @@ export default function InfluencersPage() {
                     key={influencer.id}
                     influencer={influencer}
                     onViewDetails={() => navigate(`/admin/influencers/${influencer.id}`)}
-                    onPay={(pendingAmount) => setPayModal({ influencer, pendingAmount })}
                     inviting={inviting}
                     inviteMsg={inviteMsg}
                     onInvite={handleInvite}
@@ -399,18 +384,6 @@ export default function InfluencersPage() {
         />
       )}
 
-      {/* Pay Commission Modal */}
-      {payModal && (
-        <PayCommissionModal
-          influencer={payModal.influencer}
-          pendingAmount={payModal.pendingAmount}
-          onClose={() => setPayModal(null)}
-          onSuccess={() => {
-            setPayModal(null);
-            loadInfluencers();
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -445,14 +418,12 @@ function StatCard({ icon, label, value, subtitle, highlight }: {
 function InfluencerRow({
   influencer,
   onViewDetails,
-  onPay,
   inviting,
   inviteMsg,
   onInvite,
 }: {
   influencer: Influencer;
   onViewDetails: () => void;
-  onPay: (pendingAmount: number) => void;
   inviting: string | null;
   inviteMsg: { id: string; msg: string; ok: boolean } | null;
   onInvite: (id: string) => void;
@@ -572,14 +543,6 @@ function InfluencerRow({
               Terminate
             </button>
           )}
-          {pendingCommission > 0 && (
-            <button
-              onClick={() => onPay(pendingCommission)}
-              className="text-green-600 hover:text-green-800 text-sm font-medium"
-            >
-              Pay
-            </button>
-          )}
           {influencer.email && (
             <button
               onClick={() => onInvite(influencer.id)}
@@ -595,136 +558,6 @@ function InfluencerRow({
         )}
       </td>
     </tr>
-  );
-}
-
-// Pay Commission Modal
-function PayCommissionModal({
-  influencer,
-  pendingAmount,
-  onClose,
-  onSuccess,
-}: {
-  influencer: Influencer;
-  pendingAmount: number;
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const [paymentMethod, setPaymentMethod] = useState('bank_transfer');
-  const [paymentReference, setPaymentReference] = useState('');
-  const [notes, setNotes] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  async function handlePay() {
-    setLoading(true);
-    setError('');
-    try {
-      const API_BASE_URL = import.meta.env.VITE_SUPABASE_FUNCTIONS_URL;
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const response = await fetch(`${API_BASE_URL}/influencers/${influencer.id}/pay`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: anonKey,
-          Authorization: `Bearer ${anonKey}`,
-        },
-        body: JSON.stringify({
-          payment_method: paymentMethod,
-          payment_reference: paymentReference.trim() || undefined,
-          notes: notes.trim() || undefined,
-        }),
-      });
-      const result = await response.json();
-      if (!result.success) {
-        setError(result.error || 'Payment failed');
-        return;
-      }
-      onSuccess();
-    } catch {
-      setError('Network error. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-md w-full">
-        <div className="p-6 border-b">
-          <div className="flex justify-between items-center">
-            <h2 className="text-xl font-bold">Pay Commission</h2>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
-          </div>
-        </div>
-
-        <div className="p-6 space-y-4">
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded text-sm">{error}</div>
-          )}
-
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <p className="text-sm text-green-700">Paying commission to</p>
-            <p className="font-bold text-green-900 text-lg">{influencer.name}</p>
-            <p className="text-2xl font-bold text-green-700 mt-1">₦{pendingAmount.toLocaleString()}</p>
-            <p className="text-xs text-green-600 mt-1">Pending commission across all unpaid sales</p>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method</label>
-            <select
-              value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            >
-              <option value="bank_transfer">Bank Transfer</option>
-              <option value="cash">Cash</option>
-              <option value="paystack">Paystack</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Payment Reference (optional)</label>
-            <input
-              type="text"
-              value={paymentReference}
-              onChange={(e) => setPaymentReference(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              placeholder="e.g. bank trnx ID or receipt no."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
-              placeholder="Any additional notes..."
-            />
-          </div>
-        </div>
-
-        <div className="p-6 border-t flex gap-3">
-          <button
-            onClick={onClose}
-            disabled={loading}
-            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handlePay}
-            disabled={loading}
-            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors"
-          >
-            {loading ? 'Processing...' : `Pay ₦${pendingAmount.toLocaleString()}`}
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 

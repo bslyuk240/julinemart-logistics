@@ -37,6 +37,11 @@ export interface SalesPage<T> {
   count: number;
 }
 
+export interface WithdrawalsPage<T> {
+  data: T;
+  available_balance: number;
+}
+
 export const api = {
   getProfile:    ()             => request<any>('influencer-profile'),
   updateProfile: (body: object) => request<any>('influencer-profile', { method: 'PUT', body: JSON.stringify(body) }),
@@ -44,4 +49,10 @@ export const api = {
     const json = await rawRequest(`influencer-my-sales?period=${period}&offset=${offset}`);
     return { data: json.data || [], count: json.count || 0 };
   },
+  getWithdrawals: async (): Promise<WithdrawalsPage<any[]>> => {
+    const json = await rawRequest('influencer-withdrawals');
+    return { data: json.data || [], available_balance: json.available_balance || 0 };
+  },
+  requestWithdrawal: (body: { amount: number; notes?: string }) =>
+    request<any>('influencer-withdrawals', { method: 'POST', body: JSON.stringify(body) }),
 };

@@ -197,10 +197,17 @@ export async function recordMarketingOptIn({ phone, email, customerId, source })
  * `buildVariables(recipient)` instead when each person needs their own
  * values — e.g. a feedback-request template whose {{3}} is that entrant's
  * own review link, which can't be a single shared value.
+ *
+ * `onProgress(sentCount, failedCount)`, if given, fires after every attempt
+ * — the background broadcast function uses this to persist counts to
+ * giveaway_broadcasts incrementally, so a run that dies partway through
+ * (Netlify killing a long-running invocation, a crash) still leaves an
+ * accurate record instead of freezing at whatever the last full-completion
+ * write happened to be — see admin-giveaway-broadcast-background.js.
  */
-export async function sendWhatsAppTemplateToRecipients(recipients, { templateName, variables = [], buildVariables, broadcastId }) {
-  let sentCount = 0;
-  let failedCount = 0;
+export async function sendWhatsAppTemplateToRecipients(recipients, { templateName, variables = [], buildVariables, broadcastId, onProgress, startingSentCount = 0, startingFailedCount = 0 }) {
+  let sentCount = startingSentCount;
+  let failedCount = startingFailedCount;
 
   for (const recipient of recipients) {
     try {
@@ -216,8 +223,128 @@ export async function sendWhatsAppTemplateToRecipients(recipients, { templateNam
       console.error(`Broadcast send failed for ${recipient.phone}:`, error.message);
       failedCount += 1;
     }
+    if (onProgress) await onProgress(sentCount, failedCount);
     await new Promise((resolve) => setTimeout(resolve, 150)); // gentle pacing, not a hard Meta rate-limit calculation
   }
 
   return { sentCount, failedCount, recipientCount: recipients.length };
+}
+
+/**
+ * Resolves who a WhatsApp broadcast should reach for a given audience —
+ * shared by admin-giveaway-broadcast.js (preview + kicking off the
+ * background send) and admin-giveaway-broadcast-background.js (the actual
+ * send), so recipient logic can't drift between the two.
+ */
+export async function resolveBroadcastRecipients(campaign, audience) {
+  if (audience === 'campaign_entrants') {
+    const { data: entryRows, error: entriesError } = await supabase
+      .from('giveaway_entries')
+      .select('id, whatsapp_number, full_name')
+      .eq('campaign_id', campaign.id)
+      .eq('status', 'valid')
+      .eq('marketing_opt_in', true);
+    if (entriesError) throw entriesError;
+
+    const phones = [...new Set((entryRows || []).map((e) => e.whatsapp_number))];
+    if (phones.length === 0) return [];
+
+    const { data: consentRows, error: consentError } = await supabase
+      .from('whatsapp_marketing_consent')
+      .select('phone')
+      .eq('opted_in', true)
+      .in('phone', phones);
+    if (consentError) throw consentError;
+    const optedInPhones = new Set((consentRows || []).map((c) => c.phone));
+
+    return (entryRows || [])
+      .filter((e) => optedInPhones.has(e.whatsapp_number))
+      .map((e) => ({ phone: e.whatsapp_number, entryId: e.id, firstName: (e.full_name || '').trim().split(/\s+/)[0] || 'there' }));
+  }
+
+  if (audience === 'campaign_non_winners') {
+    const { data: entryRows, error: entriesError } = await supabase
+      .from('giveaway_entries')
+      .select('whatsapp_number, customer_id')
+      .eq('campaign_id', campaign.id)
+      .eq('status', 'valid')
+      .eq('marketing_opt_in', true)
+      .neq('winner_status', 'selected')
+      .neq('winner_status', 'contacted')
+      .neq('winner_status', 'verified')
+      .neq('winner_status', 'processing')
+      .neq('winner_status', 'delivered');
+    if (entriesError) throw entriesError;
+
+    const phones = [...new Set((entryRows || []).map((e) => e.whatsapp_number))];
+    if (phones.length === 0) return [];
+
+    const { data: consentRows, error: consentError } = await supabase
+      .from('whatsapp_marketing_consent')
+      .select('phone, customer_id')
+      .eq('opted_in', true)
+      .in('phone', phones);
+    if (consentError) throw consentError;
+    return consentRows || [];
+  }
+
+  const { data: consentRows, error: recipientsError } = await supabase
+    .from('whatsapp_marketing_consent')
+    .select('phone, customer_id')
+    .eq('opted_in', true);
+  if (recipientsError) throw recipientsError;
+  return consentRows || [];
+}
+
+/** Matches resolveBroadcastRecipients — builds each recipient's actual send variables. */
+export function makeBroadcastVariableBuilder(audience, campaign, sharedVariables) {
+  if (audience === 'campaign_entrants') {
+    const pwaBase = (process.env.PWA_BASE_URL || 'https://julinemart.com').replace(/\/$/, '');
+    return (recipient) => [
+      recipient.firstName,
+      campaign.public_title,
+      `${pwaBase}/campaigns/${campaign.slug}/review/${recipient.entryId}`,
+    ];
+  }
+  return () => sharedVariables;
+}
+
+/**
+ * Phones that already got this exact template for this exact campaign and
+ * didn't fail — scoped by campaign_id (via giveaway_broadcasts) and
+ * template_name, not by a time window, so a resumed/retried send after a
+ * partial failure never double-messages someone, while a genuinely
+ * different campaign reusing the same template name is unaffected.
+ * See admin-giveaway-broadcast-background.js — this is what makes retrying
+ * a partially-completed broadcast safe.
+ */
+export async function getAlreadyMessagedPhones(campaignId, templateName) {
+  const { data: broadcastRows, error: broadcastError } = await supabase
+    .from('giveaway_broadcasts')
+    .select('id')
+    .eq('campaign_id', campaignId)
+    .eq('template_name', templateName);
+  if (broadcastError) throw broadcastError;
+  const broadcastIds = (broadcastRows || []).map((b) => b.id);
+  if (broadcastIds.length === 0) return new Set();
+
+  const { data: messageRows, error: messageError } = await supabase
+    .from('internal_whatsapp_messages')
+    .select('thread_id')
+    .in('broadcast_id', broadcastIds)
+    .neq('status', 'failed');
+  if (messageError) throw messageError;
+  const threadIds = [...new Set((messageRows || []).map((m) => m.thread_id))];
+  if (threadIds.length === 0) return new Set();
+
+  const { data: threadRows, error: threadError } = await supabase
+    .from('internal_whatsapp_threads')
+    .select('contact_phone')
+    .in('id', threadIds);
+  if (threadError) throw threadError;
+
+  // contact_phone is stored without '+' (see normalizePhone in
+  // internalWhatsapp.js) — normalize the same way so lookups against
+  // recipient.phone (which does have '+') actually match.
+  return new Set((threadRows || []).map((t) => t.contact_phone));
 }

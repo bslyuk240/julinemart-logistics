@@ -567,6 +567,21 @@ export function GiveawaysPage() {
     return '';
   }
 
+  /** Sends now run in a background function (see admin-giveaway-broadcast-background.js) — this lets the admin poll progress without a full entries reload. */
+  async function refreshBroadcasts() {
+    if (!entriesCampaign) return;
+    const { data, error } = await supabase
+      .from('giveaway_broadcasts')
+      .select('id, template_name, audience, status, recipient_count, sent_count, failed_count, started_at, completed_at')
+      .eq('campaign_id', entriesCampaign.id)
+      .order('started_at', { ascending: false });
+    if (error) {
+      notification.error('Failed to refresh broadcast history', error.message);
+      return;
+    }
+    setBroadcasts((data || []) as BroadcastRow[]);
+  }
+
   async function refreshAudiencePreview(campaign: GiveawayCampaignRow, audience: BroadcastAudience) {
     if (audience === 'opted_in_list') return;
     try {
@@ -621,8 +636,8 @@ export function GiveawaysPage() {
         variables,
       });
       notification.success(
-        'Broadcast sent',
-        `${result.sentCount}/${result.recipientCount} delivered, ${result.failedCount} failed.`
+        'Broadcast started',
+        `Sending to ${result.recipientCount} recipient(s) in the background — refresh Broadcast history below to see progress.`
       );
       await openEntries(entriesCampaign);
     } catch (error: any) {
@@ -1180,7 +1195,17 @@ export function GiveawaysPage() {
 
                     {broadcasts.length > 0 && (
                       <div className="text-xs text-gray-500 space-y-1 pt-1 border-t border-green-100">
-                        <div className="font-medium text-gray-700">Broadcast history</div>
+                        <div className="flex items-center justify-between">
+                          <div className="font-medium text-gray-700">Broadcast history</div>
+                          <button
+                            type="button"
+                            onClick={refreshBroadcasts}
+                            title="Sends run in the background — refresh to see progress"
+                            className="flex items-center gap-1 text-green-700 hover:underline"
+                          >
+                            <RefreshCw className="w-3 h-3" /> Refresh
+                          </button>
+                        </div>
                         {broadcasts.map((b) => (
                           <div key={b.id}>
                             {new Date(b.started_at).toLocaleString()} — {b.template_name} — {b.status}

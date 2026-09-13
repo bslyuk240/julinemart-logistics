@@ -98,7 +98,12 @@ export async function handler(event) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Internal-Secret': process.env.INTERNAL_BROADCAST_SECRET || '',
+      // Reuses the existing ADMIN_SECRET (already load-bearing across
+      // several other internal-trigger functions) rather than a dedicated
+      // new secret — every added env var counts against AWS Lambda's 4KB
+      // per-function environment size cap, which this site is already close
+      // to; see admin-giveaway-broadcast-background.js's own comment.
+      'X-Internal-Secret': process.env.ADMIN_SECRET || '',
     },
     body: JSON.stringify({ broadcastId: broadcast.id, campaignId: campaign.id, audience, templateName, variables }),
   }).catch((error) => console.error('Failed to trigger background broadcast:', error.message));

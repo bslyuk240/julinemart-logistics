@@ -8,6 +8,10 @@
 // Not reachable from the browser: guarded by a shared secret header rather
 // than requireAdmin, since this is only ever invoked server-to-server by
 // admin-giveaway-broadcast.js, which already did the real admin auth check.
+// Reuses ADMIN_SECRET (already used this way by several other functions,
+// e.g. fez-register-webhook.js) rather than a dedicated new env var — see
+// that call site's own comment on why: AWS Lambda's 4KB per-function
+// environment size cap.
 //
 // Two things make this safe to retry after a partial run (which is exactly
 // what happens the moment Netlify kills a long broadcast mid-send):
@@ -29,7 +33,7 @@ export async function handler(event) {
   if (event.httpMethod !== 'POST') return { statusCode: 405, body: '' };
 
   const providedSecret = event.headers?.['x-internal-secret'] || event.headers?.['X-Internal-Secret'];
-  const expectedSecret = process.env.INTERNAL_BROADCAST_SECRET || '';
+  const expectedSecret = process.env.ADMIN_SECRET || '';
   if (!expectedSecret || providedSecret !== expectedSecret) {
     console.error('[admin-giveaway-broadcast-background] rejected: missing/invalid internal secret');
     return { statusCode: 401, body: '' };

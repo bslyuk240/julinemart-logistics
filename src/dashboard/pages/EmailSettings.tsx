@@ -47,7 +47,7 @@ interface EmailConfig {
     resend_api_key: boolean;
     smtp_password: boolean;
   };
-  /** Server sees a valid EMAIL_SECRETS_ENCRYPTION_KEY — if false, DB will store secrets in plaintext */
+  /** Server sees a valid ENCRYPTION_KEY — if false, DB will store secrets in plaintext */
   email_secrets_encryption_active?: boolean;
   /** Env var is non-empty but may be wrong length (see banner) */
   email_secrets_key_env_present?: boolean;

@@ -44,7 +44,10 @@ async function loadEmailHealth(adminClient) {
     provider: null,
     enabled: false,
     secrets_configured: false,
-    encryption_active: envSet('EMAIL_SECRETS_ENCRYPTION_KEY'),
+    // EMAIL_SECRETS_ENCRYPTION_KEY was a leftover, unused var — secretsCrypto.js
+    // (what actually encrypts stored SMTP/webhook secrets) has only ever
+    // read ENCRYPTION_KEY, so that's the real signal here.
+    encryption_active: envSet('ENCRYPTION_KEY'),
   };
 
   if (!adminClient) return out;

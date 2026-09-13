@@ -454,7 +454,7 @@ export default function MobileEmailSettings() {
             {config.email_secrets_encryption_active === false && (
               <div className="flex gap-2 rounded-xl bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-900 ring-1 ring-amber-100">
                 <Shield className="mt-0.5 h-4 w-4 shrink-0" />
-                <p>Email secrets encryption is not active. Set EMAIL_SECRETS_ENCRYPTION_KEY in production.</p>
+                <p>Email secrets encryption is not active. Set ENCRYPTION_KEY in production.</p>
               </div>
             )}
           </div>

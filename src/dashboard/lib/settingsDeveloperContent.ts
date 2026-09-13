@@ -311,7 +311,7 @@ export const ENV_VAR_GROUPS: EnvVarGroup[] = [
     vars: [
       { key: 'EMAIL_PROVIDER', note: 'gmail | sendgrid | smtp — fallback only if no Resend key', serverOnly: true },
       { key: 'RESEND_API_KEY', note: 'Operational mail (orders, bulk). Auth stays on Supabase SMTP.', serverOnly: true },
-      { key: 'EMAIL_SECRETS_ENCRYPTION_KEY', note: 'Encrypt SMTP passwords in DB', serverOnly: true },
+      { key: 'ENCRYPTION_KEY', note: 'Encrypt SMTP passwords in DB (shared with courier credentials)', serverOnly: true },
       { key: 'EMAIL_ENABLED', note: 'Master send toggle', serverOnly: true },
       { key: 'CUSTOMER_PORTAL_URL', note: 'Tracking links in emails' },
       { key: 'VENDOR_PORTAL_URL', note: 'Vendor notification links' },

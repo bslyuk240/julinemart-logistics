@@ -580,8 +580,8 @@ export default function MobileGiveaways() {
         variables,
       });
       notification.success(
-        'Broadcast sent',
-        `${result.sentCount}/${result.recipientCount} delivered, ${result.failedCount} failed.`
+        'Broadcast started',
+        `Sending to ${result.recipientCount} recipient(s) in the background — refresh Broadcast history below to see progress.`
       );
       await openEntries(entriesCampaign);
     } catch (error: any) {

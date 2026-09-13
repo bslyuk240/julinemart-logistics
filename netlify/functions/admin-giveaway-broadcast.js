@@ -1,4 +1,4 @@
-// Admin-triggered: sends a WhatsApp template message to one of three
+// Admin-triggered: kicks off a WhatsApp template broadcast for one of three
 // audiences (body.audience):
 //   'opted_in_list' (default)   — everyone on the cross-campaign opt-in list,
 //                                  e.g. "the secret code just dropped".
@@ -9,24 +9,27 @@
 //                                  regardless of win status, for a feedback
 //                                  request — each recipient's message carries
 //                                  their OWN review link (giveaway_entries.id
-//                                  is the link's access token, see
-//                                  giveaway-get-review-context.js), so this
+//                                  is the link's access token), so this
 //                                  audience always builds per-recipient
 //                                  variables and ignores any admin-supplied
 //                                  `variables` array.
-// Reuses the existing internal WhatsApp send primitive (sendWhatsAppTemplate)
-// rather than a parallel integration — see helpers/giveawayHelpers.js's
-// recordMarketingOptIn for how the opt-in list is built.
+//
+// This function ONLY resolves recipients and hands the actual sending off to
+// admin-giveaway-broadcast-background.js — see that file's own header for
+// why: sending N WhatsApp messages one at a time (paced, so Meta doesn't
+// throttle/flag the account) routinely exceeds Netlify's real execution
+// ceiling for a normal synchronous function once a campaign has more than a
+// couple dozen recipients, which previously showed up to the admin as a bare
+// 504 with the DB left stuck at status='running' forever. A background
+// function has a ~15 minute ceiling instead of ~10-26 seconds.
 //
 // Real prerequisite this cannot satisfy from code: `templateName` must refer
-// to a template that has actually been approved by Meta as MARKETING category
-// (internal_whatsapp_templates.meta_template_status = 'APPROVED'). Template
-// review happens in Meta Business Manager — outside this codebase entirely.
-// This function will fail loudly per-recipient against the real Cloud API if
-// the template isn't approved; it does not pretend to verify that itself.
+// to a template that has actually been approved by Meta as MARKETING (or
+// UTILITY) category. Template review happens in Meta Business Manager —
+// outside this codebase entirely.
 
 import { requireAdmin, headers, jsonResponse, parseJsonBody } from './services/global-sourcing-utils.js';
-import { sendWhatsAppTemplateToRecipients } from './helpers/giveawayHelpers.js';
+import { resolveBroadcastRecipients } from './helpers/giveawayHelpers.js';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
@@ -59,77 +62,10 @@ export async function handler(event) {
   if (!campaign) return jsonResponse(404, { success: false, error: 'Giveaway campaign not found' });
 
   let recipients;
-  let buildVariables;
-  if (audience === 'campaign_entrants') {
-    // Every valid, opted-in entrant regardless of win status — unlike
-    // campaign_non_winners, a feedback request goes to winners too.
-    const { data: entryRows, error: entriesError } = await adminClient
-      .from('giveaway_entries')
-      .select('id, whatsapp_number, full_name')
-      .eq('campaign_id', campaignId)
-      .eq('status', 'valid')
-      .eq('marketing_opt_in', true);
-    if (entriesError) return jsonResponse(500, { success: false, error: entriesError.message });
-
-    const phones = [...new Set((entryRows || []).map((e) => e.whatsapp_number))];
-    if (phones.length === 0) {
-      recipients = [];
-    } else {
-      const { data: consentRows, error: consentError } = await adminClient
-        .from('whatsapp_marketing_consent')
-        .select('phone')
-        .eq('opted_in', true)
-        .in('phone', phones);
-      if (consentError) return jsonResponse(500, { success: false, error: consentError.message });
-      const optedInPhones = new Set((consentRows || []).map((c) => c.phone));
-      // One entry per phone is already enforced at signup, so this join is 1:1.
-      recipients = (entryRows || [])
-        .filter((e) => optedInPhones.has(e.whatsapp_number))
-        .map((e) => ({ phone: e.whatsapp_number, entryId: e.id, firstName: (e.full_name || '').trim().split(/\s+/)[0] || 'there' }));
-    }
-
-    const pwaBase = (process.env.PWA_BASE_URL || 'https://julinemart.com').replace(/\/$/, '');
-    buildVariables = (recipient) => [
-      recipient.firstName,
-      campaign.public_title,
-      `${pwaBase}/campaigns/${campaign.slug}/review/${recipient.entryId}`,
-    ];
-  } else if (audience === 'campaign_non_winners') {
-    // This campaign's valid entrants who did NOT win, filtered against the
-    // durable opt-in list (an entry's own marketing_opt_in flag reflects
-    // consent at entry time — this join also respects any opt-out since).
-    const { data: entryRows, error: entriesError } = await adminClient
-      .from('giveaway_entries')
-      .select('whatsapp_number, customer_id')
-      .eq('campaign_id', campaignId)
-      .eq('status', 'valid')
-      .eq('marketing_opt_in', true)
-      .neq('winner_status', 'selected')
-      .neq('winner_status', 'contacted')
-      .neq('winner_status', 'verified')
-      .neq('winner_status', 'processing')
-      .neq('winner_status', 'delivered');
-    if (entriesError) return jsonResponse(500, { success: false, error: entriesError.message });
-
-    const phones = [...new Set((entryRows || []).map((e) => e.whatsapp_number))];
-    if (phones.length === 0) {
-      recipients = [];
-    } else {
-      const { data: consentRows, error: consentError } = await adminClient
-        .from('whatsapp_marketing_consent')
-        .select('phone, customer_id')
-        .eq('opted_in', true)
-        .in('phone', phones);
-      if (consentError) return jsonResponse(500, { success: false, error: consentError.message });
-      recipients = consentRows || [];
-    }
-  } else {
-    const { data: consentRows, error: recipientsError } = await adminClient
-      .from('whatsapp_marketing_consent')
-      .select('phone, customer_id')
-      .eq('opted_in', true);
-    if (recipientsError) return jsonResponse(500, { success: false, error: recipientsError.message });
-    recipients = consentRows || [];
+  try {
+    recipients = await resolveBroadcastRecipients(campaign, audience);
+  } catch (error) {
+    return jsonResponse(500, { success: false, error: error.message });
   }
 
   const recipientCount = recipients.length;
@@ -146,7 +82,7 @@ export async function handler(event) {
       campaign_id: campaign.id,
       template_name: templateName,
       audience,
-      status: 'running',
+      status: 'pending',
       recipient_count: recipientCount,
       triggered_by: auth.authUser.id,
     })
@@ -154,30 +90,21 @@ export async function handler(event) {
     .single();
   if (broadcastError) return jsonResponse(500, { success: false, error: broadcastError.message });
 
-  // Sequential, not Promise.all — deliberately paced (see
-  // sendWhatsAppTemplateToRecipients) so one admin click can't burst-fire
-  // hundreds of simultaneous Cloud API calls. Shared with the agent-facing
-  // marketing.leads.send_whatsapp capability so the two paths can't diverge.
-  const { sentCount, failedCount } = await sendWhatsAppTemplateToRecipients(recipients, {
-    templateName,
-    variables,
-    buildVariables,
-    broadcastId: broadcast.id,
-  });
-
-  const finalStatus = failedCount === recipientCount ? 'failed' : 'completed';
-  await adminClient
-    .from('giveaway_broadcasts')
-    .update({
-      status: finalStatus,
-      sent_count: sentCount,
-      failed_count: failedCount,
-      completed_at: new Date().toISOString(),
-    })
-    .eq('id', broadcast.id);
+  // Fire-and-forget: Netlify recognizes the "-background" suffix and runs
+  // this as an independent, long-running invocation regardless of how it's
+  // called — we don't await its body, only that the request was accepted.
+  const siteUrl = (process.env.URL || `https://${event.headers?.host || ''}`).replace(/\/$/, '');
+  fetch(`${siteUrl}/.netlify/functions/admin-giveaway-broadcast-background`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Internal-Secret': process.env.INTERNAL_BROADCAST_SECRET || '',
+    },
+    body: JSON.stringify({ broadcastId: broadcast.id, campaignId: campaign.id, audience, templateName, variables }),
+  }).catch((error) => console.error('Failed to trigger background broadcast:', error.message));
 
   return jsonResponse(200, {
     success: true,
-    data: { broadcastId: broadcast.id, recipientCount, sentCount, failedCount, status: finalStatus },
+    data: { broadcastId: broadcast.id, recipientCount, status: 'pending' },
   });
 }

@@ -29,6 +29,13 @@ interface Vendor {
   bank_account_number: string | null;
   bank_account_name: string | null;
   created_at: string;
+  fez_collection_method: string | null;
+  approved_location_id: string | null;
+}
+
+interface DropoffLocation {
+  name: string;
+  address: string;
 }
 
 interface OrderItem {
@@ -236,6 +243,7 @@ export default function VendorDetail() {
   const navigate = useNavigate();
 
   const [vendor, setVendor]               = useState<Vendor | null>(null);
+  const [dropoffLocation, setDropoffLocation] = useState<DropoffLocation | null>(null);
   const [subOrders, setSubOrders]         = useState<SubOrder[]>([]);
   const [summary, setSummary]             = useState<EarningSummary | null>(null);
   const [publishedProducts, setPublished] = useState<number>(0);
@@ -273,6 +281,27 @@ export default function VendorDetail() {
     setPublished(prodCount || 0);
 
     setVendor(v || null);
+
+    // Mirrors resolveSender.js's own fallback for a non-fez_pickup vendor
+    // once no order-specific hub applies: courier_hubs, then the legacy
+    // free-text fez_hub_name/_address. approved_vendor_locations.hub_id is
+    // deliberately not read here — resolveSender.js never consults it either,
+    // only the sub-order's own hub, which varies per order/product and can't
+    // be summarized as one static value on this page.
+    setDropoffLocation(null);
+    if (v?.fez_collection_method !== 'fez_pickup' && v?.approved_location_id) {
+      const { data: loc } = await (supabase as any)
+        .from('approved_vendor_locations')
+        .select('fez_hub_name, fez_hub_address, courier_hubs(name, address)')
+        .eq('id', v.approved_location_id)
+        .maybeSingle();
+
+      if (loc?.courier_hubs?.name) {
+        setDropoffLocation({ name: loc.courier_hubs.name, address: loc.courier_hubs.address || '' });
+      } else if (loc?.fez_hub_name || loc?.fez_hub_address) {
+        setDropoffLocation({ name: loc.fez_hub_name || 'Fez Hub', address: loc.fez_hub_address || '' });
+      }
+    }
 
     const orders: SubOrder[] = (so || []).map((s: any) => ({
       ...s,
@@ -596,6 +625,23 @@ export default function VendorDetail() {
               }}
             />
             <EditableField label="Description"     value={vendor.description}   onSave={v => saveField('description', v)} />
+            <div>
+              <p className="text-xs text-gray-400">Collection Method</p>
+              <p className="text-gray-800">
+                {vendor.fez_collection_method === 'fez_pickup'
+                  ? 'Vendor pickup — Fez collects from the store address'
+                  : vendor.fez_collection_method === 'hub_dropoff'
+                  ? 'Hub drop-off — vendor delivers the parcel to a hub'
+                  : vendor.fez_collection_method || '—'}
+              </p>
+              {vendor.fez_collection_method !== 'fez_pickup' && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {dropoffLocation
+                    ? `Default: ${dropoffLocation.name}${dropoffLocation.address ? ` — ${dropoffLocation.address}` : ''}`
+                    : 'No default drop-off location on file — falls back to whatever hub the order itself is assigned to.'}
+                </p>
+              )}
+            </div>
           </div>
         </div>
 

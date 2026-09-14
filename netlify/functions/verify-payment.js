@@ -31,44 +31,62 @@ export async function handler(event) {
 
   const { payment_reference, paystack_reference } = body;
   if (!payment_reference) return jsonResponse(400, { error: 'payment_reference is required' });
-  if (!PAYSTACK_SECRET_KEY) return jsonResponse(503, { error: 'Paystack not configured' });
+
+  // A 100%-off voucher (or any other path that zeroes the total) leaves
+  // nothing for Paystack to charge — Paystack doesn't support ₦0 transactions
+  // and the checkout/order-detail UIs refuse to even open the popup for one.
+  // Look the order up first so a genuinely free order can confirm itself
+  // without ever touching Paystack, while everything else still requires a
+  // real, verified transaction.
+  const { data: orderForAmountCheck } = await adminClient
+    .from('orders')
+    .select('total_amount')
+    .eq('payment_reference', payment_reference)
+    .maybeSingle();
+
+  const isFreeOrder = orderForAmountCheck && Number(orderForAmountCheck.total_amount) <= 0;
 
   // Use the explicit paystack_reference if provided, otherwise assume the JLO
   // payment_reference was used as the Paystack transaction reference (inline flow).
   const txRef = paystack_reference || payment_reference;
 
-  // ── Verify with Paystack ───────────────────────────────────────────────────
+  // ── Verify with Paystack (skipped entirely for a ₦0 order) ─────────────────
   let pd;
-  try {
-    const res = await fetch(
-      `https://api.paystack.co/transaction/verify/${encodeURIComponent(txRef)}`,
-      { headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` } }
-    );
-    const json = await res.json();
-    pd = json?.data;
+  if (isFreeOrder) {
+    pd = { status: 'success', channel: 'free_order', paid_at: new Date().toISOString(), amount: 0 };
+  } else {
+    if (!PAYSTACK_SECRET_KEY) return jsonResponse(503, { error: 'Paystack not configured' });
+    try {
+      const res = await fetch(
+        `https://api.paystack.co/transaction/verify/${encodeURIComponent(txRef)}`,
+        { headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` } }
+      );
+      const json = await res.json();
+      pd = json?.data;
 
-    if (!json?.status || !pd) {
-      return jsonResponse(400, {
-        success: false,
-        error: 'Payment not confirmed by Paystack',
-        paystack_status: 'unknown',
-        paystack_message: json?.message,
-      });
-    }
+      if (!json?.status || !pd) {
+        return jsonResponse(400, {
+          success: false,
+          error: 'Payment not confirmed by Paystack',
+          paystack_status: 'unknown',
+          paystack_message: json?.message,
+        });
+      }
 
-    if (pd.status !== 'success') {
-      return jsonResponse(400, {
-        success: false,
-        error: pd.status === 'abandoned'
-          ? 'Payment was not completed. Please try again.'
-          : pd.status === 'failed'
-          ? 'Payment failed. Please try a different payment method.'
-          : `Payment not confirmed by Paystack (status: ${pd.status})`,
-        paystack_status: pd.status,
-      });
+      if (pd.status !== 'success') {
+        return jsonResponse(400, {
+          success: false,
+          error: pd.status === 'abandoned'
+            ? 'Payment was not completed. Please try again.'
+            : pd.status === 'failed'
+            ? 'Payment failed. Please try a different payment method.'
+            : `Payment not confirmed by Paystack (status: ${pd.status})`,
+          paystack_status: pd.status,
+        });
+      }
+    } catch (err) {
+      return jsonResponse(502, { success: false, error: 'Failed to reach Paystack', message: err?.message });
     }
-  } catch (err) {
-    return jsonResponse(502, { success: false, error: 'Failed to reach Paystack', message: err?.message });
   }
 
   // ── Update order ───────────────────────────────────────────────────────────

@@ -351,7 +351,13 @@ export async function handler(event) {
         return jsonResponse(400, { error: 'Voucher has reached its usage limit' });
       }
 
-      discountAmount = voucher.discount_type === 'percentage'
+      // 'free' means 100% off the subtotal — Vouchers.tsx labels it "Free (100%
+      // Off)" and always saves discount_value as 0 for it, so it must be its
+      // own case rather than falling into the flat-amount branch below (which
+      // would otherwise discount nothing).
+      discountAmount = voucher.discount_type === 'free'
+        ? subtotal
+        : voucher.discount_type === 'percentage'
         ? Math.round((subtotal * Number(voucher.discount_value)) / 100)
         : Math.min(Number(voucher.discount_value), subtotal);
 

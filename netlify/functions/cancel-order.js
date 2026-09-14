@@ -13,6 +13,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { sendWebhookEvent } from './services/webhookDelivery.js';
+import { releaseVoucherUsage } from './helpers/voucherHelpers.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
@@ -108,7 +109,7 @@ export async function handler(event) {
       .from('orders')
       .select(`
         id, order_number, overall_status, payment_status, payment_reference,
-        total_amount, customer_email, customer_name,
+        total_amount, customer_email, customer_name, metadata,
         sub_orders ( id, status )
       `)
       .eq('id', order_id)
@@ -162,6 +163,13 @@ export async function handler(event) {
       .eq('id', order_id);
 
     if (updateOrderErr) throw updateOrderErr;
+
+    // Give the voucher code back so a cancelled/unpaid order doesn't
+    // permanently burn a limited-use code the customer never got to use.
+    const voucherCode = order.metadata?.voucher_code;
+    if (voucherCode) {
+      await releaseVoucherUsage(supabase, voucherCode);
+    }
 
     // Fire-and-forget — a webhook hiccup should never block cancellation.
     sendWebhookEvent('order.updated', {

@@ -113,6 +113,44 @@ export async function validateVoucher(supabase, couponCode, orderData) {
 }
 
 /**
+ * Give back one use of a voucher when the order that consumed it is
+ * cancelled. create-order.js increments current_uses the moment the order
+ * is created — before payment — so an unpaid or later-cancelled order
+ * permanently burns a low-max-uses code unless we undo that here.
+ * @param {Object} supabase - Supabase client
+ * @param {string} voucherCode - The code stored on the cancelled order
+ */
+export async function releaseVoucherUsage(supabase, voucherCode) {
+  const code = (voucherCode || '').toString().trim().toUpperCase();
+  if (!code) return;
+
+  try {
+    const { data: voucher } = await supabase
+      .from('campaign_vouchers')
+      .select('id, status, current_uses, max_uses, valid_until')
+      .eq('code', code)
+      .maybeSingle();
+
+    if (!voucher || voucher.current_uses <= 0) return;
+
+    const nextUses = voucher.current_uses - 1;
+    const update = { current_uses: nextUses };
+
+    // Only reactivate a voucher the max-uses trigger flipped to 'used' — never
+    // touch one an admin separately paused/disabled, and let the same trigger
+    // re-expire it on this update if valid_until has since passed.
+    if (voucher.status === 'used' && nextUses < voucher.max_uses) {
+      update.status = 'active';
+    }
+
+    await supabase.from('campaign_vouchers').update(update).eq('id', voucher.id);
+    console.log(`↩️ Released one use of voucher: ${code} (${voucher.current_uses} → ${nextUses})`);
+  } catch (error) {
+    console.error('Error releasing voucher usage:', error);
+  }
+}
+
+/**
  * Check if order items match voucher restrictions
  * @param {Object} voucher - Voucher object
  * @param {Array} orderItems - Array of order items

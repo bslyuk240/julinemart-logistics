@@ -1,4 +1,5 @@
 import { sendWebhookEvent } from '../services/webhookDelivery.js';
+import { releaseVoucherUsage } from './voucherHelpers.js';
 
 const STATUS_PRIORITY = {
   pending: 1,
@@ -53,7 +54,7 @@ export async function refreshOverallOrderStatus(supabase, orderId) {
 
   const { data: order } = await supabase
     .from('orders')
-    .select('id, order_number, overall_status')
+    .select('id, order_number, overall_status, metadata')
     .eq('id', orderId)
     .single();
 
@@ -61,6 +62,13 @@ export async function refreshOverallOrderStatus(supabase, orderId) {
 
   if (orderStatus !== order.overall_status) {
     await supabase.from('orders').update({ overall_status: orderStatus }).eq('id', orderId);
+
+    // Same as cancel-order.js: a sub-order flip into cancelled/failed shouldn't
+    // permanently burn a limited-use voucher the order never got to use.
+    if (orderStatus === 'cancelled' && order.overall_status !== 'cancelled') {
+      const voucherCode = order.metadata?.voucher_code;
+      if (voucherCode) await releaseVoucherUsage(supabase, voucherCode);
+    }
 
     // Fire-and-forget — a webhook hiccup should never block the status update.
     sendWebhookEvent('order.updated', {

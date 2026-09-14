@@ -93,7 +93,21 @@ async function getOrCreateThread({ phone, contactName, contactType, vendorId }) 
     .select('*')
     .eq('contact_phone', normalized)
     .maybeSingle();
-  if (existing) return existing;
+  // Backfill a name learned after the thread already existed (e.g. a
+  // broadcast now passes contactName where an earlier one didn't) — never
+  // overwrites a name already on file, just fills in a previously-null one.
+  if (existing) {
+    if (!existing.contact_name && contactName) {
+      const { data: updated, error: updateError } = await supabase
+        .from('internal_whatsapp_threads')
+        .update({ contact_name: contactName })
+        .eq('id', existing.id)
+        .select()
+        .single();
+      if (!updateError && updated) return updated;
+    }
+    return existing;
+  }
 
   const { data: created, error } = await supabase
     .from('internal_whatsapp_threads')

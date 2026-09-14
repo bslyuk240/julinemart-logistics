@@ -216,6 +216,7 @@ export async function sendWhatsAppTemplateToRecipients(recipients, { templateNam
         templateName,
         variables: buildVariables ? buildVariables(recipient) : variables,
         contactType: 'customer',
+        contactName: recipient.fullName || undefined,
         broadcastId,
       });
       sentCount += 1;
@@ -259,13 +260,22 @@ export async function resolveBroadcastRecipients(campaign, audience) {
 
     return (entryRows || [])
       .filter((e) => optedInPhones.has(e.whatsapp_number))
-      .map((e) => ({ phone: e.whatsapp_number, entryId: e.id, firstName: (e.full_name || '').trim().split(/\s+/)[0] || 'there' }));
+      .map((e) => ({
+        phone: e.whatsapp_number,
+        entryId: e.id,
+        fullName: e.full_name || undefined,
+        firstName: (e.full_name || '').trim().split(/\s+/)[0] || 'there',
+      }));
   }
 
   if (audience === 'campaign_non_winners') {
+    // full_name comes along even though the actual audience filter below is
+    // driven by whatsapp_marketing_consent, not this query — so a customer's
+    // real name still reaches the WhatsApp thread (getOrCreateThread) and
+    // templates instead of leaving contact_name null, same as campaign_entrants.
     const { data: entryRows, error: entriesError } = await supabase
       .from('giveaway_entries')
-      .select('whatsapp_number, customer_id')
+      .select('whatsapp_number, customer_id, full_name')
       .eq('campaign_id', campaign.id)
       .eq('status', 'valid')
       .eq('marketing_opt_in', true)
@@ -278,6 +288,7 @@ export async function resolveBroadcastRecipients(campaign, audience) {
 
     const phones = [...new Set((entryRows || []).map((e) => e.whatsapp_number))];
     if (phones.length === 0) return [];
+    const nameByPhone = new Map((entryRows || []).map((e) => [e.whatsapp_number, e.full_name || undefined]));
 
     const { data: consentRows, error: consentError } = await supabase
       .from('whatsapp_marketing_consent')
@@ -285,7 +296,7 @@ export async function resolveBroadcastRecipients(campaign, audience) {
       .eq('opted_in', true)
       .in('phone', phones);
     if (consentError) throw consentError;
-    return consentRows || [];
+    return (consentRows || []).map((c) => ({ ...c, fullName: nameByPhone.get(c.phone) }));
   }
 
   const { data: consentRows, error: recipientsError } = await supabase

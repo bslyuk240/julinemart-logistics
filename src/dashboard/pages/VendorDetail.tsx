@@ -51,6 +51,7 @@ interface SubOrder {
     order_number: number;
     customer_name: string;
     overall_status: string;
+    payment_status: string;
     order_items: OrderItem[];
   } | null;
 }
@@ -258,7 +259,7 @@ export default function VendorDetail() {
       (supabase as any).from('vendors').select('*').eq('id', id).single(),
       (supabase as any)
         .from('sub_orders')
-        .select('id, status, subtotal, allocated_shipping_fee, created_at, main_order:orders(id, order_number, customer_name, overall_status, order_items(id, product_name, product_sku, variation_details, quantity, unit_price))')
+        .select('id, status, subtotal, allocated_shipping_fee, created_at, main_order:orders(id, order_number, customer_name, overall_status, payment_status, order_items(id, product_name, product_sku, variation_details, quantity, unit_price))')
         .eq('vendor_id', id)
         .order('created_at', { ascending: false })
         .limit(50),
@@ -279,10 +280,13 @@ export default function VendorDetail() {
     }));
     setSubOrders(orders);
 
-    // Compute summary
+    // Compute summary — Gross Sales / Net Earnings must match vendor-earnings.js's
+    // own rule (paid orders only). A pending or cancelled/failed sub-order has no
+    // confirmed money behind it yet and shouldn't inflate the vendor's earnings.
     if (orders.length) {
       const rate = v?.commission_rate || 0;
-      const gross = orders.reduce((sum: number, o: SubOrder) => sum + o.subtotal, 0);
+      const paidOrders = orders.filter((o: SubOrder) => o.main_order?.payment_status === 'paid');
+      const gross = paidOrders.reduce((sum: number, o: SubOrder) => sum + o.subtotal, 0);
       const net   = gross * (1 - rate / 100);
       setSummary({
         total_orders:   orders.length,

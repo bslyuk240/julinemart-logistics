@@ -2,6 +2,7 @@
  * Vendor fulfilment routing: JLO hub vs Fez-only locations.
  * Staff always creates Fez shipments; vendors prepare and hand off.
  */
+import { makePrintToken } from '../netlify/functions/services/printToken.js';
 
 export function resolveVendorFulfillment(vendor) {
   if (vendor?.fulfillment_context) return vendor.fulfillment_context;
@@ -76,8 +77,23 @@ export async function sendVendorShipmentReadyEmail(supabase, sendTransactionalEm
   if (ctx.isJloHubVendor) return;
 
   const jloApi = (process.env.JLO_PUBLIC_URL || process.env.URL || 'https://jlo.julinemart.com').replace(/\/+$/, '');
-  const labelUrl = `${jloApi}/.netlify/functions/generate-label?subOrderId=${subOrderId}&print=true`;
   const portalUrl = (process.env.VENDOR_PORTAL_URL || 'https://vendors.julinemart.com').replace(/\/+$/, '');
+
+  // Signed print tokens (see printToken.js) let the vendor open these straight
+  // from the email with no login — generate-label.js/generate-waybill.js
+  // otherwise require a Bearer JWT, which a plain email click can't carry.
+  // If the token secret isn't configured, skip both links rather than let a
+  // thrown error here take down the whole shipment-creation response (the
+  // Fez shipment itself has already been created by this point).
+  let labelUrl = null;
+  let waybillUrl = null;
+  try {
+    labelUrl = `${jloApi}/.netlify/functions/generate-label?subOrderId=${subOrderId}&print=true&token=${makePrintToken(subOrderId, 'label')}`;
+    waybillUrl = `${jloApi}/.netlify/functions/generate-waybill?subOrderId=${subOrderId}&print=true&token=${makePrintToken(subOrderId, 'waybill')}`;
+  } catch (err) {
+    console.warn('[sendVendorShipmentReadyEmail] print token generation failed:', err?.message || err);
+  }
+  if (!labelUrl) return;
 
   const templateName =
     ctx.collectionMethod === 'fez_pickup'
@@ -94,6 +110,7 @@ export async function sendVendorShipmentReadyEmail(supabase, sendTransactionalEm
       tracking_number: trackingNumber || '',
       tracking_url: trackingUrl || '',
       label_url: labelUrl,
+      waybill_url: waybillUrl,
       portal_orders_url: `${portalUrl}/orders`,
       hub_name: ctx.hubName || 'your nearest Fez collection hub',
       hub_address: ctx.hubAddress || '',

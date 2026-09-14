@@ -632,17 +632,19 @@ exports.handler = async (event) => {
   }
 
   try {
-    let subOrderId, returnShipmentId, shipmentId;
+    let subOrderId, returnShipmentId, shipmentId, token;
     if (event.httpMethod === 'GET') {
       const params = new URLSearchParams(event.queryStringParameters || {});
       subOrderId = params.get('subOrderId');
       returnShipmentId = params.get('returnShipmentId');
       shipmentId = params.get('shipmentId');
+      token = params.get('token');
     } else {
       const body = JSON.parse(event.body || '{}');
       subOrderId = body.subOrderId;
       returnShipmentId = body.returnShipmentId;
       shipmentId = body.shipmentId;
+      token = body.token;
     }
 
     if (!subOrderId && !returnShipmentId && !shipmentId) {
@@ -653,7 +655,7 @@ exports.handler = async (event) => {
       };
     }
 
-    const access = await assertWaybillAccess(event, { subOrderId, returnShipmentId, shipmentId });
+    const access = await assertWaybillAccess(event, { subOrderId, returnShipmentId, shipmentId, printToken: token, printDoc: 'waybill' });
     if (!access.ok) {
       return {
         statusCode: access.statusCode,

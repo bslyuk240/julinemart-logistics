@@ -3,6 +3,7 @@
  */
 import { requireAdmin } from './global-sourcing-utils.js';
 import { authenticateVendor, getAdminClient } from './vendorAuth.js';
+import { verifyPrintToken } from './printToken.js';
 
 /** Roles that can list/read shipments and print waybills (viewer is read-only). */
 export const STAFF_READ_ROLES = ['admin', 'agent', 'manager', 'viewer', 'staff', 'shop_manager'];
@@ -86,9 +87,16 @@ export async function assertStaffCanCreateShipment(event) {
 
 /**
  * Waybill access: staff for all types; vendors may only fetch their own sub-order waybills.
+ * A subOrderId request also accepts a signed printToken (see printToken.js) in place of
+ * a Bearer JWT — this is how the vendor's shipment-ready email links (label/waybill) work
+ * without requiring the vendor to be logged in when they click from their inbox.
  * @returns {{ ok: true } | { ok: false, statusCode: number, body: string }}
  */
-export async function assertWaybillAccess(event, { subOrderId, returnShipmentId, shipmentId }) {
+export async function assertWaybillAccess(event, { subOrderId, returnShipmentId, shipmentId, printToken, printDoc }) {
+  if (subOrderId && !returnShipmentId && !shipmentId && verifyPrintToken(subOrderId, printDoc, printToken)) {
+    return { ok: true };
+  }
+
   const authHeader = event.headers?.authorization || event.headers?.Authorization || '';
   if (!authHeader.startsWith('Bearer ')) {
     return unauthorized('Authentication required.');

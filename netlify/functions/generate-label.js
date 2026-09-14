@@ -445,14 +445,17 @@ exports.handler = async (event) => {
   try {
     let subOrderId;
     let shipmentId;
+    let token;
     if (event.httpMethod === 'GET') {
       const params = new URLSearchParams(event.queryStringParameters || {});
       subOrderId = params.get('subOrderId');
       shipmentId = params.get('shipmentId');
+      token = params.get('token');
     } else {
       const body = JSON.parse(event.body || '{}');
       subOrderId = body.subOrderId;
       shipmentId = body.shipmentId;
+      token = body.token;
     }
 
     if (!subOrderId && !shipmentId) {
@@ -463,7 +466,7 @@ exports.handler = async (event) => {
       };
     }
 
-    const access = await assertWaybillAccess(event, { subOrderId, shipmentId });
+    const access = await assertWaybillAccess(event, { subOrderId, shipmentId, printToken: token, printDoc: 'label' });
     if (!access.ok) {
       return {
         statusCode: access.statusCode,

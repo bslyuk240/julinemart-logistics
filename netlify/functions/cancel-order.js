@@ -179,14 +179,23 @@ export async function handler(event) {
       status: 'cancelled',
     }).catch((err) => console.warn('[cancel-order] webhook dispatch failed:', err.message));
 
-    // 5. Cancel all sub_orders that aren't already terminal
+    // 5. Cancel all sub_orders that aren't already terminal.
+    // sub_orders.status is the delivery_status enum, which has no 'cancelled'
+    // member — 'failed' is what it uses for a sub-order that won't be
+    // fulfilled (orderStatusHelper.js's SUB_STATUS_TO_ORDER_STATUS already
+    // maps failed -> the order-level 'cancelled'). Writing the literal
+    // 'cancelled' here throws a Postgres enum error, and since this call's
+    // result was never checked, it failed silently on every cancellation.
     if (subOrders.length > 0) {
       const subIds = subOrders.map((so) => so.id);
-      await supabase
+      const { error: subCancelErr } = await supabase
         .from('sub_orders')
-        .update({ status: 'cancelled' })
+        .update({ status: 'failed' })
         .in('id', subIds)
         .not('status', 'in', '("delivered","returned","failed")');
+      if (subCancelErr) {
+        console.error('cancel-order: failed to cancel sub_orders:', subCancelErr.message);
+      }
     }
 
     // 6. Auto-refund if paid via Paystack

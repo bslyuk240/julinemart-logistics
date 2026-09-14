@@ -2,6 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { loadApprovedLocations, resolveApprovedLocation } from './services/locationResolver.js';
 import { requireAdmin } from './services/global-sourcing-utils.js';
+import { releaseVoucherUsage } from './helpers/voucherHelpers.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -410,6 +411,12 @@ export async function handler(event) {
         };
       }
 
+      const { data: beforeOrder } = await supabase
+        .from('orders')
+        .select('overall_status, metadata')
+        .eq('id', id)
+        .maybeSingle();
+
       const { data, error } = await supabase
         .from('orders')
         .update(updateData)
@@ -417,6 +424,28 @@ export async function handler(event) {
         .select()
         .single();
       if (error) throw error;
+
+      // Mirror cancel-order.js: a staff-side cancellation must cascade to
+      // sub_orders too — vendor-facing pages (vendor-my-orders.js etc.) read
+      // sub_orders.status directly, not orders.overall_status, so leaving it
+      // untouched here made a cancelled order still look active/pending to
+      // the vendor. Also give back any voucher usage, same as every other
+      // path that can cancel an order.
+      if (updateData.overall_status === 'cancelled' && beforeOrder?.overall_status !== 'cancelled') {
+        // sub_orders.status is the delivery_status enum — it has no
+        // 'cancelled' member, only 'failed' (see cancel-order.js).
+        const { error: subCancelErr } = await supabase
+          .from('sub_orders')
+          .update({ status: 'failed' })
+          .eq('main_order_id', id)
+          .not('status', 'in', '("delivered","returned","failed")');
+        if (subCancelErr) {
+          console.error('orders.js status update: failed to cancel sub_orders:', subCancelErr.message);
+        }
+
+        const voucherCode = beforeOrder?.metadata?.voucher_code;
+        if (voucherCode) await releaseVoucherUsage(supabase, voucherCode);
+      }
 
       return {
         statusCode: 200,

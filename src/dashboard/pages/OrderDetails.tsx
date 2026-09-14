@@ -247,6 +247,7 @@ export function OrderDetailsPage() {
   const [subOrders, setSubOrders] = useState<SubOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchingTracking, setFetchingTracking] = useState<Identifier | null>(null);
+  const [resendingVendorEmail, setResendingVendorEmail] = useState<Identifier | null>(null);
   const [showDispatchMenu, setShowDispatchMenu] = useState<Identifier | null>(null);
   const [showRiderModal, setShowRiderModal] = useState<Identifier | null>(null);
   const [riderId, setRiderId] = useState('');
@@ -618,6 +619,34 @@ export function OrderDetailsPage() {
       await openWaybillPrint({ subOrderId: String(subOrderId) });
     } catch (err) {
       notification.error('Waybill failed', err instanceof Error ? err.message : 'Could not open waybill');
+    }
+  };
+
+  // Re-sends the vendor's "shipment created" email (label + waybill links)
+  // using the shipment's existing tracking data — never touches Fez, so this
+  // is safe to click even if the shipment already exists. For cases like a
+  // vendor whose email was skipped when the shipment was first created.
+  const resendVendorEmail = async (subOrderId: Identifier) => {
+    setResendingVendorEmail(subOrderId);
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await fetch(`${functionsBase}/resend-vendor-shipment-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ subOrderId }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to resend vendor email');
+      }
+      notification.success('Email sent', data.message || 'Vendor shipment email re-sent');
+    } catch (err) {
+      notification.error(
+        'Resend failed',
+        err instanceof Error ? err.message : 'Could not resend vendor email'
+      );
+    } finally {
+      setResendingVendorEmail(null);
     }
   };
 
@@ -1260,6 +1289,27 @@ export function OrderDetailsPage() {
                           >
                             <Download className="w-4 h-4 mr-2" />
                             Download Waybill
+                          </button>
+                        )}
+
+                        {/* Resend Vendor Email - Fez shipments only, once real tracking exists */}
+                        {displayTracking && (
+                          <button
+                            onClick={() => resendVendorEmail(subOrder.id)}
+                            disabled={resendingVendorEmail === subOrder.id}
+                            className="btn-secondary text-sm flex items-center"
+                          >
+                            {resendingVendorEmail === subOrder.id ? (
+                              <>
+                                <Loader className="w-4 h-4 mr-2 animate-spin" />
+                                Sending...
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw className="w-4 h-4 mr-2" />
+                                Resend Vendor Email
+                              </>
+                            )}
                           </button>
                         )}
                       </div>

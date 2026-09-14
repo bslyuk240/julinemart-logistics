@@ -123,11 +123,32 @@ async function getOrCreateThread({ phone, contactName, contactType, vendorId }) 
   return created;
 }
 
-/** Fills a template's {{1}}, {{2}}, ... slots with the real values that were actually sent, so stored history reflects what the recipient saw — not the raw pattern. Leaves an unmatched slot as-is rather than blanking it. */
+// Matches both WhatsApp's older positional placeholders ({{1}}, {{2}}) and
+// its newer named ones ({{customer_name}}) — Meta now requires named
+// placeholders (lowercase letters/digits/underscores) for newly-created
+// templates, while every template created before that rollout still uses
+// positional ones. Both forms can coexist across different templates, so
+// this is resolved per-template from its own content, not assumed globally.
+const VARIABLE_TOKEN_RE = /\{\{([a-zA-Z_][a-zA-Z0-9_]*|\d+)\}\}/g;
+
+/** Ordered list of this template's variable tokens, e.g. ["1","2"] or ["customer_name","follow_up_message"]. */
+function templateVariableTokens(body) {
+  const tokens = [];
+  let match;
+  const re = new RegExp(VARIABLE_TOKEN_RE);
+  while ((match = re.exec(body || ''))) tokens.push(match[1]);
+  return tokens;
+}
+
+const isNamedToken = (token) => !/^\d+$/.test(token);
+
+/** Fills a template's {{1}}, {{2}}, ... or {{name}}, {{other_name}}, ... slots with the real values that were actually sent, in order — so stored history reflects what the recipient saw, not the raw pattern. Leaves an unmatched slot as-is rather than blanking it. */
 function substituteTemplateVariables(body, variables = []) {
   if (!body) return body;
-  return body.replace(/\{\{(\d+)\}\}/g, (match, n) => {
-    const value = variables[Number(n) - 1];
+  let i = 0;
+  return body.replace(VARIABLE_TOKEN_RE, (match) => {
+    const value = variables[i];
+    i += 1;
     return value != null ? String(value) : match;
   });
 }
@@ -206,9 +227,19 @@ export async function sendWhatsAppTemplate({ to, templateName, variables = [], l
   // Only relevant if the template itself was created with an image header in
   // WhatsApp Manager — Meta rejects a header component on a template that
   // doesn't have one, so this is opt-in per call, not automatic.
+  const bodyTokens = templateVariableTokens(template.template_content);
+  const bodyParameters = variables.map((v, idx) => {
+    const token = bodyTokens[idx];
+    // A named-parameter template requires parameter_name on each part; a
+    // positional one (the {{1}}, {{2}} templates created before Meta's named-
+    // parameter requirement) must NOT have it, or Meta rejects the send.
+    return token && isNamedToken(token)
+      ? { type: 'text', parameter_name: token, text: String(v) }
+      : { type: 'text', text: String(v) };
+  });
   const components = [
     ...(headerImageUrl ? [{ type: 'header', parameters: [{ type: 'image', image: { link: headerImageUrl } }] }] : []),
-    ...(variables.length ? [{ type: 'body', parameters: variables.map((v) => ({ type: 'text', text: String(v) })) }] : []),
+    ...(bodyParameters.length ? [{ type: 'body', parameters: bodyParameters }] : []),
   ];
 
   try {

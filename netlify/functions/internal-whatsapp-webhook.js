@@ -106,27 +106,24 @@ export async function handler(event) {
         // A message Meta already accepted (and counted as "sent" in a
         // broadcast's summary at send time) can later flip to failed via
         // this async callback — e.g. "User's number is part of an
-        // experiment" only surfaces here, well after the synchronous send
-        // response reported success. Keep giveaway_broadcasts' own counts
-        // honest instead of leaving them frozen at the send-time snapshot.
-        // Guarded on the message's own prior status (not just re-checking
-        // the mapped value) so a duplicate webhook redelivery — Meta retries
-        // aggressively — can't double-decrement.
+        // experiment", or "healthy ecosystem engagement" rejections, only
+        // surface here, often under a second after the synchronous send
+        // response reported success — i.e. almost always while
+        // admin-giveaway-broadcast-background.js's own send loop for that
+        // same broadcast is still running. An atomic +1/-1 delta RPC is
+        // used rather than a read-then-write here specifically because that
+        // background function is writing to the exact same row
+        // concurrently; two absolute-value writers race and silently
+        // clobber each other (confirmed live), two commutative deltas
+        // can't. Guarded on the message's own prior status (not just
+        // re-checking the mapped value) so a duplicate webhook redelivery —
+        // Meta retries aggressively — can't double-decrement.
         if (mapped === 'failed' && existingMessage?.broadcast_id && existingMessage.status !== 'failed') {
-          const { data: broadcast } = await adminClient
-            .from('giveaway_broadcasts')
-            .select('sent_count, failed_count')
-            .eq('id', existingMessage.broadcast_id)
-            .maybeSingle();
-          if (broadcast) {
-            await adminClient
-              .from('giveaway_broadcasts')
-              .update({
-                sent_count: Math.max(0, broadcast.sent_count - 1),
-                failed_count: broadcast.failed_count + 1,
-              })
-              .eq('id', existingMessage.broadcast_id);
-          }
+          await adminClient.rpc('increment_giveaway_broadcast_counts', {
+            p_broadcast_id: existingMessage.broadcast_id,
+            p_sent_delta: -1,
+            p_failed_delta: 1,
+          });
         }
       }
     }

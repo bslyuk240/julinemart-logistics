@@ -13,20 +13,38 @@
 // that call site's own comment on why: AWS Lambda's 4KB per-function
 // environment size cap.
 //
-// Two things make this safe to retry after a partial run (which is exactly
-// what happens the moment Netlify kills a long broadcast mid-send):
+// Three things make this safe to retry after a partial run (which is
+// exactly what happens the moment Netlify kills a long broadcast mid-send)
+// and keep its counts honest even while running:
 //   1. getAlreadyMessagedPhones() skips anyone who already has a
 //      non-failed message for this campaign+template combo, so re-running
 //      the same audience never double-messages someone.
-//   2. Progress (sent_count/failed_count) is written to giveaway_broadcasts
-//      after EVERY send, not once at the end — so even an ungraceful death
-//      leaves an accurate, non-misleading record instead of freezing at
-//      "running" forever.
+//   2. Progress is written via increment_giveaway_broadcast_counts — an
+//      atomic +1 DELTA, not an absolute overwrite — after every send. This
+//      matters because internal-whatsapp-webhook.js reconciles the same
+//      row from a completely separate process the moment Meta's async
+//      delivery-status callback flips a message from "sent" to "failed"
+//      (confirmed live: under a second after the send, i.e. almost always
+//      while this loop is still running). Two absolute-value writers racing
+//      on the same row silently clobber each other; two +1/-1 deltas can't.
+//   3. The final tally is RECOMPUTED from internal_whatsapp_messages (the
+//      real source of truth) rather than trusted from this function's own
+//      local counters, so even a stretch of fast-arriving webhook events
+//      this loop's deltas didn't fully keep up with gets corrected once at
+//      completion.
 
 import { supabase, resolveBroadcastRecipients, makeBroadcastVariableBuilder, getAlreadyMessagedPhones, sendWhatsAppTemplateToRecipients } from './helpers/giveawayHelpers.js';
 
 function normalizePhone(phone) {
   return String(phone || '').replace(/[^\d+]/g, '').replace(/^\+/, '');
+}
+
+async function bumpCounts(broadcastId, sentDelta, failedDelta) {
+  await supabase.rpc('increment_giveaway_broadcast_counts', {
+    p_broadcast_id: broadcastId,
+    p_sent_delta: sentDelta,
+    p_failed_delta: failedDelta,
+  });
 }
 
 export async function handler(event) {
@@ -62,38 +80,46 @@ export async function handler(event) {
     const pendingRecipients = allRecipients.filter((r) => !alreadyMessaged.has(normalizePhone(r.phone)));
     const skippedCount = allRecipients.length - pendingRecipients.length;
 
+    // Safe as a plain SET (not a delta): nothing else writes to this row
+    // before any message has actually been sent, so there's nothing to race.
     await supabase
       .from('giveaway_broadcasts')
       .update({ status: 'running', sent_count: skippedCount, failed_count: 0 })
       .eq('id', broadcastId);
 
-    if (pendingRecipients.length === 0) {
-      await supabase
-        .from('giveaway_broadcasts')
-        .update({ status: 'completed', completed_at: new Date().toISOString() })
-        .eq('id', broadcastId);
-      return { statusCode: 200, body: '' };
+    if (pendingRecipients.length > 0) {
+      const buildVariables = makeBroadcastVariableBuilder(audience, campaign, variables || []);
+
+      await sendWhatsAppTemplateToRecipients(pendingRecipients, {
+        templateName,
+        buildVariables,
+        broadcastId,
+        onAttempt: (succeeded) => bumpCounts(broadcastId, succeeded ? 1 : 0, succeeded ? 0 : 1),
+      });
     }
 
-    const buildVariables = makeBroadcastVariableBuilder(audience, campaign, variables || []);
+    // Definitive recount from the real source of truth — self-heals any
+    // in-flight race the delta-based writes above didn't fully catch up to.
+    const { count: failedFinal } = await supabase
+      .from('internal_whatsapp_messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('broadcast_id', broadcastId)
+      .eq('status', 'failed');
+    const { count: attemptedFinal } = await supabase
+      .from('internal_whatsapp_messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('broadcast_id', broadcastId);
+    const trueFailed = failedFinal || 0;
+    const trueSent = skippedCount + (attemptedFinal || 0) - trueFailed;
 
-    const { sentCount, failedCount } = await sendWhatsAppTemplateToRecipients(pendingRecipients, {
-      templateName,
-      buildVariables,
-      broadcastId,
-      startingSentCount: skippedCount,
-      onProgress: async (currentSent, currentFailed) => {
-        await supabase
-          .from('giveaway_broadcasts')
-          .update({ sent_count: currentSent, failed_count: currentFailed })
-          .eq('id', broadcastId);
-      },
-    });
-
-    const finalStatus = failedCount === allRecipients.length ? 'failed' : 'completed';
     await supabase
       .from('giveaway_broadcasts')
-      .update({ status: finalStatus, sent_count: sentCount, failed_count: failedCount, completed_at: new Date().toISOString() })
+      .update({
+        status: trueFailed === allRecipients.length ? 'failed' : 'completed',
+        sent_count: trueSent,
+        failed_count: trueFailed,
+        completed_at: new Date().toISOString(),
+      })
       .eq('id', broadcastId);
   } catch (error) {
     console.error('[admin-giveaway-broadcast-background] failed:', error.message);

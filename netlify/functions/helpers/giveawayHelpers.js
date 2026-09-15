@@ -198,18 +198,25 @@ export async function recordMarketingOptIn({ phone, email, customerId, source })
  * values — e.g. a feedback-request template whose {{3}} is that entrant's
  * own review link, which can't be a single shared value.
  *
- * `onProgress(sentCount, failedCount)`, if given, fires after every attempt
- * — the background broadcast function uses this to persist counts to
- * giveaway_broadcasts incrementally, so a run that dies partway through
- * (Netlify killing a long-running invocation, a crash) still leaves an
- * accurate record instead of freezing at whatever the last full-completion
- * write happened to be — see admin-giveaway-broadcast-background.js.
+ * `onAttempt(succeeded)`, if given, fires after every attempt with just
+ * that one attempt's outcome — NOT a cumulative total. The background
+ * broadcast function uses this to persist a +1 DELTA to giveaway_broadcasts
+ * (via an atomic increment RPC) rather than overwriting sent_count/
+ * failed_count with an absolute value: Meta's async delivery-status
+ * webhook can flip a message from "sent" to "failed" well under a second
+ * after it was sent — almost always while this loop is still running — and
+ * reconciles the same row from a completely separate process. Two callers
+ * writing absolute "current total" values to the same row will race and
+ * silently clobber each other (confirmed live: a real broadcast showed a
+ * clean sent/0-failed summary while a third of its messages had actually
+ * failed); two callers applying commutative +1/-1 deltas cannot.
  */
-export async function sendWhatsAppTemplateToRecipients(recipients, { templateName, variables = [], buildVariables, broadcastId, onProgress, startingSentCount = 0, startingFailedCount = 0 }) {
-  let sentCount = startingSentCount;
-  let failedCount = startingFailedCount;
+export async function sendWhatsAppTemplateToRecipients(recipients, { templateName, variables = [], buildVariables, broadcastId, onAttempt }) {
+  let sentCount = 0;
+  let failedCount = 0;
 
   for (const recipient of recipients) {
+    let succeeded = true;
     try {
       await sendWhatsAppTemplate({
         to: recipient.phone,
@@ -223,8 +230,9 @@ export async function sendWhatsAppTemplateToRecipients(recipients, { templateNam
     } catch (error) {
       console.error(`Broadcast send failed for ${recipient.phone}:`, error.message);
       failedCount += 1;
+      succeeded = false;
     }
-    if (onProgress) await onProgress(sentCount, failedCount);
+    if (onAttempt) await onAttempt(succeeded);
     await new Promise((resolve) => setTimeout(resolve, 150)); // gentle pacing, not a hard Meta rate-limit calculation
   }
 

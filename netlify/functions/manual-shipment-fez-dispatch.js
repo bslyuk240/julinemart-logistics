@@ -137,7 +137,7 @@ exports.handler = async (event) => {
       itemDescription: shipment.item_description || 'Package',
       valueOfItem: String(shipment.item_value || 0),
       weight: Math.max(1, Math.round(Number(shipment.item_weight) || 1)),
-      additionalDetails: `Manual shipment: ${shipment.shipment_code}`,
+      additionalDetails: `Manual shipment: ${shipment.shipment_code}${sender.phone ? `, Phone: ${sender.phone}` : ''}`,
     };
 
     const auth = await authenticateFez(supabase);

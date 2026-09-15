@@ -310,8 +310,8 @@ exports.handler = async (event) => {
       pickUpAddress: sender.address,
       pickUpState: sender.state,
       additionalDetails: sender.kind === 'vendor_pickup'
-        ? `Vendor pickup: ${sender.city} — ${sender.address}`
-        : `Hub: ${sender.name}, ${sender.city}`,
+        ? `Vendor pickup: ${sender.city} — ${sender.address}, Phone: ${sender.phone || 'N/A'}`
+        : `Hub: ${sender.name}, ${sender.city}${sender.phone ? `, Phone: ${sender.phone}` : ''}`,
     };
 
     console.log("SHIPMENT DATA TO SEND:", JSON.stringify(shipmentData, null, 2));

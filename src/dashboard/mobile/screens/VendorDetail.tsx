@@ -59,6 +59,7 @@ interface SubOrder {
     id: string;
     order_number: number;
     customer_name: string;
+    payment_status: string;
     order_items: OrderItem[];
   } | null;
 }
@@ -102,7 +103,7 @@ export default function MobileVendorDetail() {
       (supabase as any)
         .from('sub_orders')
         .select(
-          'id, status, subtotal, created_at, main_order:orders(id, order_number, customer_name, order_items(id, product_name, quantity, unit_price))',
+          'id, status, subtotal, created_at, main_order:orders(id, order_number, customer_name, payment_status, order_items(id, product_name, quantity, unit_price))',
         )
         .eq('vendor_id', id)
         .order('created_at', { ascending: false })
@@ -128,7 +129,12 @@ export default function MobileVendorDetail() {
     load();
   }, [load]);
 
-  const gross = subOrders.reduce((s, o) => s + o.subtotal, 0);
+  // Gross/Net must match vendor-earnings.js's own rule (paid orders only) —
+  // see the same fix on the desktop VendorDetail.tsx: a pending or
+  // cancelled/failed sub-order has no confirmed money behind it yet and
+  // shouldn't inflate the vendor's earnings.
+  const paidSubOrders = subOrders.filter((o) => o.main_order?.payment_status === 'paid');
+  const gross = paidSubOrders.reduce((s, o) => s + o.subtotal, 0);
   const rate = vendor?.commission_rate || 0;
   const net = gross * (1 - rate / 100);
 

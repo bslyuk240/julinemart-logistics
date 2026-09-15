@@ -280,9 +280,9 @@ export default function MobileGiveaways() {
   }, []);
 
   useEffect(() => {
-    if (entriesCampaign) refreshAudiencePreview(entriesCampaign, broadcastAudience);
+    if (entriesCampaign) refreshAudiencePreview(entriesCampaign, broadcastAudience, broadcastTemplateName);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entriesCampaign, broadcastAudience]);
+  }, [entriesCampaign, broadcastAudience, broadcastTemplateName]);
 
   function openCreate() {
     setEditingId(null);
@@ -529,12 +529,13 @@ export default function MobileGiveaways() {
     return '';
   }
 
-  async function refreshAudiencePreview(campaign: GiveawayCampaignRow, audience: BroadcastAudience) {
+  async function refreshAudiencePreview(campaign: GiveawayCampaignRow, audience: BroadcastAudience, templateName: string) {
     if (audience === 'opted_in_list') return;
     try {
       const result = await callAdminFunction('admin-giveaway-broadcast', {
         campaign_id: campaign.id,
         audience,
+        template_name: templateName || undefined,
         preview_only: true,
       });
       if (audience === 'campaign_non_winners') setNonWinnerCount(result.recipientCount);

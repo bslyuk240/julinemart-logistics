@@ -29,7 +29,14 @@
 // outside this codebase entirely.
 
 import { requireAdmin, headers, jsonResponse, parseJsonBody } from './services/global-sourcing-utils.js';
-import { resolveBroadcastRecipients } from './helpers/giveawayHelpers.js';
+import { resolveBroadcastRecipients, getAlreadyMessagedPhones } from './helpers/giveawayHelpers.js';
+
+// Mirrors admin-giveaway-broadcast-background.js's own normalizePhone: strips
+// everything but digits/plus, then drops the leading '+', matching how
+// contact_phone is stored (see getAlreadyMessagedPhones's own comment).
+function normalizePhone(phone) {
+  return String(phone || '').replace(/[^\d+]/g, '').replace(/^\+/, '');
+}
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
@@ -68,7 +75,24 @@ export async function handler(event) {
     return jsonResponse(500, { success: false, error: error.message });
   }
 
-  const recipientCount = recipients.length;
+  // Once a template is known, exclude anyone who already got this exact
+  // template for this campaign and didn't fail — otherwise a retry aimed at
+  // only the recipients who previously failed would preview/record the full
+  // eligible audience (e.g. 61) instead of the true pending count (e.g. 32),
+  // making the eventual "X/61 sent" tally look like real recipients were
+  // dropped when they were actually already-successful sends being
+  // correctly skipped by getAlreadyMessagedPhones downstream.
+  let pendingCount = recipients.length;
+  if (templateName) {
+    try {
+      const alreadyMessaged = await getAlreadyMessagedPhones(campaignId, templateName);
+      pendingCount = recipients.filter((r) => !alreadyMessaged.has(normalizePhone(r.phone))).length;
+    } catch (error) {
+      return jsonResponse(500, { success: false, error: error.message });
+    }
+  }
+
+  const recipientCount = pendingCount;
   if (previewOnly) {
     return jsonResponse(200, { success: true, data: { recipientCount } });
   }

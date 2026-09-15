@@ -182,6 +182,7 @@ export default function MobileOrderDetails() {
   const [subOrders, setSubOrders] = useState<SubOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchingTracking, setFetchingTracking] = useState<Identifier | null>(null);
+  const [resendingVendorEmail, setResendingVendorEmail] = useState<Identifier | null>(null);
   const [statusUpdating, setStatusUpdating] = useState<Identifier | null>(null);
   const [dispatchTarget, setDispatchTarget] = useState<SubOrder | null>(null);
   const [riderTarget, setRiderTarget] = useState<Identifier | null>(null);
@@ -323,6 +324,31 @@ export default function MobileOrderDetails() {
       notification.error('Error', 'Failed to fetch live tracking');
     } finally {
       setFetchingTracking(null);
+    }
+  };
+
+  // Re-sends the vendor's "shipment created" email (label + waybill links)
+  // using the shipment's existing tracking data — never touches Fez, so this
+  // is safe to click even if the shipment already exists. Mirrors the
+  // desktop OrderDetails.tsx action of the same name.
+  const resendVendorEmail = async (subOrderId: Identifier) => {
+    setResendingVendorEmail(subOrderId);
+    try {
+      const authHeaders = await getAuthHeaders();
+      const response = await fetch(`${functionsBase}/resend-vendor-shipment-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ subOrderId }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to resend vendor email');
+      }
+      notification.success('Email sent', data.message || 'Vendor shipment email re-sent');
+    } catch (err) {
+      notification.error('Resend failed', err instanceof Error ? err.message : 'Could not resend vendor email');
+    } finally {
+      setResendingVendorEmail(null);
     }
   };
 
@@ -572,6 +598,17 @@ export default function MobileOrderDetails() {
                     <button type="button" onClick={() => printWaybill(subOrder.id)} className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2.5 text-xs font-semibold text-gray-900">
                       <Download className="h-3.5 w-3.5" />
                       Waybill
+                    </button>
+                  )}
+                  {displayTracking && (
+                    <button
+                      type="button"
+                      onClick={() => resendVendorEmail(subOrder.id)}
+                      disabled={resendingVendorEmail === subOrder.id}
+                      className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2.5 text-xs font-semibold text-gray-900 disabled:opacity-60"
+                    >
+                      {resendingVendorEmail === subOrder.id ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                      Resend Vendor Email
                     </button>
                   )}
                 </div>

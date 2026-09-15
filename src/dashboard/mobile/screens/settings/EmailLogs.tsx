@@ -26,6 +26,32 @@ import { fetchEmailLogs, type EmailLogRow } from '../../lib/settingsApi';
 
 type StatusFilter = 'all' | 'sent' | 'failed';
 
+// Same classification as the desktop EmailSettings.tsx Logs tab (9b2fd52):
+// the Resend webhook can move a row from 'sent' to 'delivered', 'bounced',
+// 'complained' or 'delayed' after the fact — treating only 'sent' as
+// success showed already-delivered mail as a red "Failed".
+const LOG_STATUS_DISPLAY: Record<
+  EmailLogRow['status'],
+  { icon: typeof CheckCircle; tone: 'ok' | 'bad' | 'warn'; iconBg: string; label: string }
+> = {
+  delivered: { icon: CheckCircle, tone: 'ok', iconBg: 'bg-emerald-50 text-emerald-600', label: 'Delivered' },
+  sent: { icon: CheckCircle, tone: 'ok', iconBg: 'bg-emerald-50 text-emerald-600', label: 'Sent' },
+  delayed: { icon: AlertCircle, tone: 'warn', iconBg: 'bg-amber-50 text-amber-600', label: 'Delayed' },
+  bounced: { icon: XCircle, tone: 'bad', iconBg: 'bg-red-50 text-red-600', label: 'Bounced' },
+  complained: { icon: XCircle, tone: 'bad', iconBg: 'bg-red-50 text-red-600', label: 'Marked as spam' },
+  failed: { icon: XCircle, tone: 'bad', iconBg: 'bg-red-50 text-red-600', label: 'Failed' },
+};
+
+function statusDisplay(status: EmailLogRow['status']) {
+  return LOG_STATUS_DISPLAY[status] ?? LOG_STATUS_DISPLAY.failed;
+}
+
+// 'delayed' is neither a confirmed success nor failure yet, so it's left
+// out of both filter tabs (still visible under "All") — same ambiguity the
+// desktop page leaves unresolved rather than force it into one bucket.
+const SENT_LIKE = new Set<EmailLogRow['status']>(['sent', 'delivered']);
+const FAILED_LIKE = new Set<EmailLogRow['status']>(['failed', 'bounced', 'complained']);
+
 function formatWhen(iso: string) {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
@@ -94,11 +120,12 @@ export default function MobileEmailLogs() {
 
   const filtered = useMemo(() => {
     if (filter === 'all') return rows;
-    return rows.filter((r) => r.status === filter);
+    if (filter === 'sent') return rows.filter((r) => SENT_LIKE.has(r.status));
+    return rows.filter((r) => FAILED_LIKE.has(r.status));
   }, [filter, rows]);
 
-  const sentCount = rows.filter((r) => r.status === 'sent').length;
-  const failedCount = rows.filter((r) => r.status === 'failed').length;
+  const sentCount = rows.filter((r) => SENT_LIKE.has(r.status)).length;
+  const failedCount = rows.filter((r) => FAILED_LIKE.has(r.status)).length;
   const groups = useMemo(() => groupByDate(filtered), [filtered]);
 
   const filters: { key: StatusFilter; label: string; count: number }[] = [
@@ -179,7 +206,8 @@ export default function MobileEmailLogs() {
                         {group.label}
                       </p>
                       {group.rows.map((row) => {
-                        const isSent = row.status === 'sent';
+                        const display = statusDisplay(row.status);
+                        const StatusIcon = display.icon;
                         const ts = row.sent_at || row.created_at || '';
                         return (
                           <button
@@ -188,12 +216,8 @@ export default function MobileEmailLogs() {
                             onClick={() => setSelected(row)}
                             className="flex w-full items-center gap-3 border-b border-gray-50 px-4 py-3.5 text-left last:border-b-0 active:bg-gray-50"
                           >
-                            <div
-                              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-                                isSent ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'
-                              }`}
-                            >
-                              {isSent ? <CheckCircle className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
+                            <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${display.iconBg}`}>
+                              <StatusIcon className="h-4 w-4" />
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-start justify-between gap-2">
@@ -202,7 +226,7 @@ export default function MobileEmailLogs() {
                               </div>
                               <p className="mt-0.5 line-clamp-1 text-xs text-gray-500">{row.subject}</p>
                               <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                                <StatusPill ok={isSent} label={isSent ? 'Sent' : 'Failed'} />
+                                <StatusPill tone={display.tone} label={display.label} />
                                 {row.orders?.order_number != null && (
                                   <span className="text-[11px] font-medium text-primary-600">
                                     Order #{row.orders.order_number}
@@ -236,23 +260,18 @@ export default function MobileEmailLogs() {
           <div className="space-y-4 pb-2">
             <div className="flex items-start justify-between gap-3">
               <div className="flex items-start gap-3">
-                <div
-                  className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
-                    selected.status === 'sent' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'
-                  }`}
-                >
-                  {selected.status === 'sent' ? (
-                    <CheckCircle className="h-5 w-5" />
-                  ) : (
-                    <XCircle className="h-5 w-5" />
-                  )}
+                <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${statusDisplay(selected.status).iconBg}`}>
+                  {(() => {
+                    const StatusIcon = statusDisplay(selected.status).icon;
+                    return <StatusIcon className="h-5 w-5" />;
+                  })()}
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-gray-900">Send details</h2>
                   <p className="text-xs text-gray-500">{formatWhen(selected.sent_at || selected.created_at || '')}</p>
                 </div>
               </div>
-              <StatusPill ok={selected.status === 'sent'} label={selected.status === 'sent' ? 'Sent' : 'Failed'} />
+              <StatusPill tone={statusDisplay(selected.status).tone} label={statusDisplay(selected.status).label} />
             </div>
 
             <SectionCard title="Message">
@@ -263,6 +282,11 @@ export default function MobileEmailLogs() {
                 <p className="text-xs text-gray-500">Subject</p>
                 <p className="mt-1 text-sm text-gray-900">{selected.subject}</p>
               </div>
+              {selected.source && (
+                <SettingsRow label="Sent by">
+                  <span className="max-w-[160px] truncate text-xs font-medium text-gray-900">{selected.source}</span>
+                </SettingsRow>
+              )}
               {selected.orders?.order_number != null && (
                 <SettingsRow label="Order">
                   <span className="text-xs font-semibold text-primary-600">#{selected.orders.order_number}</span>

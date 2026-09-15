@@ -374,8 +374,9 @@ export interface EmailLogRow {
   order_id: string | null;
   recipient: string;
   subject: string;
-  status: 'sent' | 'failed';
+  status: 'sent' | 'failed' | 'delivered' | 'bounced' | 'complained' | 'delayed';
   error_message: string | null;
+  source: string | null;
   sent_at: string;
   created_at?: string;
   orders?: { order_number: string | number } | null;

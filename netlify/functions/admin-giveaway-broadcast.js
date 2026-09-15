@@ -90,23 +90,38 @@ export async function handler(event) {
     .single();
   if (broadcastError) return jsonResponse(500, { success: false, error: broadcastError.message });
 
-  // Fire-and-forget: Netlify recognizes the "-background" suffix and runs
-  // this as an independent, long-running invocation regardless of how it's
-  // called — we don't await its body, only that the request was accepted.
+  // Netlify recognizes the "-background" suffix and runs this as an
+  // independent, long-running invocation regardless of how it's called —
+  // we only need its 202 ack, not its eventual result. But this call MUST
+  // be awaited, not fired-and-forgotten: this function is itself running
+  // inside an AWS Lambda, and Lambda can freeze/terminate the execution
+  // environment the instant the handler returns, killing any in-flight
+  // unawaited network call before it's actually delivered. That's exactly
+  // what happened in production the first time this shipped — the trigger
+  // "sent" but never arrived, leaving the broadcast stuck at status=
+  // 'pending' forever with 0 recipients ever attempted, confirmed by
+  // invoking the background function directly (which worked immediately)
+  // versus via this un-awaited call (which silently never landed).
   const siteUrl = (process.env.URL || `https://${event.headers?.host || ''}`).replace(/\/$/, '');
-  fetch(`${siteUrl}/.netlify/functions/admin-giveaway-broadcast-background`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      // Reuses the existing ADMIN_SECRET (already load-bearing across
-      // several other internal-trigger functions) rather than a dedicated
-      // new secret — every added env var counts against AWS Lambda's 4KB
-      // per-function environment size cap, which this site is already close
-      // to; see admin-giveaway-broadcast-background.js's own comment.
-      'X-Internal-Secret': process.env.ADMIN_SECRET || '',
-    },
-    body: JSON.stringify({ broadcastId: broadcast.id, campaignId: campaign.id, audience, templateName, variables }),
-  }).catch((error) => console.error('Failed to trigger background broadcast:', error.message));
+  try {
+    await fetch(`${siteUrl}/.netlify/functions/admin-giveaway-broadcast-background`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // Reuses the existing ADMIN_SECRET (already load-bearing across
+        // several other internal-trigger functions) rather than a dedicated
+        // new secret — every added env var counts against AWS Lambda's 4KB
+        // per-function environment size cap, which this site is already close
+        // to; see admin-giveaway-broadcast-background.js's own comment.
+        'X-Internal-Secret': process.env.ADMIN_SECRET || '',
+      },
+      body: JSON.stringify({ broadcastId: broadcast.id, campaignId: campaign.id, audience, templateName, variables }),
+    });
+  } catch (error) {
+    console.error('Failed to trigger background broadcast:', error.message);
+    await adminClient.from('giveaway_broadcasts').update({ status: 'failed', completed_at: new Date().toISOString() }).eq('id', broadcast.id);
+    return jsonResponse(502, { success: false, error: 'Could not start the background send — please try again.' });
+  }
 
   return jsonResponse(200, {
     success: true,

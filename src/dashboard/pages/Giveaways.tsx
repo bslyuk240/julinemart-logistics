@@ -251,8 +251,8 @@ export function GiveawaysPage() {
   }, []);
 
   useEffect(() => {
-    if (entriesCampaign) refreshAudiencePreview(entriesCampaign, broadcastAudience);
-  }, [entriesCampaign, broadcastAudience]);
+    if (entriesCampaign) refreshAudiencePreview(entriesCampaign, broadcastAudience, broadcastTemplateName);
+  }, [entriesCampaign, broadcastAudience, broadcastTemplateName]);
 
   async function loadCampaigns() {
     setLoading(true);
@@ -582,12 +582,17 @@ export function GiveawaysPage() {
     setBroadcasts((data || []) as BroadcastRow[]);
   }
 
-  async function refreshAudiencePreview(campaign: GiveawayCampaignRow, audience: BroadcastAudience) {
+  async function refreshAudiencePreview(campaign: GiveawayCampaignRow, audience: BroadcastAudience, templateName: string) {
     if (audience === 'opted_in_list') return;
     try {
       const result = await callAdminFunction('admin-giveaway-broadcast', {
         campaign_id: campaign.id,
         audience,
+        // Once a template is chosen, the backend excludes recipients who
+        // already got it successfully — without this the badge shows the
+        // raw eligible-audience size instead of the true pending count for
+        // a retry-failed-only send.
+        template_name: templateName || undefined,
         preview_only: true,
       });
       if (audience === 'campaign_non_winners') setNonWinnerCount(result.recipientCount);

@@ -1,6 +1,6 @@
 ﻿import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Book, ChevronRight, Database, Key, Mail, Plug, ScrollText, Settings, Webhook } from 'lucide-react';
+import { Book, ChevronRight, Database, FileText, Key, Mail, Plug, ScrollText, Settings, Webhook } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { ApiPanel } from '../components/settings-developer/ApiPanel';
 import { DatabasePanel } from '../components/settings-developer/DatabasePanel';
@@ -43,7 +43,20 @@ export function SettingsPage() {
         </p>
       </div>
 
-      <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <Link
+          to="/admin/settings/documents"
+          className="card flex items-center gap-3 hover:border-primary-500 hover:bg-primary-50 transition-colors"
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100">
+            <FileText className="h-5 w-5 text-emerald-700" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-gray-900">Documents</p>
+            <p className="text-sm text-gray-600">Partner packs, policies &amp; business docs</p>
+          </div>
+          <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" />
+        </Link>
         <Link
           to="/admin/settings/email"
           className="card flex items-center gap-3 hover:border-primary-500 hover:bg-primary-50 transition-colors"

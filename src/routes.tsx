@@ -126,6 +126,7 @@ import { OrderDetailsPage } from './dashboard/pages/OrderDetails';
 import { OrdersPage } from './dashboard/pages/Orders';
 import ReturnsPage from './dashboard/pages/Returns';
 import { SettingsPage } from './dashboard/pages/Settings';
+import { DocumentsPage } from './dashboard/pages/Documents';
 import { FinancePage } from './dashboard/pages/Finance';
 import { SettlementsPage } from './dashboard/pages/Settlements';
 import { ShippingDiscountsPage } from './dashboard/pages/ShippingDiscounts';
@@ -518,6 +519,10 @@ function SettingsEmailLogsRoute() {
   return isMobile ? <MobileEmailLogs /> : <Navigate to="/admin/settings/email?tab=logs" replace />;
 }
 
+function SettingsDocumentsRoute() {
+  return <DocumentsPage />;
+}
+
 function SettingsDocumentationRoute() {
   const isMobile = useIsMobile();
   return isMobile ? <MobileSettingsDocumentation /> : <Navigate to="/admin/settings" replace />;
@@ -653,6 +658,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'settings/email', element: <SettingsEmailRoute /> },
   { path: 'settings/email/logs', element: <SettingsEmailLogsRoute /> },
   { path: 'settings/documentation', element: <SettingsDocumentationRoute /> },
+  { path: 'settings/documents', element: <SettingsDocumentsRoute /> },
   { path: 'settings/webhooks', element: <SettingsWebhooksRoute /> },
   { path: 'settings/api', element: <SettingsApiRoute /> },
   { path: 'settings/database', element: <SettingsDatabaseRoute /> },

@@ -107,21 +107,41 @@ export async function createQuotedShipment(subOrderId: string, quoteId: string, 
   return data.data;
 }
 
+export type ShippingProvider = {
+  id: string;
+  code: string;
+  name: string;
+  enabled: boolean;
+  environment: 'sandbox' | 'production';
+  has_credentials: boolean;
+  has_sandbox_key?: boolean | null;
+  has_live_key?: boolean | null;
+  has_webhook_secret?: boolean | null;
+  config?: {
+    category_id?: string | null;
+    sender_email?: string | null;
+    sender_phone?: string | null;
+  };
+};
+
 export async function fetchShippingProviders(headers: HeadersInit) {
   const res = await fetch(`${functionsBase}/shipping-providers`, { headers });
   const data = await parseJson(res);
-  return data.data as Array<{
-    id: string;
-    code: string;
-    name: string;
-    enabled: boolean;
-    environment: 'sandbox' | 'production';
-    has_credentials: boolean;
-  }>;
+  return data.data as ShippingProvider[];
 }
 
 export async function updateShippingProvider(
-  payload: { code: string; enabled?: boolean; environment?: 'sandbox' | 'production' },
+  payload: {
+    code: string;
+    enabled?: boolean;
+    environment?: 'sandbox' | 'production';
+    sandbox_api_key?: string;
+    live_api_key?: string;
+    webhook_secret?: string;
+    category_id?: string;
+    sender_email?: string;
+    sender_phone?: string;
+  },
   headers: HeadersInit,
 ) {
   const res = await fetch(`${functionsBase}/shipping-providers`, {
@@ -130,5 +150,5 @@ export async function updateShippingProvider(
     body: JSON.stringify(payload),
   });
   const data = await parseJson(res);
-  return data.data;
+  return data.data as ShippingProvider;
 }

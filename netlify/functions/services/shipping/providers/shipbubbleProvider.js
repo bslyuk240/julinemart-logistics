@@ -12,25 +12,60 @@ import { sendApiCourierStatusCustomerEmail } from '../../../../../shared/riderAs
 import { sendVendorShipmentReadyEmail } from '../../../../../shared/vendorFulfillment.js';
 import { sendTransactionalEmail } from '../../emailNotifications.js';
 import { sendWebhookEvent } from '../../webhookDelivery.js';
+import { decryptSecret } from '../../secretsCrypto.js';
 
 const API_BASE = 'https://api.shipbubble.com/v1';
 
-function activeEnvironment(providerRow) {
-  const env = String(process.env.SHIPBUBBLE_ENVIRONMENT || providerRow?.environment || 'sandbox').toLowerCase();
+function decryptStored(value) {
+  if (!value || typeof value !== 'string') return '';
+  try {
+    return decryptSecret(value) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function activeEnvironment(providerRow) {
+  const env = String(providerRow?.environment || process.env.SHIPBUBBLE_ENVIRONMENT || 'sandbox').toLowerCase();
   return env === 'production' || env === 'live' ? 'production' : 'sandbox';
 }
 
-function apiKeyFor(providerRow) {
+export function resolveShipbubbleSecrets(providerRow) {
+  const config = providerRow?.config || {};
+  const sandboxKey =
+    decryptStored(config.sandbox_api_key_encrypted) ||
+    process.env.SHIPBUBBLE_SANDBOX_API_KEY ||
+    '';
+  const liveKey =
+    decryptStored(config.live_api_key_encrypted) ||
+    process.env.SHIPBUBBLE_API_KEY ||
+    process.env.SHIPBUBBLE_LIVE_API_KEY ||
+    '';
+  const webhookSecret =
+    decryptStored(config.webhook_secret_encrypted) ||
+    process.env.SHIPBUBBLE_WEBHOOK_SECRET ||
+    '';
   const env = activeEnvironment(providerRow);
-  if (env === 'production') {
-    return process.env.SHIPBUBBLE_API_KEY || process.env.SHIPBUBBLE_LIVE_API_KEY || '';
-  }
-  return process.env.SHIPBUBBLE_SANDBOX_API_KEY || process.env.SHIPBUBBLE_API_KEY || '';
+  const apiKey = env === 'production' ? liveKey : sandboxKey;
+  return {
+    environment: env,
+    apiKey,
+    sandboxKey,
+    liveKey,
+    webhookSecret: webhookSecret || apiKey,
+    categoryId: config.category_id || process.env.SHIPBUBBLE_CATEGORY_ID || null,
+    senderEmail: config.sender_email || process.env.JLO_SHIPPING_SENDER_EMAIL || null,
+    senderPhone: config.sender_phone || process.env.JLO_SHIPPING_SENDER_PHONE || null,
+  };
 }
 
-function senderEmail(subOrder) {
+function apiKeyFor(providerRow) {
+  return resolveShipbubbleSecrets(providerRow).apiKey;
+}
+
+function senderEmail(subOrder, providerRow) {
   return (
-    process.env.JLO_SHIPPING_SENDER_EMAIL ||
+    resolveShipbubbleSecrets(providerRow).senderEmail ||
     subOrder.vendors?.email ||
     process.env.JLO_OPS_EMAIL ||
     'shipping@julinemart.com'
@@ -116,9 +151,10 @@ export const shipbubbleProvider = {
   name: 'Shipbubble',
 
   async getRates({ supabase, subOrder, shipment, providerRow }) {
-    const apiKey = apiKeyFor(providerRow);
+    const secrets = resolveShipbubbleSecrets(providerRow);
+    const apiKey = secrets.apiKey;
     if (!apiKey) {
-      return { ok: false, error: 'Shipbubble API key is not configured on the server.' };
+      return { ok: false, error: 'Shipbubble API key is not configured. Add it in Settings → Courier APIs.' };
     }
 
     const sender = resolveSender(subOrder);
@@ -132,8 +168,8 @@ export const shipbubbleProvider = {
         validateAddress(supabase, apiKey, {
           locationKey: locationKeyForOrigin(subOrder, sender),
           name: sender.name || 'JulineMart',
-          email: senderEmail(subOrder),
-          phone: sender.phone || process.env.JLO_SHIPPING_SENDER_PHONE || '08000000000',
+          email: senderEmail(subOrder, providerRow),
+          phone: sender.phone || secrets.senderPhone || '08000000000',
           address: sender.address,
           city: sender.city,
           state: sender.state,
@@ -141,7 +177,7 @@ export const shipbubbleProvider = {
         validateAddress(supabase, apiKey, {
           locationKey: locationKeyForDestination(order),
           name: order.customer_name || 'Customer',
-          email: order.customer_email || senderEmail(subOrder),
+          email: order.customer_email || senderEmail(subOrder, providerRow),
           phone: order.customer_phone,
           address: order.delivery_address,
           city: order.delivery_city,
@@ -217,7 +253,7 @@ export const shipbubbleProvider = {
     const providerRow = quote.providerRow;
     const apiKey = apiKeyFor(providerRow);
     if (!apiKey) {
-      return { ok: false, statusCode: 500, error: 'Shipbubble API key is not configured on the server.' };
+      return { ok: false, statusCode: 500, error: 'Shipbubble API key is not configured. Add it in Settings → Courier APIs.' };
     }
 
     const meta = quote.provider_metadata || {};
@@ -358,12 +394,12 @@ export const shipbubbleProvider = {
     return mapProviderStatus('shipbubble', raw);
   },
 
-  verifyWebhook(event) {
+  verifyWebhook(event, providerRow) {
     const signature = event.headers?.['x-ship-signature'] || event.headers?.['X-Ship-Signature'];
-    const key = process.env.SHIPBUBBLE_WEBHOOK_SECRET || process.env.SHIPBUBBLE_API_KEY || process.env.SHIPBUBBLE_SANDBOX_API_KEY;
-    if (!key) return true;
+    const secrets = resolveShipbubbleSecrets(providerRow);
+    const keys = [...new Set([secrets.webhookSecret, secrets.apiKey, secrets.sandboxKey, secrets.liveKey].filter(Boolean))];
+    if (keys.length === 0) return true;
     if (!signature || !event.body) return false;
-    const digest = createHmac('sha512', key).update(event.body).digest('hex');
-    return digest === signature;
+    return keys.some((key) => createHmac('sha512', key).update(event.body).digest('hex') === signature);
   },
 };

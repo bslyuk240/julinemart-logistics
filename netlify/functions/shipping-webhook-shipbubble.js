@@ -29,7 +29,13 @@ export const handler = async (event) => {
   });
   if (limited) return response;
 
-  if (!shipbubbleProvider.verifyWebhook(event)) {
+  const { data: providerRow } = await supabase
+    .from('shipping_providers')
+    .select('*')
+    .eq('code', 'shipbubble')
+    .maybeSingle();
+
+  if (!shipbubbleProvider.verifyWebhook(event, providerRow)) {
     return { statusCode: 401, headers, body: JSON.stringify({ success: false, error: 'Invalid signature' }) };
   }
 

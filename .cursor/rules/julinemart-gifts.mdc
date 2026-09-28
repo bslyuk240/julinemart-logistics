@@ -1,0 +1,44 @@
+---
+description: JulineMart Gifts — JLO ownership, Warri-first hub, admin-managed consolidation centres
+alwaysApply: true
+---
+
+# JulineMart Gifts — JLO Build Context
+
+**Full roadmap (both repos):** `julinemart-pwa/docs/julinemart-gifts-roadmap.md`
+
+**PWA rules:** `julinemart-pwa/.cursor/rules/julinemart-gifts.mdc`
+
+## Pilot consolidation hub
+
+**Warri Gift Hub** — seed as `is_default = true` in G0 migration.
+
+**Admin must CRUD `gift_fulfilment_centres`** — never hard-code hub city in functions.
+
+## JLO owns (G0 onward)
+
+- Migrations: `gift_fulfilment_centres`, `gift_pool_inventory`, product gift flags
+- Admin hub management + pool assignment UI
+- Gift catalog / builder / order APIs
+- Gift ops dashboard (G2+)
+- Extend `create-order` or `create-gift-order` with `order_kind`
+
+## Reuse
+
+- Orders, Paystack, order_items, vendor settlement
+- Phase 4 `product_customisation_schemas` for G6 personalisation — no parallel schema
+- Existing logistics after pack complete
+
+## Phase exit discipline
+
+Do not start Phase G(N+1) until exit gate in full gifts roadmap doc passes.
+
+## Current status
+
+**Phase G6 — IN PROGRESS** (BYO personalisation via Phase 4 schemas)
+
+**Phase G5 — COMPLETE** (code; exit gate QA pending)
+
+**Phase G4.5 — COMPLETE** (code; deploy + smoke test pending)
+
+**Phase G4 — IN PROGRESS** (discovery filters, homepage rail, SEO occasion routes; admin box tagging)

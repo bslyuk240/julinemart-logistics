@@ -32,6 +32,10 @@ async function resolveGfc(qs) {
   return data;
 }
 
+function isSourcedLine(row) {
+  return row.line_source === 'jlo_sourced' || (!row.product_id && row.pool_sourced_item_id);
+}
+
 async function poolProductIdsForGfc(gfcId) {
   const { data: poolRows, error } = await adminClient
     .from('gift_pool_inventory')
@@ -43,34 +47,61 @@ async function poolProductIdsForGfc(gfcId) {
   return new Set((poolRows || []).map((r) => r.product_id));
 }
 
-async function boxWithItems(box, poolProductIds, gfcId) {
+async function sourcedIdsForGfc(gfcId) {
+  const { data, error } = await adminClient
+    .from('gift_pool_sourced_items')
+    .select('id')
+    .eq('gift_fulfilment_centre_id', gfcId)
+    .eq('active', true)
+    .gt('available_qty', 0);
+  if (error) throw error;
+  return new Set((data || []).map((r) => r.id));
+}
+
+async function boxWithItems(box, poolProductIds, sourcedIds, gfcId) {
   const { data: items, error } = await adminClient
     .from('gift_box_items')
     .select(`
-      id, quantity, sort_order, variation_id, pool_sourced_item_id,
-      products!inner ( id, name, gift_eligible, status,
+      id, quantity, sort_order, variation_id, line_source, product_id, pool_sourced_item_id,
+      products ( id, name, gift_eligible, status,
         product_images ( src, alt, position, is_thumbnail )
-      )
+      ),
+      gift_pool_sourced_items ( id, name, image_url )
     `)
     .eq('gift_box_id', box.id)
     .order('sort_order', { ascending: true });
 
   if (error) throw error;
 
-  const eligible = (items || []).filter(
-    (row) =>
+  const eligible = (items || []).filter((row) => {
+    if (isSourcedLine(row)) {
+      return Boolean(row.pool_sourced_item_id && sourcedIds.has(row.pool_sourced_item_id));
+    }
+    return (
       row.products?.gift_eligible &&
       row.products?.status === 'published' &&
       poolProductIds.has(row.products.id)
-  );
+    );
+  });
 
   const contents = eligible.map((row) => {
+    if (isSourcedLine(row)) {
+      const sourced = row.gift_pool_sourced_items;
+      return {
+        product_id: null,
+        pool_sourced_item_id: row.pool_sourced_item_id,
+        name: sourced?.name || 'Gift item',
+        quantity: row.quantity,
+        image: sourced?.image_url || null,
+      };
+    }
     const images = (row.products.product_images || []).sort(
       (a, b) => (a.position ?? 0) - (b.position ?? 0)
     );
     const thumb = images.find((i) => i.is_thumbnail) || images[0];
     return {
       product_id: row.products.id,
+      pool_sourced_item_id: null,
       name: row.products.name,
       quantity: row.quantity,
       image: thumb?.src || null,
@@ -80,7 +111,7 @@ async function boxWithItems(box, poolProductIds, gfcId) {
   const maxLead = await maxLeadTimeForGiftLines(
     adminClient,
     eligible.map((row) => ({
-      product_id: row.products.id,
+      product_id: isSourcedLine(row) ? null : row.products.id,
       variation_id: row.variation_id,
       pool_sourced_item_id: row.pool_sourced_item_id,
     })),
@@ -127,7 +158,10 @@ export async function handler(event) {
     const gfc = await resolveGfc(qs);
     if (!gfc) return jsonResponse(404, { success: false, error: 'Gift fulfilment centre not found' });
 
-    const poolProductIds = await poolProductIdsForGfc(gfc.id);
+    const [poolProductIds, sourcedIds] = await Promise.all([
+      poolProductIdsForGfc(gfc.id),
+      sourcedIdsForGfc(gfc.id),
+    ]);
 
     if (slug) {
       const { data: box, error } = await adminClient
@@ -141,7 +175,7 @@ export async function handler(event) {
       if (error) return jsonResponse(500, { success: false, error: error.message });
       if (!box) return jsonResponse(404, { success: false, error: 'Gift box not found' });
 
-      const detail = await boxWithItems(box, poolProductIds, gfc.id);
+      const detail = await boxWithItems(box, poolProductIds, sourcedIds, gfc.id);
       if (detail.item_count === 0) {
         return jsonResponse(404, { success: false, error: 'Gift box not available at this hub' });
       }
@@ -187,7 +221,7 @@ export async function handler(event) {
       filtered = filtered.filter((box) => Number(box.list_price) >= budgetMin);
     }
 
-    const list = (await Promise.all(filtered.map((box) => boxWithItems(box, poolProductIds, gfc.id)))).filter(
+    const list = (await Promise.all(filtered.map((box) => boxWithItems(box, poolProductIds, sourcedIds, gfc.id)))).filter(
       (box) => box.item_count > 0
     );
 

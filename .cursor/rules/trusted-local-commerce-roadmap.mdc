@@ -1,0 +1,60 @@
+---
+description: JulineMart Trusted Local Commerce build plan — JLO/vendor-portal responsibilities and phase context
+alwaysApply: true
+---
+
+# JulineMart Trusted Local Commerce — JLO Build Context
+
+**Full roadmap (both repos):** `julinemart-pwa/docs/trusted-local-commerce-roadmap.md`
+
+**Positioning:** JulineMart — Nigeria's marketplace for trusted local businesses.
+
+## JLO + vendor-portal owns
+
+### Phase 0–1 — COMPLETE (apply migrations)
+- Supabase migrations: `seller_verifications`, `seller_performance_snapshots`, extend `approved_vendor_locations`
+- Admin verification approve UI (desktop + mobile-native)
+- Nightly `compute-seller-metrics.js` from orders/returns/reviews/support
+- Extend `return_requests`: `complaint_type`, evidence, timeline, refund dates
+- Shared types: `src/types/trust.ts` (keep in sync with PWA)
+
+### Phase 2A — COMPLETE (apply migration `20260814000001_phase_2a_retention_local.sql`)
+- `store_follows`, `vendor_qr_scans`, `orders.fulfillment_method`, `product_images.photo_source`
+- `vendor-store-qr`, `vendor-qr-scan`, `create-order` store pickup
+- Vendor portal: QR in Settings, seller photo toggle on Add Product
+
+### Phase 2B — COMPLETE (apply migration `20260814000002_phase_2b_local_discovery.sql`)
+- `catalog-vendors`, `discover-areas`, geolocation on locations
+- Reserve & collect: reservation columns + `vendor-reservation`
+- Catalog near-area product filters
+
+### Phase 3–3.5 — COMPLETE (apply migrations 3–5)
+- Vendor campaigns, seller quality, warranty snapshots, customer purchases
+
+### Phase 4 — ACTIVE (apply migration `20260814000005_phase_4_custom_orders.sql`)
+- `product_customisation_schemas`, `custom_order_specs`, `custom_order_messages`
+- `vendor-product-customisation`, `vendor-custom-orders`, `customer-custom-order`
+- Vendor portal: customisation builder, custom orders queue
+- Pilot vertical: bakers
+
+### Phase 4 remaining
+- Proof upload UI (file picker)
+- RFQ / quote-only flow (Phase 4.2.8)
+
+## Already strong in JLO — productise, don't rewrite
+- Distributed merchant fulfilment (order splitter, hub dispatch, vendor dispatch)
+- Delivery tracking (`TrackingTimeline.tsx`, Fez sync, `orderStatusHelper.js`)
+- Returns/refunds queue with Paystack (`returns-queue.js`, `return_requests`)
+- `approved_vendor_locations` + vendor fulfilment profile
+
+## Partial — extend carefully
+- Seller delivery: vendor collection prefs + staff lane choice exist; NOT customer-facing checkout menu yet
+- Disputes: support chat + returns rejection only; no formal order dispute module yet
+- GIGL/Kwik couriers seeded but only Fez is live
+
+## Deferred
+- Corporate/group purchasing — Phase 5
+- RFQ-only custom orders — Phase 4.2.8
+
+## Phase exit discipline
+Do not start Phase N+1 until Phase N exit gate in the full roadmap doc is met.

@@ -43,11 +43,14 @@ export function ShippingProvidersPanel({ getAuthHeaders, compact }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const patch = async (code: string, payload: Parameters<typeof updateShippingProvider>[0]) => {
+  const patch = async (
+    code: string,
+    payload: Omit<Parameters<typeof updateShippingProvider>[0], 'code'>,
+  ) => {
     setSaving(code);
     try {
       const headers = await getAuthHeaders();
-      const updated = await updateShippingProvider({ code, ...payload }, headers);
+      const updated = await updateShippingProvider({ ...payload, code }, headers);
       setRows((prev) => prev.map((row) => (row.code === code ? { ...row, ...updated } : row)));
       if (code === 'shipbubble') {
         setSandboxKey('');
@@ -63,7 +66,6 @@ export function ShippingProvidersPanel({ getAuthHeaders, compact }: Props) {
 
   const saveShipbubble = async () => {
     await patch('shipbubble', {
-      code: 'shipbubble',
       sandbox_api_key: sandboxKey,
       live_api_key: liveKey,
       webhook_secret: webhookSecret,
@@ -96,7 +98,7 @@ export function ShippingProvidersPanel({ getAuthHeaders, compact }: Props) {
                 <select
                   value={row.environment}
                   disabled={saving === row.code}
-                  onChange={(e) => patch(row.code, { code: row.code, environment: e.target.value as 'sandbox' | 'production' })}
+                  onChange={(e) => patch(row.code, { environment: e.target.value as 'sandbox' | 'production' })}
                   className="rounded border px-2 py-1 text-sm"
                 >
                   <option value="sandbox">Sandbox</option>
@@ -105,7 +107,7 @@ export function ShippingProvidersPanel({ getAuthHeaders, compact }: Props) {
                 <button
                   type="button"
                   disabled={saving === row.code}
-                  onClick={() => patch(row.code, { code: row.code, enabled: !row.enabled })}
+                  onClick={() => patch(row.code, { enabled: !row.enabled })}
                   className={`rounded-full px-3 py-1 text-xs font-semibold ${
                     row.enabled ? 'bg-emerald-100 text-emerald-800' : 'bg-gray-100 text-gray-600'
                   }`}

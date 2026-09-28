@@ -23,6 +23,7 @@ import RiderPicker from '../../components/RiderPicker';
 import { Sheet } from '../Sheet';
 import { TABBAR_SPACE } from '../lib/functionsAuth';
 import { formatNaira } from '../lib/displayUtils';
+import { JloShippingQuotes } from '../../components/JloShippingQuotes';
 
 type Identifier = string | number;
 
@@ -512,6 +513,14 @@ export default function MobileOrderDetails() {
                 </div>
               </div>
             )}
+
+            <JloShippingQuotes
+              subOrderId={String(subOrder.id)}
+              selectedLane={selectedLane}
+              getAuthHeaders={getAuthHeaders}
+              onBooked={fetchOrderDetails}
+              compact
+            />
 
             {isCourierApi && (
               <div className="space-y-3 rounded-lg border border-blue-200 bg-blue-50 p-3">

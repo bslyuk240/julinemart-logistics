@@ -27,6 +27,8 @@ import {
   saveCourierCredentials,
   type CourierSettingsRow,
 } from '../../lib/settingsApi';
+import { functionsAuthHeader } from '../../lib/functionsAuth';
+import { ShippingProvidersPanel } from '../../../components/ShippingProvidersPanel';
 
 type CredForm = { api_user_id: string; api_password: string; api_base_url: string };
 
@@ -226,6 +228,8 @@ export default function MobileCourierSettings() {
                   </div>
                 </div>
               </SettingsGroup>
+
+              <ShippingProvidersPanel getAuthHeaders={functionsAuthHeader} compact />
 
               <SettingsGroup title="Couriers">
                 {rows.map((courier) => {

@@ -87,6 +87,10 @@ export const API_ENDPOINT_GROUPS: ApiEndpointGroup[] = [
     category: 'Courier dispatch (Fez)',
     items: [
       { method: 'POST', path: '/api/fez-create-shipment', description: 'Create Fez shipment for sub-order', auth: 'staff' },
+      { method: 'GET', path: '/api/shipping-quotes', description: 'Load JLO multi-carrier quote status for a sub-order', auth: 'staff' },
+      { method: 'POST', path: '/api/shipping-quotes', description: 'Request or refresh FEZ + Shipbubble quotes', auth: 'staff' },
+      { method: 'POST', path: '/api/shipping-create-shipment', description: 'Book a selected JLO shipping quote', auth: 'staff' },
+      { method: 'GET', path: '/api/shipping-providers', description: 'List enabled shipping providers', auth: 'admin' },
       { method: 'POST', path: '/api/fez-create-shipment-batch', description: 'Batch Fez dispatch (hub)', auth: 'staff' },
       { method: 'GET', path: '/api/fez-fetch-tracking', description: 'Pull live Fez tracking (subOrderId or shipmentId)', auth: 'staff' },
       { method: 'POST', path: '/api/generate-label', description: 'Generate shipping label (sub-order or manual shipment)', auth: 'staff' },
@@ -155,6 +159,8 @@ export const API_ENDPOINT_GROUPS: ApiEndpointGroup[] = [
     items: [
       { method: 'POST', path: '/api/paystack-webhook', description: 'Paystack payment events', auth: 'webhook' },
       { method: 'POST', path: '/api/fez-webhook', description: 'Fez delivery status updates', auth: 'webhook' },
+      { method: 'POST', path: '/api/webhooks/shipping/fez', description: 'Alias for Fez shipping webhooks', auth: 'webhook' },
+      { method: 'POST', path: '/api/webhooks/shipping/shipbubble', description: 'Shipbubble shipment status updates', auth: 'webhook' },
       { method: 'POST', path: '/api/notify-order-confirmation', description: 'Supabase orders INSERT → confirmation email', auth: 'webhook' },
     ],
   },
@@ -229,10 +235,18 @@ export const INBOUND_WEBHOOKS: WebhookEndpoint[] = [
   {
     id: 'fez',
     label: 'Fez tracking',
-    path: '/api/fez-webhook',
+    path: '/api/webhooks/shipping/fez',
     kind: 'inbound',
     note: 'Fez delivery status updates for sub-orders and return shipments.',
     envKeys: ['FEZ_API_KEY', 'FEZ_USER_ID'],
+  },
+  {
+    id: 'shipbubble',
+    label: 'Shipbubble tracking',
+    path: '/api/webhooks/shipping/shipbubble',
+    kind: 'inbound',
+    note: 'Shipbubble shipment status updates. Verified with x-ship-signature HMAC-SHA512.',
+    envKeys: ['SHIPBUBBLE_API_KEY', 'SHIPBUBBLE_SANDBOX_API_KEY', 'SHIPBUBBLE_WEBHOOK_SECRET'],
   },
   {
     id: 'order-email',

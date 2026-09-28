@@ -22,6 +22,7 @@ import { openLabelPrint, openWaybillPrint } from '../lib/waybillPrint';
 import { TrackingTimeline, trackingVariantForShipment } from '../../shared/TrackingTimeline';
 import { ShipmentTrackingEvents } from '../../shared/ShipmentTrackingEvents';
 import RiderPicker from '../components/RiderPicker';
+import { JloShippingQuotes } from '../components/JloShippingQuotes';
 
 type Identifier = string | number;
 type KnownStatus =
@@ -981,6 +982,13 @@ export function OrderDetailsPage() {
                     </div>
                   </div>
                 )}
+
+                <JloShippingQuotes
+                  subOrderId={String(subOrder.id)}
+                  selectedLane={selectedLane}
+                  getAuthHeaders={getAuthHeaders}
+                  onBooked={fetchOrderDetails}
+                />
 
                 {/* Courier Integration Section */}
                 {(subOrder.couriers?.api_enabled ||

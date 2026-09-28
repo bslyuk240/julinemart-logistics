@@ -124,6 +124,16 @@
   status = 200
 
 [[redirects]]
+  from = "/api/webhooks/shipping/shipbubble"
+  to = "/.netlify/functions/shipping-webhook-shipbubble"
+  status = 200
+
+[[redirects]]
+  from = "/api/webhooks/shipping/fez"
+  to = "/.netlify/functions/fez-webhook"
+  status = 200
+
+[[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
@@ -212,6 +222,12 @@
 
 [functions."customer-journey-drilldown"]
   timeout = 20
+
+[functions."shipping-quotes"]
+  timeout = 26
+
+[functions."shipping-create-shipment"]
+  timeout = 26
 
 [functions."create-order"]
   timeout = 30

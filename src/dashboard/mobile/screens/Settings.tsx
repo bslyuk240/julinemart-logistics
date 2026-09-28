@@ -54,7 +54,7 @@ export default function MobileSettings() {
             icon={<Truck className="h-5 w-5 text-white" />}
             iconClass="bg-gradient-to-br from-blue-500 to-indigo-600 shadow-sm"
             title="Courier APIs"
-            subtitle="Fez credentials, tracking & labels"
+            subtitle="FEZ, Shipbubble & JLO fulfilment providers"
             onClick={go('/admin/settings/couriers')}
           />
           <SettingsNavRow

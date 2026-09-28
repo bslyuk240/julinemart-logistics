@@ -2,6 +2,7 @@
 import { Settings, Key, CheckCircle, XCircle, AlertCircle, Save, Zap } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
+import { ShippingProvidersPanel } from '../components/ShippingProvidersPanel';
 
 interface Courier {
   id: string;
@@ -196,6 +197,8 @@ export function CourierSettingsPage() {
           Configure API credentials for live courier integrations
         </p>
       </div>
+
+      <ShippingProvidersPanel getAuthHeaders={() => authHeaders} />
 
       {/* Info Banner */}
       <div className="card mb-6 bg-blue-50 border-blue-200">

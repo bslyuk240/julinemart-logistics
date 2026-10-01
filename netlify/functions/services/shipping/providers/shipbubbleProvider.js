@@ -1,5 +1,11 @@
 import { createHmac } from 'node:crypto';
 import { resolveSender } from '../../resolveSender.js';
+import {
+  isValidNgPhone,
+  normalizeCityState,
+  normalizeNgPhone,
+  toCourierPersonName,
+} from '../../deliveryDetails.js';
 import { normalizeQuote, parseEtaDays } from '../quoteModel.js';
 import { mapProviderStatus } from '../statusMap.js';
 import {
@@ -73,12 +79,7 @@ function senderEmail(subOrder, providerRow) {
 }
 
 function normalizePhone(raw) {
-  const digits = String(raw || '').replace(/\D/g, '');
-  if (!digits) return '';
-  if (digits.startsWith('234') && digits.length >= 13) return `+${digits}`;
-  if (digits.startsWith('0') && digits.length === 11) return `+234${digits.slice(1)}`;
-  if (digits.length === 10) return `+234${digits}`;
-  return raw.startsWith('+') ? raw : `+${digits}`;
+  return normalizeNgPhone(raw) || '';
 }
 
 function pickupDate() {
@@ -163,25 +164,52 @@ export const shipbubbleProvider = {
       return { ok: false, error: 'Origin or destination address is incomplete.' };
     }
 
+    const recipientName = toCourierPersonName(order.customer_name);
+    if (!recipientName) {
+      return {
+        ok: false,
+        error: 'Recipient needs first and last name (e.g. John Doe). Update the customer name on the order and retry.',
+      };
+    }
+    if (!isValidNgPhone(order.customer_phone)) {
+      return {
+        ok: false,
+        error: 'Recipient phone is missing or not a valid Nigerian number. Update the order and retry.',
+      };
+    }
+    const senderPhone = sender.phone || secrets.senderPhone;
+    if (!isValidNgPhone(senderPhone)) {
+      return {
+        ok: false,
+        error: 'Pickup phone is missing. Set a sender phone on the hub/vendor or in Settings → Courier APIs.',
+      };
+    }
+
+    const destination = normalizeCityState(order.delivery_city, order.delivery_state);
+    if (!destination.state) {
+      return { ok: false, error: 'Destination state is missing or not a valid Nigerian state.' };
+    }
+    const quoteCity = destination.cityLooksLikeState ? '' : destination.city;
+
     try {
       const [senderCode, receiverCode, categoryId] = await Promise.all([
         validateAddress(supabase, apiKey, {
           locationKey: locationKeyForOrigin(subOrder, sender),
-          name: sender.name || 'JulineMart',
+          name: 'JulineMart Logistics',
           email: senderEmail(subOrder, providerRow),
-          phone: sender.phone || secrets.senderPhone || '08000000000',
+          phone: senderPhone,
           address: sender.address,
           city: sender.city,
           state: sender.state,
         }),
         validateAddress(supabase, apiKey, {
           locationKey: locationKeyForDestination(order),
-          name: order.customer_name || 'Customer',
+          name: recipientName,
           email: order.customer_email || senderEmail(subOrder, providerRow),
           phone: order.customer_phone,
           address: order.delivery_address,
-          city: order.delivery_city,
-          state: order.delivery_state,
+          city: quoteCity,
+          state: destination.state,
         }),
         resolveCategoryId(apiKey, providerRow),
       ]);

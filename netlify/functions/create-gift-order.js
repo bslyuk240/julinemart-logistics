@@ -5,6 +5,7 @@
  * Creates orders + gift_orders + component order_items for packing/margin.
  */
 import { headers, jsonResponse, adminClient } from './services/global-sourcing-utils.js';
+import { firstDeliveryError, validateDeliveryDetails } from './services/deliveryDetails.js';
 import {
   computeCustomerGiftTotal,
   loadGiftCommercialSettings,
@@ -379,7 +380,7 @@ export async function handler(event) {
     return jsonResponse(400, { error: 'Invalid JSON body' });
   }
 
-  const {
+  let {
     gift_box_id,
     gift_box_slug,
     builder_session_token,
@@ -423,6 +424,38 @@ export async function handler(event) {
   if (missing.length) {
     return jsonResponse(400, { error: `Missing required fields: ${missing.join(', ')}` });
   }
+
+  const buyerCheck = validateDeliveryDetails({
+    name: customer_name,
+    email: customer_email,
+    phone: customer_phone,
+    requireAddress: false,
+    nameLabel: 'Your name',
+  });
+  if (!buyerCheck.ok) {
+    return jsonResponse(400, { error: firstDeliveryError(buyerCheck) });
+  }
+
+  const recipientCheck = validateDeliveryDetails({
+    name: recipient_name,
+    email: recipient_email,
+    phone: recipient_phone,
+    address: recipient_address,
+    city: recipient_city,
+    state: recipient_state,
+    requireEmail: false,
+    nameLabel: 'Recipient name',
+  });
+  if (!recipientCheck.ok) {
+    return jsonResponse(400, { error: firstDeliveryError(recipientCheck) });
+  }
+
+  customer_name = buyerCheck.normalized.name;
+  customer_email = buyerCheck.normalized.email;
+  recipient_name = recipientCheck.normalized.name;
+  recipient_city = recipientCheck.normalized.city;
+  recipient_state = recipientCheck.normalized.state;
+  recipient_address = recipientCheck.normalized.address;
 
   try {
     if (isCustomBuild) {

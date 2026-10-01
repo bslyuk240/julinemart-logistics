@@ -35,6 +35,7 @@ import {
   validateCustomisation,
 } from './services/custom-order-utils.js';
 import { loadApprovedLocations, resolveApprovedLocation } from './services/locationResolver.js';
+import { firstDeliveryError, validateDeliveryDetails } from './services/deliveryDetails.js';
 function generateRef() {
   const ts = Date.now().toString(36).toUpperCase();
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -72,7 +73,7 @@ export async function handler(event) {
   try { body = JSON.parse(event.body || '{}'); }
   catch { return jsonResponse(400, { error: 'Invalid JSON body' }); }
 
-  const {
+  let {
     customer_name,
     customer_email,
     customer_phone,
@@ -106,6 +107,27 @@ export async function handler(event) {
   const isLocalCollection = isStorePickup || isReservation;
   if (missing.length > 0) {
     return jsonResponse(400, { error: `Missing required fields: ${missing.join(', ')}` });
+  }
+
+  const deliveryCheck = validateDeliveryDetails({
+    name: customer_name,
+    email: customer_email,
+    phone: customer_phone,
+    address: delivery_address,
+    city: delivery_city,
+    state: delivery_state,
+    requireAddress: !isLocalCollection,
+    nameLabel: 'Customer name',
+  });
+  if (!deliveryCheck.ok) {
+    return jsonResponse(400, { error: firstDeliveryError(deliveryCheck) });
+  }
+  customer_name = deliveryCheck.normalized.name;
+  customer_email = deliveryCheck.normalized.email;
+  if (!isLocalCollection) {
+    delivery_city = deliveryCheck.normalized.city;
+    delivery_state = deliveryCheck.normalized.state;
+    delivery_address = deliveryCheck.normalized.address;
   }
 
   for (const item of items) {

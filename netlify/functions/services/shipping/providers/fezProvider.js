@@ -1,8 +1,32 @@
-import { getShippingQuote } from '../../fezDeliveryService.js';
+import { authenticateFez } from '../../fezAuth.js';
 import { resolveSender } from '../../resolveSender.js';
 import { mapFezStatus, fetchFezTracking, normalizeFezHistoryEntry } from '../../fezTracking.js';
-import { normalizeQuote, parseEtaDays } from '../quoteModel.js';
+import { normalizeNigerianState } from '../../deliveryDetails.js';
+import { normalizeQuote } from '../quoteModel.js';
 import { executeFezCreateShipment, FEZ_SUB_ORDER_SELECT } from '../fezCreateCore.js';
+
+async function fetchFezDeliveryCost(supabase, { destinationState, pickupState, weight }) {
+  const { authToken, secretKey, baseUrl } = await authenticateFez(supabase);
+  const response = await fetch(`${baseUrl}/order/cost`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+      'secret-key': secretKey,
+    },
+    body: JSON.stringify({
+      state: destinationState,
+      ...(pickupState ? { pickUpState: pickupState } : {}),
+      ...(Number(weight) > 0 ? { weight: Number(weight) } : {}),
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || String(data.status || '').toLowerCase() !== 'success') {
+    throw new Error(data.description || data.message || 'Failed to get quote from Fez');
+  }
+  const total = Number(data.totalCost ?? data.Cost?.cost ?? data.cost?.cost ?? data.cost);
+  return { total, raw: data };
+}
 
 export const fezProvider = {
   code: 'fez',
@@ -11,37 +35,42 @@ export const fezProvider = {
   async getRates({ supabase, subOrder, shipment }) {
     const sender = resolveSender(subOrder);
     const order = subOrder.orders || {};
-    const quote = await getShippingQuote({
-      originCity: sender.city || subOrder.hubs?.city || '',
-      originState: sender.state || subOrder.hubs?.state || '',
-      destinationCity: order.delivery_city || '',
-      destinationState: order.delivery_state || '',
-      weight: shipment.weight,
-      declaredValue: shipment.declared_value,
-    });
-
-    if (!quote?.success) {
-      return { ok: false, error: quote?.error || 'FEZ rates could not be retrieved.' };
+    const destinationState = normalizeNigerianState(order.delivery_state) || normalizeNigerianState(order.delivery_city);
+    if (!destinationState) {
+      return {
+        ok: false,
+        error: 'Destination state is missing or not a valid Nigerian state. Update the order address and retry.',
+      };
     }
 
-    const eta = parseEtaDays(quote.estimatedDeliveryDays);
-    return {
-      ok: true,
-      quotes: [
-        normalizeQuote({
-          provider: 'fez',
-          providerQuoteId: quote.quotedAt || null,
-          courierName: 'FEZ Standard',
-          serviceName: quote.serviceType || 'Standard Delivery',
-          amount: quote.totalAmount || quote.amount,
-          currency: quote.currency || 'NGN',
-          etaMinDays: eta.min,
-          etaMaxDays: eta.max,
-          pickupAvailable: true,
-          rawReference: { source: 'fez', quote },
-        }),
-      ],
-    };
+    try {
+      const quote = await fetchFezDeliveryCost(supabase, {
+        destinationState,
+        pickupState: normalizeNigerianState(sender.state || subOrder.hubs?.state),
+        weight: shipment.weight,
+      });
+      if (!Number.isFinite(quote.total) || quote.total <= 0) {
+        return { ok: false, error: 'FEZ returned no delivery cost for this destination.' };
+      }
+
+      return {
+        ok: true,
+        quotes: [
+          normalizeQuote({
+            provider: 'fez',
+            providerQuoteId: `${destinationState}:${shipment.weight || 1}`,
+            courierName: 'FEZ Standard',
+            serviceName: 'Standard Delivery',
+            amount: quote.total,
+            currency: 'NGN',
+            pickupAvailable: true,
+            rawReference: { source: 'fez_order_cost', quote: quote.raw },
+          }),
+        ],
+      };
+    } catch (error) {
+      return { ok: false, error: error.message || 'FEZ rates could not be retrieved.' };
+    }
   },
 
   async createShipment({ supabase, subOrderId, quote, force = false }) {

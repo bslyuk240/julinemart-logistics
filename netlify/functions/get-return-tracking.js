@@ -144,6 +144,7 @@ export async function handler(event) {
             return_shipment_id: shipment.id,
             shipment_id: shipment.id,
             tracking_number: null,
+            tracking_url: shipment.tracking_url || null,
             status: shipment.status || "awaiting_tracking",
             submitted_at: null,
             events: [],
@@ -170,6 +171,7 @@ export async function handler(event) {
           return_shipment_id: shipment.id,
           shipment_id: shipment.id,
           tracking_number: shipment.fez_tracking,
+          tracking_url: shipment.tracking_url || null,
           status: shipment.status,
           submitted_at: shipment.tracking_submitted_at,
           events: [

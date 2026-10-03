@@ -6,7 +6,8 @@ import { authenticateFez } from './services/fezAuth.js';
 import { requireAdmin } from './services/global-sourcing-utils.js';
 import { recordStaffAudit } from './services/auditLog.js';
 import { RETURNS_ACTION_ROLES } from './services/staff-roles.js';
-import { chooseReturnLane } from './services/return-pickup.js';
+import { chooseReturnLane, isCarrierPickupEnabled } from './services/return-pickup.js';
+import { bookShipbubbleReturnPickup } from './services/return-pickup-shipbubble.js';
 import { createLocalRiderPickup } from './services/return-pickup-rider.js';
 
 const adminClient = createClient(
@@ -232,16 +233,27 @@ export async function handler(event) {
     let lane = 'fez';
     if (isPickup) {
       const requestedLane = body.pickup_lane;
-      if (requestedLane && !['fez', 'local_rider'].includes(requestedLane)) {
+      if (requestedLane && !['fez', 'local_rider', 'shipbubble'].includes(requestedLane)) {
         return {
           statusCode: 400,
           headers: corsHeaders(),
-          body: JSON.stringify({ success: false, error: "pickup_lane must be 'fez' or 'local_rider'" }),
+          body: JSON.stringify({ success: false, error: "pickup_lane must be 'fez', 'local_rider' or 'shipbubble'" }),
+        };
+      }
+      if (requestedLane === 'shipbubble' && !(await isCarrierPickupEnabled(adminClient))) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders(),
+          body: JSON.stringify({
+            success: false,
+            error: 'Shipbubble pickups are not set up yet. Apply the carrier migration (20261003130000_return_pickup_carrier.sql) first.',
+          }),
         };
       }
       lane = requestedLane || chooseReturnLane({ pickupCity: pickupFrom.city, hubCity: hub.city });
     }
     const useLocalRider = isPickup && lane === 'local_rider';
+    const useShipbubble = isPickup && lane === 'shipbubble';
 
     const createdShipments = [];
     const shipmentErrors = [];
@@ -313,8 +325,85 @@ export async function handler(event) {
       }
     }
 
-    // Authenticate with Fez once for all shipments (not needed for a rider pickup)
-    const fezGroups = useLocalRider ? {} : groups;
+    // Shipbubble: book the cheapest available courier to collect from the
+    // customer and deliver to the hub (the hub forwards to vendors). Like the
+    // rider lane it books before anything is saved, so a failure leaves the
+    // return pending and staff can choose another lane.
+    let carrierPickup = null;
+    if (useShipbubble) {
+      const returnCode = generateReturnCode();
+      try {
+        carrierPickup = await bookShipbubbleReturnPickup(adminClient, {
+          pickupFrom,
+          hub,
+          declaredValue: (items || []).reduce((sum, i) => sum + Number(i.subtotal || 0), 0),
+          preferredDate: request.pickup?.preferred_date || null,
+          itemSummary: Object.values(groups).flatMap((g) => g.items).slice(0, 3).join(', '),
+        });
+      } catch (err) {
+        return {
+          statusCode: 502,
+          headers: corsHeaders(),
+          body: JSON.stringify({ success: false, error: err.message || 'Could not book the Shipbubble pickup' }),
+        };
+      }
+
+      const { data: carrierReturnShipment, error: carrierShipErr } = await adminClient
+        .from('return_shipments')
+        .insert({
+          return_request_id,
+          return_code: returnCode,
+          method: 'pickup',
+          status: 'awaiting_pickup',
+          fez_tracking: null,
+          provider: 'shipbubble',
+          provider_shipment_id: carrierPickup.provider_shipment_id,
+          tracking_url: carrierPickup.tracking_url,
+          vendor_id: null,
+          destination_type: 'hub',
+          destination_address: {
+            address: hub.address || '',
+            state: hub.state || '',
+            city: hub.city || '',
+            name: hub.name || 'JulineMart Hub',
+            phone: hub.phone || '',
+          },
+          customer_submitted_tracking: false,
+          raw_payload: {
+            lane: 'shipbubble',
+            courier: carrierPickup.courier_name,
+            service: carrierPickup.service_name,
+            tracking_code: carrierPickup.tracking_code,
+            waybill_url: carrierPickup.waybill_url,
+            // What Shipbubble charged us, for margin. The customer's pickup fee
+            // (return_requests.pickup_fee) is quoted separately from our zone rates.
+            carrier_cost: carrierPickup.cost,
+            environment: carrierPickup.environment,
+            collection_date: carrierPickup.collection_date,
+          },
+        })
+        .select('*')
+        .single();
+
+      if (carrierShipErr) {
+        // The courier is booked but we couldn't record it: say so loudly, with
+        // the id, so it can be recorded or cancelled by hand.
+        shipmentErrors.push(
+          `Shipbubble booking ${carrierPickup.provider_shipment_id} (${carrierPickup.tracking_code}) was made but could not be saved: ${carrierShipErr.message}`
+        );
+      } else {
+        createdShipments.push({
+          ...carrierReturnShipment,
+          tracking_number: carrierPickup.tracking_code,
+          carrier_tracking: carrierPickup.tracking_code,
+          return_code: returnCode,
+          destination_type: 'hub',
+        });
+      }
+    }
+
+    // Authenticate with Fez once for all shipments (not needed for a rider or Shipbubble pickup)
+    const fezGroups = useLocalRider || useShipbubble ? {} : groups;
     const auth = Object.keys(fezGroups).length ? await authenticateFezForReturn() : null;
 
     for (const [key, group] of Object.entries(fezGroups)) {
@@ -451,8 +540,8 @@ export async function handler(event) {
 
     // Build tracking summary for customer email
     const trackingNumbers = createdShipments
-      .filter(s => s.fez_tracking)
-      .map(s => s.fez_tracking)
+      .filter(s => s.fez_tracking || s.carrier_tracking)
+      .map(s => s.fez_tracking || s.carrier_tracking)
       .join(', ') || 'Pending';
 
     const firstReturnCode = createdShipments[0]?.return_code || '';
@@ -498,6 +587,15 @@ export async function handler(event) {
                 lane,
                 manual_shipment_code: riderPickup?.shipment?.shipment_code || null,
                 riders_notified: riderPickup?.broadcast?.riders_notified ?? null,
+                carrier: carrierPickup
+                  ? {
+                      courier: carrierPickup.courier_name,
+                      tracking_code: carrierPickup.tracking_code,
+                      tracking_url: carrierPickup.tracking_url,
+                      cost: carrierPickup.cost,
+                      environment: carrierPickup.environment,
+                    }
+                  : null,
               }
             : null,
         },

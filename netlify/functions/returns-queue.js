@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { requireAdmin } from './services/global-sourcing-utils.js';
 import { RETURNS_VIEW_ROLES } from './services/staff-roles.js';
-import { isPickupEnabled } from './services/return-pickup.js';
+import { isCarrierPickupEnabled, isPickupEnabled } from './services/return-pickup.js';
 
 const adminClient = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -61,7 +61,11 @@ export async function handler(event) {
     // so the queue never breaks on a database that doesn't have them yet.
     const pickupReady = await isPickupEnabled(adminClient);
     const pickupCols = pickupReady ? 'pickup, pickup_fee, pickup_lane,' : '';
-    const shipmentPickupCols = pickupReady ? 'manual_shipment_id,' : '';
+    const carrierReady = await isCarrierPickupEnabled(adminClient);
+    const shipmentPickupCols = [
+      pickupReady ? 'manual_shipment_id,' : '',
+      carrierReady ? 'provider, tracking_url,' : '',
+    ].join(' ');
 
     let query = adminClient
       .from('return_requests')
@@ -197,6 +201,8 @@ export async function handler(event) {
         page,
         limit,
         stats,
+        // Which pickup lanes this deployment can actually book right now.
+        pickup_capabilities: { shipbubble: carrierReady },
       }),
     };
 

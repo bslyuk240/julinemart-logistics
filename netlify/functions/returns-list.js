@@ -5,7 +5,7 @@
 import { supabase } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateCustomer } from './services/customerAuth.js';
-import { RETURN_SELECT, formatReturnForCustomer } from './services/return-format.js';
+import { returnSelect, formatReturnForCustomer } from './services/return-format.js';
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflightResponse();
@@ -48,7 +48,7 @@ export async function handler(event) {
     // created on approval) but the customer should still see it.
     let query = supabase
       .from("return_requests")
-      .select(RETURN_SELECT)
+      .select(await returnSelect(supabase))
       .order("created_at", { ascending: false });
 
     query = query.eq("customer_email", email);

@@ -6,7 +6,7 @@
 import { supabase, fetchSupabaseOrder } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateCustomer } from './services/customerAuth.js';
-import { RETURN_SELECT, formatReturnForCustomer } from './services/return-format.js';
+import { returnSelect, formatReturnForCustomer } from './services/return-format.js';
 
 function orderIdFromEvent(event) {
   const parts = String(event.path || "").split("/").filter(Boolean);
@@ -73,7 +73,7 @@ export async function handler(event) {
     // are created with (returns-create).
     const { data, error } = await supabase
       .from("return_requests")
-      .select(RETURN_SELECT)
+      .select(await returnSelect(supabase))
       .eq("supabase_order_id", order.id)
       .order("created_at", { ascending: false });
 

@@ -3,6 +3,7 @@ import { insertTrackingEvent } from './services/fezTracking.js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
 import { shipbubbleProvider } from './services/shipping/providers/shipbubbleProvider.js';
 import { checkRateLimit } from './services/rate-limit.js';
+import { syncReturnPickupCarrier } from './services/return-pickup-sync.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -65,7 +66,19 @@ export const handler = async (event) => {
     .maybeSingle();
 
   if (!subOrder) {
-    return { statusCode: 200, headers, body: JSON.stringify({ success: true, ignored: true }) };
+    // Not a store-order shipment. It may be a customer's return pickup that we
+    // booked with Shipbubble: move that return along.
+    let returnPickup = false;
+    try {
+      returnPickup = await syncReturnPickupCarrier(supabase, orderId, jloStatus, rawStatus);
+    } catch (returnErr) {
+      console.warn('[shipbubble webhook] return pickup sync failed:', returnErr?.message || returnErr);
+    }
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({ success: true, ...(returnPickup ? { return_pickup: true } : { ignored: true }) }),
+    };
   }
 
   if (subOrder.status === jloStatus) {

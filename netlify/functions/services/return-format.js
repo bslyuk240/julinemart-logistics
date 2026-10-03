@@ -1,3 +1,5 @@
+import { isCarrierPickupEnabled } from './return-pickup.js';
+
 /**
  * One customer-facing shape for a return, used by returns-list,
  * returns-by-order and get-order-returns, so every storefront screen reads the
@@ -33,9 +35,11 @@ export function formatReturnForCustomer(req) {
     created_at: req.created_at,
     resolution_timeline: req.resolution_timeline || [],
 
-    // Shipment info
+    // Shipment info. tracking_url is a courier's own tracking page (e.g.
+    // Shipbubble), used when there is no Fez tracking number.
     return_code: shipment?.return_code || null,
     tracking_number: trackingNumber,
+    tracking_url: shipment?.tracking_url || null,
     tracking_submitted_at: shipment?.tracking_submitted_at || null,
     return_shipment: shipment
       ? {
@@ -43,6 +47,7 @@ export function formatReturnForCustomer(req) {
           return_request_id: req.id,
           return_code: shipment.return_code || null,
           tracking_number: trackingNumber,
+          tracking_url: shipment.tracking_url || null,
           status: shipment.status,
           tracking_submitted_at: shipment.tracking_submitted_at || null,
         }
@@ -64,10 +69,17 @@ export function formatReturnForCustomer(req) {
   };
 }
 
-/** Columns every customer-facing return lookup selects (all exist today). */
-export const RETURN_SELECT = `
+/**
+ * What every customer-facing return lookup selects. The courier columns come
+ * from the carrier-pickup migration, so they're only requested once they exist
+ * (otherwise these lookups would fail on a database that doesn't have them yet).
+ */
+export async function returnSelect(client) {
+  const courierCols = (await isCarrierPickupEnabled(client)) ? 'provider, tracking_url,' : '';
+  return `
   *,
   return_shipments (
+    ${courierCols}
     id,
     return_code,
     status,
@@ -76,3 +88,4 @@ export const RETURN_SELECT = `
     method
   )
 `;
+}

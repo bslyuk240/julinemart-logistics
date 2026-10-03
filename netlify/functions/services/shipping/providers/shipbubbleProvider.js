@@ -82,7 +82,7 @@ function normalizePhone(raw) {
   return normalizeNgPhone(raw) || '';
 }
 
-function pickupDate() {
+export function pickupDate() {
   const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'Africa/Lagos' }));
   if (now.getHours() >= 15) now.setDate(now.getDate() + 1);
   const y = now.getFullYear();
@@ -91,7 +91,7 @@ function pickupDate() {
   return `${y}-${m}-${d}`;
 }
 
-async function shipbubbleFetch(apiKey, path, { method = 'GET', body } = {}) {
+export async function shipbubbleFetch(apiKey, path, { method = 'GET', body } = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
@@ -112,7 +112,7 @@ async function shipbubbleFetch(apiKey, path, { method = 'GET', body } = {}) {
   return data;
 }
 
-async function resolveCategoryId(apiKey, providerRow) {
+export async function resolveCategoryId(apiKey, providerRow) {
   const configured = providerRow?.config?.category_id || process.env.SHIPBUBBLE_CATEGORY_ID;
   if (configured) return Number(configured);
   const data = await shipbubbleFetch(apiKey, '/shipping/labels/categories');
@@ -121,7 +121,7 @@ async function resolveCategoryId(apiKey, providerRow) {
   return Number(other?.category_id || other?.id || rows[0]?.category_id || rows[0]?.id);
 }
 
-async function validateAddress(supabase, apiKey, { locationKey, name, email, phone, address, city, state }) {
+export async function validateAddress(supabase, apiKey, { locationKey, name, email, phone, address, city, state }) {
   const existing = await getMappedAddressCode(supabase, locationKey, 'shipbubble');
   if (existing?.provider_address_code) {
     return Number(existing.provider_address_code);

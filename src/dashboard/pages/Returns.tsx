@@ -61,6 +61,9 @@ interface ReturnShipment {
   customer_submitted_tracking: boolean;
   /** Set when a local rider collects this return (a manual shipment to the hub). */
   manual_shipment_id?: string | null;
+  /** Set when a courier API holds the pickup booking (e.g. 'shipbubble'). */
+  provider?: string | null;
+  tracking_url?: string | null;
   created_at: string;
 }
 
@@ -117,7 +120,7 @@ interface ReturnRequest {
   pickup?: PickupDetails | null;
   /** What the customer owes for the pickup (0 when it's our fault). */
   pickup_fee?: number | null;
-  pickup_lane?: 'fez' | 'local_rider' | null;
+  pickup_lane?: 'fez' | 'local_rider' | 'shipbubble' | null;
   return_shipments: ReturnShipment[];
   order_payment: OrderPayment | null;
 }
@@ -137,7 +140,15 @@ interface QueueResponse {
   data: ReturnRequest[];
   total: number;
   stats: QueueStats;
+  /** Which pickup lanes can be booked right now (Shipbubble needs its migration). */
+  pickup_capabilities?: { shipbubble?: boolean };
 }
+
+const PICKUP_LANE_LABEL: Record<string, string> = {
+  local_rider: 'local rider',
+  fez: 'Fez',
+  shipbubble: 'Shipbubble',
+};
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -210,7 +221,8 @@ export default function ReturnsPage() {
   }>({ type: null, item: null });
   const [rejectionReason, setRejectionReason] = useState('');
   const [approvedAmount, setApprovedAmount] = useState('');
-  const [pickupLane, setPickupLane] = useState<'auto' | 'fez' | 'local_rider'>('auto');
+  const [pickupLane, setPickupLane] = useState<'auto' | 'fez' | 'local_rider' | 'shipbubble'>('auto');
+  const [canShipbubble, setCanShipbubble] = useState(false);
   const [inspectionNotes, setInspectionNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -224,6 +236,7 @@ export default function ReturnsPage() {
       setItems(res.data || []);
       setStats(res.stats || null);
       setTotal(res.total || 0);
+      setCanShipbubble(Boolean(res.pickup_capabilities?.shipbubble));
     } catch (err) {
       notification.error('Failed to load returns');
     } finally {
@@ -240,7 +253,7 @@ export default function ReturnsPage() {
     setSubmitting(true);
     try {
       const isPickup = modal.item.fez_method === 'pickup' && Boolean(modal.item.pickup);
-      const res = await callAdmin<{ data?: { pickup?: { lane: string; manual_shipment_code: string | null } | null; errors?: string[] | null } }>(
+      const res = await callAdmin<{ data?: { pickup?: { lane: string; manual_shipment_code: string | null; carrier?: { courier: string; cost: number } | null } | null; errors?: string[] | null } }>(
         'admin-approve-return',
         session.access_token,
         {
@@ -256,6 +269,8 @@ export default function ReturnsPage() {
       if (res?.data?.errors?.length) {
         // Approved, but something needs a person (e.g. no riders online yet).
         notification.error(`Approved, but: ${res.data.errors.join(' · ')}`);
+      } else if (isPickup && res?.data?.pickup?.lane === 'shipbubble' && res.data.pickup.carrier) {
+        notification.success(`Return approved: Shipbubble pickup booked with ${res.data.pickup.carrier.courier} (${fmt(res.data.pickup.carrier.cost)}), customer notified`);
       } else if (isPickup && res?.data?.pickup?.lane === 'local_rider') {
         notification.success(`Return approved — rider pickup ${res.data.pickup.manual_shipment_code || ''} sent to riders, customer notified`);
       } else {
@@ -554,13 +569,21 @@ export default function ReturnsPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Who collects it</label>
                   <select
                     value={pickupLane}
-                    onChange={e => setPickupLane(e.target.value as 'auto' | 'fez' | 'local_rider')}
+                    onChange={e => setPickupLane(e.target.value as 'auto' | 'fez' | 'local_rider' | 'shipbubble')}
                     className="w-full text-sm border border-gray-300 rounded-lg p-2.5 bg-white"
                   >
                     <option value="auto">Automatic: local rider in the hub's town, otherwise Fez</option>
                     <option value="local_rider">Local rider (offered to online riders, delivered to the hub)</option>
                     <option value="fez">Fez (books a courier pickup)</option>
+                    {canShipbubble && (
+                      <option value="shipbubble">Shipbubble (books the cheapest available courier)</option>
+                    )}
                   </select>
+                  {pickupLane === 'shipbubble' && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Books straight away and charges your Shipbubble wallet. If no courier is available nothing is saved and you can pick another option.
+                    </p>
+                  )}
                 </div>
               </>
             ) : (
@@ -758,7 +781,7 @@ function ExpandedDetail({ item }: { item: ReturnRequest }) {
         {item.reason_note && <DetailRow label="Notes" value={item.reason_note} />}
         {item.fez_method === 'pickup' && item.pickup && (
           <>
-            <DetailRow label="Method" value={`Pickup${item.pickup_lane ? ` (${item.pickup_lane === 'local_rider' ? 'local rider' : 'Fez'})` : ''}`} />
+            <DetailRow label="Method" value={`Pickup${item.pickup_lane ? ` (${PICKUP_LANE_LABEL[item.pickup_lane] || item.pickup_lane})` : ''}`} />
             <DetailRow label="Collect from" value={[item.pickup.address, item.pickup.city, item.pickup.state].filter(Boolean).join(', ')} />
             <DetailRow label="Contact" value={`${item.pickup.name} · ${item.pickup.phone}`} />
             {item.pickup.preferred_date && <DetailRow label="Preferred day" value={item.pickup.preferred_date} />}
@@ -790,6 +813,24 @@ function ExpandedDetail({ item }: { item: ReturnRequest }) {
             </div>
             <DetailRow label="Destination" value={s.destination_type === 'vendor' ? 'Vendor' : 'Hub'} />
             {s.manual_shipment_id && <DetailRow label="Handled by" value="Local rider (see Manual Shipments)" />}
+            {s.provider === 'shipbubble' && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">Handled by</span>
+                {s.tracking_url ? (
+                  <a
+                    href={s.tracking_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-purple-600 hover:underline"
+                    onClick={e => e.stopPropagation()}
+                  >
+                    Shipbubble courier: track
+                  </a>
+                ) : (
+                  <span className="text-xs text-gray-700">Shipbubble courier</span>
+                )}
+              </div>
+            )}
             {s.destination_address && (
               <DetailRow
                 label="Address"

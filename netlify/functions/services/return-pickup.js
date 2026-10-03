@@ -58,8 +58,27 @@ export async function isPickupEnabled(client) {
   return !error;
 }
 
+// Courier-API pickups (Shipbubble) need a second migration's columns. Same
+// pattern: off until they exist.
+let carrierCache = { value: null, checkedAt: 0 };
+
+export async function isCarrierPickupEnabled(client) {
+  if (!(await isPickupEnabled(client))) return false;
+  if (carrierCache.value === true) return true;
+  if (carrierCache.value === false && Date.now() - carrierCache.checkedAt < RECHECK_DISABLED_MS) {
+    return false;
+  }
+  const { error } = await client
+    .from('return_shipments')
+    .select('provider, provider_shipment_id, tracking_url')
+    .limit(1);
+  carrierCache = { value: !error, checkedAt: Date.now() };
+  return !error;
+}
+
 /** Test hook: forget the cached availability check. */
 export function resetPickupEnabledCache() {
+  carrierCache = { value: null, checkedAt: 0 };
   enabledCache = { value: null, checkedAt: 0 };
 }
 

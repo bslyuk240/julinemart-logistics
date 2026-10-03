@@ -6,7 +6,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { authenticateCustomer } from './services/customerAuth.js';
-import { RETURN_SELECT, formatReturnForCustomer } from './services/return-format.js';
+import { returnSelect, formatReturnForCustomer } from './services/return-format.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -106,7 +106,7 @@ export async function handler(event) {
     // id, so match on supabase_order_id.
     const { data: requests, error: requestsError } = await supabase
       .from('return_requests')
-      .select(RETURN_SELECT)
+      .select(await returnSelect(supabase))
       .eq('supabase_order_id', orderUUID)
       .order('created_at', { ascending: false });
 

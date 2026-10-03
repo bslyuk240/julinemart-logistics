@@ -1,6 +1,20 @@
-// Get returns for a specific order (by Woo order id)
-import { supabase } from './services/returns-utils.js';
+// Get the signed-in customer's returns for one order.
+// GET /api/orders/:orderId/returns  (or /returns-by-order/:orderId, or ?order_id=)
+//
+// Requires the customer's login and that the order belongs to them. This used
+// to return any order's returns to anyone, by order id alone.
+import { supabase, fetchSupabaseOrder } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
+import { authenticateCustomer } from './services/customerAuth.js';
+
+function orderIdFromEvent(event) {
+  const parts = String(event.path || "").split("/").filter(Boolean);
+  for (const marker of ["orders", "returns-by-order"]) {
+    const idx = parts.indexOf(marker);
+    if (idx >= 0 && parts[idx + 1]) return decodeURIComponent(parts[idx + 1]);
+  }
+  return event.queryStringParameters?.order_id || null;
+}
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflightResponse();
@@ -13,14 +27,17 @@ export async function handler(event) {
     };
   }
 
-  try {
-    // -------------------------
-    // Extract order_id from path
-    // -------------------------
-    const parts = event.path.split("/");
-    const idx = parts.findIndex((p) => p === "orders");
-    const orderId = idx >= 0 ? parts[idx + 1] : null;
+  const { email, error: authError } = await authenticateCustomer(event);
+  if (authError) {
+    return {
+      statusCode: 401,
+      headers: corsHeaders(),
+      body: JSON.stringify({ success: false, error: "Sign in required" }),
+    };
+  }
 
+  try {
+    const orderId = orderIdFromEvent(event);
     if (!orderId) {
       return {
         statusCode: 400,
@@ -33,9 +50,26 @@ export async function handler(event) {
       };
     }
 
-    // -------------------------
-    // Query matching return requests
-    // -------------------------
+    // Resolve the order (Supabase UUID or legacy order number) and check it is
+    // the caller's. Not found and not yours get the same empty answer, so order
+    // ids can't be probed.
+    let order = null;
+    try {
+      order = await fetchSupabaseOrder(orderId);
+    } catch {
+      order = null;
+    }
+    const owned = order && String(order.customer_email || "").trim().toLowerCase() === email;
+    if (!owned) {
+      return {
+        statusCode: 200,
+        headers: corsHeaders(),
+        body: JSON.stringify({ success: true, data: [] }),
+      };
+    }
+
+    // supabase_order_id is the order's UUID, which is what return requests
+    // are created with (returns-create).
     const { data, error } = await supabase
       .from("return_requests")
       .select(`
@@ -49,14 +83,11 @@ export async function handler(event) {
           method
         )
       `)
-      .eq("order_id", orderId)
+      .eq("supabase_order_id", order.id)
       .order("created_at", { ascending: false });
 
     if (error) throw error;
 
-    // -------------------------
-    // Normalize API response
-    // -------------------------
     const formatted = (data || []).map((req) => {
       const shipment = req.return_shipments;
 

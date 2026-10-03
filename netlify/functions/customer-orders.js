@@ -1,10 +1,13 @@
 // Netlify Function: customer-orders
-// GET ?email=...            → list orders for that customer email
-// GET ?email=...&order_id=... → single order + order_items
+// Requires the customer's login (Authorization: Bearer <supabase token>).
+// GET                       → list the signed-in customer's orders
+// GET ?order_id=...         → single order + order_items
+// ?email= is optional and, if sent, must match the signed-in customer.
 
 import { createClient } from '@supabase/supabase-js';
 import { checkRateLimit } from './services/rate-limit.js';
 import { isOrderCancellable } from './services/cancellation-rules.js';
+import { authenticateCustomer } from './services/customerAuth.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
@@ -13,7 +16,7 @@ const supabase = createClient(
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Content-Type': 'application/json',
 };
 
@@ -38,16 +41,29 @@ export async function handler(event) {
   });
   if (limited) return response;
 
+  // The caller must be signed in, and can only read their own orders. The email
+  // comes from the verified login, never from the query string: this used to
+  // trust ?email=, so anyone who knew an email and a (sequential) order number
+  // could read that customer's name, phone, address and items.
+  const { email, error: authError } = await authenticateCustomer(event);
+  if (authError) {
+    return {
+      statusCode: 401,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: false, error: 'Sign in required' }),
+    };
+  }
+
   try {
     const qs = event.queryStringParameters || {};
-    const email = (qs.email || '').toLowerCase().trim();
+    const requestedEmail = (qs.email || '').toLowerCase().trim();
     const orderId = qs.order_id || null;
 
-    if (!email) {
+    if (requestedEmail && requestedEmail !== email) {
       return {
-        statusCode: 400,
+        statusCode: 403,
         headers: corsHeaders,
-        body: JSON.stringify({ success: false, error: 'email is required' }),
+        body: JSON.stringify({ success: false, error: 'You can only view your own orders' }),
       };
     }
 

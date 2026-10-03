@@ -5,6 +5,7 @@
 //   ?orderId=<wc-number>       — legacy WooCommerce order number (resolved to UUID)
 
 import { createClient } from '@supabase/supabase-js';
+import { authenticateCustomer } from './services/customerAuth.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -13,7 +14,7 @@ const supabase = createClient(
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Content-Type': 'application/json',
 };
 
@@ -33,6 +34,16 @@ export async function handler(event) {
         success: false,
         error: 'Method not allowed. Use GET.',
       }),
+    };
+  }
+
+  // Requires the customer's login, and only returns that customer's own order.
+  const { email, error: authError } = await authenticateCustomer(event);
+  if (authError) {
+    return {
+      statusCode: 401,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: false, error: 'Sign in required' }),
     };
   }
 
@@ -56,41 +67,31 @@ export async function handler(event) {
       };
     }
 
-    let orderUUID;
+    // Resolve the order, from a Supabase UUID or a legacy WC order number, and
+    // check it belongs to the signed-in caller. "Not found" and "not yours" get
+    // the same empty answer so order ids can't be probed.
+    let orderQuery = supabase.from('orders').select('id, customer_email');
+    orderQuery = directUUID
+      ? orderQuery.eq('id', directUUID)
+      : orderQuery.eq('woocommerce_order_id', legacyOrderNumber);
+    const { data: order, error: orderError } = await orderQuery.maybeSingle();
 
-    if (directUUID) {
-      // --------------------------------------------------
-      // 1a. Direct UUID — no resolution needed
-      // --------------------------------------------------
-      console.log('🔎 Using direct order UUID:', directUUID);
-      orderUUID = directUUID;
-    } else {
-      // --------------------------------------------------
-      // 1b. Legacy: resolve WC order number → Supabase UUID
-      // --------------------------------------------------
-      console.log('🔎 Resolving legacy order number:', legacyOrderNumber);
-      const { data: order, error: orderError } = await supabase
-        .from('orders')
-        .select('id')
-        .eq('woocommerce_order_id', legacyOrderNumber)
-        .maybeSingle();
-
-      if (orderError || !order) {
-        console.warn('⚠️ Order not found in Supabase:', legacyOrderNumber);
-        return {
-          statusCode: 200,
-          headers: corsHeaders,
-          body: JSON.stringify({
-            success: true,
-            data: [],
-            message: 'Order not found or no returns yet',
-          }),
-        };
-      }
-      orderUUID = order.id;
+    const owned =
+      !orderError &&
+      order &&
+      String(order.customer_email || '').trim().toLowerCase() === email;
+    if (!owned) {
+      return {
+        statusCode: 200,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: true,
+          data: [],
+          message: 'Order not found or no returns yet',
+        }),
+      };
     }
-
-    console.log('✅ Order UUID:', orderUUID);
+    const orderUUID = order.id;
 
     // --------------------------------------------------
     // 2. Fetch return shipments using UUID
@@ -108,7 +109,7 @@ export async function handler(event) {
         tracking_submitted_at,
         created_at,
         updated_at,
-        return_request:return_requests (
+        return_request:return_requests!inner (
           id,
           order_id,
           order_number,
@@ -124,7 +125,10 @@ export async function handler(event) {
           updated_at
         )
       `)
-      .eq('return_request.order_id', orderUUID)
+      // return_requests.order_id is the legacy numeric WooCommerce id, so a UUID
+      // can never match it: match on supabase_order_id. With !inner above this
+      // also restricts the rows to this order instead of only the embed.
+      .eq('return_request.supabase_order_id', orderUUID)
       .order('created_at', { ascending: false });
 
     if (shipmentsError) {

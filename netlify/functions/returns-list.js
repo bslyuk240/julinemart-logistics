@@ -1,6 +1,10 @@
-// List returns for a customer (wc_customer_id or customer_email)
+// List the signed-in customer's returns.
+// Requires the customer's login. The email comes from the verified login: this
+// used to trust ?customer_email= / ?wc_customer_id=, so anyone could list any
+// customer's returns (reasons, evidence photos, return codes, tracking).
 import { supabase } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
+import { authenticateCustomer } from './services/customerAuth.js';
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflightResponse();
@@ -13,19 +17,26 @@ export async function handler(event) {
     };
   }
 
+  const { email, error: authError } = await authenticateCustomer(event);
+  if (authError) {
+    return {
+      statusCode: 401,
+      headers: corsHeaders(),
+      body: JSON.stringify({ success: false, error: "Sign in required" }),
+    };
+  }
+
   try {
     const url = new URL(event.rawUrl);
-    const wcCustomerId = url.searchParams.get("wc_customer_id");
-    const email = url.searchParams.get("customer_email");
+    const requestedEmail = (url.searchParams.get("customer_email") || "").trim().toLowerCase();
 
-    if (!wcCustomerId && !email) {
+    // A caller may only ask for their own returns. wc_customer_id is ignored:
+    // it can't be tied to the login, so it can't be trusted.
+    if (requestedEmail && requestedEmail !== email) {
       return {
-        statusCode: 400,
+        statusCode: 403,
         headers: corsHeaders(),
-        body: JSON.stringify({
-          success: false,
-          error: "wc_customer_id or customer_email required",
-        }),
+        body: JSON.stringify({ success: false, error: "You can only view your own returns" }),
       };
     }
 
@@ -47,8 +58,7 @@ export async function handler(event) {
       `)
       .order("created_at", { ascending: false });
 
-    if (wcCustomerId) query = query.eq("wc_customer_id", wcCustomerId);
-    if (email) query = query.eq("customer_email", email);
+    query = query.eq("customer_email", email);
 
     // Optional: Filter out test rows with no order_id
     // query = query.not("order_id", "is", null);

@@ -5,7 +5,7 @@ import { buildOrderDeepLink, sendPushToCustomer } from './services/pushNotificat
 import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { requireAdmin } from './services/global-sourcing-utils.js';
 import { recordStaffAudit } from './services/auditLog.js';
-import { RETURNS_ACTION_ROLES } from './services/staff-roles.js';
+import { REFUND_APPROVAL_ROLES } from './services/staff-roles.js';
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflightResponse();
@@ -17,10 +17,10 @@ export async function handler(event) {
     };
   }
 
-  // Staff only. This approves returns and triggers a real Paystack refund, and
-  // used to have no login check at all: anyone who knew a return id could
-  // approve a refund.
-  const auth = await requireAdmin(event, RETURNS_ACTION_ROLES);
+  // Admin or manager only. This decides a refund and triggers a real Paystack
+  // payout. It used to have no login check at all: anyone who knew a return id
+  // could approve a refund. Agents triage returns but don't release money.
+  const auth = await requireAdmin(event, REFUND_APPROVAL_ROLES);
   if (auth.errorResponse) return auth.errorResponse;
 
   // Extract return_request_id from path: /api/returns/:id/inspection

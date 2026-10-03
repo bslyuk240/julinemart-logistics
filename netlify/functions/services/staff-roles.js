@@ -12,3 +12,10 @@
  */
 export const RETURNS_VIEW_ROLES = ['admin', 'agent', 'manager', 'viewer'];
 export const RETURNS_ACTION_ROLES = ['admin', 'agent', 'manager'];
+
+/**
+ * Deciding a refund and paying it out (the return inspection decision and
+ * manual Paystack refunds). Narrower than ACTION on purpose: agents triage
+ * returns (approve/reject a request, book the courier) but don't release money.
+ */
+export const REFUND_APPROVAL_ROLES = ['admin', 'manager'];

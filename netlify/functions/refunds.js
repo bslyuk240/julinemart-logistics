@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createPaystackRefund } from './services/returns-utils.js';
 import { requireAdmin } from './services/global-sourcing-utils.js';
 import { recordStaffAudit } from './services/auditLog.js';
-import { RETURNS_ACTION_ROLES, RETURNS_VIEW_ROLES } from './services/staff-roles.js';
+import { REFUND_APPROVAL_ROLES, RETURNS_ACTION_ROLES, RETURNS_VIEW_ROLES } from './services/staff-roles.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
@@ -36,11 +36,17 @@ export async function handler(event) {
 
   // Staff only. This creates Paystack refunds for any order and edits refund
   // records, and had no login check at all. Reading the list is open to
-  // read-only viewers; everything that changes a refund needs an action role.
-  const auth = await requireAdmin(
-    event,
-    event.httpMethod === 'GET' ? RETURNS_VIEW_ROLES : RETURNS_ACTION_ROLES
-  );
+  // read-only viewers. Adding a note is ordinary triage. Creating a refund or
+  // changing a refund's status releases or books money, so that is admin or
+  // manager only.
+  const { action: requestedAction } = parsePath(event.path);
+  const roles =
+    event.httpMethod === 'GET'
+      ? RETURNS_VIEW_ROLES
+      : event.httpMethod === 'POST' && requestedAction === 'note'
+      ? RETURNS_ACTION_ROLES
+      : REFUND_APPROVAL_ROLES;
+  const auth = await requireAdmin(event, roles);
   if (auth.errorResponse) return auth.errorResponse;
 
   try {

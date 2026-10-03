@@ -172,8 +172,9 @@ const STATUS_FILTER_OPTIONS = [
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ReturnsPage() {
-  const { session } = useAuth();
+  const { session, user } = useAuth();
   const notification = useNotification();
+  const canRefund = ['admin', 'manager'].includes(user?.role || '');
 
   const [items, setItems] = useState<ReturnRequest[]>([]);
   const [stats, setStats] = useState<QueueStats | null>(null);
@@ -411,7 +412,7 @@ export default function ReturnsPage() {
                   <td className="px-4 py-3 text-gray-700">{fmt(item.refund_amount)}</td>
                   <td className="px-4 py-3 text-gray-500 text-xs">{fmtDate(item.created_at)}</td>
                   <td className="px-4 py-3 text-right">
-                    <ActionButtons item={item} onApprove={() => openModal('approve', item)} onReject={() => openModal('reject', item)} onInspect={() => openModal('inspect', item)} onMarkStatus={handleMarkStatus} />
+                    <ActionButtons item={item} onApprove={() => openModal('approve', item)} onReject={() => openModal('reject', item)} onInspect={() => openModal('inspect', item)} onMarkStatus={handleMarkStatus} canRefund={canRefund} />
                   </td>
                 </tr>
                 {expandedId === item.id && (
@@ -455,7 +456,7 @@ export default function ReturnsPage() {
               <p className="text-sm"><span className="font-medium">Amount:</span> {fmt(item.refund_amount)}</p>
             )}
             <div className="flex flex-wrap gap-2">
-              <ActionButtons item={item} onApprove={() => openModal('approve', item)} onReject={() => openModal('reject', item)} onInspect={() => openModal('inspect', item)} onMarkStatus={handleMarkStatus} />
+              <ActionButtons item={item} onApprove={() => openModal('approve', item)} onReject={() => openModal('reject', item)} onInspect={() => openModal('inspect', item)} onMarkStatus={handleMarkStatus} canRefund={canRefund} />
             </div>
             <button
               onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}
@@ -563,15 +564,22 @@ export default function ReturnsPage() {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function ActionButtons({
-  item, onApprove, onReject, onInspect, onMarkStatus,
+  item, onApprove, onReject, onInspect, onMarkStatus, canRefund,
 }: {
   item: ReturnRequest;
   onApprove: () => void;
   onReject: () => void;
   onInspect: () => void;
   onMarkStatus: (item: ReturnRequest, status: string) => void;
+  canRefund: boolean;
 }) {
   const { status } = item;
+
+  // Releasing a refund is admin/manager only (the server enforces this too).
+  // Agents still triage: approve/reject the request, book the courier.
+  if (!canRefund && ['vendor_approved', 'inspection_in_progress', 'refund_failed'].includes(status)) {
+    return <span className="text-xs text-gray-500">Refund needs an admin or manager</span>;
+  }
 
   if (status === 'pending_review') {
     return (

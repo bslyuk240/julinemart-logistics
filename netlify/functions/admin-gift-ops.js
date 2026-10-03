@@ -8,12 +8,15 @@
 import { requireAdmin, adminClient, jsonResponse, headers } from './services/global-sourcing-utils.js';
 import { recordStaffAudit } from './services/auditLog.js';
 import { sendWebhookEvent } from './services/webhookDelivery.js';
+import { cancelGiftOrderByStaff, GiftCancelError } from './services/gift-cancel.js';
+import { updateGiftOrderDetailsByStaff, GiftEditError } from './services/gift-edit.js';
 
 const TAB_STATUSES = {
   new: ['new', 'paid'],
   packing: ['packing', 'packed'],
   dispatch: ['dispatch'],
   done: ['delivered'],
+  cancelled: ['cancelled'],
 };
 
 const GIFT_SELECT = `
@@ -130,6 +133,88 @@ export async function handler(event) {
 
     if (loadErr) return jsonResponse(500, { success: false, error: loadErr.message });
     if (!existing) return jsonResponse(404, { success: false, error: 'Gift order not found' });
+
+    // Out of stock / unfulfillable: cancel the whole order and refund the
+    // customer in full through Paystack. Refund can be skipped (refund: false)
+    // for unpaid orders or when handled manually.
+    if (action === 'cancel_refund') {
+      const reason = String(body.reason || body.note || '').trim();
+      if (!reason) return jsonResponse(400, { success: false, error: 'A reason is required' });
+      if (!existing.order_id) {
+        return jsonResponse(400, { success: false, error: 'Gift order has no linked order' });
+      }
+
+      let outcome;
+      try {
+        outcome = await cancelGiftOrderByStaff(adminClient, {
+          orderId: existing.order_id,
+          reason,
+          refund: body.refund !== false,
+          actorEmail,
+        });
+      } catch (err) {
+        const status = err instanceof GiftCancelError ? err.statusCode : 500;
+        return jsonResponse(status, { success: false, error: err?.message || 'Cancel failed' });
+      }
+
+      await recordStaffAudit(event, auth.authUser, {
+        action: 'GIFT_OPS_CANCEL_REFUND',
+        resource_type: 'gift_orders',
+        resource_id: giftOrderId,
+        details: { reason, ...outcome },
+      });
+
+      sendWebhookEvent('order.updated', {
+        order_id: outcome.order_id,
+        order_number: outcome.order_number,
+        previous_status: outcome.previous_status,
+        status: 'cancelled',
+      }).catch((e) => console.warn('[admin-gift-ops] webhook dispatch failed:', e.message));
+
+      const result = await loadDetail(giftOrderId);
+      return jsonResponse(200, {
+        success: true,
+        data: result.data,
+        refund: {
+          attempted: outcome.refund_attempted,
+          refunded: outcome.refunded,
+          refund_id: outcome.refund_id,
+          error: outcome.refund_error,
+        },
+      });
+    }
+
+    // Staff edit of recipient/message/schedule — only while no shipment exists.
+    // Customers can't edit after ordering; they ask support, who use this.
+    if (action === 'update_details') {
+      let outcome;
+      try {
+        outcome = await updateGiftOrderDetailsByStaff(adminClient, {
+          giftOrderId,
+          input: body,
+          actorEmail,
+        });
+      } catch (err) {
+        if (err instanceof GiftEditError) {
+          return jsonResponse(err.statusCode, { success: false, error: err.message });
+        }
+        return jsonResponse(500, { success: false, error: err?.message || 'Update failed' });
+      }
+
+      await recordStaffAudit(event, auth.authUser, {
+        action: 'GIFT_OPS_UPDATE_DETAILS',
+        resource_type: 'gift_orders',
+        resource_id: giftOrderId,
+        details: { changed_fields: outcome.changed, order_id: existing.order_id },
+      });
+
+      const result = await loadDetail(giftOrderId);
+      return jsonResponse(200, { success: true, data: result.data, changed: outcome.changed });
+    }
+
+    if (existing.gift_status === 'cancelled') {
+      return jsonResponse(409, { success: false, error: 'This gift order has been cancelled' });
+    }
 
     const patch = { updated_at: now };
     let newStatus = existing.gift_status;

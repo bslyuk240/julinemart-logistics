@@ -11,6 +11,7 @@ import { corsHeaders, preflightResponse } from './services/cors.js';
 import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { createClient } from '@supabase/supabase-js';
 import { checkRateLimit } from './services/rate-limit.js';
+import { isGiftOrderKind } from './services/gift-cancel.js';
 
 const adminClient = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -68,7 +69,28 @@ export async function handler(event) {
     const order = await fetchSupabaseOrder(order_id);
     const windowDays = Number(process.env.RETURN_WINDOW_DAYS || 14);
 
-    if (!validateReturnWindow(order, windowDays)) {
+    // Gifts are often scheduled weeks ahead, so a window counted from payment
+    // could expire before the gift is even delivered. Count it from delivery.
+    // Uses the order's own status because courier/rider delivery doesn't
+    // update gift_orders.gift_status (only ops "Mark delivered" does).
+    let windowOrder = order;
+    if (isGiftOrderKind(order.order_kind)) {
+      if (order.overall_status !== 'delivered') {
+        return {
+          statusCode: 400,
+          headers: corsHeaders(),
+          body: JSON.stringify({ success: false, error: 'A gift can only be returned after it has been delivered' })
+        };
+      }
+      const { data: giftRow } = await supabase
+        .from('gift_orders')
+        .select('completed_at')
+        .eq('order_id', order.id)
+        .maybeSingle();
+      windowOrder = { ...order, paid_at: giftRow?.completed_at || order.updated_at || order.paid_at };
+    }
+
+    if (!validateReturnWindow(windowOrder, windowDays)) {
       return {
         statusCode: 400,
         headers: corsHeaders(),

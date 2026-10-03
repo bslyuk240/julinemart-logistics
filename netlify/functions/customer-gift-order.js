@@ -24,6 +24,7 @@ export const GIFT_STATUS_LABELS = {
   packed: 'Gift box ready',
   dispatch: 'On the way',
   delivered: 'Delivered',
+  cancelled: 'Gift order cancelled',
 };
 
 export const GIFT_CUSTOMER_TIMELINE = ['paid', 'packing', 'packed', 'dispatch', 'delivered'];

@@ -14,6 +14,11 @@
 import { createClient } from '@supabase/supabase-js';
 import { sendWebhookEvent } from './services/webhookDelivery.js';
 import { releaseVoucherUsage } from './helpers/voucherHelpers.js';
+import {
+  checkGiftShipmentNotCreated,
+  isGiftOrderKind,
+  markGiftOrderCancelled,
+} from './services/gift-cancel.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
@@ -108,7 +113,7 @@ export async function handler(event) {
     const { data: order, error: fetchErr } = await supabase
       .from('orders')
       .select(`
-        id, order_number, overall_status, payment_status, payment_reference,
+        id, order_number, order_kind, overall_status, payment_status, payment_reference,
         total_amount, customer_email, customer_name, metadata,
         sub_orders ( id, status )
       `)
@@ -156,6 +161,25 @@ export async function handler(event) {
       };
     }
 
+    // 3b. Gifts: once a shipment/rider exists the gift is committed. The
+    // generic check above only trips from picked_up onward, which is too late
+    // for a gift whose Fez shipment was created or rider assigned.
+    const isGift = isGiftOrderKind(order.order_kind);
+    if (isGift) {
+      const giftCheck = await checkGiftShipmentNotCreated(supabase, order_id);
+      if (!giftCheck.allowed) {
+        return {
+          statusCode: 409,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: 'This gift can no longer be cancelled because its delivery has already been arranged. Please contact support.',
+            sub_order_status: giftCheck.status,
+          }),
+        };
+      }
+    }
+
     // 4. Cancel the main order
     const { error: updateOrderErr } = await supabase
       .from('orders')
@@ -195,6 +219,14 @@ export async function handler(event) {
         .not('status', 'in', '("delivered","returned","failed")');
       if (subCancelErr) {
         console.error('cancel-order: failed to cancel sub_orders:', subCancelErr.message);
+      }
+    }
+
+    if (isGift) {
+      try {
+        await markGiftOrderCancelled(supabase, order_id, { note: reason });
+      } catch (giftErr) {
+        console.error('cancel-order: failed to mark gift order cancelled:', giftErr?.message || giftErr);
       }
     }
 

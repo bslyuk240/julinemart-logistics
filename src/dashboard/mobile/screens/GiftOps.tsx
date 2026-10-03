@@ -7,6 +7,7 @@ import {
   Package,
   Printer,
   Truck,
+  XCircle,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNotification } from '../../contexts/NotificationContext';
@@ -14,8 +15,9 @@ import { PullToRefresh } from '../PullToRefresh';
 import { Sheet } from '../Sheet';
 import { TABBAR_SPACE, functionsBase } from '../lib/functionsAuth';
 import { formatNaira } from '../lib/displayUtils';
+import GiftEditDetailsForm from '../../components/GiftEditDetailsForm';
 
-type Tab = 'new' | 'packing' | 'dispatch' | 'done';
+type Tab = 'new' | 'packing' | 'dispatch' | 'done' | 'cancelled';
 
 type GiftHub = { id: string; name: string; code: string; is_default: boolean };
 
@@ -23,11 +25,17 @@ type GiftOpsOrder = {
   id: string;
   gift_status: string;
   recipient_name: string;
+  recipient_phone?: string | null;
+  recipient_email?: string | null;
+  recipient_address?: string | null;
+  recipient_zone?: string | null;
   recipient_city: string;
   recipient_state: string;
   gift_message?: string | null;
   sender_visible: boolean;
   occasion?: string | null;
+  requested_delivery_date?: string | null;
+  occasion_date?: string | null;
   pack_photo_url?: string | null;
   qc_notes?: string | null;
   gift_boxes?: { name: string; slug: string } | null;
@@ -51,6 +59,7 @@ const TABS: { id: Tab; label: string; icon: typeof Gift }[] = [
   { id: 'packing', label: 'Packing', icon: Package },
   { id: 'dispatch', label: 'Dispatch', icon: Truck },
   { id: 'done', label: 'Done', icon: CheckCircle2 },
+  { id: 'cancelled', label: 'Cancelled', icon: XCircle },
 ];
 
 const inputCls =
@@ -91,6 +100,7 @@ export default function MobileGiftOps() {
   const [actioning, setActioning] = useState(false);
   const [packPhotoUrl, setPackPhotoUrl] = useState('');
   const [qcNotes, setQcNotes] = useState('');
+  const [editing, setEditing] = useState(false);
 
   const authHeaders = useCallback(() => {
     if (!session?.access_token) return null;
@@ -161,6 +171,7 @@ export default function MobileGiftOps() {
   }, [selectedHubId, tab, loadQueue]);
 
   useEffect(() => {
+    setEditing(false);
     if (selectedOrder) loadDetail(selectedOrder.id);
     else setDetail(null);
   }, [selectedOrder, loadDetail]);
@@ -170,9 +181,9 @@ export default function MobileGiftOps() {
     if (selectedOrder) await loadDetail(selectedOrder.id);
   };
 
-  const runAction = async (action: string, extra: Record<string, unknown> = {}) => {
+  const runAction = async (action: string, extra: Record<string, unknown> = {}): Promise<boolean> => {
     const headers = authHeaders();
-    if (!headers || !selectedOrder) return;
+    if (!headers || !selectedOrder) return false;
     setActioning(true);
     try {
       const res = await fetch(`${functionsBase}/admin-gift-ops?id=${encodeURIComponent(selectedOrder.id)}`, {
@@ -182,14 +193,35 @@ export default function MobileGiftOps() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Action failed');
-      notification.success('Updated');
+      if (json.refund?.error) {
+        notification.error(`Gift cancelled, but the refund failed: ${json.refund.error}. Retry it from Refunds.`);
+      } else if (json.refund?.refunded) {
+        notification.success('Gift cancelled and refund initiated');
+      } else {
+        notification.success('Updated');
+      }
       setDetail(json.data);
       await loadQueue();
+      return true;
     } catch (err) {
       notification.error(err instanceof Error ? err.message : 'Action failed');
+      return false;
     } finally {
       setActioning(false);
     }
+  };
+
+  const saveDetails = async (changes: Record<string, unknown>) => {
+    const ok = await runAction('update_details', changes);
+    if (ok) setEditing(false);
+  };
+
+  const cancelAndRefund = async () => {
+    const reason = window.prompt(
+      'Cancel this gift and refund the customer in full.\nReason (e.g. item out of stock):'
+    );
+    if (!reason?.trim()) return;
+    await runAction('cancel_refund', { reason: reason.trim() });
   };
 
   const printCard = async () => {
@@ -334,6 +366,17 @@ export default function MobileGiftOps() {
                   )}
                 </div>
 
+                {editing && (
+                  <GiftEditDetailsForm
+                    key={`${detail.id}-${detail.requested_delivery_date}-${detail.gift_message}-${detail.recipient_address}`}
+                    detail={detail}
+                    saving={actioning}
+                    inputClassName={inputCls}
+                    onSave={saveDetails}
+                    onCancel={() => setEditing(false)}
+                  />
+                )}
+
                 {detail.gift_message && (
                   <blockquote className="rounded-xl bg-primary-50 px-3 py-2.5 text-sm italic text-gray-700 ring-1 ring-primary-100">
                     {detail.gift_message}
@@ -423,6 +466,26 @@ export default function MobileGiftOps() {
                       className="w-full rounded-2xl bg-green-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
                     >
                       Mark delivered
+                    </button>
+                  )}
+                  {['new', 'paid', 'packing', 'packed'].includes(detail.gift_status) && (
+                    <button
+                      type="button"
+                      disabled={actioning}
+                      onClick={() => setEditing((v) => !v)}
+                      className="w-full rounded-2xl border border-gray-300 py-3 text-sm font-semibold text-gray-700 disabled:opacity-50"
+                    >
+                      {editing ? 'Close edit' : 'Edit details'}
+                    </button>
+                  )}
+                  {['new', 'paid', 'packing', 'packed'].includes(detail.gift_status) && (
+                    <button
+                      type="button"
+                      disabled={actioning}
+                      onClick={cancelAndRefund}
+                      className="w-full rounded-2xl border border-red-300 py-3 text-sm font-semibold text-red-700 disabled:opacity-50"
+                    >
+                      Cancel &amp; refund
                     </button>
                   )}
                   {detail.pack_photo_url && (

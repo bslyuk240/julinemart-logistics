@@ -7,13 +7,15 @@ import {
   Printer,
   ChevronDown,
   ExternalLink,
+  XCircle,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useNotification } from '../contexts/NotificationContext';
+import GiftEditDetailsForm from '../components/GiftEditDetailsForm';
 
 const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
-type Tab = 'new' | 'packing' | 'dispatch' | 'done';
+type Tab = 'new' | 'packing' | 'dispatch' | 'done' | 'cancelled';
 
 type GiftHub = { id: string; name: string; code: string; is_default: boolean };
 
@@ -21,6 +23,10 @@ type GiftOpsOrder = {
   id: string;
   gift_status: string;
   recipient_name: string;
+  recipient_phone?: string | null;
+  recipient_email?: string | null;
+  recipient_address?: string | null;
+  recipient_zone?: string | null;
   recipient_city: string;
   recipient_state: string;
   gift_message?: string | null;
@@ -51,6 +57,7 @@ const TABS: { id: Tab; label: string; icon: typeof Gift }[] = [
   { id: 'packing', label: 'Packing', icon: Package },
   { id: 'dispatch', label: 'Dispatch', icon: Truck },
   { id: 'done', label: 'Done', icon: CheckCircle2 },
+  { id: 'cancelled', label: 'Cancelled', icon: XCircle },
 ];
 
 export default function GiftOpsPage() {
@@ -66,6 +73,8 @@ export default function GiftOpsPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [packPhotoUrl, setPackPhotoUrl] = useState('');
   const [qcNotes, setQcNotes] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const authHeaders = useCallback(() => {
     if (!session?.access_token) return null;
@@ -133,13 +142,14 @@ export default function GiftOpsPage() {
   }, [selectedHubId, tab, loadQueue]);
 
   useEffect(() => {
+    setEditing(false);
     if (selectedId) loadDetail(selectedId);
     else setDetail(null);
   }, [selectedId, loadDetail]);
 
-  const runAction = async (action: string, extra: Record<string, unknown> = {}) => {
+  const runAction = async (action: string, extra: Record<string, unknown> = {}): Promise<boolean> => {
     const headers = authHeaders();
-    if (!headers || !selectedId) return;
+    if (!headers || !selectedId) return false;
     try {
       const res = await fetch(`${functionsBase}/admin-gift-ops?id=${encodeURIComponent(selectedId)}`, {
         method: 'PATCH',
@@ -148,12 +158,35 @@ export default function GiftOpsPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Action failed');
-      notification.success('Updated');
+      if (json.refund?.error) {
+        notification.error(`Gift cancelled, but the refund failed: ${json.refund.error}. Retry it from Refunds.`);
+      } else if (json.refund?.refunded) {
+        notification.success('Gift cancelled and refund initiated');
+      } else {
+        notification.success('Updated');
+      }
       setDetail(json.data);
       await loadQueue();
+      return true;
     } catch (err) {
       notification.error(err instanceof Error ? err.message : 'Action failed');
+      return false;
     }
+  };
+
+  const saveDetails = async (changes: Record<string, unknown>) => {
+    setSavingEdit(true);
+    const ok = await runAction('update_details', changes);
+    setSavingEdit(false);
+    if (ok) setEditing(false);
+  };
+
+  const cancelAndRefund = async () => {
+    const reason = window.prompt(
+      'Cancel this gift and refund the customer in full.\nReason (e.g. item out of stock):'
+    );
+    if (!reason?.trim()) return;
+    await runAction('cancel_refund', { reason: reason.trim() });
   };
 
   const printCard = async () => {
@@ -276,6 +309,17 @@ export default function GiftOpsPage() {
                 )}
               </div>
 
+              {editing && (
+                <GiftEditDetailsForm
+                  key={`${detail.id}-${detail.requested_delivery_date}-${detail.gift_message}-${detail.recipient_address}`}
+                  detail={detail}
+                  saving={savingEdit}
+                  inputClassName="border rounded-lg px-3 py-2 text-sm w-full bg-white"
+                  onSave={saveDetails}
+                  onCancel={() => setEditing(false)}
+                />
+              )}
+
               {detail.gift_message && (
                 <blockquote className="text-sm italic border-l-4 border-primary-200 pl-3 text-gray-700">
                   {detail.gift_message}
@@ -353,6 +397,27 @@ export default function GiftOpsPage() {
                   <button type="button" className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm" onClick={() => runAction('complete')}>
                     Mark delivered
                   </button>
+                )}
+                {['new', 'paid', 'packing', 'packed'].includes(detail.gift_status) && (
+                  <button
+                    type="button"
+                    className="border px-3 py-2 rounded-lg text-sm text-gray-700"
+                    onClick={() => setEditing((v) => !v)}
+                  >
+                    {editing ? 'Close edit' : 'Edit details'}
+                  </button>
+                )}
+                {['new', 'paid', 'packing', 'packed'].includes(detail.gift_status) && (
+                  <button
+                    type="button"
+                    className="border border-red-300 text-red-700 px-3 py-2 rounded-lg text-sm"
+                    onClick={cancelAndRefund}
+                  >
+                    Cancel &amp; refund
+                  </button>
+                )}
+                {detail.gift_status === 'cancelled' && (
+                  <span className="text-sm font-medium text-red-700">Cancelled</span>
                 )}
                 {detail.pack_photo_url && (
                   <a href={detail.pack_photo_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-gray-600">

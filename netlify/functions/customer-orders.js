@@ -4,6 +4,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { checkRateLimit } from './services/rate-limit.js';
+import { isOrderCancellable } from './services/cancellation-rules.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
@@ -72,6 +73,7 @@ export async function handler(event) {
           ),
           sub_orders (
             id, status, tracking_number, courier_waybill, delivered_at,
+            courier_shipment_id, assigned_rider_id,
             couriers ( name, code ),
             hubs ( name, city )
           )
@@ -112,15 +114,22 @@ export async function handler(event) {
       }
 
       const items = order.order_items || [];
-      const subOrders = order.sub_orders || [];
       const { order_items: _ri, sub_orders: _rs, ...orderCore } = order;
+
+      // Same rule cancel-order enforces, so the storefront can hide the Cancel
+      // button once a shipment or rider exists. The internal courier/rider ids
+      // are used for that check only and are not sent to the client.
+      const canCancel = isOrderCancellable(order);
+      const subOrders = (order.sub_orders || []).map(
+        ({ courier_shipment_id: _cs, assigned_rider_id: _ar, ...rest }) => rest
+      );
 
       return {
         statusCode: 200,
         headers: corsHeaders,
         body: JSON.stringify({
           success: true,
-          data: { ...orderCore, items, sub_orders: subOrders },
+          data: { ...orderCore, items, sub_orders: subOrders, can_cancel: canCancel },
         }),
       };
     }

@@ -24,3 +24,14 @@ export function isDeliveryArranged(subOrder) {
 export function findArrangedShipment(subOrders) {
   return (subOrders || []).find(isDeliveryArranged) || null;
 }
+
+const FINAL_ORDER_STATUSES = new Set(['cancelled', 'delivered', 'refunded']);
+
+/**
+ * Can this order still be cancelled? Used to tell the storefront whether to
+ * show the Cancel button, with the same rule the cancel endpoint enforces.
+ */
+export function isOrderCancellable(order) {
+  if (!order || FINAL_ORDER_STATUSES.has(order.overall_status)) return false;
+  return !findArrangedShipment(order.sub_orders);
+}

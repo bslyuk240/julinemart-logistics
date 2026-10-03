@@ -12,6 +12,7 @@ import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { createClient } from '@supabase/supabase-js';
 import { checkRateLimit } from './services/rate-limit.js';
 import { isGiftOrderKind } from './services/gift-cancel.js';
+import { authenticateCustomer } from './services/customerAuth.js';
 
 const adminClient = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -36,6 +37,16 @@ export async function handler(event) {
     retryAfterSeconds: 600,
   });
   if (limited) return { ...response, headers: { ...response.headers, ...corsHeaders() } };
+
+  // Only a signed-in customer may file a return, and only on their own order.
+  const { email: customerEmail, error: authError } = await authenticateCustomer(event);
+  if (authError) {
+    return {
+      statusCode: 401,
+      headers: corsHeaders(),
+      body: JSON.stringify({ success: false, error: 'Please sign in to request a return.' })
+    };
+  }
 
   try {
     const body = event.body ? JSON.parse(event.body) : {};
@@ -67,6 +78,14 @@ export async function handler(event) {
     }
 
     const order = await fetchSupabaseOrder(order_id);
+    if (String(order.customer_email || '').trim().toLowerCase() !== customerEmail) {
+      // Same answer as a missing order, so order IDs can't be probed.
+      return {
+        statusCode: 404,
+        headers: corsHeaders(),
+        body: JSON.stringify({ success: false, error: 'Order not found' })
+      };
+    }
     const windowDays = Number(process.env.RETURN_WINDOW_DAYS || 14);
 
     // The window counts from delivery, not payment. Counting from payment

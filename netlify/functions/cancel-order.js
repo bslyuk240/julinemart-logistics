@@ -14,6 +14,7 @@ import { sendWebhookEvent } from './services/webhookDelivery.js';
 import { releaseVoucherUsage } from './helpers/voucherHelpers.js';
 import { isGiftOrderKind, markGiftOrderCancelled } from './services/gift-cancel.js';
 import { findArrangedShipment } from './services/cancellation-rules.js';
+import { authenticateCustomer } from './services/customerAuth.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
@@ -118,6 +119,28 @@ export async function handler(event) {
         headers,
         body: JSON.stringify({ success: false, error: 'Order not found' }),
       };
+    }
+
+    // A paid order means a refund is on the table, so the caller must be the
+    // signed-in customer who owns it. Unpaid orders (e.g. a guest backing out
+    // of checkout) move no money, so they stay cancellable without a login.
+    if (order.payment_status === 'paid') {
+      const { email, error: authError } = await authenticateCustomer(event);
+      if (authError) {
+        return {
+          statusCode: 401,
+          headers,
+          body: JSON.stringify({ success: false, error: 'Please sign in to cancel this order.' }),
+        };
+      }
+      if (String(order.customer_email || '').trim().toLowerCase() !== email) {
+        // Same answer as a missing order, so order IDs can't be probed.
+        return {
+          statusCode: 404,
+          headers,
+          body: JSON.stringify({ success: false, error: 'Order not found' }),
+        };
+      }
     }
 
     // 2. Already cancelled or delivered — nothing to do

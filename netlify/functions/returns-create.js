@@ -69,12 +69,23 @@ export async function handler(event) {
     const order = await fetchSupabaseOrder(order_id);
     const windowDays = Number(process.env.RETURN_WINDOW_DAYS || 14);
 
-    // Gifts are often scheduled weeks ahead, so a window counted from payment
-    // could expire before the gift is even delivered. Count it from delivery.
-    // Uses the order's own status because courier/rider delivery doesn't
-    // update gift_orders.gift_status (only ops "Mark delivered" does).
+    // The window counts from delivery, not payment. Counting from payment
+    // penalises slow deliveries (scheduled gifts, global-sourcing items) and
+    // can expire before the parcel even arrives. validateReturnWindow anchors
+    // on paid_at, so it is swapped for the delivery date when we have one.
+    const { data: deliveredSubs } = await supabase
+      .from('sub_orders')
+      .select('delivered_at')
+      .eq('main_order_id', order.id);
+    const deliveredTimes = (deliveredSubs || [])
+      .map((s) => (s.delivered_at ? new Date(s.delivered_at).getTime() : NaN))
+      .filter((t) => !Number.isNaN(t));
+    const deliveredAt = deliveredTimes.length ? new Date(Math.max(...deliveredTimes)).toISOString() : null;
+
     let windowOrder = order;
     if (isGiftOrderKind(order.order_kind)) {
+      // Gifts can only be returned once delivered. Uses the order's own status
+      // because only ops "Mark delivered" used to update gift_orders.gift_status.
       if (order.overall_status !== 'delivered') {
         return {
           statusCode: 400,
@@ -87,7 +98,14 @@ export async function handler(event) {
         .select('completed_at')
         .eq('order_id', order.id)
         .maybeSingle();
-      windowOrder = { ...order, paid_at: giftRow?.completed_at || order.updated_at || order.paid_at };
+      windowOrder = {
+        ...order,
+        paid_at: deliveredAt || giftRow?.completed_at || order.updated_at || order.paid_at,
+      };
+    } else if (deliveredAt) {
+      // Marketplace orders keep the old behaviour when no delivery date was
+      // recorded (legacy orders), so nobody is newly blocked.
+      windowOrder = { ...order, paid_at: deliveredAt };
     }
 
     if (!validateReturnWindow(windowOrder, windowDays)) {

@@ -60,7 +60,7 @@ export const handler = async (event) => {
 
   const { data: subOrder } = await supabase
     .from('sub_orders')
-    .select('id, order_id, status, courier_shipment_id, provider_metadata')
+    .select('id, main_order_id, status, courier_shipment_id, provider_metadata')
     .eq('courier_shipment_id', orderId)
     .maybeSingle();
 
@@ -110,8 +110,8 @@ export const handler = async (event) => {
     metadata: { provider: 'shipbubble', event: eventName, raw: payload },
   });
 
-  if (subOrder.order_id) {
-    await refreshOverallOrderStatus(subOrder.order_id);
+  if (subOrder.main_order_id) {
+    await refreshOverallOrderStatus(supabase, subOrder.main_order_id);
   }
 
   return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };

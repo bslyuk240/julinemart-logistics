@@ -1,5 +1,6 @@
 import { sendWebhookEvent } from '../services/webhookDelivery.js';
 import { releaseVoucherUsage } from './voucherHelpers.js';
+import { syncGiftDelivered } from '../services/gift-delivery-sync.js';
 
 const STATUS_PRIORITY = {
   pending: 1,
@@ -11,6 +12,9 @@ const STATUS_PRIORITY = {
   in_transit: 5,
   out_for_delivery: 6,
   delivered: 7,
+  // On its way back: ahead of delivered, but not yet the final 'returned'.
+  return_required: 8,
+  returning: 8,
   returned: 8,
   failed: 9,
   cancelled: 10,
@@ -28,6 +32,8 @@ const SUB_STATUS_TO_ORDER_STATUS = {
   in_transit: 'shipped',
   out_for_delivery: 'shipped',
   delivered: 'delivered',
+  return_required: 'shipped',
+  returning: 'shipped',
   returned: 'refunded',
   failed: 'cancelled',
   cancelled: 'cancelled',
@@ -68,6 +74,15 @@ export async function refreshOverallOrderStatus(supabase, orderId) {
     if (orderStatus === 'cancelled' && order.overall_status !== 'cancelled') {
       const voucherCode = order.metadata?.voucher_code;
       if (voucherCode) await releaseVoucherUsage(supabase, voucherCode);
+    }
+
+    // Gifts carry their own status/timeline; keep it in step with the shipment.
+    if (orderStatus === 'delivered') {
+      try {
+        await syncGiftDelivered(supabase, orderId);
+      } catch (giftErr) {
+        console.warn('[orderStatusHelper] gift delivered sync failed:', giftErr?.message || giftErr);
+      }
     }
 
     // Fire-and-forget — a webhook hiccup should never block the status update.

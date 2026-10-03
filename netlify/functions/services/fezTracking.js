@@ -15,13 +15,27 @@ export function mapFezStatus(fezStatus) {
     Delivered: 'delivered',
     Cancelled: 'cancelled',
     Returned: 'returned',
-    'Return in Progress': 'returned',
+    // Still on its way back, not finished. Mapping this to 'returned' made the
+    // order read as 'refunded' (orderStatusHelper) before any money moved.
+    'Return in Progress': 'returning',
   };
 
   const mapped = map[fezStatus];
-  if (!mapped) console.warn('Unknown Fez status — add to map:', fezStatus);
-  return mapped || 'assigned';
+  if (mapped) return mapped;
+
+  // A failed/attempted delivery. FEZ owns re-attempts under its own policy, so
+  // keep the shipment out for delivery: don't rewind it to 'assigned' and don't
+  // flip the order to cancelled. The raw FEZ wording is kept on the tracking
+  // event description so staff can still see what happened.
+  if (FEZ_DELIVERY_EXCEPTION.test(String(fezStatus || ''))) return 'out_for_delivery';
+
+  console.warn('Unknown Fez status — add to map:', fezStatus);
+  return 'assigned';
 }
+
+// Must mention delivery, so a failed *pick-up* isn't mistaken for a delivery attempt.
+const FEZ_DELIVERY_EXCEPTION =
+  /deliver\w*.*(fail|attempt|unsuccess)|(fail|attempt|unsuccess)\w*.*deliver|undeliver|not delivered|unable to deliver|re-?attempt|resched\w*.*deliver/i;
 
 export function isValidFezTrackingNumber(val) {
   if (!val || typeof val !== 'string') return false;

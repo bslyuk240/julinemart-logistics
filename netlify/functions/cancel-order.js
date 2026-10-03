@@ -2,23 +2,18 @@
  * POST /.netlify/functions/cancel-order
  *
  * Customer-facing, public endpoint.
- * Cancels an order if it hasn't been picked up / shipped yet.
+ * Cancels an order until delivery has been arranged, i.e. until a courier
+ * shipment is created or a rider is assigned (see services/cancellation-rules.js).
  * If the order was paid via Paystack, a full refund is automatically initiated.
  *
  * Body: { order_id: string, reason?: string }
- *
- * Non-cancellable sub_order statuses (goods already moving):
- *   picked_up | in_transit | out_for_delivery | delivered
  */
 
 import { createClient } from '@supabase/supabase-js';
 import { sendWebhookEvent } from './services/webhookDelivery.js';
 import { releaseVoucherUsage } from './helpers/voucherHelpers.js';
-import {
-  checkGiftShipmentNotCreated,
-  isGiftOrderKind,
-  markGiftOrderCancelled,
-} from './services/gift-cancel.js';
+import { isGiftOrderKind, markGiftOrderCancelled } from './services/gift-cancel.js';
+import { findArrangedShipment } from './services/cancellation-rules.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
@@ -32,9 +27,6 @@ const headers = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
-
-// Statuses that mean goods are already in motion — cannot cancel
-const SHIPPED_STATUSES = new Set(['picked_up', 'in_transit', 'out_for_delivery', 'delivered']);
 
 async function initiatePaystackRefund(transactionRef, amountKobo, reason) {
   if (!PAYSTACK_SECRET) {
@@ -115,7 +107,7 @@ export async function handler(event) {
       .select(`
         id, order_number, order_kind, overall_status, payment_status, payment_reference,
         total_amount, customer_email, customer_name, metadata,
-        sub_orders ( id, status )
+        sub_orders ( id, status, courier_shipment_id, courier_waybill, assigned_rider_id )
       `)
       .eq('id', order_id)
       .maybeSingle();
@@ -145,39 +137,25 @@ export async function handler(event) {
       };
     }
 
-    // 3. Check sub_orders — reject if any item is already in motion
+    // 3. Reject once delivery has been arranged: a courier shipment exists or
+    // a rider is assigned (or the parcel has already moved). Applies to
+    // marketplace and gift orders alike.
     const subOrders = order.sub_orders || [];
-    const shippedSub = subOrders.find((so) => SHIPPED_STATUSES.has(so.status));
+    const arrangedSub = findArrangedShipment(subOrders);
+    const isGift = isGiftOrderKind(order.order_kind);
 
-    if (shippedSub) {
+    if (arrangedSub) {
       return {
         statusCode: 409,
         headers,
         body: JSON.stringify({
           success: false,
-          error: 'This order cannot be cancelled because it has already been picked up for delivery. Please contact support.',
-          sub_order_status: shippedSub.status,
+          error: isGift
+            ? 'This gift can no longer be cancelled because its delivery has already been arranged. Please contact support.'
+            : 'This order can no longer be cancelled because its delivery has already been arranged. Please contact support.',
+          sub_order_status: arrangedSub.status,
         }),
       };
-    }
-
-    // 3b. Gifts: once a shipment/rider exists the gift is committed. The
-    // generic check above only trips from picked_up onward, which is too late
-    // for a gift whose Fez shipment was created or rider assigned.
-    const isGift = isGiftOrderKind(order.order_kind);
-    if (isGift) {
-      const giftCheck = await checkGiftShipmentNotCreated(supabase, order_id);
-      if (!giftCheck.allowed) {
-        return {
-          statusCode: 409,
-          headers,
-          body: JSON.stringify({
-            success: false,
-            error: 'This gift can no longer be cancelled because its delivery has already been arranged. Please contact support.',
-            sub_order_status: giftCheck.status,
-          }),
-        };
-      }
     }
 
     // 4. Cancel the main order

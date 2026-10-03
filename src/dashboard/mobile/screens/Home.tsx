@@ -14,7 +14,6 @@ interface Stats {
 }
 
 const RECENT_ORDERS_SHOWN = 5;
-const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
 function formatStat(value: number | undefined | null): string {
   if (value == null) return '—';
@@ -35,7 +34,8 @@ export default function MobileHome() {
       const [statsRes, ordersRes, returnsRes] = await Promise.all([
         callSupabaseFunction('stats', { method: 'GET' }),
         callSupabaseFunctionWithQuery('orders', { limit: '200', offset: '0' }, { method: 'GET' }),
-        fetch(`${functionsBase}/returns-queue`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        // returns-queue now requires the staff login; this helper sends it.
+        callSupabaseFunction('returns-queue', { method: 'GET' }).catch(() => null),
       ]);
 
       if (statsRes?.data) setStats(statsRes.data);

@@ -1,9 +1,18 @@
 // Periodic sync of Fez return shipments
 import { supabase, mapFezStatusToReturn } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
+import { RETURNS_ACTION_ROLES } from './services/staff-roles.js';
 
 export async function handler(event) {
   if (event?.httpMethod === 'OPTIONS') return preflightResponse();
+
+  // Staff only. Anyone could previously trigger this, and it overwrites every
+  // active return's status with the courier's mapped status. Nothing schedules
+  // it, so it's a manual staff action.
+  const auth = await requireAdmin(event, RETURNS_ACTION_ROLES);
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const { data: shipments, error } = await supabase
       .from('return_shipments')

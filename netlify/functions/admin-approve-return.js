@@ -3,6 +3,9 @@ import { createClient } from '@supabase/supabase-js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { authenticateFez } from './services/fezAuth.js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
+import { recordStaffAudit } from './services/auditLog.js';
+import { RETURNS_ACTION_ROLES } from './services/staff-roles.js';
 
 const adminClient = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -84,6 +87,12 @@ export async function handler(event) {
     return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
   }
 
+  // Staff only. Approving creates real courier shipments (which cost money) and
+  // vendor debits; this had no login check, so anyone with a return id could
+  // trigger it.
+  const auth = await requireAdmin(event, RETURNS_ACTION_ROLES);
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     const body = event.body ? JSON.parse(event.body) : {};
     const { return_request_id, action, rejection_reason } = body;
@@ -132,6 +141,13 @@ export async function handler(event) {
           },
         });
       }
+
+      await recordStaffAudit(event, auth.authUser, {
+        action: 'RETURN_REJECTED',
+        resource_type: 'return_requests',
+        resource_id: return_request_id,
+        details: { rejection_reason: rejection_reason || null },
+      });
 
       return {
         statusCode: 200,
@@ -342,6 +358,13 @@ export async function handler(event) {
         },
       });
     }
+
+    await recordStaffAudit(event, auth.authUser, {
+      action: 'RETURN_APPROVED',
+      resource_type: 'return_requests',
+      resource_id: return_request_id,
+      details: { shipments_created: createdShipments.length, shipment_errors: shipmentErrors.length },
+    });
 
     return {
       statusCode: 200,

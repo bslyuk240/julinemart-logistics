@@ -3,6 +3,9 @@ import { supabase, createWooRefund } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { buildOrderDeepLink, sendPushToCustomer } from './services/pushNotifications.js';
 import { sendTransactionalEmail } from './services/emailNotifications.js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
+import { recordStaffAudit } from './services/auditLog.js';
+import { RETURNS_ACTION_ROLES } from './services/staff-roles.js';
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflightResponse();
@@ -13,6 +16,12 @@ export async function handler(event) {
       body: JSON.stringify({ success: false, error: "Method not allowed" }),
     };
   }
+
+  // Staff only. This approves returns and triggers a real Paystack refund, and
+  // used to have no login check at all: anyone who knew a return id could
+  // approve a refund.
+  const auth = await requireAdmin(event, RETURNS_ACTION_ROLES);
+  if (auth.errorResponse) return auth.errorResponse;
 
   // Extract return_request_id from path: /api/returns/:id/inspection
   const parts = event.path.split("/");
@@ -52,6 +61,17 @@ export async function handler(event) {
 
     if (fetchErr || !request) {
       throw fetchErr || new Error("Return request not found");
+    }
+
+    // Never refund the same return twice (a double-click, or a retry after the
+    // refund already went through). A failed refund is still retryable because
+    // it leaves refund_status as 'failed', not 'completed'.
+    if (status === "approved" && request.refund_status === "completed") {
+      return {
+        statusCode: 409,
+        headers: corsHeaders(),
+        body: JSON.stringify({ success: false, error: "This return has already been refunded" }),
+      };
     }
 
     // Allowed statuses before inspection
@@ -284,6 +304,18 @@ export async function handler(event) {
         });
       }
     }
+
+    await recordStaffAudit(event, auth.authUser, {
+      action: "RETURN_INSPECTION",
+      resource_type: "return_requests",
+      resource_id: returnId,
+      details: {
+        decision: status,
+        next_status: nextStatus,
+        refund_amount: status === "approved" ? Number(approved_refund_amount) : null,
+        paystack_refund_id: refundPayload?.id || refundPayload?.refund_id || null,
+      },
+    });
 
     // ------------------------------
     // RESPONSE

@@ -2,6 +2,8 @@
 // Replaces refund-queue.js
 import { createClient } from '@supabase/supabase-js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
+import { RETURNS_VIEW_ROLES } from './services/staff-roles.js';
 
 const adminClient = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -31,6 +33,11 @@ export async function handler(event) {
   if (event.httpMethod !== 'GET') {
     return { statusCode: 405, headers: corsHeaders(), body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
   }
+
+  // Staff only. The queue lists every customer's returns with their name, email
+  // and order details, and had no login check.
+  const auth = await requireAdmin(event, RETURNS_VIEW_ROLES);
+  if (auth.errorResponse) return auth.errorResponse;
 
   try {
     const url = new URL(event.rawUrl);

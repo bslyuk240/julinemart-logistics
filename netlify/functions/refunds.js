@@ -3,6 +3,9 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { createPaystackRefund } from './services/returns-utils.js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
+import { recordStaffAudit } from './services/auditLog.js';
+import { RETURNS_ACTION_ROLES, RETURNS_VIEW_ROLES } from './services/staff-roles.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '',
@@ -30,6 +33,15 @@ export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
+
+  // Staff only. This creates Paystack refunds for any order and edits refund
+  // records, and had no login check at all. Reading the list is open to
+  // read-only viewers; everything that changes a refund needs an action role.
+  const auth = await requireAdmin(
+    event,
+    event.httpMethod === 'GET' ? RETURNS_VIEW_ROLES : RETURNS_ACTION_ROLES
+  );
+  if (auth.errorResponse) return auth.errorResponse;
 
   try {
     const { section, id, action } = parsePath(event.path);
@@ -156,6 +168,18 @@ export async function handler(event) {
         .single();
 
       if (recErr) console.error('Failed to record refund:', recErr.message);
+
+      await recordStaffAudit(event, auth.authUser, {
+        action: 'REFUND_CREATED',
+        resource_type: 'orders',
+        resource_id: order.id,
+        details: {
+          amount: Number(amount),
+          reason: reason || null,
+          return_request_id: return_request_id || null,
+          paystack_refund_id: refundResult?.id ? String(refundResult.id) : null,
+        },
+      });
 
       return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: record || refundResult }) };
     }

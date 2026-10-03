@@ -3,6 +3,8 @@
 // This replaces the Supabase Edge Function proxy
 
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
+import { RETURNS_ACTION_ROLES } from './services/staff-roles.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -162,6 +164,14 @@ export async function handler(event) {
       body: JSON.stringify({ success: false, error: "Method not allowed" })
     };
   }
+
+  // Staff only. This books a real courier pickup from any address the caller
+  // supplies, which costs money, and had no login check. The customer portal's
+  // old return-method page called it, but nothing in the portal creates the
+  // return request that page needs, and the storefront only supports drop-off
+  // (returns-create), so no live flow depends on a customer calling this.
+  const auth = await requireAdmin(event, RETURNS_ACTION_ROLES);
+  if (auth.errorResponse) return auth.errorResponse;
 
   try {
     const body = JSON.parse(event.body || "{}");

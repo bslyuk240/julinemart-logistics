@@ -2,6 +2,8 @@
 // Fetches return shipments enriched with Supabase order payment data
 
 import { createClient } from "@supabase/supabase-js";
+import { requireAdmin } from "./services/global-sourcing-utils.js";
+import { RETURNS_VIEW_ROLES } from "./services/staff-roles.js";
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -10,7 +12,7 @@ const supabase = createClient(
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Content-Type": "application/json",
 };
 
@@ -54,6 +56,10 @@ export async function handler(event) {
       body: JSON.stringify({ success: false, error: "Method not allowed - use GET" }),
     };
   }
+
+  // Staff only: this lists returns with customers' payment references.
+  const auth = await requireAdmin(event, RETURNS_VIEW_ROLES);
+  if (auth.errorResponse) return auth.errorResponse;
 
   try {
     const url = new URL(event.rawUrl);

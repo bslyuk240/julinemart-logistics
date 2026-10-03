@@ -1,13 +1,8 @@
 // Admin/Ops returns listing with optional filters (DROP-OFF NORMALIZED VERSION)
 import { supabase } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
-
-function ensureAdmin(event) {
-  // Simple header-based role guard
-  const role = event.headers?.["x-user-role"] || event.headers?.["X-User-Role"];
-  if (role && ["admin", "agent", "manager", "viewer", "shop_manager"].includes(role)) return true;
-  return true; // Allow as fallback until full auth is hooked
-}
+import { requireAdmin } from './services/global-sourcing-utils.js';
+import { RETURNS_VIEW_ROLES } from './services/staff-roles.js';
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflightResponse();
@@ -20,13 +15,10 @@ export async function handler(event) {
     };
   }
 
-  if (!ensureAdmin(event)) {
-    return {
-      statusCode: 401,
-      headers: corsHeaders(),
-      body: JSON.stringify({ success: false, error: "Unauthorized" })
-    };
-  }
+  // Staff only. The old guard here read an x-user-role header the caller could
+  // set to anything, and then returned true regardless, so it checked nothing.
+  const auth = await requireAdmin(event, RETURNS_VIEW_ROLES);
+  if (auth.errorResponse) return auth.errorResponse;
 
   try {
     const url = new URL(event.rawUrl);

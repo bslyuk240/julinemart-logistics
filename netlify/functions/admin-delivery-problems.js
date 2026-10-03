@@ -272,6 +272,8 @@ async function handleGiftRefund(event, body) {
       reason: `Delivery failed after ${GIFT_MAX_CUSTOMER_FAULT_ATTEMPTS} attempts`,
       refund: true,
       actorEmail,
+      // The failed delivery already has a rider/shipment; that's the point.
+      allowArrangedShipment: true,
     });
   } catch (err) {
     const status = err instanceof GiftCancelError ? err.statusCode : 500;

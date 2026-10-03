@@ -14,6 +14,8 @@ const JLO_STATUSES = new Set([
   'at_hub',
   'delivered',
   'failed',
+  'return_required',
+  'returning',
   'returned',
   'cancelled',
 ]);
@@ -39,9 +41,21 @@ const SHIPBUBBLE_STATUS_MAP = {
   cancelled: 'cancelled',
   canceled: 'cancelled',
   returned: 'returned',
-  'return in progress': 'returned',
+  // Still on its way back, not finished. Mapping this to 'returned' made the
+  // order read as 'refunded' before any money moved.
+  'return in progress': 'returning',
+  'returning to sender': 'returning',
   failed: 'failed',
-  'delivery failed': 'failed',
+  // A failed *delivery attempt*. The courier owns re-attempts under its own
+  // policy, so keep the shipment out for delivery: mapping it to 'failed' flips
+  // the whole order to cancelled (and releases the voucher) while the courier
+  // may still deliver. The raw wording stays on the tracking event. A bare
+  // 'failed' (e.g. a booking failure) still maps to 'failed' above.
+  'delivery failed': 'out_for_delivery',
+  'delivery attempted': 'out_for_delivery',
+  'delivery attempt failed': 'out_for_delivery',
+  undelivered: 'out_for_delivery',
+  'not delivered': 'out_for_delivery',
 };
 
 export function mapProviderStatus(provider, rawStatus) {

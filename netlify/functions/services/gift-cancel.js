@@ -69,7 +69,10 @@ export class GiftCancelError extends Error {
  * staff can retry from the refunds queue, rather than leaving a refunded
  * order live.
  */
-export async function cancelGiftOrderByStaff(client, { orderId, reason, refund = true, actorEmail }) {
+export async function cancelGiftOrderByStaff(
+  client,
+  { orderId, reason, refund = true, actorEmail, allowArrangedShipment = false }
+) {
   const { data: order, error } = await client
     .from('orders')
     .select('id, order_number, order_kind, overall_status, payment_status, payment_reference, total_amount, metadata')
@@ -90,6 +93,19 @@ export async function cancelGiftOrderByStaff(client, { orderId, reason, refund =
   }
 
   if (!alreadyCancelled) {
+    // Cancelling doesn't cancel a booked courier shipment (FEZ, Shipbubble) or
+    // recall an assigned rider, so refusing here avoids a paid-for booking being
+    // left running for an order that no longer exists. Failed-delivery refunds
+    // legitimately have a shipment, and opt in with allowArrangedShipment.
+    if (!allowArrangedShipment) {
+      const arranged = await checkGiftShipmentNotCreated(client, orderId);
+      if (!arranged.allowed) {
+        throw new GiftCancelError(
+          'A courier shipment or rider is already booked for this gift. Cancel that booking first so it is not wasted, then refund.'
+        );
+      }
+    }
+
     const { error: orderErr } = await client
       .from('orders')
       .update({ overall_status: 'cancelled' })

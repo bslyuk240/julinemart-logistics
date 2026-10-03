@@ -6,6 +6,7 @@
 import { supabase, fetchSupabaseOrder } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateCustomer } from './services/customerAuth.js';
+import { RETURN_SELECT, formatReturnForCustomer } from './services/return-format.js';
 
 function orderIdFromEvent(event) {
   const parts = String(event.path || "").split("/").filter(Boolean);
@@ -72,45 +73,13 @@ export async function handler(event) {
     // are created with (returns-create).
     const { data, error } = await supabase
       .from("return_requests")
-      .select(`
-        *,
-        return_shipments: return_shipments!inner (
-          id,
-          return_code,
-          status,
-          fez_tracking,
-          tracking_submitted_at,
-          method
-        )
-      `)
+      .select(RETURN_SELECT)
       .eq("supabase_order_id", order.id)
       .order("created_at", { ascending: false });
 
     if (error) throw error;
 
-    const formatted = (data || []).map((req) => {
-      const shipment = req.return_shipments;
-
-      return {
-        return_request_id: req.id,
-        return_shipment_id: shipment?.id,
-        order_id: req.order_id,
-        order_number: req.order_number,
-        status: req.status,
-        method: "dropoff", // fixed based on new logic
-        hub_id: req.hub_id,
-        reason_code: req.reason_code,
-        reason_note: req.reason_note,
-        preferred_resolution: req.preferred_resolution,
-        images: req.images || [],
-        created_at: req.created_at,
-
-        // Shipment info
-        return_code: shipment?.return_code || null,
-        tracking_number: shipment?.fez_tracking || null,
-        tracking_submitted_at: shipment?.tracking_submitted_at || null,
-      };
-    });
+    const formatted = (data || []).map(formatReturnForCustomer);
 
     return {
       statusCode: 200,

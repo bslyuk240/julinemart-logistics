@@ -6,6 +6,8 @@ import { authenticateFez } from './services/fezAuth.js';
 import { requireAdmin } from './services/global-sourcing-utils.js';
 import { recordStaffAudit } from './services/auditLog.js';
 import { RETURNS_ACTION_ROLES } from './services/staff-roles.js';
+import { chooseReturnLane } from './services/return-pickup.js';
+import { createLocalRiderPickup } from './services/return-pickup-rider.js';
 
 const adminClient = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -205,13 +207,117 @@ export async function handler(event) {
       groups['hub'] = { destinationType: 'hub', vendor: null, items: ['Return items'] };
     }
 
-    // Authenticate with Fez once for all shipments
-    const auth = await authenticateFezForReturn();
+    // ── Pickup vs drop-off ────────────────────────────────────────────────────
+    // A pickup return carries where to collect from (and when). Otherwise the
+    // order's delivery address is used, as before. For pickups the lane is
+    // chosen here: a local rider in the hub's own town, Fez everywhere else;
+    // staff can override with pickup_lane.
+    const isPickup = request.fez_method === 'pickup' && Boolean(request.pickup);
+    const pickupFrom = isPickup
+      ? {
+          name: request.pickup.name,
+          phone: request.pickup.phone,
+          address: request.pickup.address,
+          city: request.pickup.city,
+          state: request.pickup.state,
+        }
+      : {
+          name: order.customer_name,
+          phone: order.customer_phone,
+          address: order.delivery_address,
+          city: order.delivery_city,
+          state: order.delivery_state,
+        };
+
+    let lane = 'fez';
+    if (isPickup) {
+      const requestedLane = body.pickup_lane;
+      if (requestedLane && !['fez', 'local_rider'].includes(requestedLane)) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders(),
+          body: JSON.stringify({ success: false, error: "pickup_lane must be 'fez' or 'local_rider'" }),
+        };
+      }
+      lane = requestedLane || chooseReturnLane({ pickupCity: pickupFrom.city, hubCity: hub.city });
+    }
+    const useLocalRider = isPickup && lane === 'local_rider';
 
     const createdShipments = [];
     const shipmentErrors = [];
+    let riderPickup = null;
 
-    for (const [key, group] of Object.entries(groups)) {
+    // Local rider: ONE pickup straight to the hub (the hub forwards to vendors),
+    // so there is no per-vendor Fez booking. Done first, and before anything is
+    // saved, so a failure here leaves the return still pending for a retry.
+    if (useLocalRider) {
+      const returnCode = generateReturnCode();
+      try {
+        riderPickup = await createLocalRiderPickup(adminClient, event, {
+          pickupFrom,
+          hub,
+          returnCode,
+          itemSummary: Object.values(groups).flatMap((g) => g.items).slice(0, 3).join(', '),
+          staffUserId: staffAuth.authUser?.id || null,
+        });
+      } catch (err) {
+        return {
+          statusCode: 502,
+          headers: corsHeaders(),
+          body: JSON.stringify({ success: false, error: err.message || 'Could not arrange the rider pickup' }),
+        };
+      }
+
+      const { data: riderReturnShipment, error: riderShipErr } = await adminClient
+        .from('return_shipments')
+        .insert({
+          return_request_id,
+          return_code: returnCode,
+          method: 'pickup',
+          status: 'awaiting_pickup',
+          fez_tracking: null,
+          manual_shipment_id: riderPickup.shipment.id,
+          vendor_id: null,
+          destination_type: 'hub',
+          destination_address: {
+            address: hub.address || '',
+            state: hub.state || '',
+            city: hub.city || '',
+            name: hub.name || 'JulineMart Hub',
+            phone: hub.phone || '',
+          },
+          customer_submitted_tracking: false,
+          raw_payload: {
+            lane: 'local_rider',
+            manual_shipment_code: riderPickup.shipment.shipment_code,
+            broadcast: riderPickup.broadcast,
+          },
+        })
+        .select('*')
+        .single();
+
+      if (riderShipErr) {
+        shipmentErrors.push(`DB insert failed for rider pickup: ${riderShipErr.message}`);
+      } else {
+        createdShipments.push({
+          ...riderReturnShipment,
+          tracking_number: riderPickup.shipment.shipment_code,
+          return_code: returnCode,
+          destination_type: 'hub',
+        });
+      }
+      if (!riderPickup.broadcast.ok) {
+        shipmentErrors.push(
+          `Rider broadcast: ${riderPickup.broadcast.error}. Dispatch ${riderPickup.shipment.shipment_code} from Manual Shipments.`
+        );
+      }
+    }
+
+    // Authenticate with Fez once for all shipments (not needed for a rider pickup)
+    const fezGroups = useLocalRider ? {} : groups;
+    const auth = Object.keys(fezGroups).length ? await authenticateFezForReturn() : null;
+
+    for (const [key, group] of Object.entries(fezGroups)) {
       const returnCode = generateReturnCode();
       const recipient = group.destinationType === 'vendor' && group.vendor
         ? {
@@ -233,14 +339,19 @@ export async function handler(event) {
         recipientName: recipient.name,
         recipientPhone: recipient.phone,
         recipientEmail: '',
-        pickUpAddress: order.delivery_address || '',
-        pickUpState: order.delivery_state || 'Lagos',
+        pickUpAddress: pickupFrom.address || '',
+        pickUpState: pickupFrom.state || 'Lagos',
         uniqueID: generateFezUniqueId(return_request_id),
         BatchID: returnCode,
         itemDescription: `Return: ${group.items.slice(0, 3).join(', ')}`,
         valueOfItem: '1000',
         weight: 1,
-        additionalDetails: `Return from: ${order.customer_name || 'Customer'}, Phone: ${order.customer_phone || ''}`,
+        additionalDetails:
+          `Return from: ${pickupFrom.name || 'Customer'}, Phone: ${pickupFrom.phone || ''}` +
+          (isPickup
+            ? `. PICKUP requested${request.pickup.preferred_date ? ` for ${request.pickup.preferred_date}` : ''}` +
+              (request.pickup.notes ? `. Note: ${request.pickup.notes}` : '')
+            : ''),
       };
 
       let fezTracking = null;
@@ -284,8 +395,8 @@ export async function handler(event) {
         .insert({
           return_request_id,
           return_code: returnCode,
-          method: 'dropoff',
-          status: fezTracking ? 'awaiting_dropoff' : 'pending',
+          method: isPickup ? 'pickup' : 'dropoff',
+          status: fezTracking ? (isPickup ? 'awaiting_pickup' : 'awaiting_dropoff') : 'pending',
           fez_tracking: fezTracking,
           fez_shipment_id: fezShipmentId,
           vendor_id: group.destinationType === 'vendor' ? (group.vendor?.id || null) : null,
@@ -335,7 +446,7 @@ export async function handler(event) {
     // Update return_request status to approved
     await adminClient
       .from('return_requests')
-      .update({ status: 'approved' })
+      .update({ status: 'approved', ...(isPickup ? { pickup_lane: lane } : {}) })
       .eq('id', return_request_id);
 
     // Build tracking summary for customer email
@@ -365,7 +476,12 @@ export async function handler(event) {
       action: 'RETURN_APPROVED',
       resource_type: 'return_requests',
       resource_id: return_request_id,
-      details: { shipments_created: createdShipments.length, shipment_errors: shipmentErrors.length },
+      details: {
+        shipments_created: createdShipments.length,
+        shipment_errors: shipmentErrors.length,
+        method: isPickup ? 'pickup' : 'dropoff',
+        pickup_lane: isPickup ? lane : null,
+      },
     });
 
     return {
@@ -377,6 +493,13 @@ export async function handler(event) {
           status: 'approved',
           shipments: createdShipments,
           errors: shipmentErrors.length ? shipmentErrors : null,
+          pickup: isPickup
+            ? {
+                lane,
+                manual_shipment_code: riderPickup?.shipment?.shipment_code || null,
+                riders_notified: riderPickup?.broadcast?.riders_notified ?? null,
+              }
+            : null,
         },
       }),
     };

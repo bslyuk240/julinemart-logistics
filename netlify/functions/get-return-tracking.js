@@ -147,7 +147,10 @@ export async function handler(event) {
             status: shipment.status || "awaiting_tracking",
             submitted_at: null,
             events: [],
-            message: "Awaiting customer tracking number"
+            // A pickup return has nothing for the customer to submit; we arrange it.
+            message: shipment.method === "pickup"
+              ? "Your pickup is being arranged"
+              : "Awaiting customer tracking number"
           }
         }),
       };
@@ -170,11 +173,17 @@ export async function handler(event) {
           status: shipment.status,
           submitted_at: shipment.tracking_submitted_at,
           events: [
-            {
-              status: "Tracking number submitted",
-              date: shipment.tracking_submitted_at,
-              location: "Customer Drop-off"
-            }
+            shipment.method === "pickup"
+              ? {
+                  status: "Pickup booked",
+                  date: shipment.created_at || shipment.tracking_submitted_at,
+                  location: "Pickup from you"
+                }
+              : {
+                  status: "Tracking number submitted",
+                  date: shipment.tracking_submitted_at,
+                  location: "Customer Drop-off"
+                }
           ]
         },
       }),

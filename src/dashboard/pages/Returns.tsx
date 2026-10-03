@@ -59,7 +59,19 @@ interface ReturnShipment {
   label_url: string | null;
   waybill_number: string | null;
   customer_submitted_tracking: boolean;
+  /** Set when a local rider collects this return (a manual shipment to the hub). */
+  manual_shipment_id?: string | null;
   created_at: string;
+}
+
+interface PickupDetails {
+  name: string;
+  phone: string;
+  address: string;
+  city: string;
+  state: string;
+  preferred_date: string | null;
+  notes: string | null;
 }
 
 interface OrderPayment {
@@ -100,6 +112,12 @@ interface ReturnRequest {
   hub_id: string | null;
   created_at: string;
   updated_at: string;
+  /** 'pickup' or 'dropoff'. */
+  fez_method?: string | null;
+  pickup?: PickupDetails | null;
+  /** What the customer owes for the pickup (0 when it's our fault). */
+  pickup_fee?: number | null;
+  pickup_lane?: 'fez' | 'local_rider' | null;
   return_shipments: ReturnShipment[];
   order_payment: OrderPayment | null;
 }
@@ -127,6 +145,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   pending_review:        { label: 'Pending Review',        color: 'text-amber-700',  bg: 'bg-amber-50 border-amber-200' },
   approved:              { label: 'Approved',               color: 'text-blue-700',   bg: 'bg-blue-50 border-blue-200' },
   awaiting_dropoff:      { label: 'Awaiting Drop-off',      color: 'text-blue-700',   bg: 'bg-blue-50 border-blue-200' },
+  awaiting_pickup:       { label: 'Awaiting Pickup',        color: 'text-blue-700',   bg: 'bg-blue-50 border-blue-200' },
   awaiting_tracking:     { label: 'Awaiting Tracking',      color: 'text-gray-600',   bg: 'bg-gray-50 border-gray-200' },
   in_transit:            { label: 'In Transit',             color: 'text-indigo-700', bg: 'bg-indigo-50 border-indigo-200' },
   delivered_to_hub:      { label: 'Delivered to Hub',       color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200' },
@@ -160,7 +179,7 @@ function fmtDate(s: string) {
 const STATUS_FILTER_OPTIONS = [
   { value: 'all',              label: 'All' },
   { value: 'pending_review',   label: 'Pending Review' },
-  { value: 'approved,awaiting_dropoff', label: 'Approved / Awaiting Drop-off' },
+  { value: 'approved,awaiting_dropoff,awaiting_pickup', label: 'Approved / Awaiting Drop-off or Pickup' },
   { value: 'in_transit',       label: 'In Transit' },
   { value: 'delivered_to_hub,inspection_in_progress', label: 'At Hub / Inspection' },
   { value: 'vendor_approved', label: 'Vendor Approved' },
@@ -191,6 +210,7 @@ export default function ReturnsPage() {
   }>({ type: null, item: null });
   const [rejectionReason, setRejectionReason] = useState('');
   const [approvedAmount, setApprovedAmount] = useState('');
+  const [pickupLane, setPickupLane] = useState<'auto' | 'fez' | 'local_rider'>('auto');
   const [inspectionNotes, setInspectionNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -219,11 +239,28 @@ export default function ReturnsPage() {
     if (!modal.item || !session?.access_token) return;
     setSubmitting(true);
     try {
-      await callAdmin('admin-approve-return', session.access_token, {
-        method: 'POST',
-        body: JSON.stringify({ return_request_id: modal.item.id, action: 'approve' }),
-      });
-      notification.success('Return approved — Fez shipments created, customer notified');
+      const isPickup = modal.item.fez_method === 'pickup' && Boolean(modal.item.pickup);
+      const res = await callAdmin<{ data?: { pickup?: { lane: string; manual_shipment_code: string | null } | null; errors?: string[] | null } }>(
+        'admin-approve-return',
+        session.access_token,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            return_request_id: modal.item.id,
+            action: 'approve',
+            // 'auto' lets the server pick: a local rider in the hub's town, Fez elsewhere.
+            ...(isPickup && pickupLane !== 'auto' ? { pickup_lane: pickupLane } : {}),
+          }),
+        }
+      );
+      if (res?.data?.errors?.length) {
+        // Approved, but something needs a person (e.g. no riders online yet).
+        notification.error(`Approved, but: ${res.data.errors.join(' · ')}`);
+      } else if (isPickup && res?.data?.pickup?.lane === 'local_rider') {
+        notification.success(`Return approved — rider pickup ${res.data.pickup.manual_shipment_code || ''} sent to riders, customer notified`);
+      } else {
+        notification.success('Return approved — Fez shipments created, customer notified');
+      }
       setModal({ type: null, item: null });
       load();
     } catch (err: any) {
@@ -255,10 +292,24 @@ export default function ReturnsPage() {
   async function handleMarkStatus(item: ReturnRequest, newStatus: string) {
     if (!session?.access_token) return;
     try {
-      await callAdmin(`returns/${item.id}/inspection`, session.access_token, {
-        method: 'POST',
-        body: JSON.stringify({ status: newStatus === 'delivered_to_hub' ? 'delivered_to_hub' : newStatus }),
-      });
+      if (newStatus === 'delivered_to_hub' || newStatus === 'inspection_in_progress') {
+        // Progress steps go through update-return-status, which has the real
+        // status transitions. (The inspection endpoint only takes approved or
+        // rejected, so these buttons used to fail.) Each shipment moves in turn.
+        const shipments = (item.return_shipments || []).filter((s) => s.status !== newStatus);
+        if (!shipments.length) throw new Error('This return has no shipment to update yet');
+        for (const s of shipments) {
+          await callAdmin(`update-return-status/return-shipments/${s.id}/status`, session.access_token, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: newStatus }),
+          });
+        }
+      } else {
+        await callAdmin(`returns/${item.id}/inspection`, session.access_token, {
+          method: 'POST',
+          body: JSON.stringify({ status: newStatus }),
+        });
+      }
       notification.success(`Status updated to ${STATUS_CONFIG[newStatus]?.label || newStatus}`);
       load();
     } catch (err: any) {
@@ -299,7 +350,18 @@ export default function ReturnsPage() {
   function openModal(type: 'approve' | 'reject' | 'inspect', item: ReturnRequest) {
     setModal({ type, item });
     setRejectionReason('');
-    setApprovedAmount(item.refund_amount ? String(item.refund_amount) : '');
+    setPickupLane('auto');
+    // If the customer owes a pickup fee, start from the order total less that
+    // fee, so the deduction isn't forgotten. Staff can still change it.
+    const fee = Number(item.pickup_fee || 0);
+    const orderTotal = Number(item.order_payment?.total_amount || 0);
+    setApprovedAmount(
+      item.refund_amount
+        ? String(item.refund_amount)
+        : type === 'inspect' && fee > 0 && orderTotal > fee
+        ? String(orderTotal - fee)
+        : ''
+    );
     setInspectionNotes('');
   }
 
@@ -473,9 +535,39 @@ export default function ReturnsPage() {
       {modal.type === 'approve' && modal.item && (
         <Modal title="Approve Return Request" onClose={() => setModal({ type: null, item: null })}>
           <div className="space-y-4">
-            <p className="text-sm text-gray-600">
-              Approving this return will create Fez return shipments and email the customer their tracking number(s).
-            </p>
+            {modal.item.fez_method === 'pickup' && modal.item.pickup ? (
+              <>
+                <p className="text-sm text-gray-600">
+                  The customer asked for a <strong>pickup</strong>. Approving books it and emails them.
+                </p>
+                <DetailRow label="Collect from" value={[modal.item.pickup.address, modal.item.pickup.city, modal.item.pickup.state].filter(Boolean).join(', ')} />
+                <DetailRow label="Contact" value={`${modal.item.pickup.name} · ${modal.item.pickup.phone}`} />
+                {modal.item.pickup.preferred_date && <DetailRow label="Preferred day" value={modal.item.pickup.preferred_date} />}
+                {modal.item.pickup.notes && <DetailRow label="Note" value={modal.item.pickup.notes} />}
+                <DetailRow
+                  label="Pickup cost"
+                  value={Number(modal.item.pickup_fee || 0) > 0
+                    ? `Customer owes ${fmt(modal.item.pickup_fee)}: deduct it from the refund`
+                    : 'JulineMart pays (our fault)'}
+                />
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Who collects it</label>
+                  <select
+                    value={pickupLane}
+                    onChange={e => setPickupLane(e.target.value as 'auto' | 'fez' | 'local_rider')}
+                    className="w-full text-sm border border-gray-300 rounded-lg p-2.5 bg-white"
+                  >
+                    <option value="auto">Automatic: local rider in the hub's town, otherwise Fez</option>
+                    <option value="local_rider">Local rider (offered to online riders, delivered to the hub)</option>
+                    <option value="fez">Fez (books a courier pickup)</option>
+                  </select>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-gray-600">
+                Approving this return will create Fez return shipments and email the customer their tracking number(s).
+              </p>
+            )}
             <DetailRow label="Order" value={`#${modal.item.order_number}`} />
             <DetailRow label="Customer" value={modal.item.customer_name} />
             <DetailRow label="Reason" value={modal.item.reason_code?.replace(/_/g, ' ') || ''} />
@@ -528,6 +620,11 @@ export default function ReturnsPage() {
             <DetailRow label="Order" value={`#${modal.item.order_number}`} />
             <DetailRow label="Customer" value={modal.item.customer_name} />
             <DetailRow label="Payment ref" value={modal.item.order_payment?.payment_reference || '—'} />
+            {Number(modal.item.pickup_fee || 0) > 0 && (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                The customer chose a pickup that they pay for ({fmt(modal.item.pickup_fee)}). Order total {fmt(modal.item.order_payment?.total_amount)}, so a full refund after the pickup fee is {fmt(Math.max(0, Number(modal.item.order_payment?.total_amount || 0) - Number(modal.item.pickup_fee || 0)))}.
+              </p>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Approved refund amount (₦) <span className="text-red-500">*</span></label>
               <input
@@ -594,7 +691,7 @@ function ActionButtons({
     );
   }
 
-  if (status === 'approved' || status === 'awaiting_dropoff' || status === 'in_transit') {
+  if (status === 'approved' || status === 'awaiting_dropoff' || status === 'awaiting_pickup' || status === 'in_transit') {
     return (
       <button
         onClick={e => { e.stopPropagation(); onMarkStatus(item, 'delivered_to_hub'); }}
@@ -659,6 +756,18 @@ function ExpandedDetail({ item }: { item: ReturnRequest }) {
         <DetailRow label="Return ID" value={item.id.slice(0, 8)} />
         <DetailRow label="Reason" value={item.reason_code?.replace(/_/g, ' ') || '—'} />
         {item.reason_note && <DetailRow label="Notes" value={item.reason_note} />}
+        {item.fez_method === 'pickup' && item.pickup && (
+          <>
+            <DetailRow label="Method" value={`Pickup${item.pickup_lane ? ` (${item.pickup_lane === 'local_rider' ? 'local rider' : 'Fez'})` : ''}`} />
+            <DetailRow label="Collect from" value={[item.pickup.address, item.pickup.city, item.pickup.state].filter(Boolean).join(', ')} />
+            <DetailRow label="Contact" value={`${item.pickup.name} · ${item.pickup.phone}`} />
+            {item.pickup.preferred_date && <DetailRow label="Preferred day" value={item.pickup.preferred_date} />}
+            <DetailRow
+              label="Pickup cost"
+              value={Number(item.pickup_fee || 0) > 0 ? `Customer owes ${fmt(item.pickup_fee)}` : 'JulineMart pays'}
+            />
+          </>
+        )}
         {item.rejection_reason && <DetailRow label="Rejection reason" value={item.rejection_reason} />}
         {item.inspection_notes && <DetailRow label="Inspection notes" value={item.inspection_notes} />}
         {item.refund_amount && <DetailRow label="Refund amount" value={fmt(item.refund_amount)} />}
@@ -680,6 +789,7 @@ function ExpandedDetail({ item }: { item: ReturnRequest }) {
               <StatusBadge status={s.status} />
             </div>
             <DetailRow label="Destination" value={s.destination_type === 'vendor' ? 'Vendor' : 'Hub'} />
+            {s.manual_shipment_id && <DetailRow label="Handled by" value="Local rider (see Manual Shipments)" />}
             {s.destination_address && (
               <DetailRow
                 label="Address"

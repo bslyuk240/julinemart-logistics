@@ -11,6 +11,7 @@ import {
   sendPushToAllStaff,
 } from './services/pushNotifications.js';
 import { syncShipmentBestEffort } from './services/shipmentSync.js';
+import { syncReturnPickupProgress } from './services/return-pickup-sync.js';
 import { normalizeScanCode } from './services/scanLookup.js';
 import { notifyRider, notifyRiderArea, notifyDispatch } from './services/riderRealtime.js';
 import { sendLocalDeliveryStatusEmail } from '../../shared/riderAssignedEmail.js';
@@ -901,6 +902,14 @@ async function handlePost(rider, adminClient, body) {
         }
       }
     } else {
+      // If this manual shipment is a customer's return pickup, move the return
+      // along too (picked up -> in transit, at hub -> delivered to hub).
+      try {
+        await syncReturnPickupProgress(adminClient, sourceId, targetStatus);
+      } catch (returnSyncErr) {
+        console.warn('rider-jobs return pickup sync failed:', returnSyncErr?.message || returnSyncErr);
+      }
+
       const manualShipmentForNotify = await loadManualShipmentForNotify(adminClient, sourceId);
       if (manualShipmentForNotify) {
         await notifyManualShipmentLocalRiderStatus(adminClient, manualShipmentForNotify, {

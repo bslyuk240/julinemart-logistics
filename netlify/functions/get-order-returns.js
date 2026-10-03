@@ -6,6 +6,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { authenticateCustomer } from './services/customerAuth.js';
+import { RETURN_SELECT, formatReturnForCustomer } from './services/return-format.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -94,57 +95,36 @@ export async function handler(event) {
     const orderUUID = order.id;
 
     // --------------------------------------------------
-    // 2. Fetch return shipments using UUID
+    // 2. Fetch this order's returns
     // --------------------------------------------------
-    const { data: shipments, error: shipmentsError } = await supabase
-      .from('return_shipments')
-      .select(`
-        id,
-        return_code,
-        fez_tracking,
-        fez_shipment_id,
-        method,
-        status,
-        customer_submitted_tracking,
-        tracking_submitted_at,
-        created_at,
-        updated_at,
-        return_request:return_requests!inner (
-          id,
-          order_id,
-          order_number,
-          customer_name,
-          customer_email,
-          preferred_resolution,
-          reason_code,
-          reason_note,
-          images,
-          status,
-          hub_id,
-          created_at,
-          updated_at
-        )
-      `)
-      // return_requests.order_id is the legacy numeric WooCommerce id, so a UUID
-      // can never match it: match on supabase_order_id. With !inner above this
-      // also restricts the rows to this order instead of only the embed.
-      .eq('return_request.supabase_order_id', orderUUID)
+    // Returns the same customer-facing shape as returns-list (the PWA's
+    // JloReturn: return_request_id, status, refund info, pickup details...).
+    // This used to return bare shipment rows with the request nested inside,
+    // and it filtered a numeric column by a UUID, so it never matched; the
+    // storefront quietly fell back to returns-list. Now it works directly and
+    // both agree. return_requests.order_id is the legacy numeric WooCommerce
+    // id, so match on supabase_order_id.
+    const { data: requests, error: requestsError } = await supabase
+      .from('return_requests')
+      .select(RETURN_SELECT)
+      .eq('supabase_order_id', orderUUID)
       .order('created_at', { ascending: false });
 
-    if (shipmentsError) {
-      console.error('❌ Failed to fetch return shipments:', shipmentsError);
+    if (requestsError) {
+      console.error('❌ Failed to fetch returns:', requestsError);
 
       return {
         statusCode: 500,
         headers: corsHeaders,
         body: JSON.stringify({
           success: false,
-          error: 'Failed to fetch return shipments',
+          error: 'Failed to fetch returns',
         }),
       };
     }
 
-    console.log(`📦 Found ${shipments?.length || 0} return shipment(s)`);
+    const returns = (requests || []).map(formatReturnForCustomer);
+    console.log(`📦 Found ${returns.length} return(s)`);
 
     // --------------------------------------------------
     // 3. Always return a safe array
@@ -154,8 +134,8 @@ export async function handler(event) {
       headers: corsHeaders,
       body: JSON.stringify({
         success: true,
-        data: shipments || [],
-        count: shipments?.length || 0,
+        data: returns,
+        count: returns.length,
       }),
     };
   } catch (error) {

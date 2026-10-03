@@ -2,6 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { requireAdmin } from './services/global-sourcing-utils.js';
+import { RETURNS_ACTION_ROLES } from './services/staff-roles.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY =
@@ -41,7 +42,7 @@ export async function handler(event) {
   // anyone with a shipment id could walk a return through approved,
   // refund_completed and completed. updated_by now comes from the verified
   // login instead of the request body, which could be spoofed.
-  const auth = await requireAdmin(event, ["admin", "agent"]);
+  const auth = await requireAdmin(event, RETURNS_ACTION_ROLES);
   if (auth.errorResponse) {
     return { ...auth.errorResponse, headers: { ...auth.errorResponse.headers, ...corsHeaders() } };
   }
@@ -93,6 +94,9 @@ export async function handler(event) {
 
     const validTransitions = {
       awaiting_tracking: ["in_transit"],
+      // A booked pickup or drop-off can be marked as moving or as already at the hub.
+      awaiting_pickup: ["in_transit", "delivered_to_hub"],
+      awaiting_dropoff: ["in_transit", "delivered_to_hub"],
       in_transit: ["delivered_to_hub"],
       delivered_to_hub: ["inspection_in_progress"],
       inspection_in_progress: ["approved", "rejected", "completed"],

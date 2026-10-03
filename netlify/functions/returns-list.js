@@ -5,6 +5,7 @@
 import { supabase } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateCustomer } from './services/customerAuth.js';
+import { RETURN_SELECT, formatReturnForCustomer } from './services/return-format.js';
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflightResponse();
@@ -43,19 +44,11 @@ export async function handler(event) {
     // -------------------------------
     // Query return requests + shipment
     // -------------------------------
+    // Left join: a request still pending review has no shipment yet (it's
+    // created on approval) but the customer should still see it.
     let query = supabase
       .from("return_requests")
-      .select(`
-        *,
-        return_shipments: return_shipments!inner (
-          id,
-          return_code,
-          status,
-          fez_tracking,
-          tracking_submitted_at,
-          method
-        )
-      `)
+      .select(RETURN_SELECT)
       .order("created_at", { ascending: false });
 
     query = query.eq("customer_email", email);
@@ -70,29 +63,7 @@ export async function handler(event) {
     // -------------------------------
     // Normalize output for PWA
     // -------------------------------
-    const formatted = (data || []).map((req) => {
-      const shipment = req.return_shipments;
-
-      return {
-        return_request_id: req.id,
-        return_shipment_id: shipment?.id,
-        order_id: req.order_id,
-        order_number: req.order_number,
-        status: req.status,
-        method: "dropoff",  // hardcoded based on new flow
-        hub_id: req.hub_id,
-        reason_code: req.reason_code,
-        reason_note: req.reason_note,
-        preferred_resolution: req.preferred_resolution,
-        images: req.images || [],
-        created_at: req.created_at,
-
-        // Shipment info
-        return_code: shipment?.return_code || null,
-        tracking_number: shipment?.fez_tracking || null,
-        tracking_submitted_at: shipment?.tracking_submitted_at || null,
-      };
-    });
+    const formatted = (data || []).map(formatReturnForCustomer);
 
     return {
       statusCode: 200,

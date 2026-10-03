@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { requireAdmin } from './services/global-sourcing-utils.js';
 import { RETURNS_VIEW_ROLES } from './services/staff-roles.js';
+import { isPickupEnabled } from './services/return-pickup.js';
 
 const adminClient = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -14,6 +15,7 @@ const ALL_STATUSES = [
   'pending_review',
   'approved',
   'awaiting_dropoff',
+  'awaiting_pickup',
   'in_transit',
   'delivered_to_hub',
   'inspection_in_progress',
@@ -55,9 +57,17 @@ export async function handler(event) {
       statuses = statusFilter.split(',').map(s => s.trim()).filter(Boolean);
     }
 
+    // Pickup columns come from a migration; only ask for them once they exist,
+    // so the queue never breaks on a database that doesn't have them yet.
+    const pickupReady = await isPickupEnabled(adminClient);
+    const pickupCols = pickupReady ? 'pickup, pickup_fee, pickup_lane,' : '';
+    const shipmentPickupCols = pickupReady ? 'manual_shipment_id,' : '';
+
     let query = adminClient
       .from('return_requests')
       .select(`
+        ${pickupCols}
+        fez_method,
         id,
         order_id,
         supabase_order_id,
@@ -85,6 +95,7 @@ export async function handler(event) {
         created_at,
         updated_at,
         return_shipments (
+          ${shipmentPickupCols}
           id,
           return_code,
           fez_tracking,
@@ -164,6 +175,7 @@ export async function handler(event) {
     const stats = {
       pending_review: 0,
       approved: 0,
+      awaiting_pickup: 0,
       in_transit: 0,
       delivered_to_hub: 0,
       vendor_approved: 0,

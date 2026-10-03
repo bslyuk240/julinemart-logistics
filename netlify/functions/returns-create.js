@@ -13,6 +13,12 @@ import { createClient } from '@supabase/supabase-js';
 import { checkRateLimit } from './services/rate-limit.js';
 import { isGiftOrderKind } from './services/gift-cancel.js';
 import { authenticateCustomer } from './services/customerAuth.js';
+import {
+  isPickupEnabled,
+  pickupChargeFor,
+  resolveReturnHub,
+  validatePickupDetails,
+} from './services/return-pickup.js';
 
 const adminClient = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -61,19 +67,23 @@ export async function handler(event) {
       method,
     } = body;
 
-    if (!method || method !== 'dropoff') {
+    if (!['dropoff', 'pickup'].includes(method)) {
       return {
         statusCode: 400,
         headers: corsHeaders(),
-        body: JSON.stringify({ success: false, error: "Only 'dropoff' return method is supported at this time." })
+        body: JSON.stringify({ success: false, error: "method must be 'dropoff' or 'pickup'." })
       };
     }
 
-    if (!order_id || !reason_code || !hub_id) {
+    // Drop-off needs the customer's chosen hub. Pickup picks the hub itself.
+    if (!order_id || !reason_code || (method === 'dropoff' && !hub_id)) {
       return {
         statusCode: 400,
         headers: corsHeaders(),
-        body: JSON.stringify({ success: false, error: 'order_id, reason_code, hub_id are required' })
+        body: JSON.stringify({
+          success: false,
+          error: method === 'pickup' ? 'order_id and reason_code are required' : 'order_id, reason_code, hub_id are required',
+        })
       };
     }
 
@@ -137,13 +147,68 @@ export async function handler(event) {
 
     const customerName = order.customer_name || 'Customer';
 
-    const { data: hubRecord, error: hubErr } = await supabase
-      .from('hubs')
-      .select('id, name, phone, address, city, state')
-      .eq('id', hub_id)
-      .single();
+    // ── Pickup: validate where to collect from, and what the customer owes ──
+    // JulineMart pays when it's our fault (damaged / wrong item / not as
+    // described). Otherwise the customer pays the quoted fee, which staff
+    // deduct from the refund, so they must confirm the exact amount first.
+    let pickupDetails = null;
+    let pickupCharge = null;
+    if (method === 'pickup') {
+      if (!(await isPickupEnabled(supabase))) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders(),
+          body: JSON.stringify({ success: false, error: 'Pickup is not available yet. Please choose drop-off.' })
+        };
+      }
+      const checked = validatePickupDetails(body.pickup || {});
+      if (!checked.ok) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders(),
+          body: JSON.stringify({ success: false, error: checked.error })
+        };
+      }
+      pickupDetails = checked.value;
 
-    if (hubErr || !hubRecord) {
+      pickupCharge = await pickupChargeFor(supabase, {
+        reasonCode: reason_code,
+        complaintType: complaint_type,
+        state: pickupDetails.state,
+      });
+      if (!pickupCharge.available) {
+        return {
+          statusCode: 400,
+          headers: corsHeaders(),
+          body: JSON.stringify({ success: false, error: "Pickup isn't available for your area yet. Please choose drop-off." })
+        };
+      }
+      if (pickupCharge.fee > 0 && Number(body.accepted_pickup_fee) !== pickupCharge.fee) {
+        return {
+          statusCode: 409,
+          headers: corsHeaders(),
+          body: JSON.stringify({
+            success: false,
+            error: `The pickup fee is ₦${pickupCharge.fee.toLocaleString('en-NG')}. Please review and confirm it to continue.`,
+            pickup_fee: pickupCharge.fee,
+          })
+        };
+      }
+    }
+
+    let hubRecord = null;
+    if (hub_id) {
+      const { data, error: hubErr } = await supabase
+        .from('hubs')
+        .select('id, name, phone, address, city, state')
+        .eq('id', hub_id)
+        .single();
+      hubRecord = hubErr ? null : data;
+    } else if (method === 'pickup') {
+      hubRecord = await resolveReturnHub(supabase, { city: pickupDetails.city, state: pickupDetails.state });
+    }
+
+    if (!hubRecord) {
       return {
         statusCode: 404,
         headers: corsHeaders(),
@@ -163,7 +228,7 @@ export async function handler(event) {
     const timelineEntry = {
       at: new Date().toISOString(),
       stage: 'complaint_submitted',
-      label: 'Complaint submitted',
+      label: method === 'pickup' ? 'Complaint submitted (pickup requested)' : 'Complaint submitted',
       actor: 'customer',
     };
 
@@ -176,7 +241,7 @@ export async function handler(event) {
         order_number: String(order.order_number || order.id),
         customer_email: order.customer_email,
         customer_name: customerName,
-        hub_id,
+        hub_id: hubRecord.id,
         preferred_resolution: 'refund',
         reason_code,
         reason_note,
@@ -185,7 +250,12 @@ export async function handler(event) {
         evidence_urls: [],
         resolution_timeline: [timelineEntry],
         status: 'pending_review',
-        fez_method: 'dropoff',
+        fez_method: method,
+        // Only set for pickup, so drop-off keeps working before the pickup
+        // migration is applied.
+        ...(method === 'pickup'
+          ? { pickup: pickupDetails, pickup_fee: pickupCharge.fee }
+          : {}),
       })
       .select('*')
       .single();

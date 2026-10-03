@@ -90,8 +90,10 @@ export async function handler(event) {
   // Staff only. Approving creates real courier shipments (which cost money) and
   // vendor debits; this had no login check, so anyone with a return id could
   // trigger it.
-  const auth = await requireAdmin(event, RETURNS_ACTION_ROLES);
-  if (auth.errorResponse) return auth.errorResponse;
+  // Named staffAuth because the Fez login further down is also called `auth`;
+  // sharing the name made the reject branch read it before it was initialised.
+  const staffAuth = await requireAdmin(event, RETURNS_ACTION_ROLES);
+  if (staffAuth.errorResponse) return staffAuth.errorResponse;
 
   try {
     const body = event.body ? JSON.parse(event.body) : {};
@@ -142,7 +144,7 @@ export async function handler(event) {
         });
       }
 
-      await recordStaffAudit(event, auth.authUser, {
+      await recordStaffAudit(event, staffAuth.authUser, {
         action: 'RETURN_REJECTED',
         resource_type: 'return_requests',
         resource_id: return_request_id,
@@ -359,7 +361,7 @@ export async function handler(event) {
       });
     }
 
-    await recordStaffAudit(event, auth.authUser, {
+    await recordStaffAudit(event, staffAuth.authUser, {
       action: 'RETURN_APPROVED',
       resource_type: 'return_requests',
       resource_id: return_request_id,

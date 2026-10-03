@@ -105,6 +105,15 @@ export async function handler(event) {
     // GET /api/orders/:id — get one order with suborders
     // =====================================================
     if (event.httpMethod === 'GET' && id) {
+      // Staff only. This used to also let anyone through who passed ?email=
+      // matching the order's email, as a "proof of ownership". Knowing an email
+      // is not proof, and the response is the full order row plus sub-orders
+      // (rider phone, courier config, delivery proof, internal notes). Customers
+      // read their own orders through customer-orders, which verifies their
+      // login and returns a customer-safe view.
+      const auth = await requireAdmin(event, STAFF_ROLES);
+      if (auth.errorResponse) return auth.errorResponse;
+
       if (!SUPABASE_URL || !SERVICE_KEY) {
         console.error('ORDER FUNCTION ERROR: Missing Supabase env vars');
         return {
@@ -126,35 +135,6 @@ export async function handler(event) {
       }
 
       if (error) throw error;
-
-      // Two ways in: staff (Bearer token), or the customer who placed the
-      // order (proves it by passing the email on the order) -- the customer
-      // PWA's order-detail page uses the latter. Anyone else gets the same
-      // 404 as a nonexistent order, not a 401/403, so this can't be used to
-      // probe which order ids exist.
-      const url = new URL(event.rawUrl);
-      const requestedEmail = (url.searchParams.get('email') || '').trim().toLowerCase();
-      const orderEmail = (data?.customer_email || '').trim().toLowerCase();
-      const emailMatches = Boolean(requestedEmail) && requestedEmail === orderEmail;
-
-      if (!emailMatches) {
-        const auth = await requireAdmin(event, STAFF_ROLES);
-        if (auth.errorResponse) {
-          return {
-            statusCode: 404,
-            headers,
-            body: JSON.stringify({ success: false, error: 'Order not found' })
-          };
-        }
-      } else if (Array.isArray(data?.sub_orders)) {
-        // Customer path (no staff auth) — rider-reported problems are
-        // staff-only, same as track-order.js. Strip them here too since
-        // this endpoint doubles as the customer PWA's order-detail fetch.
-        data.sub_orders = data.sub_orders.map((s) => ({
-          ...s,
-          tracking_events: (s.tracking_events || []).filter((e) => e.metadata?.type !== 'problem_report'),
-        }));
-      }
 
       return {
         statusCode: 200,

@@ -1,6 +1,7 @@
 // Admin manual status update for return shipments (DROP-OFF ONLY CLEAN FLOW)
 import { createClient } from '@supabase/supabase-js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY =
@@ -36,6 +37,15 @@ export async function handler(event) {
     };
   }
 
+  // Staff only. This is the "admin manual status update" but had no login:
+  // anyone with a shipment id could walk a return through approved,
+  // refund_completed and completed. updated_by now comes from the verified
+  // login instead of the request body, which could be spoofed.
+  const auth = await requireAdmin(event, ["admin", "agent"]);
+  if (auth.errorResponse) {
+    return { ...auth.errorResponse, headers: { ...auth.errorResponse.headers, ...corsHeaders() } };
+  }
+
   // Extract shipment id from path
   const parts = event.path.split("/");
   const id = parts[parts.findIndex((p) => p === "return-shipments") + 1];
@@ -43,7 +53,7 @@ export async function handler(event) {
   try {
     const body = event.body ? JSON.parse(event.body) : {};
     const status = body.status;
-    const adminUserId = body.user_id || null;
+    const adminUserId = auth.authUser?.id || null;
 
     // --------------------------
     // VALIDATE STATUS

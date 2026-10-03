@@ -4,6 +4,7 @@
 //   PATCH  /api/return-shipments/:id/status       -> update a return shipment status
 
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
@@ -33,6 +34,12 @@ export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
+
+  // Staff only (matches the dev API server's admin/agent rule). This used to
+  // have no login: anyone could set any return shipment's status, or list an
+  // order's return shipments from a guessable order number.
+  const auth = await requireAdmin(event, ['admin', 'agent']);
+  if (auth.errorResponse) return auth.errorResponse;
 
   if (!SUPABASE_URL || !SERVICE_KEY) {
     return {

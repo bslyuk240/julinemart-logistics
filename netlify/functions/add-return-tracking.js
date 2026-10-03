@@ -1,6 +1,9 @@
 // POST /api/return-shipments/:id/tracking - Save customer tracking number (DROP-OFF VERSION)
+// Requires the customer's login, and the shipment must belong to their return.
 import { createClient } from '@supabase/supabase-js';
 import { buildOrderDeepLink, sendPushToCustomer } from './services/pushNotifications.js';
+import { authenticateCustomer } from './services/customerAuth.js';
+import { loadOwnedReturnShipment } from './services/return-access.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -9,7 +12,7 @@ const supabase = createClient(
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Content-Type": "application/json",
 };
 
@@ -24,6 +27,15 @@ export async function handler(event) {
       statusCode: 405,
       headers: corsHeaders,
       body: JSON.stringify({ success: false, error: "Method not allowed - use POST" }),
+    };
+  }
+
+  const { email, error: authError } = await authenticateCustomer(event);
+  if (authError) {
+    return {
+      statusCode: 401,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: false, error: "Sign in required" }),
     };
   }
 
@@ -80,6 +92,19 @@ export async function handler(event) {
           success: false,
           error: "tracking_number is required",
         }),
+      };
+    }
+
+    // Only the customer who owns this return may change its tracking. Not
+    // found and not yours get the same answer, so ids can't be probed. Before
+    // this, anyone with a shipment id could overwrite its tracking number and
+    // flip its status, which also pushed a notification to the real customer.
+    const ownedShipment = await loadOwnedReturnShipment(supabase, returnShipmentId, email);
+    if (!ownedShipment) {
+      return {
+        statusCode: 404,
+        headers: corsHeaders,
+        body: JSON.stringify({ success: false, error: "Return shipment not found" }),
       };
     }
 

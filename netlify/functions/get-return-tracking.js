@@ -1,5 +1,8 @@
 // GET /api/returns/:id/tracking  (DROP-OFF ONLY FLOW)
+// Requires the customer's login, and the return must belong to them.
 import { createClient } from '@supabase/supabase-js';
+import { authenticateCustomer } from './services/customerAuth.js';
+import { loadOwnedReturnRequest } from './services/return-access.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -8,7 +11,7 @@ const supabase = createClient(
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Content-Type": "application/json",
 };
 
@@ -23,6 +26,15 @@ export async function handler(event) {
       statusCode: 405,
       headers: corsHeaders,
       body: JSON.stringify({ success: false, error: "Method not allowed" }),
+    };
+  }
+
+  const { email, error: authError } = await authenticateCustomer(event);
+  if (authError) {
+    return {
+      statusCode: 401,
+      headers: corsHeaders,
+      body: JSON.stringify({ success: false, error: "Sign in required" }),
     };
   }
 
@@ -62,6 +74,21 @@ export async function handler(event) {
           success: false,
           error: "Return request ID required",
           hint: "Use: /api/returns/{return_request_id}/tracking"
+        }),
+      };
+    }
+
+    // Only the customer who owns this return may see its tracking. Not found
+    // and not yours get the same answer, so ids can't be probed.
+    const ownedRequest = await loadOwnedReturnRequest(supabase, returnRequestId, email);
+    if (!ownedRequest) {
+      return {
+        statusCode: 404,
+        headers: corsHeaders,
+        body: JSON.stringify({
+          success: false,
+          error: "Return shipment not found",
+          details: { return_request_id: returnRequestId }
         }),
       };
     }

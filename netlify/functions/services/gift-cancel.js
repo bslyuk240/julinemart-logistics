@@ -78,27 +78,35 @@ export async function cancelGiftOrderByStaff(client, { orderId, reason, refund =
   if (error) throw error;
   if (!order) throw new GiftCancelError('Order not found', 404);
   if (!isGiftOrderKind(order.order_kind)) throw new GiftCancelError('Not a gift order', 400);
-  if (order.overall_status === 'cancelled') throw new GiftCancelError('Order is already cancelled');
   if (order.overall_status === 'delivered') {
     throw new GiftCancelError('Delivered gifts cannot be cancelled. Use a return request instead.');
   }
 
-  const { error: orderErr } = await client
-    .from('orders')
-    .update({ overall_status: 'cancelled' })
-    .eq('id', orderId);
-  if (orderErr) throw orderErr;
-
-  if (order.metadata?.voucher_code) {
-    await releaseVoucherUsage(client, order.metadata.voucher_code);
+  // An order that is already cancelled but still 'paid' means an earlier
+  // refund attempt failed: skip the cancel steps and just retry the refund.
+  const alreadyCancelled = order.overall_status === 'cancelled';
+  if (alreadyCancelled && order.payment_status !== 'paid') {
+    throw new GiftCancelError('Order is already cancelled');
   }
 
-  const { error: subErr } = await client
-    .from('sub_orders')
-    .update({ status: 'failed' })
-    .eq('main_order_id', orderId)
-    .not('status', 'in', `(${TERMINAL_SUB_STATUSES.map((s) => `"${s}"`).join(',')})`);
-  if (subErr) console.error('cancelGiftOrderByStaff: sub_orders update failed:', subErr.message);
+  if (!alreadyCancelled) {
+    const { error: orderErr } = await client
+      .from('orders')
+      .update({ overall_status: 'cancelled' })
+      .eq('id', orderId);
+    if (orderErr) throw orderErr;
+
+    if (order.metadata?.voucher_code) {
+      await releaseVoucherUsage(client, order.metadata.voucher_code);
+    }
+
+    const { error: subErr } = await client
+      .from('sub_orders')
+      .update({ status: 'failed' })
+      .eq('main_order_id', orderId)
+      .not('status', 'in', `(${TERMINAL_SUB_STATUSES.map((s) => `"${s}"`).join(',')})`);
+    if (subErr) console.error('cancelGiftOrderByStaff: sub_orders update failed:', subErr.message);
+  }
 
   await markGiftOrderCancelled(client, orderId, { note: reason, actorEmail });
 

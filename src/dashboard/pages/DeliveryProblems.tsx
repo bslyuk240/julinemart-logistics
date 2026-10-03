@@ -22,6 +22,10 @@ type ProblemRow = {
   customer_phone: string | null;
   rider_name: string | null;
   rider_phone: string | null;
+  is_gift?: boolean;
+  gift_failed_attempts?: number;
+  gift_refund_due?: boolean;
+  gift_settled?: boolean;
 };
 
 const REASON_LABEL: Record<string, string> = {
@@ -107,6 +111,43 @@ export default function DeliveryProblemsPage() {
       await load();
     } catch (err) {
       notification.error(err instanceof Error ? err.message : 'Failed to require a return');
+    } finally {
+      setRequiringReturn(null);
+    }
+  };
+
+  const giftAction = async (row: ProblemRow, action: 'gift_redeliver' | 'gift_refund') => {
+    if (!session?.access_token) return;
+    if (
+      action === 'gift_refund' &&
+      !window.confirm('Refund this gift in full? The order will be cancelled and the customer refunded through Paystack.')
+    ) {
+      return;
+    }
+    setRequiringReturn(row.id);
+    try {
+      const res = await fetch(`${functionsBase}/admin-delivery-problems`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ action, shipment_id: row.shipment_id }),
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload?.error || 'Action failed');
+      if (action === 'gift_refund') {
+        if (payload.data?.refund_error) {
+          notification.error(`Gift cancelled, but the refund failed: ${payload.data.refund_error}. Click Refund again to retry.`);
+        } else {
+          notification.success('Gift cancelled and refund initiated.');
+        }
+      } else {
+        notification.success('Free redelivery approved — the rider will see it in their app.');
+      }
+      await load();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Action failed');
     } finally {
       setRequiringReturn(null);
     }
@@ -213,6 +254,32 @@ export default function DeliveryProblemsPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-3">
+                          {row.is_gift && row.shipment_status === 'failed' && (
+                            <span className="text-xs text-gray-500 whitespace-nowrap">
+                              Gift · {row.gift_failed_attempts ?? 0}/2 failed
+                            </span>
+                          )}
+                          {row.is_gift && row.shipment_status === 'failed' && !row.gift_settled && row.gift_refund_due && (
+                            <button
+                              type="button"
+                              onClick={() => giftAction(row, 'gift_refund')}
+                              disabled={requiringReturn === row.id}
+                              className="text-xs font-medium text-red-700 hover:underline disabled:opacity-50"
+                            >
+                              Refund customer
+                            </button>
+                          )}
+                          {row.is_gift && row.shipment_status === 'failed' && !row.gift_settled && !row.gift_refund_due && row.rider_name && (
+                            <button
+                              type="button"
+                              onClick={() => giftAction(row, 'gift_redeliver')}
+                              disabled={requiringReturn === row.id}
+                              className="text-xs font-medium text-green-700 hover:underline disabled:opacity-50"
+                            >
+                              Redeliver (free)
+                            </button>
+                          )}
+                          {row.gift_settled && <span className="text-xs text-gray-500">Refunded</span>}
                           {row.shipment_status === 'failed' && (
                             <button
                               type="button"

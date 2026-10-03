@@ -20,6 +20,10 @@ type ProblemRow = {
   source_type: 'sub_order' | 'manual_shipment';
   customer_name: string | null;
   rider_name: string | null;
+  is_gift?: boolean;
+  gift_failed_attempts?: number;
+  gift_refund_due?: boolean;
+  gift_settled?: boolean;
 };
 
 const REASON_LABEL: Record<string, string> = {
@@ -108,6 +112,43 @@ export default function MobileDeliveryProblems() {
     }
   };
 
+  const giftAction = async (row: ProblemRow, action: 'gift_redeliver' | 'gift_refund') => {
+    if (!session?.access_token) return;
+    if (
+      action === 'gift_refund' &&
+      !window.confirm('Refund this gift in full? The order will be cancelled and the customer refunded through Paystack.')
+    ) {
+      return;
+    }
+    setRequiringReturn(row.id);
+    try {
+      const res = await fetch(`${functionsBase}/admin-delivery-problems`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ action, shipment_id: row.shipment_id }),
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload?.error || 'Action failed');
+      if (action === 'gift_refund') {
+        if (payload.data?.refund_error) {
+          notification.error(`Gift cancelled, but the refund failed: ${payload.data.refund_error}. Tap Refund again to retry.`);
+        } else {
+          notification.success('Gift cancelled and refund initiated.');
+        }
+      } else {
+        notification.success('Free redelivery approved — the rider will see it in their app.');
+      }
+      await load();
+    } catch (err) {
+      notification.error(err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setRequiringReturn(null);
+    }
+  };
+
   return (
     <PullToRefresh onRefresh={load}>
       <div className="px-4 pt-4 pb-24">
@@ -174,6 +215,40 @@ export default function MobileDeliveryProblems() {
                       {href && <ChevronRight className="w-4 h-4 text-gray-300" />}
                     </div>
                   </div>
+                  {row.is_gift && row.shipment_status === 'failed' && (
+                    <p className="mt-3 text-xs font-medium text-gray-600">
+                      Gift · {row.gift_failed_attempts ?? 0}/2 failed attempts
+                      {row.gift_settled ? ' · Refunded' : ''}
+                    </p>
+                  )}
+                  {row.is_gift && row.shipment_status === 'failed' && !row.gift_settled && row.gift_refund_due && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        giftAction(row, 'gift_refund');
+                      }}
+                      disabled={requiringReturn === row.id}
+                      className="mt-2 w-full rounded-lg bg-red-50 py-2 text-xs font-semibold text-red-700 disabled:opacity-50"
+                    >
+                      Refund customer
+                    </button>
+                  )}
+                  {row.is_gift && row.shipment_status === 'failed' && !row.gift_settled && !row.gift_refund_due && row.rider_name && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        giftAction(row, 'gift_redeliver');
+                      }}
+                      disabled={requiringReturn === row.id}
+                      className="mt-2 w-full rounded-lg bg-green-50 py-2 text-xs font-semibold text-green-700 disabled:opacity-50"
+                    >
+                      Redeliver (free)
+                    </button>
+                  )}
                   {row.shipment_status === 'failed' && (
                     <button
                       type="button"

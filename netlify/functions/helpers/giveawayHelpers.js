@@ -367,3 +367,54 @@ export async function getAlreadyMessagedPhones(campaignId, templateName) {
   // recipient.phone (which does have '+') actually match.
   return new Set((threadRows || []).map((t) => t.contact_phone));
 }
+
+// Retrying a failed send is only worth it a limited number of times, and not
+// at all when Meta rejected it as an engagement-quality block — resending
+// those just burns the account's sending reputation (alpha edition: 84 of 126
+// feedback-request attempts failed this way after repeated retries).
+export const MAX_FAILED_SEND_ATTEMPTS = 2;
+const ECOSYSTEM_BLOCK_RE = /healthy ecosystem engagement/i;
+
+/**
+ * Phones that must NOT be retried for this campaign+template: they already
+ * failed MAX_FAILED_SEND_ATTEMPTS times, or any failure was Meta's
+ * "healthy ecosystem engagement" block. Same normalized (no '+') phone format
+ * as getAlreadyMessagedPhones. Callers should skip these in addition to
+ * getAlreadyMessagedPhones, but NOT count them as sent.
+ */
+export async function getRetryBlockedPhones(campaignId, templateName) {
+  const { data: broadcastRows, error: broadcastError } = await supabase
+    .from('giveaway_broadcasts')
+    .select('id')
+    .eq('campaign_id', campaignId)
+    .eq('template_name', templateName);
+  if (broadcastError) throw broadcastError;
+  const broadcastIds = (broadcastRows || []).map((b) => b.id);
+  if (broadcastIds.length === 0) return new Set();
+
+  const { data: failedRows, error: failedError } = await supabase
+    .from('internal_whatsapp_messages')
+    .select('thread_id, error_message')
+    .in('broadcast_id', broadcastIds)
+    .eq('status', 'failed');
+  if (failedError) throw failedError;
+
+  const failuresByThread = new Map();
+  for (const row of failedRows || []) {
+    const entry = failuresByThread.get(row.thread_id) || { count: 0, blocked: false };
+    entry.count += 1;
+    if (ECOSYSTEM_BLOCK_RE.test(row.error_message || '')) entry.blocked = true;
+    failuresByThread.set(row.thread_id, entry);
+  }
+  const blockedThreadIds = [...failuresByThread.entries()]
+    .filter(([, f]) => f.blocked || f.count >= MAX_FAILED_SEND_ATTEMPTS)
+    .map(([threadId]) => threadId);
+  if (blockedThreadIds.length === 0) return new Set();
+
+  const { data: threadRows, error: threadError } = await supabase
+    .from('internal_whatsapp_threads')
+    .select('contact_phone')
+    .in('id', blockedThreadIds);
+  if (threadError) throw threadError;
+  return new Set((threadRows || []).map((t) => t.contact_phone));
+}

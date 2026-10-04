@@ -431,6 +431,23 @@ export async function handler(event) {
     const totalAmount = Math.max(subtotal - discountAmount + shippingFee, 0);
     const paymentReference = generateRef();
 
+    // Giveaway reward vouchers (early-bird / grand prize / consolation) are
+    // linked to their campaign from the campaigns side, and the voucher rows
+    // themselves often have campaign_id = null — so fall back to whichever
+    // giveaway references this voucher, or those orders get no attribution.
+    // A failed lookup must never block checkout.
+    let attributedCampaignId = voucherRow?.campaign_id || null;
+    if (voucherRow && !attributedCampaignId) {
+      const { data: giveaway } = await adminClient
+        .from('campaigns')
+        .select('id')
+        .or(`early_bird_voucher_id.eq.${voucherRow.id},grand_prize_voucher_id.eq.${voucherRow.id},consolation_voucher_id.eq.${voucherRow.id}`)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      attributedCampaignId = giveaway?.id || null;
+    }
+
     // ── Insert order ───────────────────────────────────────────────────────
     const { data: order, error: orderErr } = await adminClient
       .from('orders')
@@ -449,10 +466,10 @@ export async function handler(event) {
         total_amount: totalAmount,
         shipping_fee_paid: shippingFee,
         discount_amount: discountAmount,
-        // Attribution: piggybacks on the redeemed voucher's own campaign_id
+        // Attribution: piggybacks on the redeemed voucher's own campaign link
         // rather than a separate checkout payload field — a campaign-linked
         // voucher IS the evidence the order came from that campaign.
-        campaign_id: voucherRow?.campaign_id || null,
+        campaign_id: attributedCampaignId,
         payment_status: 'pending',
         overall_status: 'pending',
         payment_reference: paymentReference,

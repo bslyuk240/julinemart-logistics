@@ -65,7 +65,7 @@ export async function handler(event) {
   const email = (payload.email || '').toString().trim();
   const location = (payload.location || '').toString().trim() || null;
   const marketingOptIn = Boolean(payload.marketing_opt_in ?? payload.marketingOptIn);
-  const source = (payload.source || '').toString().trim() || null;
+  const source = (payload.source || '').toString().trim().slice(0, 60) || null;
 
   if ((!campaignId && !slug) || !code || !fullName || !rawPhone || !email) {
     return jsonResponse(400, headers, {

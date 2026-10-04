@@ -33,7 +33,7 @@
 //      this loop's deltas didn't fully keep up with gets corrected once at
 //      completion.
 
-import { supabase, resolveBroadcastRecipients, makeBroadcastVariableBuilder, getAlreadyMessagedPhones, sendWhatsAppTemplateToRecipients } from './helpers/giveawayHelpers.js';
+import { supabase, resolveBroadcastRecipients, makeBroadcastVariableBuilder, getAlreadyMessagedPhones, getRetryBlockedPhones, sendWhatsAppTemplateToRecipients } from './helpers/giveawayHelpers.js';
 
 function normalizePhone(phone) {
   return String(phone || '').replace(/[^\d+]/g, '').replace(/^\+/, '');
@@ -77,8 +77,13 @@ export async function handler(event) {
 
     const allRecipients = await resolveBroadcastRecipients(campaign, audience);
     const alreadyMessaged = await getAlreadyMessagedPhones(campaignId, templateName);
-    const pendingRecipients = allRecipients.filter((r) => !alreadyMessaged.has(normalizePhone(r.phone)));
-    const skippedCount = allRecipients.length - pendingRecipients.length;
+    const retryBlocked = await getRetryBlockedPhones(campaignId, templateName);
+    const skippedCount = allRecipients.filter((r) => alreadyMessaged.has(normalizePhone(r.phone))).length;
+    // Retry-blocked recipients are neither re-sent nor counted as sent.
+    const pendingRecipients = allRecipients.filter((r) => {
+      const phone = normalizePhone(r.phone);
+      return !alreadyMessaged.has(phone) && !retryBlocked.has(phone);
+    });
 
     // Safe as a plain SET (not a delta): nothing else writes to this row
     // before any message has actually been sent, so there's nothing to race.

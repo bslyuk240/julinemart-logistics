@@ -29,7 +29,7 @@
 // outside this codebase entirely.
 
 import { requireAdmin, headers, jsonResponse, parseJsonBody } from './services/global-sourcing-utils.js';
-import { resolveBroadcastRecipients, getAlreadyMessagedPhones } from './helpers/giveawayHelpers.js';
+import { resolveBroadcastRecipients, getAlreadyMessagedPhones, getRetryBlockedPhones } from './helpers/giveawayHelpers.js';
 
 // Mirrors admin-giveaway-broadcast-background.js's own normalizePhone: strips
 // everything but digits/plus, then drops the leading '+', matching how
@@ -83,10 +83,14 @@ export async function handler(event) {
   // dropped when they were actually already-successful sends being
   // correctly skipped by getAlreadyMessagedPhones downstream.
   let pendingCount = recipients.length;
+  let blockedCount = 0;
   if (templateName) {
     try {
       const alreadyMessaged = await getAlreadyMessagedPhones(campaignId, templateName);
-      pendingCount = recipients.filter((r) => !alreadyMessaged.has(normalizePhone(r.phone))).length;
+      const retryBlocked = await getRetryBlockedPhones(campaignId, templateName);
+      const notYetMessaged = recipients.filter((r) => !alreadyMessaged.has(normalizePhone(r.phone)));
+      blockedCount = notYetMessaged.filter((r) => retryBlocked.has(normalizePhone(r.phone))).length;
+      pendingCount = notYetMessaged.length - blockedCount;
     } catch (error) {
       return jsonResponse(500, { success: false, error: error.message });
     }
@@ -94,10 +98,17 @@ export async function handler(event) {
 
   const recipientCount = pendingCount;
   if (previewOnly) {
-    return jsonResponse(200, { success: true, data: { recipientCount } });
+    // blockedCount: recipients skipped because their sends already failed too
+    // many times (or Meta blocked them) — see getRetryBlockedPhones.
+    return jsonResponse(200, { success: true, data: { recipientCount, blockedCount } });
   }
   if (recipientCount === 0) {
-    return jsonResponse(400, { success: false, error: 'No opted-in recipients to send to' });
+    return jsonResponse(400, {
+      success: false,
+      error: blockedCount > 0
+        ? `No recipients left to send to — ${blockedCount} already failed too many times or were blocked by Meta.`
+        : 'No opted-in recipients to send to',
+    });
   }
 
   const { data: broadcast, error: broadcastError } = await adminClient

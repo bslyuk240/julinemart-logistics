@@ -123,7 +123,10 @@ export async function resolveRewardVoucher(voucherId) {
  * about here; if the DB is unreachable the request fails loudly like every
  * other DB-dependent step in this handler already does.
  */
-export async function isCampaignEntryRateExceeded(campaignId, { maxPerWindow = 40, windowSeconds = 60 } = {}) {
+// 150/min: sized for a short, announced Channel drop where most entrants
+// arrive within minutes (alpha peaked at 45 in its whole first hour at 40/min
+// this would have started rejecting real people). Still bounds a bot flood.
+export async function isCampaignEntryRateExceeded(campaignId, { maxPerWindow = 150, windowSeconds = 60 } = {}) {
   const since = new Date(Date.now() - windowSeconds * 1000).toISOString();
   const { count, error } = await supabase
     .from('giveaway_entries')

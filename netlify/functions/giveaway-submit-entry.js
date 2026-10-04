@@ -42,7 +42,10 @@ export async function handler(event) {
 
   const { limited, response } = await checkRateLimit(event, {
     name: 'giveaway-submit-entry',
-    max: 5,
+    // Mobile carriers share one IP across many people, so this must stay
+    // well above one person's retries; the per-campaign ceiling below is the
+    // real flood guard.
+    max: 20,
     window: '5 m',
     retryAfterSeconds: 300,
   });

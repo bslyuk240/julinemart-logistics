@@ -27,7 +27,9 @@ export async function handler(event) {
 
   const { limited, response } = await checkRateLimit(event, {
     name: 'giveaway-validate-code',
-    max: 15,
+    // Raised from 15 for the same shared-carrier-IP reason as submit-entry;
+    // code-guessing is still bounded by this per-minute window.
+    max: 40,
     window: '1 m',
     retryAfterSeconds: 60,
   });

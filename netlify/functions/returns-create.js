@@ -96,7 +96,7 @@ export async function handler(event) {
         body: JSON.stringify({ success: false, error: 'Order not found' })
       };
     }
-    const windowDays = Number(process.env.RETURN_WINDOW_DAYS || 14);
+    const windowDays = Number(process.env.RETURN_WINDOW_DAYS || 3);
 
     // The window counts from delivery, not payment. Counting from payment
     // penalises slow deliveries (scheduled gifts, global-sourcing items) and

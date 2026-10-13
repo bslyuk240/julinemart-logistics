@@ -57,6 +57,7 @@ import {
   listWhatsAppTemplates,
 } from './services/internalWhatsapp.js';
 import { sendWhatsAppTemplateToRecipients } from './helpers/giveawayHelpers.js';
+import { signReturnImages } from './services/privateStorage.js';
 
 function json(statusCode, body) {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -566,7 +567,7 @@ async function getReturn(adminClient, id) {
   const { data, error } = await adminClient.from('return_requests').select(RETURN_DETAIL_FIELDS).eq('id', id).maybeSingle();
   if (error) return json(500, { error: error.message });
   if (!data) return json(404, { error: 'Return request not found' });
-  return json(200, { data });
+  return json(200, { data: await signReturnImages(adminClient, data, 7 * 24 * 60 * 60) });
 }
 
 async function getReturnShipments(adminClient, id) {

@@ -9,6 +9,7 @@
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateVendor } from './services/vendorAuth.js';
 import { sendTransactionalEmail } from './services/emailNotifications.js';
+import { signReturnImages } from './services/privateStorage.js';
 
 export async function handler(event) {
   const origin = event.headers?.origin || event.headers?.Origin || '';
@@ -59,7 +60,13 @@ export async function handler(event) {
     return {
       statusCode: 200,
       headers: corsHeaders(origin),
-      body: JSON.stringify({ success: true, data: shipments || [], total: count || 0, page, limit }),
+      body: JSON.stringify({
+        success: true,
+        data: await Promise.all((shipments || []).map(async (s) => ({ ...s, return_requests: await signReturnImages(adminClient, s.return_requests) }))),
+        total: count || 0,
+        page,
+        limit,
+      }),
     };
   }
 

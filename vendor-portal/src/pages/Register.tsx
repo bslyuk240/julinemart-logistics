@@ -231,13 +231,21 @@ export default function Register() {
   function back() { setStep(s => (s - 1) as Step); }
 
   // ── Upload doc ───────────────────────────────────────────────────────────────
-  async function uploadDoc(file: File, path: string): Promise<string | null> {
-    const { data, error } = await supabase.storage
-      .from('vendor-documents')
-      .upload(path, file, { upsert: true });
+  // ID/CAC documents go to the private vendor-kyc bucket through a one-time
+  // signed upload URL (applicants aren't signed in). Returns the storage path
+  // that vendor-register records on the application.
+  async function uploadDoc(file: File, kind: 'id' | 'cac'): Promise<string | null> {
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const res = await fetch(`${JLO_API}/.netlify/functions/vendor-kyc-upload-url`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, ext }),
+    });
+    const ticket = await res.json().catch(() => null);
+    if (!res.ok || !ticket?.path || !ticket?.token) { console.error('upload url failed', ticket); return null; }
+    const { error } = await supabase.storage.from('vendor-kyc').uploadToSignedUrl(ticket.path, ticket.token, file);
     if (error) { console.error(error); return null; }
-    const { data: { publicUrl } } = supabase.storage.from('vendor-documents').getPublicUrl(data.path);
-    return publicUrl;
+    return ticket.path;
   }
 
   // ── Submit ───────────────────────────────────────────────────────────────────
@@ -247,12 +255,10 @@ export default function Register() {
     setSubmitError('');
     try {
       setUploading(true);
-      const ts = Date.now();
-      const slug = form.email.replace(/[^a-z0-9]/gi, '_');
-      let idUrl: string | null = null;
-      let cacUrl: string | null = null;
-      if (form.id_document) idUrl = await uploadDoc(form.id_document, `${slug}/${ts}_id.${form.id_document.name.split('.').pop()}`);
-      if (form.cac_document) cacUrl = await uploadDoc(form.cac_document, `${slug}/${ts}_cac.${form.cac_document.name.split('.').pop()}`);
+      let idPath: string | null = null;
+      let cacPath: string | null = null;
+      if (form.id_document) idPath = await uploadDoc(form.id_document, 'id');
+      if (form.cac_document) cacPath = await uploadDoc(form.cac_document, 'cac');
       setUploading(false);
 
       const res = await fetch(`${JLO_API}/.netlify/functions/vendor-register`, {
@@ -273,7 +279,7 @@ export default function Register() {
             fez_collection_method: form.fez_collection_method,
           },
           bank: { bank_name: form.bank_name || undefined, account_number: form.account_number || undefined, account_name: form.account_name || undefined },
-          documents: { id_url: idUrl || undefined, cac_url: cacUrl || undefined },
+          documents: { id_path: idPath || undefined, cac_path: cacPath || undefined },
         }),
       });
 

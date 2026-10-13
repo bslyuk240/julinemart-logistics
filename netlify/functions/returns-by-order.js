@@ -7,6 +7,7 @@ import { supabase, fetchSupabaseOrder } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { authenticateCustomer } from './services/customerAuth.js';
 import { returnSelect, formatReturnForCustomer } from './services/return-format.js';
+import { signReturnRows } from './services/privateStorage.js';
 
 function orderIdFromEvent(event) {
   const parts = String(event.path || "").split("/").filter(Boolean);
@@ -79,7 +80,7 @@ export async function handler(event) {
 
     if (error) throw error;
 
-    const formatted = (data || []).map(formatReturnForCustomer);
+    const formatted = await signReturnRows(supabase, (data || []).map(formatReturnForCustomer));
 
     return {
       statusCode: 200,

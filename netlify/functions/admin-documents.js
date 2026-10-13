@@ -9,6 +9,7 @@
  * DELETE /api/admin-documents?id=<uuid>              remove file + row (admin only)
  */
 import { requireAdmin, jsonResponse, headers } from './services/global-sourcing-utils.js';
+import { signFields } from './services/privateStorage.js';
 
 const BUCKET = 'admin-documents';
 const MAX_BYTES = 15 * 1024 * 1024;
@@ -34,7 +35,9 @@ export async function handler(event) {
 
     const { data, error } = await query;
     if (error) return jsonResponse(500, { success: false, error: error.message });
-    return jsonResponse(200, { success: true, data: data || [] });
+    // The admin-documents bucket is private — hand out short-lived links.
+    const rows = await Promise.all((data || []).map((row) => signFields(adminClient, row, ['file_url'])));
+    return jsonResponse(200, { success: true, data: rows });
   }
 
   if (event.httpMethod === 'POST') {
@@ -107,7 +110,7 @@ export async function handler(event) {
       return jsonResponse(500, { success: false, error: insertError.message });
     }
 
-    return jsonResponse(201, { success: true, data: row });
+    return jsonResponse(201, { success: true, data: await signFields(adminClient, row, ['file_url']) });
   }
 
   if (event.httpMethod === 'DELETE') {

@@ -7,6 +7,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { authenticateCustomer } from './services/customerAuth.js';
 import { returnSelect, formatReturnForCustomer } from './services/return-format.js';
+import { signReturnRows } from './services/privateStorage.js';
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -123,7 +124,7 @@ export async function handler(event) {
       };
     }
 
-    const returns = (requests || []).map(formatReturnForCustomer);
+    const returns = await signReturnRows(supabase, (requests || []).map(formatReturnForCustomer));
     console.log(`📦 Found ${returns.length} return(s)`);
 
     // --------------------------------------------------

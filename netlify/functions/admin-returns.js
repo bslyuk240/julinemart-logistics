@@ -3,6 +3,7 @@ import { supabase } from './services/returns-utils.js';
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { requireAdmin } from './services/global-sourcing-utils.js';
 import { RETURNS_VIEW_ROLES } from './services/staff-roles.js';
+import { signReturnRows } from './services/privateStorage.js';
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflightResponse();
@@ -90,7 +91,7 @@ export async function handler(event) {
       headers: corsHeaders(),
       body: JSON.stringify({
         success: true,
-        data: formatted,
+        data: await signReturnRows(supabase, formatted),
         pagination: { total: count || 0, limit, offset }
       })
     };

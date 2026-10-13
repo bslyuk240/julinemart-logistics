@@ -12,11 +12,20 @@
  *     fez_collection_method   // 'fez_pickup' | 'hub_dropoff'
  *   }
  *   bank:     { bank_name, account_number, account_name }
- *   documents: { id_url, cac_url }   (pre-uploaded to Supabase Storage)
+ *   documents: { id_path, cac_path } (uploaded to the private vendor-kyc bucket
+ *                                     via vendor-kyc-upload-url)
  */
 import { createClient } from '@supabase/supabase-js';
 import { sendTransactionalEmail } from './services/emailNotifications.js';
 import { checkRateLimit } from './services/rate-limit.js';
+import { storageReferenceUrl } from './services/privateStorage.js';
+
+// Only paths handed out by vendor-kyc-upload-url are accepted, so an
+// application can't point its documents at arbitrary URLs.
+const KYC_PATH = /^applications\/[0-9a-f-]{36}\/(id|cac)\.(jpg|jpeg|png|webp|pdf)$/;
+function kycReference(path) {
+  return typeof path === 'string' && KYC_PATH.test(path) ? storageReferenceUrl('vendor-kyc', path) : null;
+}
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const serviceKey  = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
@@ -147,8 +156,8 @@ export const handler = async (event) => {
       bank_name:               bank?.bank_name || null,
       bank_account_number: bank?.account_number || null,
       bank_account_name:   bank?.account_name || null,
-      id_document_url:  documents?.id_url || null,
-      cac_document_url: documents?.cac_url || null,
+      id_document_url:  kycReference(documents?.id_path),
+      cac_document_url: kycReference(documents?.cac_path),
       status:           'pending',
     })
     .select()

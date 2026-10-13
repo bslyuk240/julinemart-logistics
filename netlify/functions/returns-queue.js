@@ -5,6 +5,7 @@ import { corsHeaders, preflightResponse } from './services/cors.js';
 import { requireAdmin } from './services/global-sourcing-utils.js';
 import { RETURNS_VIEW_ROLES } from './services/staff-roles.js';
 import { isCarrierPickupEnabled, isPickupEnabled } from './services/return-pickup.js';
+import { signReturnRows } from './services/privateStorage.js';
 
 const adminClient = createClient(
   process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL,
@@ -196,7 +197,7 @@ export async function handler(event) {
       headers: corsHeaders(),
       body: JSON.stringify({
         success: true,
-        data: enriched,
+        data: await signReturnRows(adminClient, enriched),
         total: count || 0,
         page,
         limit,

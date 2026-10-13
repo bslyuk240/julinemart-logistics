@@ -29,7 +29,7 @@ async function authenticateAndRegisterWebhook(userId, password) {
     console.log('Organization:', authData.orgDetails['Org Full Name']);
 
     const secretKey = authData.orgDetails['secret-key'];
-    console.log('Secret Key:', secretKey);
+    // (secret key deliberately not logged)
 
     // STEP 2: Register webhook
     console.log('\nStep 2: Registering webhook...');

@@ -8,6 +8,7 @@
  */
 import { corsHeaders, preflightResponse } from './services/cors.js';
 import { requireAdmin } from './services/global-sourcing-utils.js';
+import { signFields } from './services/privateStorage.js';
 
 export async function handler(event) {
   const origin = event.headers?.origin || event.headers?.Origin || '';
@@ -51,9 +52,14 @@ export async function handler(event) {
     };
   }
 
+  // ID / CAC documents are in the private vendor-kyc bucket.
+  const applications = await Promise.all(
+    (data || []).map((app) => signFields(adminClient, app, ['id_document_url', 'cac_document_url'])),
+  );
+
   return {
     statusCode: 200,
     headers: corsHeaders(origin),
-    body: JSON.stringify({ success: true, applications: data || [] }),
+    body: JSON.stringify({ success: true, applications }),
   };
 }

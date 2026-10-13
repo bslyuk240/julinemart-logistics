@@ -254,7 +254,7 @@ async function getEmailTemplateById(
 }
 
 // Create reusable transporter
-let transporter: nodemailer.Transporter | null = null;
+let transporter: ReturnType<typeof nodemailer.createTransport> | null = null;
 let transporterKey: string | null = null;
 
 const getTransporter = (config: SMTPTransport.Options, key: string) => {

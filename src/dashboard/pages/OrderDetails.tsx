@@ -23,6 +23,7 @@ import { TrackingTimeline, trackingVariantForShipment } from '../../shared/Track
 import { ShipmentTrackingEvents } from '../../shared/ShipmentTrackingEvents';
 import RiderPicker from '../components/RiderPicker';
 import { JloShippingQuotes } from '../components/JloShippingQuotes';
+import { functionsAuthHeader } from '../mobile/lib/functionsAuth';
 
 type Identifier = string | number;
 type KnownStatus =
@@ -523,13 +524,11 @@ export function OrderDetailsPage() {
   const updateLocalDeliveryStatus = async (subOrderId: Identifier, targetStatus: 'picked_up' | 'out_for_delivery' | 'delivered') => {
     setStatusUpdating(subOrderId);
     try {
-      const token =
-        typeof window !== 'undefined' ? localStorage.getItem('token') : null;
       const response = await fetch(`${functionsBase}/local-status`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(await functionsAuthHeader()),
         },
         body: JSON.stringify({
           sub_order_id: subOrderId,

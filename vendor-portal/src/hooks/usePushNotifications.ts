@@ -13,13 +13,13 @@ export function usePushNotifications(vendorId: string | null) {
     if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
 
     initialised.current = true;
-    initPush(vendorId).catch((err) =>
+    initPush().catch((err) =>
       console.warn('[push] init failed:', err?.message ?? err)
     );
   }, [vendorId]);
 }
 
-async function initPush(vendorId: string) {
+async function initPush() {
   // 1. Request permission
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') return;
@@ -59,12 +59,16 @@ async function initPush(vendorId: string) {
   const cached = localStorage.getItem(TOKEN_KEY);
   if (cached === fcmToken) return;
 
-  // 6. Register token with backend
-  await fetch(REGISTER_URL, {
+  // 6. Register token with backend — the server takes the vendor from this
+  // session token, not from the body.
+  const { data: { session } } = await (await import('../lib/supabase')).supabase.auth.getSession();
+  if (!session?.access_token) return;
+  const registerRes = await fetch(REGISTER_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ vendor_id: vendorId, fcm_token: fcmToken }),
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({ fcm_token: fcmToken }),
   });
+  if (!registerRes.ok) throw new Error(`push registration failed (${registerRes.status})`);
 
   localStorage.setItem(TOKEN_KEY, fcmToken);
 

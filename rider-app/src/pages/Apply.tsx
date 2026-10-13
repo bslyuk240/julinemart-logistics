@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Camera, CheckCircle2, Upload } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { uploadRiderDocument } from '../lib/storage';
+import { uploadRiderKycDocument } from '../lib/storage';
 import { api } from '../lib/api';
 
 type Step = 1 | 2 | 3 | 4 | 5;
@@ -173,10 +173,10 @@ export default function Apply() {
     setError(null);
     setSubmitting(true);
     try {
-      const idUrl = await uploadRiderDocument(user.id, form.id_document!, 'id');
-      const selfieUrl = await uploadRiderDocument(user.id, form.selfie!, 'selfie');
+      const idUrl = await uploadRiderKycDocument(user.id, form.id_document!, 'id');
+      const selfieUrl = await uploadRiderKycDocument(user.id, form.selfie!, 'selfie');
       const vehicleUrl = form.vehicle_document
-        ? await uploadRiderDocument(user.id, form.vehicle_document, 'vehicle')
+        ? await uploadRiderKycDocument(user.id, form.vehicle_document, 'vehicle')
         : undefined;
 
       await api.register({

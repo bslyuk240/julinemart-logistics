@@ -7,6 +7,7 @@ import { openLabelPrint, openWaybillPrint } from '../lib/waybillPrint';
 import { ShipmentTrackingEvents } from '../../shared/ShipmentTrackingEvents';
 import RiderPicker from '../components/RiderPicker';
 import BroadcastToRidersButton from '../components/BroadcastToRidersButton';
+import { functionsAuthHeader } from '../mobile/lib/functionsAuth';
 
 const functionsBase = import.meta.env.VITE_NETLIFY_FUNCTIONS_BASE || '/.netlify/functions';
 
@@ -122,7 +123,7 @@ export function ManualShipmentDetailPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${functionsBase}/hubs`);
+        const res = await fetch(`${functionsBase}/hubs`, { headers: await functionsAuthHeader() });
         const data = await res.json();
         if (data.success) setHubs(((data.data || []) as Hub[]).filter((h: any) => h?.is_active !== false));
       } catch {

@@ -3,6 +3,7 @@
  * GET /api/rider-profile
  */
 import { requireActiveRider, jsonResponse, headers } from './services/requireRider.js';
+import { signKycUrl } from './services/riderKyc.js';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
@@ -40,7 +41,7 @@ export async function handler(event) {
       guarantor_name: full.guarantor_name,
       guarantor_phone: full.guarantor_phone,
       status: full.status,
-      selfie_url: full.selfie_url,
+      selfie_url: await signKycUrl(adminClient, full.selfie_url),
       selfie_captured_at: full.selfie_captured_at,
       member_since: full.created_at,
       bank_name: full.bank_name,

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { supabase } from '../../lib/supabase';
+import { functionsAuthHeader } from '../mobile/lib/functionsAuth';
 
 interface PendingPayment {
   courier_id: string;
@@ -107,7 +108,7 @@ function PayDeliveryModal({
     try {
       const res = await fetch('/api/settlements/pay-delivery', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await functionsAuthHeader()) },
         body: JSON.stringify({
           sub_order_id: row.id,
           amount: Number(amount),
@@ -665,8 +666,8 @@ export function SettlementsPage() {
   const fetchData = async () => {
     try {
       const [pendingRes, settlementsRes] = await Promise.all([
-        fetch('/api/settlements/pending'),
-        fetch('/api/settlements'),
+        fetch('/api/settlements/pending', { headers: await functionsAuthHeader() }),
+        fetch('/api/settlements', { headers: await functionsAuthHeader() }),
       ]);
 
       const pendingData = await pendingRes.json();
@@ -1042,7 +1043,7 @@ function CreateSettlementModal({ courier, onClose, onSuccess, notification }: an
     try {
       const response = await fetch('/api/settlements', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await functionsAuthHeader()) },
         body: JSON.stringify({ courier_id: courier.courier_id, start_date: startDate, end_date: endDate }),
       });
 
@@ -1118,7 +1119,7 @@ function MarkPaidModal({ settlement, onClose, onSuccess, notification }: any) {
     try {
       const response = await fetch(`/api/settlements/${settlement.id}/mark-paid`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await functionsAuthHeader()) },
         body: JSON.stringify({
           payment_reference: paymentReference,
           payment_method: paymentMethod,

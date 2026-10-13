@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from 'react';
 import { DollarSign, TrendingUp, Clock, CheckCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { functionsAuthHeader } from '../mobile/lib/functionsAuth';
 
 export function SettlementsSummaryWidget() {
   const navigate = useNavigate();
@@ -18,7 +19,7 @@ export function SettlementsSummaryWidget() {
 
   const fetchSummary = async () => {
     try {
-      const response = await fetch('/api/settlements/pending');
+      const response = await fetch('/api/settlements/pending', { headers: await functionsAuthHeader() });
       const data = await response.json();
 
       if (data.success) {

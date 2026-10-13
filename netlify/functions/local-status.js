@@ -2,6 +2,7 @@
 // Added comprehensive logging and error handling for refreshOverallOrderStatus
 
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
 import { sendLocalDeliveryStatusEmail } from '../../shared/riderAssignedEmail.js';
 import { refreshOverallOrderStatus } from './helpers/orderStatusHelper.js';
 import {
@@ -36,6 +37,11 @@ exports.handler = async (event) => {
       body: JSON.stringify({ success: false, error: 'Method Not Allowed' }),
     };
   }
+
+  // Moves a sub-order through local delivery and emails/pushes the customer —
+  // staff who can act on orders only.
+  const auth = await requireAdmin(event, ['admin', 'agent', 'manager']);
+  if (auth.errorResponse) return auth.errorResponse;
 
   if (
     !process.env.SUPABASE_SERVICE_ROLE_KEY ||

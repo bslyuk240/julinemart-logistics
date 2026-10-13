@@ -1,8 +1,10 @@
 // Netlify Function: /api/hubs
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
+import { STAFF_READ_ROLES } from './services/shipmentAccess.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
 
 const headers = {
@@ -59,6 +61,10 @@ export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
+
+  const auth = await requireAdmin(event, event.httpMethod === 'GET' ? STAFF_READ_ROLES : ['admin']);
+  if (auth.errorResponse) return auth.errorResponse;
+
   try {
     if (!SUPABASE_URL || !SERVICE_KEY) {
       return { statusCode: 500, headers, body: JSON.stringify({ success: false, error: 'Supabase not configured on server' }) };

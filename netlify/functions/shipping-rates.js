@@ -1,8 +1,9 @@
 // Netlify Function: /api/shipping-rates and /api/shipping-rates/:id
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 const supabase = createClient(SUPABASE_URL || '', SERVICE_KEY || '');
 
 const headers = {
@@ -14,6 +15,11 @@ const headers = {
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
+  }
+
+  if (event.httpMethod !== 'GET') {
+    const auth = await requireAdmin(event, ['admin', 'agent', 'manager']);
+    if (auth.errorResponse) return auth.errorResponse;
   }
 
   // Extract potential id from path: /.netlify/functions/shipping-rates/:id

@@ -333,18 +333,18 @@ console.log('👥 User management routes registered');
 app.post('/api/courier/create-shipment', createCourierShipmentHandler);
 app.get('/api/courier/tracking/:subOrderId', getCourierTrackingHandler);
 app.get('/api/courier/label/:subOrderId', generateLabelHandler);
-app.put('/api/couriers/:courierId/credentials', updateCourierCredentialsHandler);
+app.put('/api/couriers/:courierId/credentials', authenticate, requireRole('admin'), updateCourierCredentialsHandler);
 app.get('/api/courier/logs', getCourierAPILogsHandler);
 
 console.log('🚚 Courier integration routes registered');
 
 // Settlement routes
-app.get('/api/settlements/pending', getPendingPaymentsHandler);
-app.get('/api/settlements', getSettlementsHandler);
-app.post('/api/settlements', createSettlementHandler);
-app.put('/api/settlements/:id/mark-paid', markSettlementPaidHandler);
-app.get('/api/settlements/:id', getSettlementDetailsHandler);
-app.get('/api/settlements/stats/:courier_id?', getCourierPaymentStatsHandler);
+app.get('/api/settlements/pending', authenticate, requireRole('admin'), getPendingPaymentsHandler);
+app.get('/api/settlements', authenticate, requireRole('admin'), getSettlementsHandler);
+app.post('/api/settlements', authenticate, requireRole('admin'), createSettlementHandler);
+app.put('/api/settlements/:id/mark-paid', authenticate, requireRole('admin'), markSettlementPaidHandler);
+app.get('/api/settlements/:id', authenticate, requireRole('admin'), getSettlementDetailsHandler);
+app.get('/api/settlements/stats/:courier_id?', authenticate, requireRole('admin'), getCourierPaymentStatsHandler);
 
 console.log('💳 Settlement routes registered');
 

@@ -3,6 +3,7 @@ import { MapPin, Plus, Edit, Truck, Pause, Play, Trash2, X } from 'lucide-react'
 import { HubForm } from '../components/HubForm';
 import { useNotification } from '../contexts/NotificationContext';
 import { supabase } from '../../lib/supabase';
+import { functionsAuthHeader } from '../mobile/lib/functionsAuth';
 
 interface Hub {
   id: string;
@@ -75,7 +76,7 @@ function CourierHubsSection() {
     try {
       const auth = await getAuthHeader();
       const [couriersRes, hubsRes] = await Promise.all([
-        fetch('/api/couriers'),
+        fetch('/api/couriers', { headers: await functionsAuthHeader() }),
         fetch('/api/admin-courier-hubs', { headers: { Authorization: auth } }),
       ]);
       const couriersData = await couriersRes.json();
@@ -314,7 +315,7 @@ export function HubsPage() {
 
   const fetchHubs = async () => {
     try {
-      const response = await fetch('/api/hubs');
+      const response = await fetch('/api/hubs', { headers: await functionsAuthHeader() });
       const data = await response.json();
       setHubs(data.data || []);
     } catch (error) {
@@ -335,7 +336,7 @@ export function HubsPage() {
 
       const response = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await functionsAuthHeader()) },
         body: JSON.stringify(hubData),
       });
 

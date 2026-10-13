@@ -8,6 +8,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from './services/global-sourcing-utils.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -33,6 +34,11 @@ function parsePath(path) {
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers: corsHeaders, body: '' };
+
+  // Settlements create, approve and mark courier payouts as paid — admin only,
+  // same as who the dashboard shows the Settlements page to.
+  const auth = await requireAdmin(event, ['admin']);
+  if (auth.errorResponse) return auth.errorResponse;
 
   if (!SUPABASE_URL || !SERVICE_KEY) {
     return json(503, { success: false, error: 'Database not configured' });

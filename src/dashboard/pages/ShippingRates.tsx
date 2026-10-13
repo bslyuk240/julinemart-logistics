@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from 'react';
 import { DollarSign, Plus, Edit, Trash2, Search, Filter } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
+import { functionsAuthHeader } from '../mobile/lib/functionsAuth';
 
 interface Hub {
   id: string;
@@ -61,9 +62,9 @@ export function ShippingRatesPage() {
       // Fetch all data in parallel
       const [ratesRes, hubsRes, zonesRes, couriersRes] = await Promise.all([
         fetch('/api/shipping-rates'),
-        fetch('/api/hubs'),
+        fetch('/api/hubs', { headers: await functionsAuthHeader() }),
         fetch('/api/zones'),
-        fetch('/api/couriers')
+        fetch('/api/couriers', { headers: await functionsAuthHeader() })
       ]);
 
       const [ratesData, hubsData, zonesData, couriersData] = await Promise.all([
@@ -102,7 +103,8 @@ export function ShippingRatesPage() {
 
     try {
       const response = await fetch(`/api/shipping-rates/${rateId}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: await functionsAuthHeader(),
       });
 
       if (response.ok) {
@@ -404,7 +406,7 @@ function ShippingRateForm({ rate, hubs, zones, couriers, onClose, onSave }: Rate
 
       const response = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await functionsAuthHeader()) },
         body: JSON.stringify(formData),
       });
 

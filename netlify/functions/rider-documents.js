@@ -5,6 +5,7 @@
  * Display only; no enforcement of expired/rejected documents anywhere.
  */
 import { requireActiveRider, jsonResponse, headers } from './services/requireRider.js';
+import { signDocumentRows } from './services/riderKyc.js';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
@@ -25,8 +26,9 @@ export async function handler(event) {
   // "Current" document per type is just the most recent submission —
   // history stays available (older rows) but the screen only needs the
   // latest one per type front and center.
+  const rows = await signDocumentRows(adminClient, data || []);
   const current = new Map();
-  for (const row of data || []) {
+  for (const row of rows) {
     if (!current.has(row.type)) current.set(row.type, row);
   }
 
@@ -34,7 +36,7 @@ export async function handler(event) {
     success: true,
     data: {
       current: Array.from(current.values()),
-      history: data || [],
+      history: rows,
     },
   });
 }

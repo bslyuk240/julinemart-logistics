@@ -5,6 +5,7 @@ import { useNotification } from '../contexts/NotificationContext';
 import { supabase } from '../../lib/supabase';
 import RiderPicker from '../components/RiderPicker';
 import BroadcastToRidersButton from '../components/BroadcastToRidersButton';
+import { functionsAuthHeader } from '../mobile/lib/functionsAuth';
 
 type Hub = { id: string; name: string; city?: string | null };
 
@@ -177,7 +178,7 @@ export function HubDispatchPage() {
     );
 
   const fetchHubs = async () => {
-    const res = await fetch('/.netlify/functions/hubs');
+    const res = await fetch('/.netlify/functions/hubs', { headers: await functionsAuthHeader() });
     const payload = await res.json();
     if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load hubs');
     const rows = ((payload.data || []) as any[]).filter((h) => h?.is_active !== false);

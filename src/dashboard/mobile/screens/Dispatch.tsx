@@ -238,7 +238,7 @@ export default function MobileDispatch() {
   const manualAtHub = useMemo(() => manualShipments.filter((m) => m.status === 'at_hub'), [manualShipments]);
 
   const fetchHubs = async () => {
-    const res = await fetch(`${functionsBase}/hubs`);
+    const res = await fetch(`${functionsBase}/hubs`, { headers: await functionsAuthHeader() });
     const payload = await res.json();
     if (!res.ok || !payload?.success) throw new Error(payload?.error || 'Unable to load hubs');
     const rows = ((payload.data || []) as Hub[]).filter((h: any) => h?.is_active !== false);

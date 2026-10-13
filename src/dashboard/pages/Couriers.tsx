@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from 'react';
 import { Truck, Plus, Edit, Trash2, Search } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
+import { functionsAuthHeader } from '../mobile/lib/functionsAuth';
 
 interface Courier {
   id: string;
@@ -27,7 +28,7 @@ export function CouriersPage() {
 
   const fetchCouriers = async () => {
     try {
-      const response = await fetch('/api/couriers');
+      const response = await fetch('/api/couriers', { headers: await functionsAuthHeader() });
       const data = await response.json();
       setCouriers(data.data || []);
       notification.success('Data Loaded', `${data.data?.length || 0} couriers found`);
@@ -59,7 +60,8 @@ export function CouriersPage() {
 
     try {
       const response = await fetch(`/api/couriers/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: await functionsAuthHeader(),
       });
 
       if (response.ok) {
@@ -232,7 +234,7 @@ function CourierForm({ courier, onClose, onSave }: CourierFormProps) {
 
       const response = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(await functionsAuthHeader()) },
         body: JSON.stringify(formData),
       });
 

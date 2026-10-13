@@ -3,12 +3,15 @@
  *
  * Accepts a base64-encoded PDF invoice and emails it to the customer.
  * The PDF is generated client-side by the PWA and sent here for delivery.
+ * Requires the signed-in customer's Bearer token (forwarded by the PWA); the
+ * invoice only goes to that customer's own address, for their own order.
  *
- * Body: { order_id, customer_email, file_name, pdf_base64 }
+ * Body: { order_id, file_name, pdf_base64 }
  */
 
 import { createClient } from '@supabase/supabase-js';
 import { getTransport } from './services/emailNotifications.js';
+import { authenticateCustomer } from './services/customerAuth.js';
 
 const ALLOWED_ORIGINS = [
   'https://julinemart.com',
@@ -49,11 +52,27 @@ export const handler = async (event) => {
     return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Invalid JSON' }) };
   }
 
-  const { order_id, customer_email, file_name, pdf_base64 } = body;
+  const { order_id, file_name, pdf_base64 } = body;
 
-  if (!customer_email || !pdf_base64) {
-    return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'customer_email and pdf_base64 are required' }) };
+  if (!order_id || !pdf_base64) {
+    return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'order_id and pdf_base64 are required' }) };
   }
+
+  // Only the signed-in customer, for their own order, and only to their own
+  // address — otherwise this mails any PDF to anyone from our domain.
+  const { email, error: authError } = await authenticateCustomer(event);
+  if (authError) {
+    return { statusCode: 401, headers, body: JSON.stringify({ success: false, error: authError }) };
+  }
+  const { data: order } = await supabase
+    .from('orders')
+    .select('id, customer_email')
+    .eq('id', order_id)
+    .maybeSingle();
+  if (!order || String(order.customer_email || '').trim().toLowerCase() !== email) {
+    return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Order not found' }) };
+  }
+  const customer_email = email;
 
   if (pdf_base64.length > 5 * 1024 * 1024) {
     return { statusCode: 413, headers, body: JSON.stringify({ success: false, error: 'PDF too large' }) };
@@ -64,7 +83,8 @@ export const handler = async (event) => {
     return { statusCode: 503, headers, body: JSON.stringify({ success: false, error: 'Email service is not configured' }) };
   }
 
-  const safeFileName = file_name || `Invoice-${order_id || 'order'}.pdf`;
+  const cleanName = String(file_name || '').replace(/[^\w.\- ]/g, '').slice(0, 80);
+  const safeFileName = cleanName.toLowerCase().endsWith('.pdf') ? cleanName : `Invoice-${order.id}.pdf`;
   const subject = `Your JulineMart Invoice – ${safeFileName.replace('.pdf', '')}`;
 
   const html = `

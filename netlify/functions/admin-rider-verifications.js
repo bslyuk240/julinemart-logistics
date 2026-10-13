@@ -9,6 +9,7 @@
  * by the dispatch rider picker (assign a job to a rider serving that area).
  */
 import { requireAdmin, jsonResponse, headers } from './services/global-sourcing-utils.js';
+import { signRiderKycFields } from './services/riderKyc.js';
 
 const SELECT = `
   id, full_name, email, phone, nin,
@@ -49,5 +50,8 @@ export async function handler(event) {
     if (row.status in stats) stats[row.status] += 1;
   }
 
-  return jsonResponse(200, { success: true, data: data || [], stats });
+  // KYC files are in a private bucket — hand the dashboard short-lived links.
+  const riders = await Promise.all((data || []).map((rider) => signRiderKycFields(adminClient, rider)));
+
+  return jsonResponse(200, { success: true, data: riders, stats });
 }

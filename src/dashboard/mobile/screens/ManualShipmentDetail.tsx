@@ -116,7 +116,7 @@ export default function MobileManualShipmentDetail() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${functionsBase}/hubs`);
+        const res = await fetch(`${functionsBase}/hubs`, { headers: await functionsAuthHeader() });
         const data = await res.json();
         if (data.success) setHubs(((data.data || []) as Hub[]).filter((h: any) => h?.is_active !== false));
       } catch {

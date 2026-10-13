@@ -5,7 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { usePushNotifications } from '../hooks/usePushNotifications';
 import { useInstallPrompt } from '../hooks/useInstallPrompt';
 import { api, Job, pickupLabel } from '../lib/api';
-import { uploadRiderDocument } from '../lib/storage';
+import { uploadRiderKycDocument } from '../lib/storage';
 import { supabase } from '../lib/supabase';
 import { BottomNav } from '../components/BottomNav';
 import { InstallPrompt } from '../components/InstallPrompt';
@@ -195,7 +195,7 @@ function RiderHome() {
     setCheckingInSelfie(true);
     setError(null);
     try {
-      const selfieUrl = await uploadRiderDocument(user.id, file, 'selfie_checkin');
+      const selfieUrl = await uploadRiderKycDocument(user.id, file, 'selfie_checkin');
       await api.checkinSelfie(selfieUrl);
       setShowSelfiePrompt(false);
       const result = await api.setOnline(true);

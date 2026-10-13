@@ -1,14 +1,12 @@
 /**
  * POST /.netlify/functions/vendor-register-push
- * Registers a vendor's FCM push token in the device_tokens table.
- * Body: { vendor_id, fcm_token }
+ * Registers the signed-in vendor's FCM push token in the device_tokens table.
+ * The vendor comes from the Bearer token, never from the body, so nobody can
+ * subscribe a device to another vendor's order notifications.
+ * (The vendor portal site has its own copy of this function, which it calls.)
+ * Body: { fcm_token }
  */
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+import { authenticateVendor } from './services/vendorAuth.js';
 
 const headers = {
   'Access-Control-Allow-Origin': '*',
@@ -21,19 +19,22 @@ export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers, body: '' };
   if (event.httpMethod !== 'POST') return { statusCode: 405, headers, body: JSON.stringify({ error: 'Method not allowed' }) };
 
+  const { vendor, adminClient, error: authError } = await authenticateVendor(event);
+  if (authError) return { statusCode: 401, headers, body: JSON.stringify({ error: authError }) };
+
   let body;
   try { body = JSON.parse(event.body || '{}'); } catch { return { statusCode: 400, headers, body: JSON.stringify({ error: 'Invalid JSON' }) }; }
 
-  const { vendor_id, fcm_token } = body;
-  if (!vendor_id || !fcm_token) {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'vendor_id and fcm_token are required' }) };
+  const { fcm_token } = body;
+  if (!fcm_token) {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'fcm_token is required' }) };
   }
 
   const now = new Date().toISOString();
-  const { error } = await supabase
+  const { error } = await adminClient
     .from('device_tokens')
     .upsert(
-      { customer_id: vendor_id, fcm_token, platform: 'web', user_type: 'vendor', updated_at: now, last_used_at: now },
+      { customer_id: String(vendor.id), fcm_token, platform: 'web', user_type: 'vendor', updated_at: now, last_used_at: now },
       { onConflict: 'customer_id,fcm_token' }
     );
 

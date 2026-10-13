@@ -3,6 +3,7 @@ import { Settings, Key, CheckCircle, XCircle, AlertCircle, Save, Zap } from 'luc
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
 import { ShippingProvidersPanel } from '../components/ShippingProvidersPanel';
+import { functionsAuthHeader } from '../mobile/lib/functionsAuth';
 
 interface Courier {
   id: string;
@@ -43,7 +44,7 @@ export function CourierSettingsPage() {
 
   const fetchCouriers = async () => {
     try {
-      const response = await fetch(`${apiBase}/api/couriers`);
+      const response = await fetch(`${apiBase}/api/couriers`, { headers: await functionsAuthHeader() });
       const data = await response.json();
       setCouriers(data.data || []);
       

@@ -18,7 +18,7 @@ const headers = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  'Access-Control-Allow-Methods': 'GET, DELETE, OPTIONS'
+  'Access-Control-Allow-Methods': 'GET, PATCH, DELETE, OPTIONS'
 };
 
 export async function handler(event) {
@@ -71,6 +71,35 @@ export async function handler(event) {
       return { statusCode: 200, headers, body: JSON.stringify({ success: true }) };
     }
 
+    if (event.httpMethod === 'PATCH') {
+      // Mark client errors as resolved (or reopen them). Restricted to
+      // CLIENT_ERROR rows so the rest of the audit trail stays untouched.
+      let body;
+      try {
+        body = JSON.parse(event.body || '{}');
+      } catch {
+        return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Invalid JSON' }) };
+      }
+      const ids = Array.isArray(body.ids) ? body.ids.filter((id) => typeof id === 'string' && id) : [];
+      if (!ids.length || ids.length > 500) {
+        return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'ids must be 1-500 log ids' }) };
+      }
+      const resolved = body.resolved !== false;
+      const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : '';
+      const patch = resolved
+        ? { resolved_at: new Date().toISOString(), resolved_by: authData.user.id, resolution_note: note || null }
+        : { resolved_at: null, resolved_by: null, resolution_note: null };
+
+      const { data: updated, error: updateError } = await supabase
+        .from('activity_logs')
+        .update(patch)
+        .in('id', ids)
+        .eq('action', 'CLIENT_ERROR')
+        .select('id, resolved_at, resolved_by, resolution_note');
+      if (updateError) throw updateError;
+      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: updated || [] }) };
+    }
+
     if (event.httpMethod !== 'GET') {
       return { statusCode: 405, headers, body: JSON.stringify({ success: false, error: 'Method not allowed' }) };
     }
@@ -81,8 +110,10 @@ export async function handler(event) {
     const actionIn = params.action_in ? params.action_in.split(',').map((s) => s.trim()).filter(Boolean) : null;
     const source = params.source;
     const excludeWhatsapp = params.exclude_whatsapp !== 'false';
+    // 'true' | 'false' | undefined (both). Only meaningful for CLIENT_ERROR rows.
+    const resolvedFilter = params.resolved;
 
-    const selectWithSource = 'id, user_id, actor_email, action, resource_type, resource_id, details, ip_address, source, created_at';
+    const selectWithSource = 'id, user_id, actor_email, action, resource_type, resource_id, details, ip_address, source, created_at, resolved_at, resolved_by, resolution_note';
     const selectLegacy = 'id, user_id, action, resource_type, resource_id, details, ip_address, created_at';
 
     // Step 1: fetch logs (no FK join — user_id now refs auth.users, not public.users)
@@ -104,6 +135,8 @@ export async function handler(event) {
       if (actionIn && actionIn.length) query = query.in('action', actionIn);
       else if (action && action !== 'all') query = query.eq('action', action);
       if (includeSourceFilter && source && source !== 'all') query = query.eq('source', source);
+      if (resolvedFilter === 'true') query = query.not('resolved_at', 'is', null);
+      else if (resolvedFilter === 'false') query = query.is('resolved_at', null);
       return query;
     };
 
@@ -123,7 +156,7 @@ export async function handler(event) {
     if (error) throw error;
 
     // Step 2: enrich with public.users (JLO staff only — vendors/customers won't be there)
-    const userIds = [...new Set((logs || []).map(l => l.user_id).filter(Boolean))];
+    const userIds = [...new Set((logs || []).flatMap(l => [l.user_id, l.resolved_by]).filter(Boolean))];
     let usersMap = {};
     if (userIds.length) {
       const { data: users } = await supabase
@@ -136,6 +169,7 @@ export async function handler(event) {
     const data = (logs || []).map(log => ({
       ...log,
       users: usersMap[log.user_id] || null,
+      resolver: log.resolved_by ? usersMap[log.resolved_by] || null : null,
     }));
 
     return { statusCode: 200, headers, body: JSON.stringify({ success: true, data }) };

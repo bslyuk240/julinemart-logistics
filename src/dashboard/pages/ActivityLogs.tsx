@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Activity, Search, Shield, Globe, Store, RefreshCw, ChevronRight, ChevronDown, AlertTriangle } from 'lucide-react';
+import { Activity, Search, Shield, Globe, Store, RefreshCw, ChevronRight, ChevronDown, AlertTriangle, CheckCircle2, RotateCcw } from 'lucide-react';
 import { useNotification } from '../contexts/NotificationContext';
 import { useAuth } from '../contexts/AuthContext';
 
 type Source = 'all' | 'jlo' | 'storefront' | 'vendor_portal' | 'errors';
+type ErrorView = 'open' | 'resolved' | 'all';
 
 interface ActivityLog {
   id: string;
@@ -17,6 +18,22 @@ interface ActivityLog {
   source: string;
   created_at: string;
   users: { email: string; full_name: string; role?: string } | null;
+  resolved_at?: string | null;
+  resolution_note?: string | null;
+  resolver?: { email: string; full_name: string } | null;
+}
+
+const ERROR_VIEWS: { key: ErrorView; label: string }[] = [
+  { key: 'open', label: 'Open' },
+  { key: 'resolved', label: 'Resolved' },
+  { key: 'all', label: 'All' },
+];
+
+// Errors with the same area + message are almost always the same underlying
+// problem, so they can be resolved together.
+function errorGroupKey(log: ActivityLog) {
+  const d = log.details || {};
+  return `${String(d.area ?? '')}::${String(d.message ?? '')}`;
 }
 
 const SOURCE_TABS: { key: Source; label: string; icon: any }[] = [
@@ -196,9 +213,12 @@ export function ActivityLogsPage() {
   const [actionFilter, setActionFilter] = useState('all');
   const [authOnly, setAuthOnly] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [errorView, setErrorView] = useState<ErrorView>('open');
+  const [resolveNotes, setResolveNotes] = useState<Record<string, string>>({});
+  const [resolving, setResolving] = useState<string | null>(null);
   const apiBase = import.meta.env.VITE_API_BASE_URL || '';
 
-  useEffect(() => { fetchLogs(); }, [sourceTab, actionFilter, session]);
+  useEffect(() => { fetchLogs(); }, [sourceTab, actionFilter, errorView, session]);
 
   const fetchLogs = async () => {
     setLoading(true);
@@ -208,6 +228,7 @@ export function ActivityLogsPage() {
         // Errors span every source (jlo/storefront/vendor_portal), so filter by
         // action instead of source here.
         url += '&action=CLIENT_ERROR';
+        if (errorView !== 'all') url += '&resolved=' + (errorView === 'resolved');
       } else {
         if (actionFilter !== 'all') url += '&action=' + actionFilter;
         if (sourceTab !== 'all') url += '&source=' + sourceTab;
@@ -232,6 +253,46 @@ export function ActivityLogsPage() {
       notification.error('Failed to Load', 'Unable to fetch activity logs');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const setResolved = async (log: ActivityLog, ids: string[], resolved: boolean) => {
+    setResolving(log.id);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (session?.access_token) headers['Authorization'] = 'Bearer ' + session.access_token;
+      const response = await fetch(`${apiBase}/api/activity-logs`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ ids, resolved, note: resolved ? resolveNotes[log.id] || '' : undefined }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok || !json.success) throw new Error(json.error || 'Error ' + response.status);
+
+      const updated = new Map<string, any>((json.data || []).map((r: any) => [r.id, r]));
+      const leavesView = (resolved && errorView === 'open') || (!resolved && errorView === 'resolved');
+      setLogs(prev =>
+        leavesView
+          ? prev.filter(l => !updated.has(l.id))
+          : prev.map(l => {
+              const u = updated.get(l.id);
+              if (!u) return l;
+              return {
+                ...l,
+                resolved_at: u.resolved_at,
+                resolution_note: u.resolution_note,
+                resolver: resolved ? { email: session?.user?.email || '', full_name: '' } : null,
+              };
+            }),
+      );
+      notification.success(
+        resolved ? 'Marked resolved' : 'Reopened',
+        `${updated.size} error${updated.size === 1 ? '' : 's'} updated`,
+      );
+    } catch (error) {
+      notification.error('Update failed', error instanceof Error ? error.message : 'Could not update error');
+    } finally {
+      setResolving(null);
     }
   };
 
@@ -311,6 +372,22 @@ export function ActivityLogsPage() {
                 {ACTION_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
               </select>
             </>
+          )}
+          {sourceTab === 'errors' && (
+            <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+              {ERROR_VIEWS.map(v => (
+                <button
+                  key={v.key}
+                  type="button"
+                  onClick={() => setErrorView(v.key)}
+                  className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${
+                    errorView === v.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {v.label}
+                </button>
+              ))}
+            </div>
           )}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -414,6 +491,12 @@ export function ActivityLogsPage() {
                           >
                             {actionLabel(log.action)}
                           </span>
+                          {log.resolved_at && (
+                            <span className="ml-1.5 inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 align-middle">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Resolved
+                            </span>
+                          )}
                         </div>
 
                         {/* Resource */}
@@ -474,6 +557,19 @@ export function ActivityLogsPage() {
                               </div>
                             )}
                           </div>
+                          {log.action === 'CLIENT_ERROR' && (
+                            <ErrorResolutionPanel
+                              log={log}
+                              similarOpenIds={filteredLogs
+                                .filter(l => l.action === 'CLIENT_ERROR' && !l.resolved_at && errorGroupKey(l) === errorGroupKey(log))
+                                .map(l => l.id)}
+                              note={resolveNotes[log.id] || ''}
+                              onNoteChange={v => setResolveNotes(prev => ({ ...prev, [log.id]: v }))}
+                              busy={resolving === log.id}
+                              onResolve={ids => setResolved(log, ids, true)}
+                              onReopen={() => setResolved(log, [log.id], false)}
+                            />
+                          )}
                         </div>
                       )}
                     </div>
@@ -484,6 +580,78 @@ export function ActivityLogsPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ErrorResolutionPanel({
+  log,
+  similarOpenIds,
+  note,
+  onNoteChange,
+  busy,
+  onResolve,
+  onReopen,
+}: {
+  log: ActivityLog;
+  similarOpenIds: string[];
+  note: string;
+  onNoteChange: (v: string) => void;
+  busy: boolean;
+  onResolve: (ids: string[]) => void;
+  onReopen: () => void;
+}) {
+  if (log.resolved_at) {
+    const who = log.resolver?.full_name || log.resolver?.email || 'an admin';
+    return (
+      <div className="mt-4 ml-11 flex flex-wrap items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-emerald-800">Resolved by {who} · {formatTimestamp(log.resolved_at)}</p>
+          {log.resolution_note && <p className="mt-1 text-sm text-emerald-900 whitespace-pre-wrap break-words">{log.resolution_note}</p>}
+        </div>
+        <button
+          type="button"
+          onClick={onReopen}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-emerald-300 bg-white text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+          Reopen
+        </button>
+      </div>
+    );
+  }
+
+  const similarCount = similarOpenIds.length;
+  return (
+    <div className="mt-4 ml-11 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3">
+      <input
+        type="text"
+        value={note}
+        onChange={e => onNoteChange(e.target.value)}
+        placeholder="Resolution note (optional), e.g. fixed in deploy, network blip"
+        maxLength={500}
+        className="flex-1 min-w-[14rem] px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-primary-500"
+      />
+      <button
+        type="button"
+        onClick={() => onResolve([log.id])}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+      >
+        <CheckCircle2 className="w-3.5 h-3.5" />
+        Mark resolved
+      </button>
+      {similarCount > 1 && (
+        <button
+          type="button"
+          onClick={() => onResolve(similarOpenIds)}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-emerald-600 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+        >
+          Resolve all {similarCount} like this
+        </button>
+      )}
     </div>
   );
 }

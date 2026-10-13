@@ -124,6 +124,9 @@ export interface ActivityLogRow {
   source: string;
   created_at: string;
   users: { email: string; full_name: string; role?: string } | null;
+  resolved_at?: string | null;
+  resolution_note?: string | null;
+  resolver?: { email: string; full_name: string } | null;
 }
 
 export const SOURCE_BADGE: Record<string, string> = {
@@ -237,6 +240,8 @@ export async function fetchActivityLogs(params: {
   source?: ActivitySource;
   action?: string;
   limit?: number;
+  /** Errors tab only: true = resolved, false = still open, undefined = both. */
+  resolved?: boolean;
 }): Promise<ActivityLogRow[]> {
   const {
     data: { session },
@@ -249,6 +254,7 @@ export async function fetchActivityLogs(params: {
     // Errors span every source (jlo/storefront/vendor_portal), so filter by
     // action instead of source here.
     qs.set('action', 'CLIENT_ERROR');
+    if (params.resolved !== undefined) qs.set('resolved', String(params.resolved));
   } else {
     if (params.action && params.action !== 'all') qs.set('action', params.action);
     if (params.source && params.source !== 'all') qs.set('source', params.source);
@@ -270,4 +276,34 @@ export async function fetchActivityLogs(params: {
     }
   }
   throw lastError || new Error('Could not load activity logs');
+}
+
+export async function setClientErrorsResolved(
+  ids: string[],
+  resolved: boolean,
+  note?: string,
+): Promise<Pick<ActivityLogRow, 'id' | 'resolved_at' | 'resolution_note'>[]> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  let lastError: Error | null = null;
+  for (const url of apiUrls('/activity-logs')) {
+    try {
+      const res = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token || ''}`,
+        },
+        body: JSON.stringify({ ids, resolved, note }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json?.error || `Request failed (${res.status})`);
+      return json.data || [];
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error('Request failed');
+    }
+  }
+  throw lastError || new Error('Could not update errors');
 }

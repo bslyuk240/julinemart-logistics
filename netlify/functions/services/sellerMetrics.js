@@ -18,7 +18,7 @@ function pct(num, den) {
 export async function computeSellerMetricsForVendor(adminClient, vendorId) {
   const { data: subOrders, error: subErr } = await adminClient
     .from('sub_orders')
-    .select('id, status, delivered_at, created_at')
+    .select('id, main_order_id, status, delivered_at, created_at')
     .eq('vendor_id', vendorId);
 
   if (subErr) throw subErr;
@@ -39,10 +39,18 @@ export async function computeSellerMetricsForVendor(adminClient, vendorId) {
   });
   const on_time_dispatch = pct(onTime.length, delivered.length);
 
-  const { count: returnCount } = await adminClient
-    .from('return_requests')
-    .select('id', { count: 'exact', head: true })
-    .eq('vendor_id', vendorId);
+  // return_requests has no vendor_id; it links to the parent order via
+  // supabase_order_id, so attribute returns through this vendor's sub-orders.
+  const orderIds = [...new Set(rows.map((r) => r.main_order_id).filter(Boolean))];
+  let returnCount = 0;
+  for (let i = 0; i < orderIds.length; i += 200) {
+    const { count, error: returnErr } = await adminClient
+      .from('return_requests')
+      .select('id', { count: 'exact', head: true })
+      .in('supabase_order_id', orderIds.slice(i, i + 200));
+    if (returnErr) throw returnErr;
+    returnCount += count || 0;
+  }
 
   const dispute_rate = pct(returnCount || 0, Math.max(successful_orders, 1));
 

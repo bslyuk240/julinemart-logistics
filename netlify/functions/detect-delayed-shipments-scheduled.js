@@ -13,7 +13,10 @@ const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL ||
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
 const supabase = createClient(supabaseUrl, serviceKey);
 
-const TERMINAL_STATUSES = ['delivered', 'failed', 'cancelled', 'returned'];
+// shipments.status is the delivery_status enum, which has no 'cancelled'
+// (cancellation maps to 'failed'). Listing a non-member makes Postgres reject
+// the whole query, so every run silently found nothing.
+const TERMINAL_STATUSES = ['delivered', 'failed', 'returned'];
 const THRESHOLD_HOURS = Number(process.env.SKOLA_DELAYED_THRESHOLD_HOURS) || 24;
 
 export const handler = async () => {

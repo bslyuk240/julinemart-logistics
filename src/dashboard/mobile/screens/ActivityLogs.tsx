@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Activity,
+  CheckCircle2,
   Filter,
   Globe,
   Loader,
@@ -22,8 +23,23 @@ import {
   actionLabel,
   displayName,
   fetchActivityLogs,
+  setClientErrorsResolved,
   sourceLabel,
 } from '../lib/insightsApi';
+
+type ErrorView = 'open' | 'resolved' | 'all';
+
+const ERROR_VIEWS: { key: ErrorView; label: string }[] = [
+  { key: 'open', label: 'Open' },
+  { key: 'resolved', label: 'Resolved' },
+  { key: 'all', label: 'All' },
+];
+
+// Same area + message is almost always the same underlying problem.
+function errorGroupKey(log: ActivityLogRow) {
+  const d = log.details || {};
+  return `${String(d.area ?? '')}::${String(d.message ?? '')}`;
+}
 
 const SOURCE_TABS: { key: ActivitySource; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -138,17 +154,47 @@ export default function MobileActivityLogs() {
   const [authOnly, setAuthOnly] = useState(false);
   const [selected, setSelected] = useState<ActivityLogRow | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [errorView, setErrorView] = useState<ErrorView>('open');
+  const [resolveNote, setResolveNote] = useState('');
+  const [resolving, setResolving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setLogs(await fetchActivityLogs({ source: sourceTab, action: actionFilter }));
+      setLogs(
+        await fetchActivityLogs({
+          source: sourceTab,
+          action: actionFilter,
+          resolved: errorView === 'all' ? undefined : errorView === 'resolved',
+        }),
+      );
     } catch {
       notification.error('Load failed', 'Unable to fetch activity logs');
     } finally {
       setLoading(false);
     }
-  }, [notification, sourceTab, actionFilter]);
+  }, [notification, sourceTab, actionFilter, errorView]);
+
+  const updateResolved = async (ids: string[], resolved: boolean) => {
+    setResolving(true);
+    try {
+      const updated = await setClientErrorsResolved(ids, resolved, resolved ? resolveNote : undefined);
+      const byId = new Map(updated.map((r) => [r.id, r]));
+      const leavesView = (resolved && errorView === 'open') || (!resolved && errorView === 'resolved');
+      setLogs((prev) =>
+        leavesView
+          ? prev.filter((l) => !byId.has(l.id))
+          : prev.map((l) => (byId.has(l.id) ? { ...l, ...byId.get(l.id), resolver: null } : l)),
+      );
+      notification.success(resolved ? 'Marked resolved' : 'Reopened', `${byId.size} error${byId.size === 1 ? '' : 's'} updated`);
+      setSelected(null);
+      setResolveNote('');
+    } catch (err) {
+      notification.error('Update failed', err instanceof Error ? err.message : 'Could not update error');
+    } finally {
+      setResolving(false);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -241,6 +287,24 @@ export default function MobileActivityLogs() {
                 );
               })}
             </div>
+
+            {sourceTab === 'errors' && (
+              <div className="flex items-center gap-1.5">
+                {ERROR_VIEWS.map((v) => (
+                  <button
+                    key={v.key}
+                    type="button"
+                    onClick={() => setErrorView(v.key)}
+                    aria-pressed={errorView === v.key}
+                    className={`rounded-full border px-3 py-2 text-[11px] font-medium ${
+                      errorView === v.key ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-600'
+                    }`}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {sourceTab !== 'errors' && (
               <div className="flex items-center gap-2">
@@ -342,6 +406,12 @@ export default function MobileActivityLogs() {
                           <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${actionColor(log.action)}`}>
                             {log.action.replace(/_/g, ' ').slice(0, 12)}
                           </span>
+                          {log.resolved_at && (
+                            <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Resolved
+                            </span>
+                          )}
                         </div>
                       </div>
                     </button>
@@ -477,6 +547,38 @@ export default function MobileActivityLogs() {
                 </div>
               </div>
             )}
+
+            {selected.action === 'CLIENT_ERROR' &&
+              (selected.resolved_at ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                  <p className="text-sm font-semibold text-emerald-800">
+                    Resolved{selected.resolver ? ` by ${selected.resolver.full_name || selected.resolver.email}` : ''} ·{' '}
+                    {formatDetailTime(selected.resolved_at)}
+                  </p>
+                  {selected.resolution_note && (
+                    <p className="mt-1 whitespace-pre-wrap break-words text-sm text-emerald-900">{selected.resolution_note}</p>
+                  )}
+                  <button
+                    type="button"
+                    disabled={resolving}
+                    onClick={() => updateResolved([selected.id], false)}
+                    className="mt-3 w-full rounded-xl border border-emerald-300 bg-white py-3 text-sm font-semibold text-emerald-800 disabled:opacity-50"
+                  >
+                    Reopen
+                  </button>
+                </div>
+              ) : (
+                <ResolveControls
+                  selectedId={selected.id}
+                  similarIds={logs
+                    .filter((l) => l.action === 'CLIENT_ERROR' && !l.resolved_at && errorGroupKey(l) === errorGroupKey(selected))
+                    .map((l) => l.id)}
+                  note={resolveNote}
+                  onNoteChange={setResolveNote}
+                  busy={resolving}
+                  onResolve={(ids) => updateResolved(ids, true)}
+                />
+              ))}
           </div>
         )}
       </Sheet>
@@ -489,6 +591,54 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
     <div className="flex items-start justify-between gap-3 px-3 py-2.5">
       <span className="shrink-0 text-xs text-gray-500">{label}</span>
       <div className="min-w-0 text-right text-sm">{children}</div>
+    </div>
+  );
+}
+
+function ResolveControls({
+  selectedId,
+  similarIds,
+  note,
+  onNoteChange,
+  busy,
+  onResolve,
+}: {
+  selectedId: string;
+  similarIds: string[];
+  note: string;
+  onNoteChange: (v: string) => void;
+  busy: boolean;
+  onResolve: (ids: string[]) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <input
+        type="text"
+        value={note}
+        onChange={(e) => onNoteChange(e.target.value)}
+        placeholder="Resolution note (optional)"
+        maxLength={500}
+        className="w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-gray-900 outline-none placeholder:text-gray-400"
+        style={{ fontSize: '16px' }}
+      />
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => onResolve([selectedId])}
+        className="w-full rounded-xl bg-emerald-600 py-3 text-sm font-semibold text-white disabled:opacity-50"
+      >
+        Mark resolved
+      </button>
+      {similarIds.length > 1 && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onResolve(similarIds)}
+          className="w-full rounded-xl border border-emerald-600 py-3 text-sm font-semibold text-emerald-700 disabled:opacity-50"
+        >
+          Resolve all {similarIds.length} like this
+        </button>
+      )}
     </div>
   );
 }

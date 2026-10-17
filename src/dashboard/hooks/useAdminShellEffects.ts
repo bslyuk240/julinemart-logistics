@@ -1,12 +1,4 @@
-import { useEffect, useState } from 'react';
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{
-    outcome: 'accepted' | 'dismissed';
-    platform: string;
-  }>;
-}
+import { useEffect } from 'react';
 
 const ADMIN_MANIFEST_LINK_ID = 'admin-manifest-link';
 const ADMIN_MANIFEST_HREF = '/admin-manifest.webmanifest';
@@ -37,8 +29,9 @@ const removeHeadLink = (id: string) => {
 };
 
 // Shared between the desktop drawer shell (DashboardLayout) and the mobile
-// tab-bar shell (MobileShell) so the PWA install prompt, manifest link and
-// service worker registration can't drift between the two surfaces.
+// tab-bar shell (MobileShell) so the manifest link and service worker
+// registration can't drift between the two surfaces. The install prompt itself
+// lives in lib/installPrompt (captured at app start) + AdminInstallBanner.
 //
 // Open to every role, not just admin — this was previously admin-only; the
 // mobile build confirmed that restriction should lift since agents/managers
@@ -46,41 +39,10 @@ const removeHeadLink = (id: string) => {
 // already gated by ProtectedRoute, so anything mounting this hook has a
 // legitimate staff session.
 export function useAdminShellEffects() {
-  const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
-
   useEffect(() => {
     document.body.classList.add('admin-shell');
     return () => {
       document.body.classList.remove('admin-shell');
-    };
-  }, []);
-
-  useEffect(() => {
-    const checkInstalled = () => {
-      const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
-      const isIosStandalone = (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
-      setIsInstalled(isStandalone || isIosStandalone);
-    };
-
-    const handleBeforeInstallPrompt = (event: Event) => {
-      event.preventDefault();
-      setInstallPromptEvent(event as BeforeInstallPromptEvent);
-    };
-
-    const handleAppInstalled = () => {
-      setIsInstalled(true);
-      setInstallPromptEvent(null);
-    };
-
-    checkInstalled();
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('appinstalled', handleAppInstalled);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
     };
   }, []);
 
@@ -107,17 +69,4 @@ export function useAdminShellEffects() {
       removeHeadLink(ADMIN_APPLE_TOUCH_ICON_LINK_ID);
     };
   }, []);
-
-  const canInstallApp = !isInstalled;
-  const hasInstallPrompt = installPromptEvent !== null;
-
-  const handleInstallApp = async () => {
-    if (!installPromptEvent) return;
-
-    await installPromptEvent.prompt();
-    await installPromptEvent.userChoice;
-    setInstallPromptEvent(null);
-  };
-
-  return { canInstallApp, handleInstallApp, hasInstallPrompt, isInstalled };
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Download, Share, Smartphone, X } from 'lucide-react';
-import { useAdminShellEffects } from '../hooks/useAdminShellEffects';
+import { Download, MoreVertical, Share, Smartphone, X } from 'lucide-react';
+import { useInstallPrompt } from '../lib/installPrompt';
 
 function isLocalAdminDev(): boolean {
   return (
@@ -9,45 +9,23 @@ function isLocalAdminDev(): boolean {
   );
 }
 
-function detectIos(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  const ua = navigator.userAgent.toLowerCase();
-  return (
-    /iphone|ipad|ipod/.test(ua) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-  );
-}
-
-function detectAndroid(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  return /android/.test(navigator.userAgent.toLowerCase());
-}
-
+// Rendered by both shells: MobileShell (<768px) and DashboardLayout (tablets
+// and desktop). Tablets get the desktop layout, so before this was added there
+// they never saw an install banner at all.
 export function AdminInstallBanner() {
-  const { canInstallApp, handleInstallApp, hasInstallPrompt, isInstalled } = useAdminShellEffects();
-  // In-memory only — banner returns on every fresh page load until the PWA is installed.
-  const [dismissed, setDismissed] = useState(false);
+  // repromptDays 0: dismiss is in-memory only — the banner returns on every
+  // fresh page load until the PWA is installed.
+  const { mode, install, dismiss } = useInstallPrompt('jlo_admin', 0);
   const [installing, setInstalling] = useState(false);
 
-  const isIos = detectIos();
-  const isAndroid = detectAndroid();
-
-  if (isLocalAdminDev() || isInstalled || dismissed || !canInstallApp) {
+  if (isLocalAdminDev() || !mode) {
     return null;
   }
-
-  // Only surface on mobile browsers where home-screen install is relevant.
-  if (!isIos && !isAndroid && !hasInstallPrompt) {
-    return null;
-  }
-
-  const dismiss = () => setDismissed(true);
 
   const onInstallClick = async () => {
-    if (!hasInstallPrompt) return;
     setInstalling(true);
     try {
-      await handleInstallApp();
+      await install();
     } finally {
       setInstalling(false);
     }
@@ -66,7 +44,7 @@ export function AdminInstallBanner() {
             Add the admin dashboard to your home screen for quick access.
           </p>
 
-          {isAndroid && hasInstallPrompt && (
+          {mode === 'prompt' && (
             <button
               type="button"
               onClick={onInstallClick}
@@ -78,15 +56,16 @@ export function AdminInstallBanner() {
             </button>
           )}
 
-          {isAndroid && !hasInstallPrompt && (
+          {mode === 'manual' && (
             <p className="mt-2 text-xs leading-relaxed text-primary-900/90 dark:text-primary-100/90">
-              Tap <span className="font-semibold">⋮</span> in Chrome, then choose{' '}
-              <span className="font-semibold">Install app</span> or{' '}
-              <span className="font-semibold">Add to Home screen</span>.
+              Tap <MoreVertical className="mx-0.5 inline h-3.5 w-3.5 align-text-bottom" /> in Chrome, then{' '}
+              <span className="font-semibold">Install app</span>. If you only see{' '}
+              <span className="font-semibold">Add to Home screen</span>, tap it and choose{' '}
+              <span className="font-semibold">Install</span>, not “Create shortcut”.
             </p>
           )}
 
-          {isIos && (
+          {mode === 'ios' && (
             <ol className="mt-2.5 space-y-1.5 text-xs leading-relaxed text-primary-900/90 dark:text-primary-100/90">
               <li className="flex gap-2">
                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary-600 text-[10px] font-bold text-white">
@@ -94,7 +73,7 @@ export function AdminInstallBanner() {
                 </span>
                 <span className="pt-0.5">
                   Tap <Share className="mx-0.5 inline h-3.5 w-3.5 align-text-bottom" />{' '}
-                  <span className="font-semibold">Share</span> at the bottom of Safari.
+                  <span className="font-semibold">Share</span> in Safari (top-right on iPad).
                 </span>
               </li>
               <li className="flex gap-2">

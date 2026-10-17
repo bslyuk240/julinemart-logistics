@@ -6,6 +6,7 @@ import { NotificationsPanel } from '../components/NotificationsPanel';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
+import { useAdminShellEffects } from '../hooks/useAdminShellEffects';
 import { AdminInstallBanner } from './AdminInstallBanner';
 import { TabBar } from './TabBar';
 import { DeskOnlyNotice } from './DeskOnlyNotice';
@@ -102,6 +103,7 @@ export function MobileShell({ children }: MobileShellProps) {
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const isDeskOnly = !isMobileNativeRoute(location.pathname);
+  useAdminShellEffects();
 
   const handleSignOut = async () => {
     await signOut();

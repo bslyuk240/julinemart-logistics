@@ -2,6 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Receipt, Wallet, User, LogOut, Megaphone } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { JulineMartLogo } from './JulineMartLogo';
+import { InstallBanner } from './InstallBanner';
 
 const nav = [
   { to: '/',            label: 'Dashboard',   icon: LayoutDashboard },
@@ -97,6 +98,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </div>
           <JulineMartLogo className="h-8 w-8 object-contain shrink-0" />
         </header>
+
+        <InstallBanner appKey="jli" appName="JLM Influencers" iconSrc="/admin-icon-192.png" />
 
         <main className="flex-1 p-4 md:p-6 lg:p-8 pb-24 lg:pb-8 w-full">
           {children}

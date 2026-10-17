@@ -1,11 +1,11 @@
-import { Download, Share, SquarePlus, X } from 'lucide-react';
+import { Download, MoreVertical, Share, SquarePlus, X } from 'lucide-react';
 
 export function InstallPrompt({
   platform,
   onInstall,
   onDismiss,
 }: {
-  platform: 'android' | 'ios';
+  platform: 'android' | 'ios' | 'manual';
   onInstall: () => void;
   onDismiss: () => void;
 }) {
@@ -37,6 +37,34 @@ export function InstallPrompt({
             <Download className="w-4 h-4" />
             Install app
           </button>
+        ) : platform === 'manual' ? (
+          <div className="mt-5 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="w-7 h-7 rounded-full bg-primary-50 flex items-center justify-center shrink-0 text-xs font-bold text-primary-600">
+                1
+              </div>
+              <p className="text-sm text-gray-700 pt-0.5">
+                Tap <MoreVertical className="w-3.5 h-3.5 inline -mt-0.5" /> at the top-right of Chrome
+              </p>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-7 h-7 rounded-full bg-primary-50 flex items-center justify-center shrink-0 text-xs font-bold text-primary-600">
+                2
+              </div>
+              <p className="text-sm text-gray-700 pt-0.5">
+                Tap "Install app". If you only see "Add to home screen", tap it and choose "Install" — not "Create
+                shortcut"
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={onDismiss}
+              className="mt-2 w-full rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-600"
+            >
+              Got it
+            </button>
+          </div>
         ) : (
           <div className="mt-5 space-y-3">
             <div className="flex items-start gap-3">
@@ -44,7 +72,7 @@ export function InstallPrompt({
                 1
               </div>
               <p className="text-sm text-gray-700 pt-0.5">
-                Tap the <Share className="w-3.5 h-3.5 inline -mt-0.5" /> Share icon in Safari's toolbar
+                Tap the <Share className="w-3.5 h-3.5 inline -mt-0.5" /> Share icon in Safari (top-right on iPad)
               </p>
             </div>
             <div className="flex items-start gap-3">

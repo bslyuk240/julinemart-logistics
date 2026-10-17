@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { canAccessNavItem, navigationSections } from '../lib/permissions';
 import { useAdminShellEffects } from '../hooks/useAdminShellEffects';
+import { AdminInstallBanner } from '../mobile/AdminInstallBanner';
 
 interface DashboardLayoutProps {
   children: ReactNode;
@@ -224,6 +225,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               </div>
             </div>
           </div>
+
+          <AdminInstallBanner />
 
           {/* Page content */}
           <main className="admin-main-scroll min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 bg-gray-50 dark:bg-gray-950">

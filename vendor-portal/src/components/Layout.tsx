@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { JulineMartLogo } from './JulineMartLogo';
+import { InstallBanner } from './InstallBanner';
 import { ensureSupabaseStoragePublicUrl } from '../lib/supabase';
 
 const nav = [
@@ -141,6 +142,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Page content — safe-bottom adds padding so bottom nav doesn't overlap */}
+        <InstallBanner appKey="jlv" appName="JLM Vendors" iconSrc="/admin-icon-192.png" />
+
         <main className="flex-1 p-4 md:p-6 lg:p-8 pb-24 lg:pb-8 w-full">
           {children}
         </main>

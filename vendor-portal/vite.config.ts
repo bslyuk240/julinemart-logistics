@@ -16,15 +16,20 @@ export default defineConfig({
         theme_color: '#77088a',
         background_color: '#ffffff',
         display: 'standalone',
-        orientation: 'portrait',
+        // No orientation lock — vendors use this on tablets in landscape too.
+        id: '/',
         scope: '/',
         start_url: '/',
         icons: [
-          { src: '/admin-icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-          { src: '/logo.png',           sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+          { src: '/admin-icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/admin-icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
         ],
       },
       workbox: {
+        // Only one service worker can control scope '/'. Push handling lives in
+        // firebase-messaging-sw.js and is pulled into this generated sw.js, so
+        // the install/offline worker and the push worker are the same worker.
+        importScripts: ['/firebase-messaging-sw.js'],
         // Cache app shell — exclude the Firebase SW path
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/firebase-messaging-sw\.js/],

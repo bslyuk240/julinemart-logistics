@@ -1,0 +1,15 @@
+{
+  "id": "/",
+  "name": "JulineMart Influencer Portal",
+  "short_name": "JLM Influencers",
+  "description": "Track your JulineMart coupon performance and commission.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#77088a",
+  "icons": [
+    { "src": "/admin-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/admin-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

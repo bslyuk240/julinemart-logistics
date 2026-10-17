@@ -15,6 +15,7 @@ export default defineConfig({
         background_color: '#F7F4EE',
         display: 'standalone',
         orientation: 'portrait',
+        id: '/',
         scope: '/',
         start_url: '/',
         icons: [
@@ -25,6 +26,10 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Only one service worker can control scope '/'. Push handling lives in
+        // rider-messaging-sw.js and is pulled into this generated sw.js, so the
+        // install/offline worker and the push worker are the same worker.
+        importScripts: ['/rider-messaging-sw.js'],
         navigateFallback: '/index.html',
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         // Without these, a new deploy's service worker installs but waits

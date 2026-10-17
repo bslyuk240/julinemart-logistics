@@ -44,8 +44,13 @@ export function usePushNotifications(riderId: string | null) {
 async function initPush() {
   if (!('serviceWorker' in navigator)) return;
 
-  const registration = await navigator.serviceWorker.register(SW_PATH, { scope: '/' });
-  await navigator.serviceWorker.ready;
+  // In production the Workbox sw.js (registered by
+  // vite-plugin-pwa) already importScripts the push handlers, so reuse it —
+  // registering SW_PATH at scope '/' would replace it and break install +
+  // offline. Dev has no Workbox worker, so register the push SW directly.
+  const registration = import.meta.env.DEV
+    ? await navigator.serviceWorker.register(SW_PATH, { scope: '/' })
+    : await navigator.serviceWorker.ready;
 
   const res = await fetch(CONFIG_URL);
   const { config, vapidKey } = await res.json();

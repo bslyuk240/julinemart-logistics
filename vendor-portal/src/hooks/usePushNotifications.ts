@@ -24,9 +24,13 @@ async function initPush() {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') return;
 
-  // 2. Register service worker
-  const registration = await navigator.serviceWorker.register(SW_PATH, { scope: '/' });
-  await navigator.serviceWorker.ready;
+  // 2. Service worker. In production the Workbox sw.js (registered by
+  // vite-plugin-pwa) already importScripts the push handlers, so reuse it —
+  // registering SW_PATH at scope '/' would replace it and break install +
+  // offline. Dev has no Workbox worker, so register the push SW directly.
+  const registration = import.meta.env.DEV
+    ? await navigator.serviceWorker.register(SW_PATH, { scope: '/' })
+    : await navigator.serviceWorker.ready;
 
   // 3. Fetch Firebase config + VAPID key
   const res = await fetch(CONFIG_URL);

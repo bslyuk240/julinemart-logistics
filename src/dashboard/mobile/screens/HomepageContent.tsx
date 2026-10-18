@@ -61,7 +61,7 @@ export default function MobileHomepageContent() {
   const [tab, setTab] = useState<Tab>('slider');
   const [loading, setLoading] = useState(true);
   const [slides, setSlides] = useState<HeroSlide[]>([]);
-  const [banner, setBanner] = useState<BannerContent>({ enabled: true, text: '', bg_color: '#1d4ed8' });
+  const [banner, setBanner] = useState<BannerContent>({ enabled: true, text: '', bg_color: '#77088a' });
   const [sections, setSections] = useState<HomepageRow[]>([]);
   const [saving, setSaving] = useState<string | null>(null);
   const [editSlideIdx, setEditSlideIdx] = useState<number | null>(null);
@@ -84,7 +84,7 @@ export default function MobileHomepageContent() {
       setBanner({
         enabled: Boolean(bc.enabled ?? true),
         text: String(bc.text ?? ''),
-        bg_color: bc.bg_color ? String(bc.bg_color) : '#1d4ed8',
+        bg_color: bc.bg_color ? String(bc.bg_color) : '#77088a',
         link: bc.link ? String(bc.link) : '',
       });
       setSections(rows.filter((r) => r.type === 'section'));
@@ -305,7 +305,7 @@ export default function MobileHomepageContent() {
                 type="text"
                 value={banner.bg_color || ''}
                 onChange={(e) => setBanner((b) => ({ ...b, bg_color: e.target.value }))}
-                placeholder="#1d4ed8"
+                placeholder="#77088a"
                 className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm"
                 style={{ fontSize: '16px' }}
               />
@@ -318,7 +318,7 @@ export default function MobileHomepageContent() {
                 style={{ fontSize: '16px' }}
               />
               {banner.enabled && banner.text && (
-                <div className="rounded-lg px-3 py-2 text-center text-sm font-medium text-white" style={{ backgroundColor: banner.bg_color || '#1d4ed8' }}>
+                <div className="rounded-lg px-3 py-2 text-center text-sm font-medium text-white" style={{ backgroundColor: banner.bg_color || '#77088a' }}>
                   {banner.text}
                 </div>
               )}

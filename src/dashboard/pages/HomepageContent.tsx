@@ -565,12 +565,12 @@ export default function HomepageContent() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <input
               type="color"
-              value={banner.bg_color || '#1d4ed8'}
+              value={banner.bg_color || '#77088a'}
               onChange={(e) => setBanner((b) => ({ ...b, bg_color: e.target.value }))}
               style={{ width: 40, height: 32, border: 'none', padding: 0, cursor: 'pointer' }}
             />
             <input
-              value={banner.bg_color || '#1d4ed8'}
+              value={banner.bg_color || '#77088a'}
               onChange={(e) => setBanner((b) => ({ ...b, bg_color: e.target.value }))}
               style={{ ...styles.input, width: 100 }}
             />
@@ -586,7 +586,7 @@ export default function HomepageContent() {
         </div>
 
         {banner.enabled && banner.text && (
-          <div style={{ ...styles.bannerPreview, backgroundColor: banner.bg_color || '#1d4ed8' }}>
+          <div style={{ ...styles.bannerPreview, backgroundColor: banner.bg_color || '#77088a' }}>
             {banner.text}
           </div>
         )}

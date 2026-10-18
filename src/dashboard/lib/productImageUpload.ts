@@ -33,7 +33,7 @@ function isTransientError(message: string) {
 export async function uploadImageToProductBucket(
   supabase: SupabaseClient,
   file: File,
-  folder: 'products' | 'gifts',
+  folder: 'products' | 'gifts' | 'homepage',
   area: string,
 ): Promise<{ url: string | null; error: string | null }> {
   const fileContext = { area, fileName: file.name, fileSize: file.size, fileType: file.type };

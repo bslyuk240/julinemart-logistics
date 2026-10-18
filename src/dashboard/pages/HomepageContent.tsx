@@ -8,6 +8,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '../contexts/AuthContext';
+import HomepageImageUploadButton from '../components/HomepageImageUploadButton';
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -156,12 +157,20 @@ function SlideCard({
         </select>
 
         <label style={styles.label}>Media URL</label>
-        <input
-          value={slide.media_url}
-          onChange={(e) => onChange(index, { media_url: e.target.value })}
-          placeholder="https://res.cloudinary.com/..."
-          style={styles.input}
-        />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <input
+            value={slide.media_url}
+            onChange={(e) => onChange(index, { media_url: e.target.value })}
+            placeholder={slide.type === 'image' ? 'Upload below or paste an image URL' : 'https://res.cloudinary.com/...'}
+            style={styles.input}
+          />
+          {slide.type === 'image' && (
+            <HomepageImageUploadButton
+              hasImage={Boolean(slide.media_url)}
+              onUploaded={(url) => onChange(index, { media_url: url })}
+            />
+          )}
+        </div>
 
         <label style={styles.label}>Banner Link</label>
         <input
@@ -399,7 +408,12 @@ export default function HomepageContent() {
       {/* ── Hero Slider ─────────────────────────────────────────────────── */}
       <section style={styles.section}>
         <div style={styles.sectionHead}>
-          <h2 style={styles.sectionTitle}>Hero Slider</h2>
+          <div>
+            <h2 style={styles.sectionTitle}>Hero Slider</h2>
+            <p style={{ ...styles.muted, marginTop: 2 }}>
+              Design at <strong>1920 × 1080px</strong> (16:9). Keep text large: on phones the slide is shown full width.
+            </p>
+          </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={addSlide} style={styles.secondaryBtn}>+ Add Slide</button>
             <button onClick={saveSlider} disabled={saving.hero_slider} style={styles.primaryBtn}>
@@ -433,7 +447,7 @@ export default function HomepageContent() {
           <div>
             <h2 style={styles.sectionTitle}>Hero Ad Banners</h2>
             <p style={{ ...styles.muted, marginTop: 2 }}>
-              Left &amp; right static ads beside the main slider (desktop only). Design at <strong>220 × 371px</strong> or any proportional size.
+              Left &amp; right static ads beside the main slider (desktop only). Design at <strong>440 × 742px</strong> (2× of 220 × 371) or any proportional size.
             </p>
           </div>
           <button onClick={saveHeroAds} disabled={saving.hero_ads} style={styles.primaryBtn}>
@@ -477,12 +491,18 @@ export default function HomepageContent() {
                   {ad.type === 'image' ? (
                     <>
                       <label style={styles.label}>Image URL</label>
-                      <input
-                        value={ad.image_url}
-                        onChange={(e) => update({ image_url: e.target.value })}
-                        placeholder="https://res.cloudinary.com/..."
-                        style={styles.input}
-                      />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <input
+                          value={ad.image_url}
+                          onChange={(e) => update({ image_url: e.target.value })}
+                          placeholder="Upload below or paste an image URL"
+                          style={styles.input}
+                        />
+                        <HomepageImageUploadButton
+                          hasImage={Boolean(ad.image_url)}
+                          onUploaded={(url) => update({ image_url: url })}
+                        />
+                      </div>
                     </>
                   ) : (
                     <>
@@ -494,12 +514,18 @@ export default function HomepageContent() {
                         style={styles.input}
                       />
                       <label style={styles.label}>Poster Image</label>
-                      <input
-                        value={ad.image_url}
-                        onChange={(e) => update({ image_url: e.target.value })}
-                        placeholder="Thumbnail shown before video plays"
-                        style={styles.input}
-                      />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <input
+                          value={ad.image_url}
+                          onChange={(e) => update({ image_url: e.target.value })}
+                          placeholder="Thumbnail shown before video plays"
+                          style={styles.input}
+                        />
+                        <HomepageImageUploadButton
+                          hasImage={Boolean(ad.image_url)}
+                          onUploaded={(url) => update({ image_url: url })}
+                        />
+                      </div>
                     </>
                   )}
                   <label style={styles.label}>Link</label>

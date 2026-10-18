@@ -5,6 +5,7 @@ import { PullToRefresh } from '../PullToRefresh';
 import { Sheet } from '../Sheet';
 import { TABBAR_SPACE } from '../lib/functionsAuth';
 import { catalogFetch, catalogJson } from '../lib/catalogApi';
+import HomepageImageUploadButton from '../../components/HomepageImageUploadButton';
 
 type Tab = 'slider' | 'banner' | 'sections';
 
@@ -397,6 +398,14 @@ export default function MobileHomepageContent() {
                 style={{ fontSize: '16px' }}
               />
             ))}
+            {slides[editSlideIdx].type === 'image' && (
+              <HomepageImageUploadButton
+                hasImage={Boolean(slides[editSlideIdx].media_url)}
+                onUploaded={(url) =>
+                  setSlides((prev) => prev.map((s, i) => (i === editSlideIdx ? { ...s, media_url: url } : s)))
+                }
+              />
+            )}
           </div>
           <button
             type="button"

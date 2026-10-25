@@ -34,11 +34,16 @@ interface HeroAd {
   image_url: string;
   video_url: string;
   link: string;
+  /** Short description for screen readers. */
+  alt?: string;
 }
 
+/** An ad being edited. `_key` keeps React state with the right card when ads are reordered; never saved. */
+type HeroAdDraft = HeroAd & { _key: string };
+
 interface HeroAds {
-  left: HeroAd;
-  right: HeroAd;
+  left: HeroAdDraft[];
+  right: HeroAdDraft[];
 }
 
 interface SectionContent {
@@ -106,7 +111,188 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return res.json();
 }
 
+// ─── hero ads helpers ─────────────────────────────────────────────────────────
+
+let adKeySeq = 0;
+const newAdKey = () => `ad-${++adKeySeq}`;
+
+const blankAd = (): HeroAdDraft => ({
+  _key: newAdKey(),
+  type: 'image',
+  image_url: '',
+  video_url: '',
+  link: '',
+  alt: '',
+});
+
+/**
+ * A side is stored either as one ad object (old rows) or an array of ads.
+ * An old row whose single ad has no media is the empty default, so it loads as no ads.
+ */
+function normalizeAdSide(raw: unknown): HeroAdDraft[] {
+  const legacy = !Array.isArray(raw);
+  const list: any[] = Array.isArray(raw) ? raw : raw && typeof raw === 'object' ? [raw] : [];
+  return list
+    .filter((a) => a && typeof a === 'object')
+    .map((a) => ({
+      _key: newAdKey(),
+      type: a.type === 'video' ? ('video' as const) : ('image' as const),
+      image_url: String(a.image_url ?? ''),
+      video_url: String(a.video_url ?? ''),
+      link: String(a.link ?? ''),
+      alt: String(a.alt ?? ''),
+    }))
+    .filter((a) => !legacy || a.image_url.trim() || a.video_url.trim());
+}
+
+/** An image ad needs its image; a video ad needs its video (the image is then only the poster). */
+function adProblem(ad: HeroAd): string | null {
+  if (ad.type === 'video') {
+    return ad.video_url.trim() ? null : 'Video ads need a video URL (the image is only the poster).';
+  }
+  return ad.image_url.trim() ? null : 'Image ads need an image.';
+}
+
+function adForSave({ _key, ...ad }: HeroAdDraft): HeroAd {
+  const alt = (ad.alt ?? '').trim();
+  return {
+    type: ad.type,
+    image_url: ad.image_url.trim(),
+    video_url: ad.video_url.trim(),
+    link: ad.link.trim(),
+    ...(alt ? { alt } : {}),
+  };
+}
+
 // ─── sub-components ───────────────────────────────────────────────────────────
+
+function HeroAdCard({
+  ad,
+  label,
+  index,
+  total,
+  problem,
+  onChange,
+  onDelete,
+  onMove,
+}: {
+  ad: HeroAdDraft;
+  label: string;
+  index: number;
+  total: number;
+  problem: string | null;
+  onChange: (i: number, patch: Partial<HeroAd>) => void;
+  onDelete: (i: number) => void;
+  onMove: (i: number, dir: -1 | 1) => void;
+}) {
+  return (
+    <div style={{ ...styles.slideCard, ...(problem ? { border: '1px solid #fca5a5' } : {}) }}>
+      <div style={styles.slideHeader}>
+        <span style={styles.slideNum}>{label} · Ad {index + 1}</span>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button disabled={index === 0} onClick={() => onMove(index, -1)} style={styles.iconBtn} title="Move up">▲</button>
+          <button disabled={index === total - 1} onClick={() => onMove(index, 1)} style={styles.iconBtn} title="Move down">▼</button>
+          <button onClick={() => onDelete(index)} style={{ ...styles.iconBtn, color: '#ef4444' }} title="Remove ad">✕</button>
+        </div>
+      </div>
+
+      {/* Type toggle */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {(['image', 'video'] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => onChange(index, { type: t })}
+            style={{
+              padding: '5px 14px',
+              borderRadius: 6,
+              border: '1px solid',
+              fontSize: 13,
+              cursor: 'pointer',
+              background: ad.type === t ? '#2563eb' : '#f3f4f6',
+              color: ad.type === t ? '#fff' : '#374151',
+              borderColor: ad.type === t ? '#2563eb' : '#d1d5db',
+              fontWeight: 500,
+            }}
+          >
+            {t === 'image' ? '🖼 Image' : '🎬 Video'}
+          </button>
+        ))}
+      </div>
+
+      <div style={styles.fieldGrid}>
+        {ad.type === 'image' ? (
+          <>
+            <label style={styles.label}>Image URL</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <input
+                value={ad.image_url}
+                onChange={(e) => onChange(index, { image_url: e.target.value })}
+                placeholder="Upload below or paste an image URL"
+                style={styles.input}
+              />
+              <HomepageImageUploadButton
+                hasImage={Boolean(ad.image_url)}
+                onUploaded={(url) => onChange(index, { image_url: url })}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <label style={styles.label}>Video URL</label>
+            <input
+              value={ad.video_url}
+              onChange={(e) => onChange(index, { video_url: e.target.value })}
+              placeholder="https://res.cloudinary.com/...mp4"
+              style={styles.input}
+            />
+            <label style={styles.label}>Poster Image</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <input
+                value={ad.image_url}
+                onChange={(e) => onChange(index, { image_url: e.target.value })}
+                placeholder="Thumbnail shown before video plays"
+                style={styles.input}
+              />
+              <HomepageImageUploadButton
+                hasImage={Boolean(ad.image_url)}
+                onUploaded={(url) => onChange(index, { image_url: url })}
+              />
+            </div>
+          </>
+        )}
+        <label style={styles.label}>Link</label>
+        <input
+          value={ad.link}
+          onChange={(e) => onChange(index, { link: e.target.value })}
+          placeholder="/category/electronics"
+          style={styles.input}
+        />
+        <label style={styles.label}>Alt text</label>
+        <input
+          value={ad.alt ?? ''}
+          onChange={(e) => onChange(index, { alt: e.target.value })}
+          placeholder="Sell on JulineMart: open your store"
+          style={styles.input}
+        />
+      </div>
+
+      {problem && <p style={styles.adProblem}>{problem}</p>}
+
+      {/* Preview, same tall shape as the live ad */}
+      {ad.type === 'video' && ad.video_url ? (
+        <video
+          src={ad.video_url}
+          poster={ad.image_url || undefined}
+          controls
+          muted
+          style={styles.adPreview}
+        />
+      ) : ad.type === 'image' && ad.image_url ? (
+        <img src={ad.image_url} alt={ad.alt || `${label} ad ${index + 1} preview`} style={styles.adPreview} />
+      ) : null}
+    </div>
+  );
+}
 
 function SlideCard({
   slide,
@@ -234,10 +420,9 @@ export default function HomepageContent() {
   // Local editable state
   const [slides, setSlides] = useState<HeroSlide[]>([]);
   const [banner, setBanner] = useState<BannerContent>({ enabled: true, text: '' });
-  const [heroAds, setHeroAds] = useState<HeroAds>({
-    left:  { type: 'image', image_url: '', video_url: '', link: '' },
-    right: { type: 'image', image_url: '', video_url: '', link: '' },
-  });
+  const [heroAds, setHeroAds] = useState<HeroAds>({ left: [], right: [] });
+  // Problems are only shown once the admin has tried to save
+  const [adsSaveTried, setAdsSaveTried] = useState(false);
   const [sections, setSections] = useState<HomepageRow[]>([]);
 
   const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -267,8 +452,8 @@ export default function HomepageContent() {
       setBanner({ enabled: Boolean(bc.enabled ?? true), text: bc.text ?? '', bg_color: bc.bg_color, link: bc.link });
       if (heroAdsRow?.content) {
         setHeroAds({
-          left:  { type: 'image', image_url: '', video_url: '', link: '', ...heroAdsRow.content.left },
-          right: { type: 'image', image_url: '', video_url: '', link: '', ...heroAdsRow.content.right },
+          left: normalizeAdSide(heroAdsRow.content.left),
+          right: normalizeAdSide(heroAdsRow.content.right),
         });
       }
       setSections(sectionRows);
@@ -336,10 +521,35 @@ export default function HomepageContent() {
 
   // ── Hero Ads actions ───────────────────────────────────────────────────────
 
+  const updateAd = (side: 'left' | 'right', i: number, patch: Partial<HeroAd>) =>
+    setHeroAds((a) => ({ ...a, [side]: a[side].map((ad, idx) => (idx === i ? { ...ad, ...patch } : ad)) }));
+
+  const addAd = (side: 'left' | 'right') =>
+    setHeroAds((a) => ({ ...a, [side]: [...a[side], blankAd()] }));
+
+  const removeAd = (side: 'left' | 'right', i: number) =>
+    setHeroAds((a) => ({ ...a, [side]: a[side].filter((_, idx) => idx !== i) }));
+
+  const moveAd = (side: 'left' | 'right', i: number, dir: -1 | 1) =>
+    setHeroAds((a) => {
+      const arr = [...a[side]];
+      const j = i + dir;
+      if (j < 0 || j >= arr.length) return a;
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+      return { ...a, [side]: arr };
+    });
+
   const saveHeroAds = async () => {
+    setAdsSaveTried(true);
+    if ([...heroAds.left, ...heroAds.right].some((ad) => adProblem(ad))) {
+      setError('Some ads are incomplete. Fix the highlighted ads, or remove them, then save again.');
+      return;
+    }
     setSaving((s) => ({ ...s, hero_ads: true }));
     try {
-      await apiPut('catalog-homepage?key=hero_ads', { content: heroAds });
+      await apiPut('catalog-homepage?key=hero_ads', {
+        content: { left: heroAds.left.map(adForSave), right: heroAds.right.map(adForSave) },
+      });
       showSuccess('Hero ad banners saved');
     } catch (e: any) {
       setError(e.message);
@@ -447,7 +657,13 @@ export default function HomepageContent() {
           <div>
             <h2 style={styles.sectionTitle}>Hero Ad Banners</h2>
             <p style={{ ...styles.muted, marginTop: 2 }}>
-              Left &amp; right static ads beside the main slider (desktop only). Design at <strong>440 × 742px</strong> (2× of 220 × 371) or any proportional size.
+              Ads beside the main slider. On desktop each panel slides through its own ads; on phones every ad from both
+              panels plays in one small carousel further down the homepage. Ads that link to play.google.com are hidden
+              inside the Android app.
+            </p>
+            <p style={{ ...styles.muted, marginTop: 4 }}>
+              Phone ads keep the same tall shape as desktop, just smaller: design every ad at about{' '}
+              <strong>880 × 1484px</strong> (any proportional size works).
             </p>
           </div>
           <button onClick={saveHeroAds} disabled={saving.hero_ads} style={styles.primaryBtn}>
@@ -455,104 +671,33 @@ export default function HomepageContent() {
           </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16, alignItems: 'start' }}>
           {(['left', 'right'] as const).map((side) => {
-            const ad = heroAds[side];
-            const update = (patch: Partial<HeroAd>) =>
-              setHeroAds((a) => ({ ...a, [side]: { ...a[side], ...patch } }));
+            const ads = heroAds[side];
+            const label = side === 'left' ? '◀ Left panel' : 'Right panel ▶';
             return (
-              <div key={side} style={styles.slideCard}>
-                <p style={{ ...styles.slideNum, marginBottom: 12 }}>{side === 'left' ? '◀ Left Ad' : 'Right Ad ▶'}</p>
-
-                {/* Type toggle */}
-                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-                  {(['image', 'video'] as const).map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => update({ type: t })}
-                      style={{
-                        padding: '5px 14px',
-                        borderRadius: 6,
-                        border: '1px solid',
-                        fontSize: 13,
-                        cursor: 'pointer',
-                        background: ad.type === t ? '#2563eb' : '#f3f4f6',
-                        color: ad.type === t ? '#fff' : '#374151',
-                        borderColor: ad.type === t ? '#2563eb' : '#d1d5db',
-                        fontWeight: 500,
-                      }}
-                    >
-                      {t === 'image' ? '🖼 Image' : '🎬 Video'}
-                    </button>
-                  ))}
+              <div key={side}>
+                <div style={{ ...styles.slideHeader, marginBottom: 10 }}>
+                  <span style={styles.slideNum}>{label} ({ads.length} {ads.length === 1 ? 'ad' : 'ads'})</span>
+                  <button onClick={() => addAd(side)} style={styles.secondaryBtn}>+ Add Ad</button>
                 </div>
-
-                <div style={styles.fieldGrid}>
-                  {ad.type === 'image' ? (
-                    <>
-                      <label style={styles.label}>Image URL</label>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <input
-                          value={ad.image_url}
-                          onChange={(e) => update({ image_url: e.target.value })}
-                          placeholder="Upload below or paste an image URL"
-                          style={styles.input}
-                        />
-                        <HomepageImageUploadButton
-                          hasImage={Boolean(ad.image_url)}
-                          onUploaded={(url) => update({ image_url: url })}
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <label style={styles.label}>Video URL</label>
-                      <input
-                        value={ad.video_url}
-                        onChange={(e) => update({ video_url: e.target.value })}
-                        placeholder="https://res.cloudinary.com/...mp4"
-                        style={styles.input}
-                      />
-                      <label style={styles.label}>Poster Image</label>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <input
-                          value={ad.image_url}
-                          onChange={(e) => update({ image_url: e.target.value })}
-                          placeholder="Thumbnail shown before video plays"
-                          style={styles.input}
-                        />
-                        <HomepageImageUploadButton
-                          hasImage={Boolean(ad.image_url)}
-                          onUploaded={(url) => update({ image_url: url })}
-                        />
-                      </div>
-                    </>
-                  )}
-                  <label style={styles.label}>Link</label>
-                  <input
-                    value={ad.link}
-                    onChange={(e) => update({ link: e.target.value })}
-                    placeholder="/category/electronics"
-                    style={styles.input}
-                  />
-                </div>
-
-                {/* Preview */}
-                {ad.type === 'video' && ad.video_url ? (
-                  <video
-                    src={ad.video_url}
-                    poster={ad.image_url || undefined}
-                    controls
-                    muted
-                    style={{ marginTop: 12, width: '100%', maxHeight: 160, borderRadius: 6, objectFit: 'cover' }}
-                  />
-                ) : ad.type === 'image' && ad.image_url ? (
-                  <img
-                    src={ad.image_url}
-                    alt={`${side} ad preview`}
-                    style={{ marginTop: 12, width: '100%', maxHeight: 140, objectFit: 'cover', borderRadius: 6 }}
-                  />
-                ) : null}
+                {ads.length === 0 ? (
+                  <p style={styles.muted}>No ads in this panel. Click "+ Add Ad" to create one.</p>
+                ) : (
+                  ads.map((ad, i) => (
+                    <HeroAdCard
+                      key={ad._key}
+                      ad={ad}
+                      label={side === 'left' ? 'Left' : 'Right'}
+                      index={i}
+                      total={ads.length}
+                      problem={adsSaveTried ? adProblem(ad) : null}
+                      onChange={(idx, patch) => updateAd(side, idx, patch)}
+                      onDelete={(idx) => removeAd(side, idx)}
+                      onMove={(idx, dir) => moveAd(side, idx, dir)}
+                    />
+                  ))
+                )}
               </div>
             );
           })}
@@ -777,6 +922,16 @@ const styles: Record<string, React.CSSProperties> = {
   },
   slideHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   slideNum: { fontWeight: 600, fontSize: 14, color: '#374151' },
+  adProblem: { color: '#b91c1c', fontSize: 13, margin: '10px 0 0' },
+  adPreview: {
+    display: 'block',
+    marginTop: 12,
+    width: 140,
+    aspectRatio: '880 / 1484',
+    objectFit: 'cover',
+    borderRadius: 6,
+    background: '#000',
+  },
 
   sectionCard: {
     border: '1px solid #e5e7eb',

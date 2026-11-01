@@ -57,7 +57,7 @@
     "react-query": "^3.39.3",
     "react-router-dom": "^7.18.2",
     "recharts": "^3.3.0",
-    "zod": "^3.25.76"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.17",

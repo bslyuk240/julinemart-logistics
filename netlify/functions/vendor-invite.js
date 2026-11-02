@@ -76,19 +76,58 @@ export const handler = async (event) => {
   const vendorPortalUrl = (process.env.VENDOR_PORTAL_URL || 'https://vendors.julinemart.com').replace(/\/+$/, '');
   const redirectTo = `${vendorPortalUrl}/set-password`;
 
-  // If already linked, send a password-reset email so they can set/change their password.
-  // NOTE: generateLink() only creates a URL — it does NOT send an email.
-  // resetPasswordForEmail() actually sends the email AND honours the custom redirectTo.
+  // If already linked, re-send access. First make sure the auth account's email matches the
+  // vendor record: when an admin changes the vendor's email, only vendors.email is updated, and
+  // resetPasswordForEmail() to an address with no auth account "succeeds" without sending anything.
   if (vendor.user_id) {
-    const { error: resetErr } = await adminClient.auth.resetPasswordForEmail(vendor.email, { redirectTo });
-    if (resetErr) {
-      return { statusCode: 500, headers: cors, body: JSON.stringify({ error: resetErr.message }) };
+    const { data: existing } = await adminClient.auth.admin.getUserById(vendor.user_id);
+    const authUser = existing?.user || null;
+
+    // Linked auth user no longer exists — fall through and create a fresh invite below.
+    if (authUser) {
+      if ((authUser.email || '').toLowerCase() !== vendor.email.toLowerCase()) {
+        const { error: emailErr } = await adminClient.auth.admin.updateUserById(authUser.id, {
+          email: vendor.email,
+          email_confirm: !!authUser.email_confirmed_at,
+        });
+        if (emailErr) {
+          return {
+            statusCode: 409,
+            headers: cors,
+            body: JSON.stringify({ error: `Could not change the login email to ${vendor.email}: ${emailErr.message}` }),
+          };
+        }
+      }
+
+      // Never confirmed (invite not accepted yet): re-send the invite itself.
+      if (!authUser.email_confirmed_at) {
+        const { error: reInvErr } = await adminClient.auth.admin.inviteUserByEmail(vendor.email, {
+          redirectTo,
+          data: { vendor_id: vendor.id, store_name: vendor.store_name },
+        });
+        if (reInvErr) {
+          return { statusCode: 500, headers: cors, body: JSON.stringify({ error: reInvErr.message }) };
+        }
+        return {
+          statusCode: 200,
+          headers: { ...cors, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ success: true, message: `Invite re-sent to ${vendor.email}` }),
+        };
+      }
+
+      // Confirmed account: send a password-reset email so they can set/change their password.
+      // NOTE: generateLink() only creates a URL — it does NOT send an email.
+      // resetPasswordForEmail() actually sends the email AND honours the custom redirectTo.
+      const { error: resetErr } = await adminClient.auth.resetPasswordForEmail(vendor.email, { redirectTo });
+      if (resetErr) {
+        return { statusCode: 500, headers: cors, body: JSON.stringify({ error: resetErr.message }) };
+      }
+      return {
+        statusCode: 200,
+        headers: { ...cors, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ success: true, message: 'Password setup email sent to ' + vendor.email }),
+      };
     }
-    return {
-      statusCode: 200,
-      headers: { ...cors, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ success: true, message: 'Password setup email sent to ' + vendor.email }),
-    };
   }
 
   // Create auth user via invite (sends email with password-setup link)

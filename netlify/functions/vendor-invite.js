@@ -98,6 +98,26 @@ export const handler = async (event) => {
   const vendorPortalUrl = (process.env.VENDOR_PORTAL_URL || 'https://vendors.julinemart.com').replace(/\/+$/, '');
   const redirectTo = `${vendorPortalUrl}/set-password`;
 
+  // Auth mail goes out over Supabase's SMTP, so it never reaches email_logs on its own. Record every
+  // attempt here so the Email Logs view shows it. "sent" means Supabase accepted it, not that the
+  // inbox received it; "delayed" means the mail server had not confirmed when we stopped waiting.
+  const logMail = async (kind, status, errorMessage = null) => {
+    try {
+      const { error } = await adminClient.from('email_logs').insert({
+        recipient: vendor.email,
+        subject: `${kind} — ${vendor.store_name}`,
+        status,
+        error_message: errorMessage,
+        source: 'vendor-invite',
+        sent_at: new Date().toISOString(),
+      });
+      if (error) console.warn('[vendor-invite] email_logs insert failed:', error.message);
+    } catch (e) {
+      console.warn('[vendor-invite] email_logs insert failed:', e?.message);
+    }
+  };
+  const SLOW_MAIL = 'Mail server had not confirmed after 11s; Supabase may still be sending.';
+
   // If already linked, re-send access. First make sure the auth account's email matches the
   // vendor record: when an admin changes the vendor's email, only vendors.email is updated, and
   // resetPasswordForEmail() to an address with no auth account "succeeds" without sending anything.
@@ -127,11 +147,16 @@ export const handler = async (event) => {
           redirectTo,
           data: { vendor_id: vendor.id, store_name: vendor.store_name },
         }));
-        if (reInv === TIMED_OUT) return stillSending(vendor.email);
+        if (reInv === TIMED_OUT) {
+          await logMail('Vendor invite', 'delayed', SLOW_MAIL);
+          return stillSending(vendor.email);
+        }
         const reInvErr = reInv.error;
         if (reInvErr) {
+          await logMail('Vendor invite', 'failed', reInvErr.message);
           return { statusCode: 500, headers: cors, body: JSON.stringify({ error: reInvErr.message }) };
         }
+        await logMail('Vendor invite', 'sent');
         return {
           statusCode: 200,
           headers: { ...cors, 'Content-Type': 'application/json' },
@@ -143,11 +168,16 @@ export const handler = async (event) => {
       // NOTE: generateLink() only creates a URL — it does NOT send an email.
       // resetPasswordForEmail() actually sends the email AND honours the custom redirectTo.
       const reset = await waitForMail(adminClient.auth.resetPasswordForEmail(vendor.email, { redirectTo }));
-      if (reset === TIMED_OUT) return stillSending(vendor.email);
+      if (reset === TIMED_OUT) {
+        await logMail('Vendor password reset', 'delayed', SLOW_MAIL);
+        return stillSending(vendor.email);
+      }
       const resetErr = reset.error;
       if (resetErr) {
+        await logMail('Vendor password reset', 'failed', resetErr.message);
         return { statusCode: 500, headers: cors, body: JSON.stringify({ error: resetErr.message }) };
       }
+      await logMail('Vendor password reset', 'sent');
       return {
         statusCode: 200,
         headers: { ...cors, 'Content-Type': 'application/json' },
@@ -163,12 +193,17 @@ export const handler = async (event) => {
   }));
   // On a timeout the auth user is created but we never see its id, so the vendor is not linked yet;
   // the next "Resend invite" finds that unconfirmed account, re-sends and links it.
-  if (inviteResult === TIMED_OUT) return stillSending(vendor.email);
+  if (inviteResult === TIMED_OUT) {
+    await logMail('Vendor invite', 'delayed', SLOW_MAIL);
+    return stillSending(vendor.email);
+  }
   const { data: invited, error: invErr } = inviteResult;
 
   if (invErr) {
+    await logMail('Vendor invite', 'failed', invErr.message);
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: invErr.message }) };
   }
+  await logMail('Vendor invite', 'sent');
 
   // Link user_id on vendor record
   await adminClient

@@ -19,6 +19,7 @@ const cors = {
 // this function's 15s limit (netlify.toml). Stop waiting before Netlify kills us so the admin UI
 // gets a real answer instead of a hung request. Auth keeps sending in the background.
 const MAIL_WAIT_MS = 11000;
+const RESEND_COOLDOWN_MS = 2 * 60 * 1000;
 const TIMED_OUT = Symbol('timed-out');
 
 const waitForMail = (promise) => {
@@ -91,6 +92,30 @@ export const handler = async (event) => {
       body: JSON.stringify({
         error: `Cannot send invite — "${vendor.email}" is a placeholder email. Please update this vendor's real email address first.`,
         placeholder: true,
+      }),
+    };
+  }
+
+  // Every send issues a new one-time link and kills the previous one. With a slow mail server the
+  // earlier email is often still in flight, so a quick second click leaves the vendor holding a dead
+  // link. Refuse to resend inside the cooldown (failed attempts don't count: nothing went out).
+  const { data: recent } = await adminClient
+    .from('email_logs')
+    .select('sent_at')
+    .eq('source', 'vendor-invite')
+    .eq('recipient', vendor.email)
+    .in('status', ['sent', 'delayed'])
+    .gte('sent_at', new Date(Date.now() - RESEND_COOLDOWN_MS).toISOString())
+    .order('sent_at', { ascending: false })
+    .limit(1);
+  if (recent?.length) {
+    const waitSecs = Math.max(1, Math.ceil((RESEND_COOLDOWN_MS - (Date.now() - new Date(recent[0].sent_at).getTime())) / 1000));
+    return {
+      statusCode: 429,
+      headers: { ...cors, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cooldown: true,
+        error: `An invite to ${vendor.email} was sent moments ago and may still be arriving. Resending now would cancel that link. Wait about ${waitSecs}s, then try again if it hasn't come.`,
       }),
     };
   }

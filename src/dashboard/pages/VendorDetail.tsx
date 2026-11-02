@@ -359,11 +359,17 @@ export default function VendorDetail() {
   // ── Send / resend invite ───────────────────────────────────────────────────
   const handleInvite = async () => {
     setInviting(true); setInviteMsg('');
-    const res = await callApi('vendor-invite', { vendor_id: id });
-    setInviteMsg(res.message || res.error || 'Unknown error');
-    setInviteOk(!!res.success);
-    setInviting(false);
-    if (res.success) load();
+    try {
+      const res = await callApi('vendor-invite', { vendor_id: id });
+      setInviteMsg(res.message || res.error || 'Unknown error');
+      setInviteOk(!!res.success);
+      if (res.success) load();
+    } catch {
+      setInviteMsg('No response from the server. The invite may still be sending, so check again in a minute before resending.');
+      setInviteOk(false);
+    } finally {
+      setInviting(false);
+    }
   };
 
   // ── Delete vendor ─────────────────────────────────────────────────────────

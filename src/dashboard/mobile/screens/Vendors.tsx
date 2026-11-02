@@ -129,15 +129,20 @@ export default function MobileVendors() {
 
   const handleInvite = async (vendorId: string) => {
     setInviting(vendorId);
-    const res = await vendorPost<{ success?: boolean; message?: string; error?: string }>('vendor-invite', {
-      vendor_id: vendorId,
-    });
-    setInviting(null);
-    if (res.success) {
-      notification.success('Invite sent', res.message || 'Vendor invite sent');
-      loadVendors();
-    } else {
-      notification.error('Invite failed', res.message || res.error || 'Unable to send invite');
+    try {
+      const res = await vendorPost<{ success?: boolean; pending?: boolean; message?: string; error?: string }>('vendor-invite', {
+        vendor_id: vendorId,
+      });
+      if (res.success) {
+        notification.success(res.pending ? 'Invite sending' : 'Invite sent', res.message || 'Vendor invite sent');
+        loadVendors();
+      } else {
+        notification.error('Invite failed', res.message || res.error || 'Unable to send invite');
+      }
+    } catch {
+      notification.error('No response', 'The invite may still be sending. Check again in a minute before resending.');
+    } finally {
+      setInviting(null);
     }
   };
 

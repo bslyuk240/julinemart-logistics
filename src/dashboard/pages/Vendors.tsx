@@ -129,14 +129,23 @@ export function VendorsPage() {
   async function handleInvite(vendorId: string) {
     setInviting(vendorId);
     setInviteMsg(null);
-    const res = await callApi('vendor-invite', { vendor_id: vendorId });
-    setInviteMsg({
-      id: vendorId,
-      msg: res.message || res.error || 'Unknown error',
-      ok: !!res.success,
-    });
-    setInviting(null);
-    if (res.success) loadVendors();
+    try {
+      const res = await callApi('vendor-invite', { vendor_id: vendorId });
+      setInviteMsg({
+        id: vendorId,
+        msg: res.message || res.error || 'Unknown error',
+        ok: !!res.success,
+      });
+      if (res.success) loadVendors();
+    } catch {
+      setInviteMsg({
+        id: vendorId,
+        msg: 'No response from the server. The invite may still be sending, so check again in a minute before resending.',
+        ok: false,
+      });
+    } finally {
+      setInviting(null);
+    }
   }
 
   function startEditEmail(v: Vendor) {

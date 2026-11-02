@@ -15,6 +15,28 @@ const cors = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+// Supabase Auth sends the email over the project's custom SMTP and can take 10-20s, longer than
+// this function's 15s limit (netlify.toml). Stop waiting before Netlify kills us so the admin UI
+// gets a real answer instead of a hung request. Auth keeps sending in the background.
+const MAIL_WAIT_MS = 11000;
+const TIMED_OUT = Symbol('timed-out');
+
+const waitForMail = (promise) => {
+  let timer;
+  const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(TIMED_OUT), MAIL_WAIT_MS); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+};
+
+const stillSending = (email) => ({
+  statusCode: 202,
+  headers: { ...cors, 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    success: true,
+    pending: true,
+    message: `The mail server is slow, so the invite to ${email} is still being sent. Check again in a minute before resending.`,
+  }),
+});
+
 export const handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: cors, body: '' };
   if (event.httpMethod !== 'POST') return { statusCode: 405, headers: cors, body: 'Method Not Allowed' };
@@ -101,10 +123,12 @@ export const handler = async (event) => {
 
       // Never confirmed (invite not accepted yet): re-send the invite itself.
       if (!authUser.email_confirmed_at) {
-        const { error: reInvErr } = await adminClient.auth.admin.inviteUserByEmail(vendor.email, {
+        const reInv = await waitForMail(adminClient.auth.admin.inviteUserByEmail(vendor.email, {
           redirectTo,
           data: { vendor_id: vendor.id, store_name: vendor.store_name },
-        });
+        }));
+        if (reInv === TIMED_OUT) return stillSending(vendor.email);
+        const reInvErr = reInv.error;
         if (reInvErr) {
           return { statusCode: 500, headers: cors, body: JSON.stringify({ error: reInvErr.message }) };
         }
@@ -118,7 +142,9 @@ export const handler = async (event) => {
       // Confirmed account: send a password-reset email so they can set/change their password.
       // NOTE: generateLink() only creates a URL — it does NOT send an email.
       // resetPasswordForEmail() actually sends the email AND honours the custom redirectTo.
-      const { error: resetErr } = await adminClient.auth.resetPasswordForEmail(vendor.email, { redirectTo });
+      const reset = await waitForMail(adminClient.auth.resetPasswordForEmail(vendor.email, { redirectTo }));
+      if (reset === TIMED_OUT) return stillSending(vendor.email);
+      const resetErr = reset.error;
       if (resetErr) {
         return { statusCode: 500, headers: cors, body: JSON.stringify({ error: resetErr.message }) };
       }
@@ -131,10 +157,14 @@ export const handler = async (event) => {
   }
 
   // Create auth user via invite (sends email with password-setup link)
-  const { data: invited, error: invErr } = await adminClient.auth.admin.inviteUserByEmail(vendor.email, {
+  const inviteResult = await waitForMail(adminClient.auth.admin.inviteUserByEmail(vendor.email, {
     redirectTo,
     data: { vendor_id: vendor.id, store_name: vendor.store_name },
-  });
+  }));
+  // On a timeout the auth user is created but we never see its id, so the vendor is not linked yet;
+  // the next "Resend invite" finds that unconfirmed account, re-sends and links it.
+  if (inviteResult === TIMED_OUT) return stillSending(vendor.email);
+  const { data: invited, error: invErr } = inviteResult;
 
   if (invErr) {
     return { statusCode: 500, headers: cors, body: JSON.stringify({ error: invErr.message }) };

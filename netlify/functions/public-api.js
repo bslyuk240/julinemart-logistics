@@ -837,6 +837,360 @@ async function submitGiveawayCampaign(adminClient, body) {
   });
 }
 
+/**
+ * campaigns.draft.create / campaigns.draft.update — a full merchandising
+ * campaign proposed by the agent. Same trust model as the giveaway submit:
+ * status/approval/kind/submitted_via are fixed server-side, a voucherId can
+ * never be supplied (the human attaches the real voucher when reviewing), and
+ * the row lands as approval_status='pending' in the existing approval queue.
+ * The agent may PROPOSE a coupon code + display text; it never goes live and
+ * nothing is redeemable until an admin attaches a voucher and activates it.
+ * update is restricted to the agent's own still-pending, still-draft rows.
+ */
+const DRAFT_TARGET_TYPES = new Set(['vendor', 'category', 'product', 'collection', 'multi_vendor', 'general']);
+const DRAFT_SECTION_TYPES = ['hero', 'benefits', 'vendor_story', 'products', 'offer', 'reviews', 'media_gallery', 'cta_footer'];
+const DRAFT_DEFAULT_SECTIONS = ['hero', 'benefits', 'vendor_story', 'products', 'offer', 'reviews', 'media_gallery'];
+const DRAFT_PRODUCT_SOURCES = new Set(['automatic', 'manual', 'rules_based']);
+const DRAFT_REVIEW_SCOPES = new Set(['product', 'featured_products', 'vendor', 'category', 'mixed']);
+const DRAFT_MEDIA_HOSTS = new Set(['res.cloudinary.com']);
+
+class DraftValidationError extends Error {}
+const bad = (msg) => { throw new DraftValidationError(msg); };
+
+function draftText(v, max, field) {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== 'string' && typeof v !== 'number') bad(`${field} must be text`);
+  const s = String(v).trim();
+  return s ? s.slice(0, max) : undefined;
+}
+
+function draftMediaUrl(v, field) {
+  const s = draftText(v, 600, field);
+  if (!s) return undefined;
+  let u;
+  try { u = new URL(s); } catch { bad(`${field} must be a valid URL`); }
+  if (u.protocol !== 'https:' || !DRAFT_MEDIA_HOSTS.has(u.hostname)) {
+    bad(`${field} must be an https Cloudinary URL (res.cloudinary.com)`);
+  }
+  return s;
+}
+
+function draftDate(v, field) {
+  if (v === null || v === '') return null;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) bad(`${field} must be an ISO datetime`);
+  return d.toISOString();
+}
+
+function draftUuidList(v, field, max = 50) {
+  if (!Array.isArray(v)) bad(`${field} must be an array of ids`);
+  const ids = [...new Set(v.map((x) => String(x).trim()).filter(Boolean))];
+  if (ids.length > max) bad(`${field} accepts at most ${max} ids`);
+  if (ids.some((x) => !UUID_RE.test(x))) bad(`${field} must contain uuids`);
+  return ids;
+}
+
+async function draftAssertExist(adminClient, table, ids, field) {
+  if (!ids.length) return;
+  const { data, error } = await adminClient.from(table).select('id').in('id', ids);
+  if (error) bad(error.message);
+  if ((data || []).length !== ids.length) bad(`${field}: one or more ids do not exist`);
+}
+
+async function buildCampaignDraftPatch(adminClient, body, existing, isCreate) {
+  if (!isPlainObject(body)) bad('Invalid JSON body');
+  const patch = {};
+  const prev = existing || {};
+
+  if (body.public_title !== undefined || isCreate) {
+    const title = draftText(body.public_title, 120, 'public_title');
+    if (!title) bad('public_title is required');
+    patch.public_title = title;
+  }
+  const title = patch.public_title || prev.public_title;
+  if (isCreate || body.internal_name !== undefined) {
+    patch.internal_name = draftText(body.internal_name, 120, 'internal_name') || `[Skola draft] ${title}`.slice(0, 120);
+  }
+  if (body.campaign_objective !== undefined) patch.campaign_objective = draftText(body.campaign_objective, 300, 'campaign_objective') || null;
+
+  if (body.start_date !== undefined) patch.start_date = draftDate(body.start_date, 'start_date');
+  if (body.end_date !== undefined) patch.end_date = draftDate(body.end_date, 'end_date');
+  const start = 'start_date' in patch ? patch.start_date : prev.start_date;
+  const end = 'end_date' in patch ? patch.end_date : prev.end_date;
+  if (start && end && new Date(end) <= new Date(start)) bad('end_date must be after start_date');
+
+  // target
+  const targetType = body.target_type !== undefined ? String(body.target_type) : (prev.target_type || 'general');
+  if (!DRAFT_TARGET_TYPES.has(targetType)) bad(`target_type must be one of: ${[...DRAFT_TARGET_TYPES].join(', ')}`);
+  let targetId = body.target_id !== undefined ? draftText(body.target_id, 100, 'target_id') || null : (prev.target_id || null);
+  if (['vendor', 'category', 'product'].includes(targetType)) {
+    if (!targetId) bad(`target_id is required when target_type is ${targetType}`);
+    if (!UUID_RE.test(targetId)) bad('target_id must be a uuid');
+    await draftAssertExist(adminClient, { vendor: 'vendors', category: 'categories', product: 'products' }[targetType], [targetId], 'target_id');
+  }
+  if (targetType === 'general') targetId = null;
+  patch.target_type = targetType;
+  patch.target_id = targetId;
+
+  // hero
+  const prevHero = prev.hero_config || {};
+  let hero = { ...prevHero };
+  if (body.hero !== undefined) {
+    if (!isPlainObject(body.hero)) bad('hero must be an object');
+    const h = body.hero;
+    const set = (k, v) => { if (v !== undefined) hero[k] = v; };
+    if (h.headline !== undefined) set('headline', draftText(h.headline, 120, 'hero.headline') || '');
+    if (h.subtitle !== undefined) set('subtitle', draftText(h.subtitle, 240, 'hero.subtitle') || '');
+    if (h.cta_label !== undefined) set('ctaLabel', draftText(h.cta_label, 40, 'hero.cta_label'));
+    if (h.badge_text !== undefined) set('badgeText', draftText(h.badge_text, 40, 'hero.badge_text'));
+    if (h.image_desktop !== undefined) set('heroImageDesktop', draftMediaUrl(h.image_desktop, 'hero.image_desktop'));
+    if (h.image_mobile !== undefined) set('heroImageMobile', draftMediaUrl(h.image_mobile, 'hero.image_mobile'));
+    if (h.intro_video_url !== undefined) set('introductoryVideoUrl', draftMediaUrl(h.intro_video_url, 'hero.intro_video_url'));
+  }
+  if (isCreate) {
+    hero = { headline: title, subtitle: '', ctaLabel: 'Shop Now', ...hero };
+  }
+  if (hero.heroImageDesktop && !hero.heroImageMobile) hero.heroImageMobile = hero.heroImageDesktop;
+  if (hero.heroImageMobile && !hero.heroImageDesktop) hero.heroImageDesktop = hero.heroImageMobile;
+  if (!hero.ctaLabel) hero.ctaLabel = 'Shop Now';
+  patch.hero_config = hero;
+
+  // offer: proposal only — voucherId is never accepted
+  let offer = { ...(prev.offer_config || {}) };
+  if (body.offer !== undefined) {
+    if (!isPlainObject(body.offer)) bad('offer must be an object');
+    const o = body.offer;
+    if (o.display_text !== undefined) offer.displayText = draftText(o.display_text, 160, 'offer.display_text');
+    if (o.proposal_note !== undefined) offer.proposalNote = draftText(o.proposal_note, 1000, 'offer.proposal_note');
+    if (o.coupon_code !== undefined) {
+      const code = draftText(o.coupon_code, 30, 'offer.coupon_code');
+      if (code && !/^[A-Za-z0-9_-]{3,30}$/.test(code)) bad('offer.coupon_code must be 3-30 letters, digits, - or _');
+      offer.couponCode = code ? code.toUpperCase() : undefined;
+    }
+    Object.keys(offer).forEach((k) => offer[k] === undefined && delete offer[k]);
+  }
+  patch.offer_config = offer;
+
+  // vendor story block (vendor-targeted campaigns)
+  if (targetType === 'vendor') {
+    const { data: vendor } = await adminClient.from('vendors').select('id, store_name, woocommerce_vendor_id').eq('id', targetId).maybeSingle();
+    const pv = prev.vendor_override || {};
+    const vo = { ...pv, vendorId: targetId };
+    if (!vo.name && vendor?.store_name) vo.name = vendor.store_name;
+    if (!vo.storeLinkUrl) vo.storeLinkUrl = `/vendor/${vendor?.woocommerce_vendor_id || targetId}`;
+    if (body.vendor !== undefined) {
+      if (!isPlainObject(body.vendor)) bad('vendor must be an object');
+      const v = body.vendor;
+      if (v.name !== undefined) vo.name = draftText(v.name, 120, 'vendor.name');
+      if (v.story !== undefined) vo.story = draftText(v.story, 1500, 'vendor.story');
+      if (v.location !== undefined) vo.location = draftText(v.location, 120, 'vendor.location');
+      if (v.years_operating !== undefined) {
+        const n = Number(v.years_operating);
+        if (!Number.isFinite(n) || n < 0 || n > 200) bad('vendor.years_operating must be a number 0-200');
+        vo.yearsOperating = n;
+      }
+      if (v.store_link_url !== undefined) {
+        const link = draftText(v.store_link_url, 300, 'vendor.store_link_url');
+        if (link && !(link.startsWith('/vendor/') || /^https:\/\//i.test(link))) bad('vendor.store_link_url must start with /vendor/ or https://');
+        if (link) vo.storeLinkUrl = link;
+      }
+      if (v.logo_url !== undefined) vo.logoUrl = draftMediaUrl(v.logo_url, 'vendor.logo_url');
+      if (v.shop_image_url !== undefined) vo.shopImageUrl = draftMediaUrl(v.shop_image_url, 'vendor.shop_image_url');
+      if (v.intro_video_url !== undefined) vo.introVideoUrl = draftMediaUrl(v.intro_video_url, 'vendor.intro_video_url');
+    }
+    Object.keys(vo).forEach((k) => vo[k] === undefined && delete vo[k]);
+    patch.vendor_override = vo;
+  } else {
+    patch.vendor_override = {};
+  }
+
+  // product selection
+  const rules = { source: 'rules_based', inStockOnly: true, discountedOnly: false, maxProducts: 12, ...(prev.product_selection_rules || {}) };
+  if (body.products !== undefined) {
+    if (!isPlainObject(body.products)) bad('products must be an object');
+    const p = body.products;
+    if (p.source !== undefined) {
+      if (!DRAFT_PRODUCT_SOURCES.has(p.source)) bad('products.source must be automatic, manual or rules_based');
+      rules.source = p.source;
+    }
+    if (p.category_ids !== undefined) {
+      const ids = draftUuidList(p.category_ids, 'products.category_ids', 20);
+      await draftAssertExist(adminClient, 'categories', ids, 'products.category_ids');
+      rules.categoryIds = ids.length ? ids : undefined;
+    }
+    if (p.manual_product_ids !== undefined) {
+      const ids = draftUuidList(p.manual_product_ids, 'products.manual_product_ids', 50);
+      await draftAssertExist(adminClient, 'products', ids, 'products.manual_product_ids');
+      rules.manualProductIds = ids.length ? ids : undefined;
+    }
+    if (p.min_rating !== undefined) {
+      const n = Number(p.min_rating);
+      if (!Number.isFinite(n) || n < 0 || n > 5) bad('products.min_rating must be 0-5');
+      rules.minimumRating = n;
+    }
+    if (p.in_stock_only !== undefined) rules.inStockOnly = !!p.in_stock_only;
+    if (p.discounted_only !== undefined) rules.discountedOnly = !!p.discounted_only;
+    if (p.max_products !== undefined) {
+      const n = Math.floor(Number(p.max_products));
+      if (!Number.isFinite(n) || n < 1 || n > 50) bad('products.max_products must be 1-50');
+      rules.maxProducts = n;
+    }
+  }
+  if (rules.source === 'manual' && !(rules.manualProductIds || []).length) bad('products.manual_product_ids is required when products.source is manual');
+  // Inherit the campaign target so landing pages never mix other vendors/categories.
+  if (targetType === 'vendor') rules.vendorId = targetId;
+  else delete rules.vendorId;
+  if (targetType === 'category' && !(rules.categoryIds || []).length) rules.categoryIds = [targetId];
+  Object.keys(rules).forEach((k) => rules[k] === undefined && delete rules[k]);
+  patch.product_selection_rules = rules;
+
+  // review rules
+  const rr = { scope: 'mixed', maxReviews: 5, verifiedPurchaseOnly: false, ...(prev.review_rules || {}) };
+  if (body.reviews !== undefined) {
+    if (!isPlainObject(body.reviews)) bad('reviews must be an object');
+    const r = body.reviews;
+    if (r.scope !== undefined) {
+      if (!DRAFT_REVIEW_SCOPES.has(r.scope)) bad(`reviews.scope must be one of: ${[...DRAFT_REVIEW_SCOPES].join(', ')}`);
+      rr.scope = r.scope;
+    }
+    if (r.min_rating !== undefined) {
+      const n = Number(r.min_rating);
+      if (!Number.isFinite(n) || n < 0 || n > 5) bad('reviews.min_rating must be 0-5');
+      rr.minimumRating = n;
+    }
+    if (r.max_reviews !== undefined) {
+      const n = Math.floor(Number(r.max_reviews));
+      if (!Number.isFinite(n) || n < 1 || n > 20) bad('reviews.max_reviews must be 1-20');
+      rr.maxReviews = n;
+    }
+    if (r.verified_purchase_only !== undefined) rr.verifiedPurchaseOnly = !!r.verified_purchase_only;
+  }
+  patch.review_rules = rr;
+
+  // SEO
+  if (body.seo !== undefined) {
+    if (!isPlainObject(body.seo)) bad('seo must be an object');
+    patch.meta_seo = {
+      ...(prev.meta_seo || {}),
+      ...(body.seo.title !== undefined ? { title: draftText(body.seo.title, 70, 'seo.title') } : {}),
+      ...(body.seo.description !== undefined ? { description: draftText(body.seo.description, 160, 'seo.description') } : {}),
+    };
+  } else if (isCreate) {
+    patch.meta_seo = {};
+  }
+
+  // sections + media gallery (replaces the section rows when provided)
+  let sectionRows = null;
+  if (body.sections !== undefined || body.media_gallery !== undefined || isCreate) {
+    let order = DRAFT_DEFAULT_SECTIONS;
+    if (body.sections !== undefined) {
+      if (!Array.isArray(body.sections) || !body.sections.length) bad('sections must be a non-empty ordered array');
+      order = [...new Set(body.sections.map(String))];
+      if (order.some((s) => !DRAFT_SECTION_TYPES.includes(s))) bad(`sections may only contain: ${DRAFT_SECTION_TYPES.join(', ')}`);
+    }
+    let items;
+    if (body.media_gallery !== undefined) {
+      if (!Array.isArray(body.media_gallery) || body.media_gallery.length > 12) bad('media_gallery must be an array of at most 12 items');
+      items = body.media_gallery.map((m, i) => {
+        if (!isPlainObject(m)) bad(`media_gallery[${i}] must be an object`);
+        const type = m.type === 'video' ? 'video' : 'image';
+        const url = draftMediaUrl(m.url, `media_gallery[${i}].url`);
+        if (!url) bad(`media_gallery[${i}].url is required`);
+        return { type, url, caption: draftText(m.caption, 160, `media_gallery[${i}].caption`) || '', thumbnailUrl: draftMediaUrl(m.thumbnail_url, `media_gallery[${i}].thumbnail_url`) || '' };
+      });
+    }
+    sectionRows = { order, items };
+  }
+
+  return { patch, sectionRows };
+}
+
+async function writeCampaignDraftSections(adminClient, campaignId, sectionRows, existingGallery) {
+  const items = sectionRows.items !== undefined ? sectionRows.items : existingGallery || [];
+  const rows = sectionRows.order.map((type, i) => ({
+    campaign_id: campaignId,
+    section_type: type,
+    order_index: i,
+    is_visible: true,
+    config: type === 'media_gallery' ? { items } : {},
+  }));
+  const del = await adminClient.from('campaign_sections').delete().eq('campaign_id', campaignId);
+  if (del.error) return del.error;
+  const ins = await adminClient.from('campaign_sections').insert(rows);
+  return ins.error || null;
+}
+
+async function createCampaignDraft(adminClient, body) {
+  try {
+    const { patch, sectionRows } = await buildCampaignDraftPatch(adminClient, body, null, true);
+    const slug = `${slugifyCampaignTitle(patch.public_title) || 'campaign'}-${Math.random().toString(36).slice(2, 6)}`;
+    const payload = {
+      ...patch,
+      slug,
+      status: 'draft',
+      approval_status: 'pending',
+      campaign_kind: 'merchandising',
+      submitted_via: 'skola_agent',
+      submitted_at: new Date().toISOString(),
+      review_rules: patch.review_rules,
+    };
+    const { data: created, error } = await adminClient
+      .from('campaigns')
+      .insert(payload)
+      .select('id, slug, status, approval_status')
+      .single();
+    if (error) return json(error.code === '23505' ? 409 : 500, { error: error.code === '23505' ? 'Generated slug collided — retry the request' : error.message });
+    const secErr = await writeCampaignDraftSections(adminClient, created.id, sectionRows, []);
+    if (secErr) return json(500, { error: secErr.message });
+    return json(201, {
+      data: {
+        ...created,
+        message: 'Draft saved to JulineMart\'s campaign approval queue. A human will attach the real voucher, review it and activate it. It is not live.',
+      },
+    });
+  } catch (e) {
+    if (e instanceof DraftValidationError) return json(400, { error: e.message });
+    return json(500, { error: e.message });
+  }
+}
+
+async function updateCampaignDraft(adminClient, id, body) {
+  try {
+    if (!UUID_RE.test(String(id || ''))) return json(400, { error: 'Campaign id must be a uuid' });
+    const { data: existing, error: findErr } = await adminClient
+      .from('campaigns')
+      .select('id, public_title, start_date, end_date, target_type, target_id, hero_config, offer_config, vendor_override, product_selection_rules, review_rules, meta_seo, status, approval_status, submitted_via, campaign_kind')
+      .eq('id', id)
+      .maybeSingle();
+    if (findErr) return json(500, { error: findErr.message });
+    if (!existing) return json(404, { error: 'Campaign not found' });
+    if (existing.submitted_via !== 'skola_agent' || existing.campaign_kind !== 'merchandising' || existing.status !== 'draft' || existing.approval_status !== 'pending') {
+      return json(403, { error: 'Only your own merchandising drafts that are still pending review can be edited' });
+    }
+    const { patch, sectionRows } = await buildCampaignDraftPatch(adminClient, body, existing, false);
+    patch.updated_at = new Date().toISOString();
+    const { error } = await adminClient.from('campaigns').update(patch).eq('id', id);
+    if (error) return json(500, { error: error.message });
+    if (sectionRows) {
+      if (body.sections === undefined) {
+        const { data: cur } = await adminClient.from('campaign_sections').select('section_type, order_index').eq('campaign_id', id).order('order_index');
+        if (cur && cur.length) sectionRows.order = cur.map((s) => s.section_type);
+      }
+      let gallery;
+      if (sectionRows.items === undefined) {
+        const { data: g } = await adminClient.from('campaign_sections').select('config').eq('campaign_id', id).eq('section_type', 'media_gallery').maybeSingle();
+        gallery = g?.config?.items || [];
+      }
+      const secErr = await writeCampaignDraftSections(adminClient, id, sectionRows, gallery);
+      if (secErr) return json(500, { error: secErr.message });
+    }
+    return json(200, { data: { id, status: 'draft', approval_status: 'pending', message: 'Draft updated. Still pending human review.' } });
+  } catch (e) {
+    if (e instanceof DraftValidationError) return json(400, { error: e.message });
+    return json(500, { error: e.message });
+  }
+}
+
 // ── meta.ads.* / meta.social.* ──────────────────────────────────────────
 // meta.ads.* wraps meta-ads.js's own functions unchanged — same logic JLO's
 // internal Ads Manager dashboard uses, reused rather than duplicated. Those
@@ -1420,6 +1774,16 @@ export const handler = async (event) => {
         const auth = await authenticateServiceApiRequest(event, 'campaigns.read');
         if (auth.errorResponse) return auth.errorResponse;
         return await getCampaign(auth.adminClient, segments[1]);
+      }
+      if (segments.length === 2 && segments[1] === 'drafts' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'campaigns.draft.create');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await createCampaignDraft(auth.adminClient, JSON.parse(event.body || '{}'));
+      }
+      if (segments.length === 3 && segments[1] === 'drafts' && method === 'PUT') {
+        const auth = await authenticateServiceApiRequest(event, 'campaigns.draft.update');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await updateCampaignDraft(auth.adminClient, segments[2], JSON.parse(event.body || '{}'));
       }
       if (segments.length === 1 && method === 'POST') {
         const auth = await authenticateServiceApiRequest(event, 'campaigns.giveaway.submit');

@@ -338,6 +338,70 @@ async function getCustomer(adminClient, idOrPhone) {
   return json(200, { data: { id: c.id, name, first_name: c.first_name || null, last_name: c.last_name || null, phone: c.phone || null, created_at: c.created_at } });
 }
 
+// Buyers only: customers with at least one paid order. Email is never returned.
+async function listCustomers(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  let since = null;
+  if (query.since) {
+    const d = new Date(query.since);
+    if (Number.isNaN(d.getTime())) return json(400, { error: 'since must be an ISO datetime' });
+    since = d.toISOString();
+  }
+  const q = query.q ? String(query.q).slice(0, 80) : null;
+  const { data, error } = await adminClient.rpc('list_customers_with_orders', {
+    p_limit: limit, p_offset: offset, p_since: since, p_q: q,
+  });
+  if (error) return json(500, { error: error.message });
+  const rows = data || [];
+  return json(200, {
+    data: rows.map((r) => ({
+      id: r.customer_id || null,
+      name: [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || null,
+      phone: r.phone || null,
+      order_count: Number(r.order_count),
+      total_spent: Number(r.total_spent),
+      first_order_at: r.first_order_at,
+      last_order_at: r.last_order_at,
+    })),
+    count: rows.length ? Number(rows[0].total_count) : 0,
+  });
+}
+
+// Every customer/lead INCLUDING email, with purchase flags. Separate capability
+// from listCustomers (buyers-only, no email) because it exposes contact data.
+async function listCustomerLeads(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  let since = null;
+  if (query.since) {
+    const d = new Date(query.since);
+    if (Number.isNaN(d.getTime())) return json(400, { error: 'since must be an ISO datetime' });
+    since = d.toISOString();
+  }
+  let hasOrdered = null;
+  if (query.has_ordered === 'true') hasOrdered = true;
+  else if (query.has_ordered === 'false') hasOrdered = false;
+  const q = query.q ? String(query.q).slice(0, 80) : null;
+  const { data, error } = await adminClient.rpc('list_customer_leads', {
+    p_limit: limit, p_offset: offset, p_q: q, p_has_ordered: hasOrdered, p_since: since,
+  });
+  if (error) return json(500, { error: error.message });
+  const rows = data || [];
+  return json(200, {
+    data: rows.map((r) => ({
+      id: r.customer_id || null,
+      name: [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || null,
+      email: r.email || null,
+      phone: r.phone || null,
+      signed_up_at: r.signed_up_at,
+      has_ordered: !!r.has_ordered,
+      order_count: Number(r.order_count),
+      total_spent: Number(r.total_spent),
+      last_order_at: r.last_order_at,
+    })),
+    count: rows.length ? Number(rows[0].total_count) : 0,
+  });
+}
+
 async function getCustomerOrders(adminClient, idOrPhone, query) {
   const found = await resolveCustomer(adminClient, idOrPhone);
   if (!found.customer) {
@@ -1252,6 +1316,16 @@ export const handler = async (event) => {
 
     // --- customers ---
     if (segments[0] === 'customers') {
+      if (segments.length === 1 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'customers.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listCustomers(auth.adminClient, query);
+      }
+      if (segments.length === 2 && segments[1] === 'leads' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'customers.leads.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listCustomerLeads(auth.adminClient, query);
+      }
       if (segments.length === 3 && segments[2] === 'orders' && method === 'GET') {
         const auth = await authenticateServiceApiRequest(event, 'customers.orders.read');
         if (auth.errorResponse) return auth.errorResponse;

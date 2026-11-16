@@ -658,6 +658,24 @@ export const CAPABILITIES = [
 
   // ── CUSTOMERS ─────────────────────────────────────────────────────────
   {
+    id: 'customers.list', domain: 'customers', name: 'List Buyers',
+    description: 'Customers who have at least one paid order (buyers only): name, phone, order count, total spent, first/last order date. Email is never returned.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'medium',
+    http_method: 'GET', endpoint: '/customers',
+    input_schema: { q: 'optional name search', since: 'optional ISO datetime (last order on/after)', limit: 'number (max 100)', offset: 'number' },
+    supports_pagination: true, supports_filtering: true, supports_search: true,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'customers.leads.list', domain: 'customers', name: 'List Customer Leads (with email)',
+    description: 'ALL customers and guest buyers, including email and phone, with has_ordered / order_count / total_spent. Exposes contact data: grant only to agents doing lead follow-up.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'high',
+    http_method: 'GET', endpoint: '/customers/leads',
+    input_schema: { q: 'optional name/email search', has_ordered: 'optional true|false', since: 'optional ISO datetime', limit: 'number (max 100)', offset: 'number' },
+    supports_pagination: true, supports_filtering: true, supports_search: true,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
     id: 'customers.read', domain: 'customers', name: 'Read Customer',
     description: 'Customer profile (name, phone). Email is never returned. :id may be a UUID or a phone number.',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'medium',

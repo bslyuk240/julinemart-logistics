@@ -163,7 +163,7 @@ under two names for different consumer mental models).
 | `influencers.sales.read` | `GET /influencers/:id/sales` |
 | `custom_orders.list` | `GET /custom-orders` |
 | `custom_orders.read` | `GET /custom-orders/:id` |
-| `campaigns.draft.create` | `POST /campaigns/drafts` (full merchandising campaign as a **pending draft**; proposes offer text/coupon code but never a voucher; media must be https Cloudinary URLs) |
+| `campaigns.draft.create` | `POST /campaigns/drafts` (full merchandising campaign as a **pending draft**; proposes offer text/coupon code but never a voucher; images may be sent in the same call as a Skola/Cloudinary/Supabase URL, data: URI or `{base64}` and are stored by the server; max 5 MB each, request body ~4.5 MB; videos by URL only) |
 | `campaigns.draft.update` | `PUT /campaigns/drafts/:id` (only the key's own drafts still pending review) |
 | `campaigns.list` | `GET /campaigns` |
 | `campaigns.read` | `GET /campaigns/:id` |

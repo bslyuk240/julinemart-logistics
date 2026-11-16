@@ -212,15 +212,15 @@ export const CAPABILITIES = [
   // centres/packaging options that back them.
   {
     id: 'gift_boxes.list', domain: 'gift', name: 'List Gift Boxes',
-    description: 'List curated gift boxes with active/recipient/occasion filters.',
+    description: 'List curated gift boxes with active/recipient/occasion filters and name/SKU/slug search. Each row includes image_url and product_url (https://julinemart.com/gifts/boxes/{slug}).',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
     http_method: 'GET', endpoint: '/gift-boxes',
-    supports_pagination: true, supports_filtering: true, supports_search: false,
+    supports_pagination: true, supports_filtering: true, supports_search: true,
     idempotency_required: false, approval_recommended: false, enabled: true,
   },
   {
     id: 'gift_boxes.read', domain: 'gift', name: 'Read Gift Box',
-    description: 'Gift box detail including its component products. Excludes internal component cost.',
+    description: 'Gift box detail, including product_url and each component as a catalogue product (name, price, stock, image_url, product_url). Sourced lines include name and image only. Excludes internal component cost.',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
     http_method: 'GET', endpoint: '/gift-boxes/:id',
     input_schema: { gift_box_id: 'string (uuid)' },
@@ -652,7 +652,7 @@ export const CAPABILITIES = [
   // ── CATALOGUE ─────────────────────────────────────────────────────────
   {
     id: 'products.list', domain: 'catalogue', name: 'List Products',
-    description: 'List products with status/stock/vendor filters.',
+    description: 'List products with status/stock/vendor filters. Each row includes image_url (main product photo) and product_url (https://julinemart.com/product/{slug}).',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
     http_method: 'GET', endpoint: '/products',
     supports_pagination: true, supports_filtering: true, supports_search: false,
@@ -660,7 +660,7 @@ export const CAPABILITIES = [
   },
   {
     id: 'products.search', domain: 'catalogue', name: 'Search Products',
-    description: 'List products filtered by a free-text query (name or SKU).',
+    description: 'List products filtered by a free-text query (name or SKU). Each row includes image_url and product_url.',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
     http_method: 'GET', endpoint: '/products?q=',
     supports_pagination: true, supports_filtering: true, supports_search: true,
@@ -668,7 +668,7 @@ export const CAPABILITIES = [
   },
   {
     id: 'products.read', domain: 'catalogue', name: 'Read Product',
-    description: 'Full detail for one product, excluding internal cost/sourcing fields.',
+    description: 'Full detail for one product, including image_url and product_url. Excludes internal cost/sourcing fields.',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
     http_method: 'GET', endpoint: '/products/:id',
     input_schema: { product_id: 'string (uuid)' },

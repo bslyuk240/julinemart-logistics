@@ -313,17 +313,20 @@ to a regular order, carrying its own pipeline:
 `new → paid → packing → packed → dispatch → delivered`.
 
 #### `GET /gift-boxes` — `gift_boxes.list`
-Query params: `active` (`true`/`false`), `limit`, `offset`.
+Query params: `active` (`true`/`false`), `occasion`, `recipient`, `q`
+(matches name, SKU, or slug), `limit`, `offset`.
 ```json
 { "data": [{ "id": "...", "slug": "sweet-surprise", "name": "Sweet Surprise Box",
-  "list_price": 15000, "active": true, "recipient_types": ["mother", "partner"],
-  "occasion_types": ["birthday", "anniversary"], "average_rating": 4.8, "rating_count": 22 }], "count": 1 }
+  "description": "A curated box for her.", "image_url": "https://example.com/box.jpg",
+  "product_url": "https://julinemart.com/gifts/boxes/sweet-surprise",
+  "list_price": 15000, "active": true, "sku": "GFT-BIR-001",
+  "recipient_types": ["mother", "partner"], "occasion_types": ["birthday", "anniversary"],
+  "average_rating": 4.8, "rating_count": 22 }], "count": 1 }
 ```
+`product_url` is `{PWA_BASE_URL}/gifts/boxes/{slug}` (production: `https://julinemart.com/gifts/boxes/{slug}`). Use it directly.
 
 #### `GET /gift-boxes/:id` — `gift_boxes.read`
-Adds `description`, `gallery_urls`, and `items` (component products —
-`product_id`, `variation_id`, `quantity`). Excludes internal component
-cost.
+Adds `gallery_urls` and `items`. Each item keeps `product_id`, `variation_id`, `quantity`, and `sort_order`, and adds a `product` object in the same shape as `GET /products/:id` (`name`, prices, stock, `image_url`, `product_url`, descriptions). Hub-sourced lines set `line_source` to `jlo_sourced` and return name, SKU, description, and `image_url` with `product_url` null. Excludes internal component cost and vendor payout.
 
 #### `GET /gift-orders` — `gift_orders.list`
 Query params: `status` (matches `gift_status`), `limit`, `offset`. Omits
@@ -395,14 +398,17 @@ Query params: `status`, `vendor_id`, `stock_status`, `q` (matches name or
 SKU), `limit`, `offset`.
 ```json
 { "data": [{ "id": "...", "name": "Ankara Fabric (6 yards)", "slug": "ankara-fabric-6-yards",
-  "sku": "ANK-006", "status": "publish", "regular_price": 4500, "sale_price": null,
+  "sku": "ANK-006", "status": "published", "regular_price": 4500, "sale_price": null,
   "stock_status": "instock", "stock_quantity": 40, "vendor_id": "3a1f...",
-  "average_rating": 4.5, "rating_count": 12 }], "count": 1 }
+  "average_rating": 4.5, "rating_count": 12,
+  "image_url": "https://gfikkrwhsedhwmkxybzm.supabase.co/storage/v1/object/public/product-images/products/example.png",
+  "product_url": "https://julinemart.com/product/ankara-fabric-6-yards" }], "count": 1 }
 ```
+`image_url` is the thumbnail, or the first product photo when no thumbnail is flagged. Variation-only images are skipped. It is `null` when the product has no photo. `product_url` is `{PWA_BASE_URL}/product/{slug}` (production: `https://julinemart.com/product/{slug}`). Use these fields directly. Do not invent a storefront path from the slug.
 
 #### `GET /products/:id` — `products.read`
 Adds `description`, `short_description`, dimensions, `is_virtual`,
-warranty fields. Never returns internal cost price or supplier-sourcing
+warranty fields. Includes the same `image_url` and `product_url`. Never returns internal cost price or supplier-sourcing
 metadata.
 
 #### `GET /categories` — `categories.list`

@@ -428,6 +428,59 @@ async function getCustomerOrders(adminClient, idOrPhone, query) {
 
 // ── gift.* ──────────────────────────────────────────────────────────────
 const GIFT_BOX_LIST_FIELDS = 'id, slug, name, description, image_url, list_price, active, recipient_types, occasion_types, sku, average_rating, rating_count, gift_fulfilment_centre_id';
+const GIFT_BOX_ITEM_FIELDS = `
+  id, product_id, variation_id, quantity, sort_order, line_source, pool_sourced_item_id,
+  products (
+    id, name, slug, sku, status, type, regular_price, sale_price, stock_status, stock_quantity,
+    short_description, description,
+    product_images ( src, position, is_thumbnail, variation_id )
+  ),
+  gift_pool_sourced_items ( id, name, sku, description, image_url, gift_category, available_qty, active )
+`;
+
+function storefrontGiftBoxUrl(slug) {
+  if (!slug) return null;
+  const base = (process.env.PWA_BASE_URL || 'https://julinemart.com').replace(/\/+$/, '');
+  return `${base}/gifts/boxes/${slug}`;
+}
+
+function presentGiftBox(row) {
+  const presented = { ...row, product_url: storefrontGiftBoxUrl(row.slug) };
+  if ('gallery_urls' in row) {
+    presented.gallery_urls = Array.isArray(row.gallery_urls) ? row.gallery_urls : [];
+  }
+  return presented;
+}
+
+function presentSourcedGiftItem(item) {
+  return {
+    id: item.id,
+    name: item.name || null,
+    sku: item.sku || null,
+    description: item.description || null,
+    image_url: item.image_url || null,
+    product_url: null,
+    gift_category: item.gift_category || null,
+    stock_quantity: item.available_qty ?? null,
+    status: item.active === false ? 'inactive' : 'published',
+  };
+}
+
+function presentGiftBoxItem(row) {
+  const sourced = row.line_source === 'jlo_sourced' || (!row.product_id && row.pool_sourced_item_id);
+  return {
+    id: row.id,
+    product_id: sourced ? null : row.product_id,
+    variation_id: row.variation_id || null,
+    quantity: row.quantity,
+    sort_order: row.sort_order,
+    line_source: sourced ? 'jlo_sourced' : (row.line_source || 'catalog'),
+    pool_sourced_item_id: row.pool_sourced_item_id || null,
+    product: sourced
+      ? (row.gift_pool_sourced_items ? presentSourcedGiftItem(row.gift_pool_sourced_items) : null)
+      : (row.products ? presentProduct(row.products) : null),
+  };
+}
 
 async function listGiftBoxes(adminClient, query) {
   const { limit, offset } = paginationParams(query);
@@ -439,10 +492,14 @@ async function listGiftBoxes(adminClient, query) {
 
   if (query.active === 'true') q = q.eq('active', true);
   if (query.active === 'false') q = q.eq('active', false);
+  if (query.occasion) q = q.contains('occasion_types', [String(query.occasion).trim()]);
+  if (query.recipient) q = q.contains('recipient_types', [String(query.recipient).trim()]);
+  const searchTerm = sanitizeSearchTerm(query.q);
+  if (searchTerm) q = q.or(`name.ilike.%${searchTerm}%,sku.ilike.%${searchTerm}%,slug.ilike.%${searchTerm}%`);
 
   const { data, error, count } = await q;
   if (error) return json(500, { error: error.message });
-  return json(200, { data, count });
+  return json(200, { data: (data || []).map(presentGiftBox), count });
 }
 
 async function getGiftBox(adminClient, id) {
@@ -450,13 +507,14 @@ async function getGiftBox(adminClient, id) {
   if (error) return json(500, { error: error.message });
   if (!box) return json(404, { error: 'Gift box not found' });
 
-  const { data: items } = await adminClient
+  const { data: items, error: itemsError } = await adminClient
     .from('gift_box_items')
-    .select('id, product_id, variation_id, quantity, sort_order')
+    .select(GIFT_BOX_ITEM_FIELDS)
     .eq('gift_box_id', id)
     .order('sort_order', { ascending: true });
+  if (itemsError) return json(500, { error: itemsError.message });
 
-  return json(200, { data: { ...box, items: items || [] } });
+  return json(200, { data: { ...presentGiftBox(box), items: (items || []).map(presentGiftBoxItem) } });
 }
 
 const GIFT_ORDER_LIST_FIELDS = 'id, order_id, gift_box_id, gift_fulfilment_centre_id, gift_status, recipient_city, recipient_state, occasion, requested_delivery_date, created_at, updated_at';
@@ -567,9 +625,32 @@ async function getRiderStatus(adminClient, id) {
 
 // ── catalogue: products.* / categories.* ───────────────────────────────
 const PRODUCT_LIST_FIELDS =
-  'id, name, slug, sku, status, type, regular_price, sale_price, stock_status, stock_quantity, vendor_id, average_rating, rating_count, created_at, updated_at';
+  'id, name, slug, sku, status, type, regular_price, sale_price, stock_status, stock_quantity, vendor_id, average_rating, rating_count, created_at, updated_at, product_images(src, position, is_thumbnail, variation_id)';
 const PRODUCT_DETAIL_FIELDS =
   `${PRODUCT_LIST_FIELDS}, description, short_description, weight, length, width, height, is_virtual, warranty_type, warranty_months`;
+
+function storefrontProductUrl(slug) {
+  if (!slug) return null;
+  const base = (process.env.PWA_BASE_URL || 'https://julinemart.com').replace(/\/+$/, '');
+  return `${base}/product/${slug}`;
+}
+
+function primaryProductImage(images) {
+  const rows = (images || []).filter((img) => img && !img.variation_id && img.src);
+  if (!rows.length) return null;
+  const thumb = rows.find((img) => img.is_thumbnail);
+  const chosen = thumb || rows.slice().sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
+  return chosen.src;
+}
+
+function presentProduct(row) {
+  const { product_images, ...rest } = row;
+  return {
+    ...rest,
+    image_url: primaryProductImage(product_images),
+    product_url: storefrontProductUrl(row.slug),
+  };
+}
 
 async function listProducts(adminClient, query) {
   const { limit, offset } = paginationParams(query);
@@ -587,14 +668,14 @@ async function listProducts(adminClient, query) {
 
   const { data, error, count } = await q;
   if (error) return json(500, { error: error.message });
-  return json(200, { data, count });
+  return json(200, { data: (data || []).map(presentProduct), count });
 }
 
 async function getProduct(adminClient, id) {
   const { data, error } = await adminClient.from('products').select(PRODUCT_DETAIL_FIELDS).eq('id', id).maybeSingle();
   if (error) return json(500, { error: error.message });
   if (!data) return json(404, { error: 'Product not found' });
-  return json(200, { data });
+  return json(200, { data: presentProduct(data) });
 }
 
 async function listCategories(adminClient, query) {

@@ -1474,6 +1474,9 @@ async function sendWhatsAppTemplateRoute(body) {
       vendorId: body.vendor_id ? String(body.vendor_id) : undefined,
       sentByAgent: body.sent_by_agent ? String(body.sent_by_agent) : undefined,
       headerImageUrl: body.header_image_url ? String(body.header_image_url).trim() : undefined,
+      buttons: Array.isArray(body.buttons)
+        ? body.buttons.filter(isPlainObject).map((b) => ({ index: Number(b.index), sub_type: b.sub_type ? String(b.sub_type) : undefined, value: b.value }))
+        : [],
     });
     return json(200, { data });
   } catch (e) {

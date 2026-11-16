@@ -148,6 +148,8 @@ under two names for different consumer mental models).
 | `riders.list` | `GET /riders` |
 | `riders.read` | `GET /riders/:id` |
 | `riders.status.read` | `GET /riders/:id/status` |
+| `customers.list` | `GET /customers` (buyers with ≥1 paid order only; query `q`, `since`, `limit`, `offset`; returns name, phone, `order_count`, `total_spent`, first/last order dates; no email) |
+| `customers.leads.list` | `GET /customers/leads` (**includes email**; all customers + guest buyers; query `q`, `has_ordered=true\|false`, `since`, `limit`, `offset`; returns name, email, phone, `signed_up_at`, `has_ordered`, `order_count`, `total_spent`, `last_order_at`). Grant only for lead follow-up. |
 | `customers.read` | `GET /customers/:id` (uuid or phone; no email) |
 | `customers.orders.read` | `GET /customers/:id/orders` |
 | `products.list` / `products.search` | `GET /products` |
@@ -174,7 +176,7 @@ route — which audiences you can pass depends on which capability your key
 holds (broadcast implies send).
 
 PII is intentionally minimized for an external/agent audience: **customer
-email is never returned**, list endpoints omit street addresses, and rider
+email is never returned** (the one exception is `customers.leads.list`), list endpoints omit street addresses, and rider
 GPS location is not exposed by any live capability.
 
 ---

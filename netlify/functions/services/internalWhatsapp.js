@@ -207,7 +207,7 @@ export async function sendWhatsAppText({ to, message, contactName, contactType =
  * which is more trustworthy than this function's own possibly-stale copy
  * of the approval state.
  */
-export async function sendWhatsAppTemplate({ to, templateName, variables = [], language, contactName, contactType = 'lead', vendorId, sentByAgent, headerImageUrl, broadcastId }) {
+export async function sendWhatsAppTemplate({ to, templateName, variables = [], language, contactName, contactType = 'lead', vendorId, sentByAgent, headerImageUrl, broadcastId, buttons = [] }) {
   if (!to) throw new Error('to (phone number) is required');
   if (!templateName) throw new Error('templateName is required');
   if (headerImageUrl) await validateHeaderImage(headerImageUrl);
@@ -221,6 +221,28 @@ export async function sendWhatsAppTemplate({ to, templateName, variables = [], l
     .maybeSingle();
   if (templateErr) throw templateErr;
   if (!template) throw new Error(`Unknown or inactive template "${templateName}"`);
+
+  // Fail early with a readable reason when the stored Meta definition shows the
+  // send is missing something (otherwise Meta answers #131008/#132012). Only
+  // runs once the template has been synced; otherwise Meta's own error stands.
+  const req = summarizeTemplateRequirements(template.meta_components);
+  if (req) {
+    if (req.header_needs_media && !headerImageUrl) {
+      throw new Error(`Template "${template.name}" has a ${req.header_format} header — pass header_image_url.`);
+    }
+    if (!req.header_needs_media && headerImageUrl) {
+      throw new Error(`Template "${template.name}" has no media header — do not pass header_image_url.`);
+    }
+    if (variables.length !== req.body_variable_count) {
+      throw new Error(`Template "${template.name}" needs ${req.body_variable_count} variable(s) but ${variables.length} were given.`);
+    }
+    const valueButtons = req.buttons.map((b, index) => ({ ...b, index })).filter((b) => b.needs_value);
+    const given = new Set((buttons || []).map((b) => Number(b.index)));
+    const missing = valueButtons.filter((b) => !given.has(b.index));
+    if (missing.length) {
+      throw new Error(`Template "${template.name}" has button(s) needing a value: ${missing.map((b) => `#${b.index} ${b.type} "${b.text}"`).join(', ')} — pass them in buttons: [{ index, value }].`);
+    }
+  }
 
   const thread = await getOrCreateThread({ phone: to, contactName, contactType, vendorId });
 
@@ -240,6 +262,13 @@ export async function sendWhatsAppTemplate({ to, templateName, variables = [], l
   const components = [
     ...(headerImageUrl ? [{ type: 'header', parameters: [{ type: 'image', image: { link: headerImageUrl } }] }] : []),
     ...(bodyParameters.length ? [{ type: 'body', parameters: bodyParameters }] : []),
+    ...(buttons || []).map((b) => {
+      const index = String(Number(b.index));
+      const subType = String(b.sub_type || req?.buttons?.[Number(b.index)]?.type || 'URL').toLowerCase();
+      if (subType === 'quick_reply') return { type: 'button', sub_type: 'quick_reply', index, parameters: [{ type: 'payload', payload: String(b.value ?? '') }] };
+      if (subType === 'copy_code') return { type: 'button', sub_type: 'copy_code', index, parameters: [{ type: 'coupon_code', coupon_code: String(b.value ?? '') }] };
+      return { type: 'button', sub_type: 'url', index, parameters: [{ type: 'text', text: String(b.value ?? '') }] };
+    }),
   ];
 
   try {
@@ -292,10 +321,37 @@ export async function readWhatsAppThread({ phone, limit = 30 }) {
   return { thread, messages: (messages || []).reverse() };
 }
 
+/**
+ * Plain-language summary of what a template needs when sent, derived from the
+ * stored Meta components. null until the template has been synced from Meta.
+ * header_format: TEXT | IMAGE | VIDEO | DOCUMENT | LOCATION | null (no header).
+ * Each button reports whether Meta expects a value for it at send time.
+ */
+export function summarizeTemplateRequirements(components) {
+  if (!Array.isArray(components)) return null;
+  const header = components.find((c) => c.type === 'HEADER');
+  const body = components.find((c) => c.type === 'BODY');
+  const buttons = (components.find((c) => c.type === 'BUTTONS')?.buttons || []).map((b) => ({
+    type: b.type,
+    text: b.text,
+    // URL buttons only need a value when their url contains a {{n}} placeholder;
+    // COPY_CODE always needs the code; quick replies/phone/etc. need none.
+    needs_value: b.type === 'COPY_CODE' || (b.type === 'URL' && /\{\{\d+\}\}/.test(b.url || '')),
+    ...(b.type === 'URL' ? { url: b.url } : {}),
+  }));
+  return {
+    header_format: header?.format || null,
+    header_needs_media: ['IMAGE', 'VIDEO', 'DOCUMENT'].includes(header?.format),
+    body_variable_count: templateVariableTokens(body?.text || '').length,
+    buttons,
+    buttons_needing_value: buttons.filter((b) => b.needs_value).length,
+  };
+}
+
 export async function listWhatsAppTemplates() {
   const { data, error } = await supabase.from('internal_whatsapp_templates').select('*').eq('is_active', true).order('name');
   if (error) throw error;
-  return data || [];
+  return (data || []).map((t) => ({ ...t, requirements: summarizeTemplateRequirements(t.meta_components) }));
 }
 
 const WHATSAPP_BUSINESS_ACCOUNT_ID = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID || '';
@@ -355,7 +411,7 @@ export async function syncWhatsAppTemplateStatuses() {
 
   const { data: localTemplates, error: localError } = await supabase
     .from('internal_whatsapp_templates')
-    .select('id, name, language, meta_template_status, category');
+    .select('id, name, language, meta_template_status, category, meta_components');
   if (localError) throw localError;
 
   let updated = 0;
@@ -368,10 +424,16 @@ export async function syncWhatsAppTemplateStatuses() {
       unmatched.push(local.name);
       continue;
     }
-    if (match.status !== local.meta_template_status || match.category !== local.category) {
+    const componentsChanged = match.components && JSON.stringify(match.components) !== JSON.stringify(local.meta_components);
+    if (match.status !== local.meta_template_status || match.category !== local.category || componentsChanged) {
       await supabase
         .from('internal_whatsapp_templates')
-        .update({ meta_template_status: match.status, category: match.category, updated_at: new Date().toISOString() })
+        .update({
+          meta_template_status: match.status,
+          category: match.category,
+          ...(match.components ? { meta_components: match.components } : {}),
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', local.id);
       updated += 1;
     }
@@ -390,6 +452,7 @@ export async function syncWhatsAppTemplateStatuses() {
       language: meta.language,
       template_content: bodyText,
       meta_template_status: meta.status,
+      meta_components: meta.components || null,
       is_active: true,
     });
     if (!insertError) seeded += 1;

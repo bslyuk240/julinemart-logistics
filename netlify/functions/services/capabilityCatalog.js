@@ -765,7 +765,7 @@ export const CAPABILITIES = [
   },
   {
     id: 'whatsapp.templates.list', domain: 'whatsapp', name: 'List WhatsApp Templates',
-    description: 'List active message templates available for whatsapp.template.send, with their content and Meta approval status.',
+    description: 'List active message templates available for whatsapp.template.send, with their content, Meta approval status and a `requirements` summary (header_format, header_needs_media, body_variable_count, buttons and which need a value). Check `requirements` before sending: it tells you whether header_image_url and buttons are needed. requirements is null until the template has been synced from Meta.',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
     http_method: 'GET', endpoint: '/whatsapp/templates',
     idempotency_required: false, approval_recommended: false, enabled: true,
@@ -783,7 +783,7 @@ export const CAPABILITIES = [
     description: 'Send an approved message template — the only way to message someone outside their 24h window, or reach them for the first time (e.g. a vendor broadcast). Cannot send arbitrary text this way, only an existing template\'s {{variables}} filled in. IMPORTANT: if the template was created in WhatsApp Manager with an IMAGE HEADER (e.g. the gift box templates), you MUST pass header_image_url or Meta rejects the send with error #132012 "Parameter format does not match format in the created template". The header is never added automatically.',
     operation_type: 'create', side_effect_type: 'external_communication', risk_level: 'high',
     http_method: 'POST', endpoint: '/whatsapp/template',
-    input_schema: { to: 'string (phone number)', template_name: 'string (must match an active internal_whatsapp_templates.name)', variables: 'array of string (optional, fills {{1}}, {{2}}, ... in order)', header_image_url: 'string (https image URL; required for templates that have an image header, omit for text-only templates)', language: 'string (optional, defaults to the template\'s own language)', contact_name: 'string (optional)', contact_type: 'vendor | lead (optional, default lead)', vendor_id: 'string (uuid, optional)' },
+    input_schema: { to: 'string (phone number)', template_name: 'string (must match an active internal_whatsapp_templates.name)', variables: 'array of string (optional, fills {{1}}, {{2}}, ... in order)', header_image_url: 'string (https image URL; required for templates that have an image header, omit for text-only templates)', buttons: 'array of { index: number (0-based button position), value: string } (only for templates whose button needs a value; see requirements.buttons in whatsapp.templates.list)', language: 'string (optional, defaults to the template\'s own language)', contact_name: 'string (optional)', contact_type: 'vendor | lead (optional, default lead)', vendor_id: 'string (uuid, optional)' },
     idempotency_required: false, approval_recommended: true, enabled: true,
   },
 

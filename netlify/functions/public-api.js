@@ -38,6 +38,7 @@ import {
   getRecommendations as getMetaRecommendations,
   uploadVideoToMeta as uploadMetaVideo,
   setVideoThumbnail as setMetaVideoThumbnail,
+  TRUSTED_MEDIA_HOSTS,
 } from './meta-ads.js';
 import {
   postToFacebookPage,
@@ -852,10 +853,106 @@ const DRAFT_SECTION_TYPES = ['hero', 'benefits', 'vendor_story', 'products', 'of
 const DRAFT_DEFAULT_SECTIONS = ['hero', 'benefits', 'vendor_story', 'products', 'offer', 'reviews', 'media_gallery'];
 const DRAFT_PRODUCT_SOURCES = new Set(['automatic', 'manual', 'rules_based']);
 const DRAFT_REVIEW_SCOPES = new Set(['product', 'featured_products', 'vendor', 'category', 'mixed']);
-const DRAFT_MEDIA_HOSTS = new Set(['res.cloudinary.com']);
+const DRAFT_IMAGE_BUCKET = 'product-images'; // public; 5 MB; jpeg/png/webp/gif
+const DRAFT_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 class DraftValidationError extends Error {}
 const bad = (msg) => { throw new DraftValidationError(msg); };
+
+function draftSupabaseHost() {
+  return (process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '').replace(/^https?:\/\//, '').split('/')[0];
+}
+// Hosts whose URLs are kept as-is (the campaign pages already render these).
+function draftIsOwnMediaHost(hostname) {
+  return hostname === 'res.cloudinary.com' || (!!draftSupabaseHost() && hostname === draftSupabaseHost());
+}
+
+function sniffImageType(buf) {
+  if (buf.length > 12 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return ['image/jpeg', 'jpg'];
+  if (buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return ['image/png', 'png'];
+  if (buf.length > 12 && buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP') return ['image/webp', 'webp'];
+  return null;
+}
+
+async function draftStoreImage(adminClient, ctx, buffer, field) {
+  if (buffer.length > DRAFT_IMAGE_MAX_BYTES) bad(`${field}: image must be 5 MB or smaller`);
+  const type = sniffImageType(buffer);
+  if (!type) bad(`${field}: image must be a valid JPEG, PNG or WebP`);
+  const path = `campaign-drafts/${Date.now()}_${Math.random().toString(36).slice(2, 10)}.${type[1]}`;
+  const { data, error } = await adminClient.storage.from(DRAFT_IMAGE_BUCKET).upload(path, buffer, { contentType: type[0], upsert: false });
+  if (error) bad(`${field}: upload failed (${error.message})`);
+  ctx.uploaded.push(data.path);
+  return adminClient.storage.from(DRAFT_IMAGE_BUCKET).getPublicUrl(data.path).data.publicUrl;
+}
+
+// Accepts: a Cloudinary/Supabase URL (kept), a trusted asset URL such as Skola's
+// own image host (fetched and re-hosted), a data: URI, or { base64 }.
+async function draftResolveImage(adminClient, ctx, value, field) {
+  if (value === undefined || value === null || value === '') return value;
+  if (isPlainObject(value)) {
+    const b64 = String(value.base64 || '').replace(/^data:[^;]+;base64,/, '');
+    if (!b64) bad(`${field}.base64 is required`);
+    return draftStoreImage(adminClient, ctx, Buffer.from(b64, 'base64'), field);
+  }
+  if (typeof value !== 'string') bad(`${field} must be a URL, a data: URI or { base64 }`);
+  const s = value.trim();
+  if (s.startsWith('data:')) {
+    const m = s.match(/^data:image\/[a-z0-9.+-]+;base64,(.+)$/is);
+    if (!m) bad(`${field}: data URI must be a base64 image`);
+    return draftStoreImage(adminClient, ctx, Buffer.from(m[1], 'base64'), field);
+  }
+  let u;
+  try { u = new URL(s); } catch { bad(`${field} must be a valid URL`); }
+  if (u.protocol !== 'https:') bad(`${field} must use https`);
+  if (draftIsOwnMediaHost(u.hostname)) return s;
+  if (!TRUSTED_MEDIA_HOSTS.has(u.hostname)) {
+    bad(`${field}: host "${u.hostname}" is not allowed. Send the image as base64, or use a Cloudinary, Supabase or Skola asset URL`);
+  }
+  let res;
+  try { res = await fetch(s, { redirect: 'error', signal: AbortSignal.timeout(8000) }); }
+  catch { bad(`${field}: could not download the image`); }
+  if (!res.ok) bad(`${field}: image download failed (HTTP ${res.status})`);
+  const declared = Number(res.headers.get('content-length') || 0);
+  if (declared > DRAFT_IMAGE_MAX_BYTES) bad(`${field}: image must be 5 MB or smaller`);
+  return draftStoreImage(adminClient, ctx, Buffer.from(await res.arrayBuffer()), field);
+}
+
+// Pre-pass: turns every image the agent sent into a final public URL before validation.
+async function draftRehostMedia(adminClient, body, ctx) {
+  if (!isPlainObject(body)) return;
+  const jobs = [];
+  const img = (obj, key, field) => {
+    if (obj && obj[key] !== undefined) jobs.push(draftResolveImage(adminClient, ctx, obj[key], field).then((v) => { obj[key] = v; }));
+  };
+  if (isPlainObject(body.hero)) { img(body.hero, 'image_desktop', 'hero.image_desktop'); img(body.hero, 'image_mobile', 'hero.image_mobile'); }
+  if (isPlainObject(body.vendor)) { img(body.vendor, 'logo_url', 'vendor.logo_url'); img(body.vendor, 'shop_image_url', 'vendor.shop_image_url'); }
+  if (Array.isArray(body.media_gallery) && body.media_gallery.length <= 12) {
+    body.media_gallery.forEach((m, i) => {
+      if (!isPlainObject(m)) return;
+      if (m.type !== 'video') img(m, 'url', `media_gallery[${i}].url`);
+      img(m, 'thumbnail_url', `media_gallery[${i}].thumbnail_url`);
+    });
+  }
+  const results = await Promise.allSettled(jobs);
+  const failed = results.find((r) => r.status === 'rejected');
+  if (failed) throw failed.reason;
+}
+
+// Runs a draft create/update with image re-hosting; removes uploaded files if it fails.
+async function withDraftMedia(adminClient, body, run) {
+  const ctx = { uploaded: [] };
+  let res;
+  try {
+    await draftRehostMedia(adminClient, body, ctx);
+    res = await run();
+  } catch (e) {
+    res = e instanceof DraftValidationError ? json(400, { error: e.message }) : json(500, { error: e.message });
+  }
+  if (res.statusCode >= 400 && ctx.uploaded.length) {
+    await adminClient.storage.from(DRAFT_IMAGE_BUCKET).remove(ctx.uploaded).catch(() => {});
+  }
+  return res;
+}
 
 function draftText(v, max, field) {
   if (v === undefined || v === null) return undefined;
@@ -869,8 +966,8 @@ function draftMediaUrl(v, field) {
   if (!s) return undefined;
   let u;
   try { u = new URL(s); } catch { bad(`${field} must be a valid URL`); }
-  if (u.protocol !== 'https:' || !DRAFT_MEDIA_HOSTS.has(u.hostname)) {
-    bad(`${field} must be an https Cloudinary URL (res.cloudinary.com)`);
+  if (u.protocol !== 'https:' || !(draftIsOwnMediaHost(u.hostname) || TRUSTED_MEDIA_HOSTS.has(u.hostname))) {
+    bad(`${field} must be an https URL on Cloudinary, Supabase Storage or Skola's asset host`);
   }
   return s;
 }
@@ -1778,12 +1875,14 @@ export const handler = async (event) => {
       if (segments.length === 2 && segments[1] === 'drafts' && method === 'POST') {
         const auth = await authenticateServiceApiRequest(event, 'campaigns.draft.create');
         if (auth.errorResponse) return auth.errorResponse;
-        return await createCampaignDraft(auth.adminClient, JSON.parse(event.body || '{}'));
+        const draftBody = JSON.parse(event.body || '{}');
+        return await withDraftMedia(auth.adminClient, draftBody, () => createCampaignDraft(auth.adminClient, draftBody));
       }
       if (segments.length === 3 && segments[1] === 'drafts' && method === 'PUT') {
         const auth = await authenticateServiceApiRequest(event, 'campaigns.draft.update');
         if (auth.errorResponse) return auth.errorResponse;
-        return await updateCampaignDraft(auth.adminClient, segments[2], JSON.parse(event.body || '{}'));
+        const draftBody = JSON.parse(event.body || '{}');
+        return await withDraftMedia(auth.adminClient, draftBody, () => updateCampaignDraft(auth.adminClient, segments[2], draftBody));
       }
       if (segments.length === 1 && method === 'POST') {
         const auth = await authenticateServiceApiRequest(event, 'campaigns.giveaway.submit');

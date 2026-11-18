@@ -7,6 +7,7 @@ import fetch from "node-fetch";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { authenticateFez as sharedAuthenticateFez } from "./fezAuth.js";
+import { resolveTransactionRef } from "./paystack-reference.js";
 
 // -----------------------------------------
 // SUPABASE SETUP
@@ -172,6 +173,10 @@ export async function createPaystackRefund({ transactionRef, amount, reason }) {
   // Paystack refund amount is in kobo (multiply NGN by 100)
   const amountKobo = Math.round(amount * 100);
 
+  // orders.payment_reference is not the Paystack transaction reference (the PWA
+  // adds a per-attempt suffix), so resolve the real one before refunding.
+  const resolvedRef = await resolveTransactionRef(supabase, transactionRef, PAYSTACK_SECRET);
+
   const res = await fetch("https://api.paystack.co/refund", {
     method: "POST",
     headers: {
@@ -179,7 +184,7 @@ export async function createPaystackRefund({ transactionRef, amount, reason }) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      transaction: transactionRef,
+      transaction: resolvedRef,
       amount: amountKobo,
       ...(reason ? { customer_note: reason, merchant_note: reason } : {}),
     }),

@@ -16,6 +16,7 @@ import { isGiftOrderKind, markGiftOrderCancelled } from './services/gift-cancel.
 import { findArrangedShipment } from './services/cancellation-rules.js';
 import { authenticateCustomer } from './services/customerAuth.js';
 import { reverseRewardsForOrder } from './services/rewards-hooks.js';
+import { resolveTransactionRef } from './services/paystack-reference.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
@@ -243,7 +244,23 @@ export async function handler(event) {
 
     if (isPaid) {
       const amountKobo = Math.round((Number(order.total_amount) || 0) * 100);
-      refundResult = await initiatePaystackRefund(order.payment_reference, amountKobo, reason);
+      const transactionRef = await resolveTransactionRef(supabase, order.payment_reference, PAYSTACK_SECRET);
+      refundResult = await initiatePaystackRefund(transactionRef, amountKobo, reason);
+
+      if (!refundResult) {
+        // Don't tell the customer a refund started when it did not; flag it for staff.
+        try {
+          await supabase.from('activity_logs').insert({
+            user_id: null,
+            actor_email: order.customer_email || null,
+            action: 'REFUND_AUTO_FAILED',
+            resource_type: 'orders',
+            resource_id: order.id,
+            details: { order_number: order.order_number, amount: Number(order.total_amount), transaction_ref: transactionRef },
+            source: 'system',
+          });
+        } catch { /* best effort */ }
+      }
 
       if (refundResult) {
         // Update payment_status to refunded
@@ -262,7 +279,7 @@ export async function handler(event) {
             reason,
             status: refundResult.status || 'pending',
             paystack_refund_id: String(refundResult.id || ''),
-            paystack_transaction_ref: order.payment_reference,
+            paystack_transaction_ref: transactionRef,
             paystack_status: refundResult.status,
             paystack_raw: refundResult,
             initiated_by: 'customer',
@@ -281,7 +298,9 @@ export async function handler(event) {
       body: JSON.stringify({
         success: true,
         message: isPaid
-          ? 'Order cancelled. Your refund has been initiated and will arrive within 5–10 business days.'
+          ? refundResult
+            ? 'Order cancelled. Your refund has been initiated and will arrive within 5–10 business days.'
+            : 'Order cancelled. We could not start your refund automatically; our team has been notified and will process it.'
           : 'Order cancelled successfully.',
         data: {
           order_id: order.id,

@@ -129,6 +129,9 @@ export async function handler(event) {
       payment_status: 'paid',
       overall_status: 'processing',
       payment_method: pd.channel || 'paystack',
+      // The PWA opens Paystack with a fresh `<ref>-R<TS>` reference; keep the real
+      // one so webhooks can match the order and refunds can find the transaction.
+      ...(isFreeOrder ? {} : { paystack_reference: txRef }),
       paid_at: pd.paid_at || new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })

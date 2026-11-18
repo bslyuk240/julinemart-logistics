@@ -17,6 +17,7 @@ import { recordInfluencerSaleForPaidOrder } from './services/influencer-order-sa
 import { notifyOnPaidOrder } from './services/paidOrderNotify.js';
 import { sendWebhookEvent } from './services/webhookDelivery.js';
 import { recordRewardsForPaidOrder, reverseRewardsForOrder } from './services/rewards-hooks.js';
+import { resolveOrderReference } from './services/paystack-reference.js';
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
@@ -56,6 +57,10 @@ export async function handler(event) {
   if (!reference) return jsonResponse(200, { received: true }); // not our event, ack it
 
   try {
+    // Paystack's reference may carry the PWA's per-attempt suffix; map it back to
+    // the order's own payment_reference before looking anything up.
+    const orderRef = await resolveOrderReference(adminClient, reference);
+
     switch (eventType) {
       case 'charge.success': {
         // Check if this is a vendor return debit payment
@@ -82,7 +87,7 @@ export async function handler(event) {
         const { data: preUpdateOrder } = await adminClient
           .from('orders')
           .select('overall_status, total_amount')
-          .eq('payment_reference', reference)
+          .eq('payment_reference', orderRef)
           .maybeSingle();
 
         // Never confirm an order the cleared amount does not cover (the order
@@ -107,10 +112,11 @@ export async function handler(event) {
             payment_status: 'paid',
             overall_status: 'processing',
             payment_method: data.channel || 'paystack',
+            paystack_reference: reference,
             paid_at: data.paid_at || new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
-          .eq('payment_reference', reference)
+          .eq('payment_reference', orderRef)
           .eq('payment_status', 'pending') // idempotent — won't double-update
           .select('id, order_number, customer_name, customer_email, total_amount, overall_status')
           .maybeSingle();
@@ -163,7 +169,7 @@ export async function handler(event) {
             payment_status: 'failed',
             updated_at: new Date().toISOString(),
           })
-          .eq('payment_reference', reference)
+          .eq('payment_reference', orderRef)
           .eq('payment_status', 'pending');
         break;
       }
@@ -172,7 +178,7 @@ export async function handler(event) {
         const { data: preRefundOrder } = await adminClient
           .from('orders')
           .select('overall_status')
-          .eq('payment_reference', reference)
+          .eq('payment_reference', orderRef)
           .maybeSingle();
 
         const { data: refundedOrder } = await adminClient
@@ -182,7 +188,7 @@ export async function handler(event) {
             overall_status: 'refunded',
             updated_at: new Date().toISOString(),
           })
-          .eq('payment_reference', reference)
+          .eq('payment_reference', orderRef)
           .select('id, order_number, total_amount')
           .maybeSingle();
 

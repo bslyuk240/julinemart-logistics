@@ -16,6 +16,7 @@ import { headers, jsonResponse, adminClient } from './services/global-sourcing-u
 import { recordInfluencerSaleForPaidOrder } from './services/influencer-order-sale.js';
 import { notifyOnPaidOrder } from './services/paidOrderNotify.js';
 import { sendWebhookEvent } from './services/webhookDelivery.js';
+import { recordRewardsForPaidOrder } from './services/rewards-hooks.js';
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
@@ -121,6 +122,9 @@ export async function handler(event) {
           } catch (e) {
             console.warn('paystack-webhook: paid order notify', e?.message || e);
           }
+
+          // JulinePoints: pending purchase/referral awards. Never blocks payment.
+          await recordRewardsForPaidOrder(adminClient, updatedOrder.id);
 
           try {
             const { data: fullOrder } = await adminClient

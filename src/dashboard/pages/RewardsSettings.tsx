@@ -20,7 +20,12 @@ interface Version {
   published_at: string | null;
 }
 interface AuditRow { id: string; actor_email: string | null; action: string; created_at: string; reason: string | null }
+interface ReviewItem {
+  id: string; order_number: string | number | null; referrer: string; referee: string;
+  qualifying_amount: number; points: number; signals: string[]; created_at: string;
+}
 interface Payload {
+  review_queue?: ReviewItem[];
   active_version_id: string | null;
   versions: Version[];
   audit: AuditRow[];
@@ -179,6 +184,12 @@ export function RewardsSettingsPage() {
     if (editingId === v.id) { setEditingId(null); setDraft(null); }
   }, 'Draft deleted');
 
+  const reviewAward = (item: ReviewItem, decision: 'approve' | 'reject') => run(async () => {
+    const verb = decision === 'approve' ? 'Approve' : 'Reject';
+    if (!window.confirm(`${verb} this referral (${item.points} pts to ${item.referrer})?`)) return;
+    await api('POST', { action: 'review_award', id: item.id, decision });
+  }, decision === 'approve' ? 'Referral approved; it will vest after delivery and the hold' : 'Referral rejected');
+
   const setField = (path: string, value: unknown) => setDraft((d) => (d ? setPath(d, path, value) : d));
 
   const renderField = (f: Field) => {
@@ -251,6 +262,31 @@ export function RewardsSettingsPage() {
           value={data?.totals.reconciliation_drift_accounts == null ? 'n/a' : String(data.totals.reconciliation_drift_accounts)}
         />
       </div>
+
+      {(data?.review_queue?.length ?? 0) > 0 && (
+        <section className="rounded-xl border border-amber-300 bg-white">
+          <header className="border-b border-gray-200 px-4 py-3 font-semibold">
+            Referrals awaiting review ({data?.review_queue?.length})
+          </header>
+          <ul className="divide-y divide-gray-100 text-sm">
+            {data?.review_queue?.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+                <div>
+                  <div><span className="font-medium">{r.referrer}</span> referred <span className="font-medium">{r.referee}</span></div>
+                  <div className="text-gray-500">
+                    Order {r.order_number ?? '—'} · ₦{Number(r.qualifying_amount).toLocaleString()} · {r.points} pts ·{' '}
+                    flagged: {r.signals.map((s) => s.replace(/_/g, ' ')).join(', ')}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button className="text-sm text-blue-600 hover:underline" disabled={busy} onClick={() => reviewAward(r, 'approve')}>Approve</button>
+                  <button className="text-sm text-red-600 hover:underline" disabled={busy} onClick={() => reviewAward(r, 'reject')}>Reject</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="rounded-xl border border-gray-200 bg-white">
         <header className="border-b border-gray-200 px-4 py-3 font-semibold">Versions</header>

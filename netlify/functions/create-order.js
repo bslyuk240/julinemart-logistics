@@ -26,6 +26,7 @@ import {
   extractGlobalSourcingFromSupabaseMeta,
 } from './services/global-sourcing-utils.js';
 import { checkRateLimit } from './services/rate-limit.js';
+import { authenticateCustomer } from './services/customerAuth.js';
 // CJ auto-ordering removed — supplier orders are placed manually via Global Sourcing → Inbound Shipments
 // Generic percentage/fixed/free shipping-discount calculator — used for both
 // influencer coupons and campaign vouchers (same shipping_discount_type/value shape).
@@ -72,6 +73,20 @@ export async function handler(event) {
   let body;
   try { body = JSON.parse(event.body || '{}'); }
   catch { return jsonResponse(400, { error: 'Invalid JSON body' }); }
+
+  // Optional login: when a valid customer JWT is sent, link the order to that
+  // verified account (needed for JulinePoints). Guests, a missing token or an
+  // invalid/expired one all fall through as a normal guest order — checkout
+  // must never fail because of this.
+  let authedCustomerId = null;
+  if (event.headers?.authorization || event.headers?.Authorization) {
+    try {
+      const { userId } = await authenticateCustomer(event);
+      authedCustomerId = userId || null;
+    } catch {
+      authedCustomerId = null;
+    }
+  }
 
   let {
     customer_name,
@@ -456,6 +471,7 @@ export async function handler(event) {
         customer_name: customer_name.trim(),
         customer_email: customer_email.trim().toLowerCase(),
         customer_phone: customer_phone.trim(),
+        customer_id: authedCustomerId,
         delivery_address: delivery_address.trim(),
         delivery_city: delivery_city.trim(),
         delivery_state: delivery_state.trim(),

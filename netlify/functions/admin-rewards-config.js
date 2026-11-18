@@ -45,7 +45,7 @@ export async function handler(event) {
 
   try {
     if (isRead) {
-      const [versions, audits, active, accounts, drift] = await Promise.all([
+      const [versions, audits, active, accounts, drift, review] = await Promise.all([
         db.from('rewards_config_versions')
           .select('id, version, status, effective_from, policy, note, created_at, published_at, cancelled_at')
           .order('version', { ascending: false }).limit(50),
@@ -55,14 +55,38 @@ export async function handler(event) {
         getActiveConfig(db),
         db.from('rewards_accounts').select('balance_points', { count: 'exact' }),
         db.from('rewards_reconciliation').select('user_id', { count: 'exact', head: true }),
+        db.from('rewards_referral_awards')
+          .select('id, order_id, referrer_id, referee_id, qualifying_amount, points, signals, created_at')
+          .eq('status', 'in_review').order('created_at', { ascending: true }).limit(100),
       ]);
-      for (const r of [versions, audits, accounts]) if (r.error) throw r.error;
+      for (const r of [versions, audits, accounts, review]) if (r.error) throw r.error;
+
+      // Admins may see who is involved so they can judge a flagged referral.
+      const ids = [...new Set((review.data || []).flatMap((a) => [a.referrer_id, a.referee_id]))];
+      const orderIds = (review.data || []).map((a) => a.order_id);
+      const [{ data: people }, { data: orderRows }] = await Promise.all([
+        ids.length ? db.from('customers').select('id, email, first_name, last_name').in('id', ids) : { data: [] },
+        orderIds.length ? db.from('orders').select('id, order_number').in('id', orderIds) : { data: [] },
+      ]);
+      const personById = new Map((people || []).map((p) => [p.id, p]));
+      const orderNo = new Map((orderRows || []).map((o) => [o.id, o.order_number]));
+      const reviewQueue = (review.data || []).map((a) => ({
+        id: a.id,
+        order_number: orderNo.get(a.order_id) ?? null,
+        referrer: personById.get(a.referrer_id)?.email || a.referrer_id,
+        referee: personById.get(a.referee_id)?.email || a.referee_id,
+        qualifying_amount: a.qualifying_amount,
+        points: a.points,
+        signals: a.signals,
+        created_at: a.created_at,
+      }));
       const outstanding = (accounts.data || []).reduce((s, a) => s + (a.balance_points || 0), 0);
       return jsonResponse(200, {
         success: true,
         active_version_id: active?.id || null,
         versions: versions.data || [],
         audit: audits.data || [],
+        review_queue: reviewQueue,
         totals: {
           wallets: accounts.count ?? (accounts.data || []).length,
           outstanding_points: outstanding,
@@ -164,6 +188,31 @@ export async function handler(event) {
       if (!data) return jsonResponse(409, { success: false, error: 'Version took effect or changed; reload.' });
       await audit(db, authUser, 'VERSION_CANCELLED', id, { effective_from: before.effective_from }, null, body.reason);
       return jsonResponse(200, { success: true, version: data });
+    }
+
+    if (action === 'review_award') {
+      if (!id) return jsonResponse(400, { success: false, error: 'id is required' });
+      if (!['approve', 'reject'].includes(body.decision)) {
+        return jsonResponse(400, { success: false, error: 'decision must be approve or reject' });
+      }
+      // Approve releases the award to the normal vesting sweep (delivery + hold);
+      // it does not credit points immediately.
+      const { data, error } = await db.rpc('rewards_review_referral_award', {
+        p_award_id: id,
+        p_decision: body.decision,
+        p_reviewer: authUser.id,
+        p_reason: body.reason || null,
+      });
+      if (error) {
+        if (/not found or not awaiting review/.test(error.message || '')) {
+          return jsonResponse(409, { success: false, error: 'That referral is no longer awaiting review.' });
+        }
+        throw error;
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      await audit(db, authUser, body.decision === 'approve' ? 'REFERRAL_APPROVED' : 'REFERRAL_REJECTED',
+        null, { award_id: id }, { status: row?.status }, body.reason);
+      return jsonResponse(200, { success: true, award: row });
     }
 
     return jsonResponse(400, { success: false, error: 'Unknown action' });

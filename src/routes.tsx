@@ -130,6 +130,7 @@ import { DocumentsPage } from './dashboard/pages/Documents';
 import { FinancePage } from './dashboard/pages/Finance';
 import { SettlementsPage } from './dashboard/pages/Settlements';
 import { ShippingDiscountsPage } from './dashboard/pages/ShippingDiscounts';
+import { RewardsSettingsPage } from './dashboard/pages/RewardsSettings';
 import { ShippingRatesPage } from './dashboard/pages/ShippingRates';
 import { UsersPage } from './dashboard/pages/Users';
 import SupportInbox from './dashboard/pages/SupportInbox';
@@ -646,6 +647,7 @@ const adminOnlyRoutes: AdminRouteConfig[] = [
   { path: 'users', element: <UsersRoute /> },
   { path: 'customers', element: <CustomersRoute /> },
   { path: 'discounts', element: <ShippingDiscountsRoute /> },
+  { path: 'rewards', element: <RewardsSettingsPage />, allowedRoles: ['admin', 'manager'] },
   { path: 'meta-ads', element: <MetaAdsRoute />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
   { path: 'google-ads', element: <GoogleAdsRoute />, allowedRoles: ['admin', 'manager', 'social_media_manager'] },
   { path: 'influencers', element: <InfluencersRoute /> },

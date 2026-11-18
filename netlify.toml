@@ -288,6 +288,10 @@
   timeout = 60
   schedule = "*/15 * * * *"
 
+[functions."expire-abandoned-orders-scheduled"]
+  timeout = 60
+  schedule = "30 * * * *"
+
 [functions."detect-delayed-shipments-scheduled"]
   timeout = 60
   schedule = "*/30 * * * *"

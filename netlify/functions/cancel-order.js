@@ -15,6 +15,7 @@ import { releaseVoucherUsage } from './helpers/voucherHelpers.js';
 import { isGiftOrderKind, markGiftOrderCancelled } from './services/gift-cancel.js';
 import { findArrangedShipment } from './services/cancellation-rules.js';
 import { authenticateCustomer } from './services/customerAuth.js';
+import { reverseRewardsForOrder } from './services/rewards-hooks.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
@@ -188,6 +189,9 @@ export async function handler(event) {
       .eq('id', order_id);
 
     if (updateOrderErr) throw updateOrderErr;
+
+    // JulinePoints: release the hold (unpaid) or restore redeemed points (paid).
+    await reverseRewardsForOrder(supabase, order_id, 'order_cancelled');
 
     // Give the voucher code back so a cancelled/unpaid order doesn't
     // permanently burn a limited-use code the customer never got to use.

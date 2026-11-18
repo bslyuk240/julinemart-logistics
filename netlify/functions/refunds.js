@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { createPaystackRefund } from './services/returns-utils.js';
 import { requireAdmin } from './services/global-sourcing-utils.js';
 import { recordStaffAudit } from './services/auditLog.js';
+import { reverseRewardsForOrder } from './services/rewards-hooks.js';
 import { REFUND_APPROVAL_ROLES, RETURNS_ACTION_ROLES, RETURNS_VIEW_ROLES } from './services/staff-roles.js';
 
 const supabase = createClient(
@@ -174,6 +175,11 @@ export async function handler(event) {
         .single();
 
       if (recErr) console.error('Failed to record refund:', recErr.message);
+
+      // Full refund only; partial refunds leave JulinePoints untouched.
+      if (Number(amount) + 1 >= Number(order.total_amount)) {
+        await reverseRewardsForOrder(supabase, order.id, 'order_refunded');
+      }
 
       await recordStaffAudit(event, auth.authUser, {
         action: 'REFUND_CREATED',

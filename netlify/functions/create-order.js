@@ -62,17 +62,20 @@ export async function handler(event) {
   if (event.httpMethod !== 'POST') return jsonResponse(405, { error: 'Method not allowed' });
   if (!adminClient) return jsonResponse(503, { error: 'Database not configured' });
 
+  let body;
+  try { body = JSON.parse(event.body || '{}'); }
+  catch { return jsonResponse(400, { error: 'Invalid JSON body' }); }
+
+  // Quote-only calls (checkout totals preview, no order written) get their own,
+  // roomier bucket so toggling points or a voucher doesn't burn order attempts.
+  const quoteOnly = body.quote_only === true;
   const { limited, response } = await checkRateLimit(event, {
-    name: 'create-order',
-    max: 8,
+    name: quoteOnly ? 'create-order-quote' : 'create-order',
+    max: quoteOnly ? 40 : 8,
     window: '5 m',
     retryAfterSeconds: 300,
   });
   if (limited) return response;
-
-  let body;
-  try { body = JSON.parse(event.body || '{}'); }
-  catch { return jsonResponse(400, { error: 'Invalid JSON body' }); }
 
   // Optional login: when a valid customer JWT is sent, link the order to that
   // verified account (needed for JulinePoints). Guests, a missing token or an
@@ -107,6 +110,13 @@ export async function handler(event) {
     fulfillment_method = 'delivery',
   } = body;
 
+  // JulinePoints: the browser only says HOW MANY points it would like to use
+  // (or "as many as allowed"). The server decides what is actually allowed.
+  const pointsUseMax = body.points_use_max === true;
+  const pointsRequested =
+    Number.isInteger(body.points_to_redeem) && body.points_to_redeem > 0 ? body.points_to_redeem : 0;
+  const wantsPoints = pointsUseMax || pointsRequested > 0;
+
   // ── Validate required fields ──────────────────────────────────────────────
   const missing = [];
   if (!customer_name?.trim()) missing.push('customer_name');
@@ -120,29 +130,36 @@ export async function handler(event) {
   const isStorePickup = fulfillment_method === 'store_pickup';
   const isReservation = fulfillment_method === 'reservation';
   const isLocalCollection = isStorePickup || isReservation;
-  if (missing.length > 0) {
-    return jsonResponse(400, { error: `Missing required fields: ${missing.join(', ')}` });
+  // A quote-only call previews totals before the customer has filled in
+  // delivery details, so it only needs the items.
+  const quoteMissingItems = !Array.isArray(items) || items.length === 0;
+  if (quoteOnly ? quoteMissingItems : missing.length > 0) {
+    return jsonResponse(400, {
+      error: `Missing required fields: ${quoteOnly ? 'items' : missing.join(', ')}`,
+    });
   }
 
-  const deliveryCheck = validateDeliveryDetails({
-    name: customer_name,
-    email: customer_email,
-    phone: customer_phone,
-    address: delivery_address,
-    city: delivery_city,
-    state: delivery_state,
-    requireAddress: !isLocalCollection,
-    nameLabel: 'Customer name',
-  });
-  if (!deliveryCheck.ok) {
-    return jsonResponse(400, { error: firstDeliveryError(deliveryCheck) });
-  }
-  customer_name = deliveryCheck.normalized.name;
-  customer_email = deliveryCheck.normalized.email;
-  if (!isLocalCollection) {
-    delivery_city = deliveryCheck.normalized.city;
-    delivery_state = deliveryCheck.normalized.state;
-    delivery_address = deliveryCheck.normalized.address;
+  if (!quoteOnly) {
+    const deliveryCheck = validateDeliveryDetails({
+      name: customer_name,
+      email: customer_email,
+      phone: customer_phone,
+      address: delivery_address,
+      city: delivery_city,
+      state: delivery_state,
+      requireAddress: !isLocalCollection,
+      nameLabel: 'Customer name',
+    });
+    if (!deliveryCheck.ok) {
+      return jsonResponse(400, { error: firstDeliveryError(deliveryCheck) });
+    }
+    customer_name = deliveryCheck.normalized.name;
+    customer_email = deliveryCheck.normalized.email;
+    if (!isLocalCollection) {
+      delivery_city = deliveryCheck.normalized.city;
+      delivery_state = deliveryCheck.normalized.state;
+      delivery_address = deliveryCheck.normalized.address;
+    }
   }
 
   for (const item of items) {
@@ -443,7 +460,67 @@ export async function handler(event) {
 
     // ── Totals ─────────────────────────────────────────────────────────────
     const shippingFee = Math.max(shippingFeeBase - influencerShippingDiscount - voucherShippingDiscount, 0);
-    const totalAmount = Math.max(subtotal - discountAmount + shippingFee, 0);
+    // ── JulinePoints redemption ────────────────────────────────────────────
+    // Applied after product/campaign/voucher discounts, to merchandise only
+    // (shipping is never reduced by points). The database quote applies the
+    // active config (cap %, minimum, per-order max, partial use) and is the
+    // only authority on the amount.
+    const eligibleMerch = Math.max(subtotal - discountAmount, 0);
+    let pointsApplied = 0;
+    let pointsNaira = 0;
+    let pointsQuote = { enabled: false, reason: authedCustomerId ? 'unavailable' : 'sign_in' };
+    if (authedCustomerId && (wantsPoints || quoteOnly)) {
+      const requested = pointsUseMax ? null : pointsRequested; // null = maximum, 0 = preview
+      const { data: q, error: qErr } = await adminClient.rpc('rewards_quote_redemption', {
+        p_user: authedCustomerId,
+        p_eligible: eligibleMerch,
+        p_requested: requested,
+      });
+      if (qErr) {
+        console.error('create-order: points quote failed', qErr.message);
+        if (wantsPoints) {
+          return jsonResponse(503, { error: 'JulinePoints is unavailable right now. Remove points and try again.' });
+        }
+      } else if (q) {
+        pointsQuote = q;
+      }
+    }
+    if (wantsPoints) {
+      if (!authedCustomerId) {
+        return jsonResponse(401, { error: 'Sign in to use your JulinePoints.' });
+      }
+      if (!pointsQuote.enabled) {
+        return jsonResponse(400, { error: 'JulinePoints cannot be used on this order.' });
+      }
+      if (!pointsUseMax && Number(pointsQuote.applied_points) !== pointsRequested) {
+        return jsonResponse(409, {
+          error: 'Your available JulinePoints changed. Please review your order and try again.',
+          code: 'points_changed',
+          points: pointsQuote,
+        });
+      }
+      pointsApplied = Number(pointsQuote.applied_points) || 0;
+      pointsNaira = pointsApplied > 0 ? Number(pointsQuote.naira_value) || 0 : 0;
+    }
+
+    const totalAmount = Math.round(
+      Math.max(subtotal - discountAmount - pointsNaira + shippingFee, 0) * 100
+    ) / 100;
+
+    if (quoteOnly) {
+      return jsonResponse(200, {
+        success: true,
+        quote: {
+          subtotal,
+          discount_amount: discountAmount,
+          eligible_merchandise: eligibleMerch,
+          shipping_fee: shippingFee,
+          points_discount: pointsNaira,
+          total_amount: totalAmount,
+          points: pointsQuote,
+        },
+      });
+    }
     const paymentReference = generateRef();
 
     // Giveaway reward vouchers (early-bird / grand prize / consolation) are
@@ -482,6 +559,8 @@ export async function handler(event) {
         total_amount: totalAmount,
         shipping_fee_paid: shippingFee,
         discount_amount: discountAmount,
+        points_redeemed: pointsApplied,
+        points_discount: pointsNaira,
         // Attribution: piggybacks on the redeemed voucher's own campaign link
         // rather than a separate checkout payload field — a campaign-linked
         // voucher IS the evidence the order came from that campaign.
@@ -506,6 +585,16 @@ export async function handler(event) {
           /** DB webhook skips duplicate confirmation when this is set */
           order_confirmation_handler: 'netlify_create_order',
           ...(influencerMeta ? { influencer: influencerMeta } : {}),
+          ...(pointsApplied > 0
+            ? {
+                rewards: {
+                  points: pointsApplied,
+                  naira_value: pointsNaira,
+                  points_to_ngn: pointsQuote.points_to_ngn,
+                  config_version_id: pointsQuote.config_version_id,
+                },
+              }
+            : {}),
         },
       })
       .select('id, order_number')
@@ -514,6 +603,32 @@ export async function handler(event) {
     if (orderErr) return jsonResponse(500, { error: 'Failed to create order', detail: orderErr.message });
     const orderId = order.id;
     const orderNumber = order.order_number;
+
+    // Hold the points for this order (debited only once payment is confirmed).
+    // If another checkout took them in the meantime, abandon this order instead
+    // of charging the customer the points-reduced price.
+    const releaseHold = async (reason) => {
+      if (pointsApplied > 0) {
+        try {
+          await adminClient.rpc('rewards_release_reservation', { p_order_id: orderId, p_reason: reason });
+        } catch { /* the expiry sweep will release it */ }
+      }
+    };
+    if (pointsApplied > 0) {
+      const { error: holdErr } = await adminClient.rpc('rewards_reserve', {
+        p_user: authedCustomerId,
+        p_order_id: orderId,
+        p_points: pointsApplied,
+        p_eligible: eligibleMerch,
+      });
+      if (holdErr) {
+        await adminClient.from('orders').update({ overall_status: 'cancelled' }).eq('id', orderId);
+        return jsonResponse(409, {
+          error: 'Your available JulinePoints changed. Please review your order and try again.',
+          code: 'points_changed',
+        });
+      }
+    }
 
     // Audit: record storefront order placement server-side (service role).
     // Authoritative — captures EVERY order including guest checkouts and
@@ -572,7 +687,10 @@ export async function handler(event) {
         }))
       )
       .select('id, product_id, variation_id');
-    if (itemsErr) return jsonResponse(500, { error: 'Failed to save order items', detail: itemsErr.message });
+    if (itemsErr) {
+      await releaseHold('order_items_failed');
+      return jsonResponse(500, { error: 'Failed to save order items', detail: itemsErr.message });
+    }
 
     const customSpecs = [];
     for (let idx = 0; idx < resolvedItems.length; idx++) {
@@ -782,7 +900,10 @@ export async function handler(event) {
       .from('sub_orders')
       .insert(subOrderRows)
       .select();
-    if (subErr) return jsonResponse(500, { error: 'Failed to create sub-orders', detail: subErr.message });
+    if (subErr) {
+      await releaseHold('sub_orders_failed');
+      return jsonResponse(500, { error: 'Failed to create sub-orders', detail: subErr.message });
+    }
 
     const subOrders = insertedSubOrders || [];
 
@@ -877,6 +998,8 @@ export async function handler(event) {
         payment_reference: paymentReference,
         subtotal,
         discount_amount: discountAmount,
+        points_redeemed: pointsApplied,
+        points_discount: pointsNaira,
         shipping_fee: shippingFee,
         influencer_shipping_discount: influencerShippingDiscount,
         voucher_shipping_discount: voucherShippingDiscount,

@@ -18,6 +18,10 @@ export const handler = async () => {
     console.error('rewards-vest-scheduled failed:', error.message);
     return { statusCode: 500, body: error.message };
   }
-  console.log('rewards-vest-scheduled:', JSON.stringify(data));
-  return { statusCode: 200, body: JSON.stringify(data) };
+  // Release holds on abandoned checkouts (commits any that were paid but missed).
+  const { data: held, error: heldErr } = await supabase.rpc('rewards_expire_reservations', { p_limit: 200 });
+  if (heldErr) console.error('rewards expire reservations failed:', heldErr.message);
+  const result = { vest: data, reservations: held ?? null };
+  console.log('rewards-vest-scheduled:', JSON.stringify(result));
+  return { statusCode: 200, body: JSON.stringify(result) };
 };

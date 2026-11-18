@@ -16,7 +16,7 @@ import { headers, jsonResponse, adminClient } from './services/global-sourcing-u
 import { recordInfluencerSaleForPaidOrder } from './services/influencer-order-sale.js';
 import { notifyOnPaidOrder } from './services/paidOrderNotify.js';
 import { sendWebhookEvent } from './services/webhookDelivery.js';
-import { recordRewardsForPaidOrder } from './services/rewards-hooks.js';
+import { recordRewardsForPaidOrder, reverseRewardsForOrder } from './services/rewards-hooks.js';
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
 
@@ -81,9 +81,25 @@ export async function handler(event) {
         // previous_status on the order.updated webhook below.
         const { data: preUpdateOrder } = await adminClient
           .from('orders')
-          .select('overall_status')
+          .select('overall_status, total_amount')
           .eq('payment_reference', reference)
           .maybeSingle();
+
+        // Never confirm an order the cleared amount does not cover (the order
+        // total is already net of vouchers and JulinePoints).
+        if (
+          preUpdateOrder &&
+          (Number(data.amount) || 0) / 100 + 2 < Number(preUpdateOrder.total_amount)
+        ) {
+          console.error('paystack-webhook: underpaid', reference, data.amount, preUpdateOrder.total_amount);
+          await adminClient.from('webhook_errors').insert({
+            source: 'paystack',
+            event_type: eventType,
+            payload,
+            error_message: `Underpaid: paid ${(Number(data.amount) || 0) / 100}, order total ${preUpdateOrder.total_amount}`,
+          }).catch(() => {});
+          break;
+        }
 
         const { data: updatedOrder, error } = await adminClient
           .from('orders')
@@ -167,8 +183,17 @@ export async function handler(event) {
             updated_at: new Date().toISOString(),
           })
           .eq('payment_reference', reference)
-          .select('id, order_number')
+          .select('id, order_number, total_amount')
           .maybeSingle();
+
+        // JulinePoints: restore redeemed points only for a FULL refund. A partial
+        // refund leaves points untouched (policy for partial returns is open).
+        if (refundedOrder?.id) {
+          const refundNgn = data.amount != null ? Number(data.amount) / 100 : null;
+          if (refundNgn == null || refundNgn + 1 >= Number(refundedOrder.total_amount)) {
+            await reverseRewardsForOrder(adminClient, refundedOrder.id, 'order_refunded');
+          }
+        }
 
         if (refundedOrder?.id) {
           sendWebhookEvent('order.updated', {

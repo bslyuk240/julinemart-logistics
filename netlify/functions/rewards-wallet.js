@@ -68,7 +68,7 @@ export async function handler(event) {
 
     const [accountRes, historyRes, claimsRes, pendingPurchase, pendingReferral, referralsRes, awardsRes, attemptRes] =
       await Promise.all([
-        adminClient.from('rewards_accounts').select('balance_points, lifetime_earned_points').eq('user_id', userId).single(),
+        adminClient.from('rewards_accounts').select('balance_points, reserved_points, lifetime_earned_points').eq('user_id', userId).single(),
         adminClient.from('rewards_ledger')
           .select('id, entry_type, points, source, reference_type, created_at')
           .eq('user_id', userId).order('created_at', { ascending: false }).limit(HISTORY_LIMIT),
@@ -89,7 +89,7 @@ export async function handler(event) {
 
     const programme = publicProgramme(policy);
     const account = accountRes.data;
-    const balance = account?.balance_points ?? 0;
+    const balance = Math.max((account?.balance_points ?? 0) - (account?.reserved_points ?? 0), 0);
     const claims = claimsRes.data || [];
     const claimedToday = claims.some((c) => c.claim_date === today);
     const pendingPoints =

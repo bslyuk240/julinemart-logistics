@@ -17,7 +17,7 @@ import { headers, jsonResponse, adminClient } from './services/global-sourcing-u
 import { recordInfluencerSaleForPaidOrder } from './services/influencer-order-sale.js';
 import { notifyOnPaidOrder } from './services/paidOrderNotify.js';
 import { sendWebhookEvent } from './services/webhookDelivery.js';
-import { recordRewardsForPaidOrder } from './services/rewards-hooks.js';
+import { recordRewardsForPaidOrder, commitForFreeOrder } from './services/rewards-hooks.js';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 
@@ -41,11 +41,19 @@ export async function handler(event) {
   // real, verified transaction.
   const { data: orderForAmountCheck } = await adminClient
     .from('orders')
-    .select('total_amount')
+    .select('id, total_amount, points_redeemed')
     .eq('payment_reference', payment_reference)
     .maybeSingle();
 
   const isFreeOrder = orderForAmountCheck && Number(orderForAmountCheck.total_amount) <= 0;
+
+  // A ₦0 order funded with JulinePoints has no charge to verify: the points
+  // debit is the payment, so it must commit fully BEFORE the order is confirmed
+  // (otherwise an expired hold would hand out a free order).
+  if (isFreeOrder && Number(orderForAmountCheck.points_redeemed) > 0) {
+    const free = await commitForFreeOrder(adminClient, orderForAmountCheck.id, Number(orderForAmountCheck.points_redeemed));
+    if (!free.ok) return jsonResponse(409, { success: false, error: free.error });
+  }
 
   // Use the explicit paystack_reference if provided, otherwise assume the JLO
   // payment_reference was used as the Paystack transaction reference (inline flow).
@@ -71,6 +79,22 @@ export async function handler(event) {
           error: 'Payment not confirmed by Paystack',
           paystack_status: 'unknown',
           paystack_message: json?.message,
+        });
+      }
+
+      // The money that actually cleared must cover the order total (which is
+      // already net of vouchers and points). Closes the hole where any
+      // successful transaction reference could confirm any order.
+      if (
+        pd.status === 'success' &&
+        orderForAmountCheck &&
+        (Number(pd.amount) || 0) / 100 + 2 < Number(orderForAmountCheck.total_amount)
+      ) {
+        console.error('verify-payment: underpaid', payment_reference, pd.amount, orderForAmountCheck.total_amount);
+        return jsonResponse(400, {
+          success: false,
+          error: 'Payment amount does not match your order total. Please contact support.',
+          paystack_status: 'amount_mismatch',
         });
       }
 

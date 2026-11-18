@@ -142,6 +142,7 @@ export function validatePolicy(policy) {
   posInt('redemption.min_points', rd.min_points);
   optPosInt('redemption.max_points_per_order', rd.max_points_per_order);
   bool('redemption.partial_allowed', rd.partial_allowed);
+  optPosInt('redemption.reservation_minutes', rd.reservation_minutes);
 
   bool('expiry.enabled', policy.expiry.enabled);
   posInt('expiry.days', policy.expiry.days);

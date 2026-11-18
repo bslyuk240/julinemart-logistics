@@ -74,6 +74,7 @@ const SECTIONS: { title: string; fields: Field[] }[] = [
     { path: 'redemption.min_points', label: 'Minimum redemption (points)', kind: 'int' },
     { path: 'redemption.max_points_per_order', label: 'Max points per order', kind: 'optint', hint: 'Empty = no cap.' },
     { path: 'redemption.partial_allowed', label: 'Allow partial use', kind: 'bool' },
+    { path: 'redemption.reservation_minutes', label: 'Hold points at checkout (minutes)', kind: 'optint', hint: 'Empty = 60.' },
   ] },
   { title: 'Expiry and adjustments', fields: [
     { path: 'expiry.enabled', label: 'Points expire', kind: 'bool' },

@@ -119,14 +119,12 @@ begin
   update public.rewards_accounts set referral_code = null, updated_at = now() where user_id = p_user;
   res := res || jsonb_build_object('points_forfeited', coalesce(bal, 0));
 
-  -- B. Anonymise what must be kept. Row triggers are switched off for this block
-  --    only: the audit trigger would otherwise copy the old values into a new log.
+  -- B. Anonymise what must be kept. The orders audit trigger records the old values
+  --    of what we change, so the audit entries are scrubbed again right after.
   select coalesce(array_agg(id), '{}') into v_orders from public.orders
    where customer_id = p_user or lower(customer_email) = v_email;
   select coalesce(array_agg(id), '{}') into v_rets from public.return_requests
    where lower(customer_email) = v_email;
-
-  perform set_config('session_replication_role', 'replica', true);
 
   update public.orders set
       customer_name = 'Deleted customer', customer_email = v_tomb, customer_phone = '-',
@@ -169,10 +167,8 @@ begin
   delete from public.product_winback_sends where lower(customer_email) = v_email;
   delete from public.whatsapp_marketing_consent
    where customer_id = p_user or lower(email) = v_email or (v_phone is not null and phone = v_phone);
-  delete from public.device_tokens where customer_id = p_user;
+  delete from public.device_tokens where customer_id = p_user::text;
   delete from public.store_follows where user_id = p_user;
-
-  perform set_config('session_replication_role', 'origin', true);
 
   -- customer_addresses, wishlist, saved cards and notification prefs cascade.
   delete from public.customers where id = p_user;

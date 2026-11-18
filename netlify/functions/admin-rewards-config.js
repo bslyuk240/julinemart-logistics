@@ -45,7 +45,7 @@ export async function handler(event) {
 
   try {
     if (isRead) {
-      const [versions, audits, active, accounts, drift, review] = await Promise.all([
+      const [versions, audits, active, accounts, drift, review, costRes] = await Promise.all([
         db.from('rewards_config_versions')
           .select('id, version, status, effective_from, policy, note, created_at, published_at, cancelled_at')
           .order('version', { ascending: false }).limit(50),
@@ -58,6 +58,7 @@ export async function handler(event) {
         db.from('rewards_referral_awards')
           .select('id, order_id, referrer_id, referee_id, qualifying_amount, points, signals, created_at')
           .eq('status', 'in_review').order('created_at', { ascending: true }).limit(100),
+        db.from('rewards_cost_summary').select('*').maybeSingle(),
       ]);
       for (const r of [versions, audits, accounts, review]) if (r.error) throw r.error;
 
@@ -87,6 +88,7 @@ export async function handler(event) {
         versions: versions.data || [],
         audit: audits.data || [],
         review_queue: reviewQueue,
+        cost: costRes.error ? null : costRes.data,
         totals: {
           wallets: accounts.count ?? (accounts.data || []).length,
           outstanding_points: outstanding,

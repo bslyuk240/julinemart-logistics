@@ -38,8 +38,12 @@ export async function handler(event) {
   const signature = event.headers['x-paystack-signature'];
   const rawBody = event.body || '';
 
-  // Reject if signature check fails (skip in dev if no secret configured)
-  if (PAYSTACK_SECRET && !verifySignature(rawBody, signature)) {
+  // Fail closed: with no secret configured the signature cannot be checked, so
+  // nothing is trusted (Paystack retries until the secret is set).
+  if (!PAYSTACK_SECRET) {
+    return jsonResponse(503, { error: 'Webhook secret not configured' });
+  }
+  if (!verifySignature(rawBody, signature)) {
     return jsonResponse(401, { error: 'Invalid signature' });
   }
 

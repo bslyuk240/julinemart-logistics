@@ -169,6 +169,10 @@ export async function handler(event) {
     }
   }
 
+  // Set once the order row exists; the catch below uses it to undo a half-built
+  // order (see abandonOrder) so a failure never leaves a pending order behind.
+  let abandonPending = null;
+
   try {
     // ── Resolve products and prices ─────────────────────────────────────────
     const productIds = [...new Set(items.map((i) => i.product_id))];
@@ -607,6 +611,8 @@ export async function handler(event) {
     // Hold the points for this order (debited only once payment is confirmed).
     // If another checkout took them in the meantime, abandon this order instead
     // of charging the customer the points-reduced price.
+    let voucherClaimed = false;
+    let subOrdersCreated = false;
     const releaseHold = async (reason) => {
       if (pointsApplied > 0) {
         try {
@@ -614,6 +620,22 @@ export async function handler(event) {
         } catch { /* the expiry sweep will release it */ }
       }
     };
+    // All-or-nothing: if anything fails before the sub-orders exist, give back
+    // the points hold and the voucher use and delete the order (its items and
+    // sub-orders cascade), so the customer never sees a half-created order.
+    const abandonOrder = async (reason) => {
+      if (subOrdersCreated) return;
+      await releaseHold(reason);
+      if (voucherClaimed && voucherRow) {
+        try {
+          await adminClient.rpc('release_voucher_use', { p_code: voucherRow.code });
+        } catch { /* best effort */ }
+      }
+      try {
+        await adminClient.from('orders').delete().eq('id', orderId);
+      } catch { /* the abandoned-order sweep cancels it */ }
+    };
+    abandonPending = abandonOrder;
     if (pointsApplied > 0) {
       const { error: holdErr } = await adminClient.rpc('rewards_reserve', {
         p_user: authedCustomerId,
@@ -628,6 +650,21 @@ export async function handler(event) {
           code: 'points_changed',
         });
       }
+    }
+
+    // Take the voucher use atomically. The earlier check is only a fast pre-check:
+    // two checkouts can both pass it, but only one can win this single update.
+    if (voucherRow) {
+      const { data: claimed, error: claimErr } = await adminClient.rpc('claim_voucher_use', {
+        p_voucher_id: voucherRow.id,
+      });
+      if (claimErr || claimed !== true) {
+        await abandonOrder('voucher_unavailable');
+        return jsonResponse(400, {
+          error: claimErr ? 'Could not apply the voucher. Please try again.' : 'Voucher has reached its usage limit',
+        });
+      }
+      voucherClaimed = true;
     }
 
     // Audit: record storefront order placement server-side (service role).
@@ -688,7 +725,7 @@ export async function handler(event) {
       )
       .select('id, product_id, variation_id');
     if (itemsErr) {
-      await releaseHold('order_items_failed');
+      await abandonOrder('order_items_failed');
       return jsonResponse(500, { error: 'Failed to save order items', detail: itemsErr.message });
     }
 
@@ -901,11 +938,12 @@ export async function handler(event) {
       .insert(subOrderRows)
       .select();
     if (subErr) {
-      await releaseHold('sub_orders_failed');
+      await abandonOrder('sub_orders_failed');
       return jsonResponse(500, { error: 'Failed to create sub-orders', detail: subErr.message });
     }
 
     const subOrders = insertedSubOrders || [];
+    subOrdersCreated = true;
 
     if (subOrders.length > 0) {
       const trackingEvents = subOrders.map((subOrder) => ({
@@ -962,14 +1000,6 @@ export async function handler(event) {
       // Customer, staff, and vendor notifications fire after Paystack confirms payment.
     }
 
-    // ── Increment voucher usage ────────────────────────────────────────────
-    if (voucherRow) {
-      await adminClient
-        .from('campaign_vouchers')
-        .update({ current_uses: (voucherRow.current_uses || 0) + 1 })
-        .eq('id', voucherRow.id);
-    }
-
     try {
       await adminClient.from('activity_logs').insert({
         user_id: null,
@@ -1009,6 +1039,7 @@ export async function handler(event) {
     });
 
   } catch (err) {
+    if (abandonPending) await abandonPending('exception');
     return jsonResponse(500, { error: 'Order creation failed', message: err?.message || String(err) });
   }
 }

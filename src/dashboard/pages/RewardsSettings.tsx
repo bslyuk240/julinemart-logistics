@@ -24,7 +24,12 @@ interface ReviewItem {
   id: string; order_number: string | number | null; referrer: string; referee: string;
   qualifying_amount: number; points: number; signals: string[]; created_at: string;
 }
+interface CostSummary {
+  issued_points: number; issued_ngn: number; redeemed_points: number; redeemed_ngn: number;
+  restored_points: number; restored_ngn: number; outstanding_points: number; pending_points: number;
+}
 interface Payload {
+  cost?: CostSummary | null;
   review_queue?: ReviewItem[];
   active_version_id: string | null;
   versions: Version[];
@@ -286,6 +291,23 @@ export function RewardsSettingsPage() {
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {data?.cost && (
+        <section className="rounded-xl border border-gray-200 bg-white p-4">
+          <h2 className="mb-1 font-semibold">Platform-funded cost</h2>
+          <p className="mb-3 text-xs text-gray-500">
+            From the points ledger, separate from vendor earnings (vendors are paid on item prices, never reduced by points).
+          </p>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <Stat label="Issued (points / ₦)" value={`${Number(data.cost.issued_points).toLocaleString()} / ₦${Number(data.cost.issued_ngn).toLocaleString()}`} />
+            <Stat label="Redeemed at checkout" value={`${Number(data.cost.redeemed_points).toLocaleString()} / ₦${Number(data.cost.redeemed_ngn).toLocaleString()}`} />
+            <Stat label="Restored after cancel/refund" value={`${Number(data.cost.restored_points).toLocaleString()} / ₦${Number(data.cost.restored_ngn).toLocaleString()}`} />
+            <Stat label="Net redeemed cost" value={`₦${(Number(data.cost.redeemed_ngn) - Number(data.cost.restored_ngn)).toLocaleString()}`} />
+            <Stat label="Outstanding liability" value={`${Number(data.cost.outstanding_points).toLocaleString()} pts`} />
+            <Stat label="Pending (not yet vested)" value={`${Number(data.cost.pending_points).toLocaleString()} pts`} />
+          </div>
         </section>
       )}
 

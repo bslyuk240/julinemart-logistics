@@ -41,7 +41,7 @@ export async function handler(event) {
   // real, verified transaction.
   const { data: orderForAmountCheck } = await adminClient
     .from('orders')
-    .select('id, total_amount, points_redeemed')
+    .select('id, total_amount, points_redeemed, metadata')
     .eq('payment_reference', payment_reference)
     .maybeSingle();
 
@@ -50,6 +50,16 @@ export async function handler(event) {
   // A ₦0 order funded with JulinePoints has no charge to verify: the points
   // debit is the payment, so it must commit fully BEFORE the order is confirmed
   // (otherwise an expired hold would hand out a free order).
+  // A ₦0 total only legitimately comes from a voucher or JulinePoints. Refuse to
+  // confirm a free order that has neither, instead of trusting the reference alone.
+  if (
+    isFreeOrder &&
+    !(Number(orderForAmountCheck.points_redeemed) > 0) &&
+    !orderForAmountCheck.metadata?.voucher_code
+  ) {
+    return jsonResponse(400, { success: false, error: 'This order cannot be confirmed without payment.' });
+  }
+
   if (isFreeOrder && Number(orderForAmountCheck.points_redeemed) > 0) {
     const free = await commitForFreeOrder(adminClient, orderForAmountCheck.id, Number(orderForAmountCheck.points_redeemed));
     if (!free.ok) return jsonResponse(409, { success: false, error: free.error });

@@ -124,27 +124,13 @@ export async function releaseVoucherUsage(supabase, voucherCode) {
   const code = (voucherCode || '').toString().trim().toUpperCase();
   if (!code) return;
 
+  // One atomic statement in the database (never read-then-write). It only
+  // reactivates a voucher the max-uses trigger marked 'used', and never touches
+  // one an admin paused.
   try {
-    const { data: voucher } = await supabase
-      .from('campaign_vouchers')
-      .select('id, status, current_uses, max_uses, valid_until')
-      .eq('code', code)
-      .maybeSingle();
-
-    if (!voucher || voucher.current_uses <= 0) return;
-
-    const nextUses = voucher.current_uses - 1;
-    const update = { current_uses: nextUses };
-
-    // Only reactivate a voucher the max-uses trigger flipped to 'used' — never
-    // touch one an admin separately paused/disabled, and let the same trigger
-    // re-expire it on this update if valid_until has since passed.
-    if (voucher.status === 'used' && nextUses < voucher.max_uses) {
-      update.status = 'active';
-    }
-
-    await supabase.from('campaign_vouchers').update(update).eq('id', voucher.id);
-    console.log(`↩️ Released one use of voucher: ${code} (${voucher.current_uses} → ${nextUses})`);
+    const { error } = await supabase.rpc('release_voucher_use', { p_code: code });
+    if (error) throw error;
+    console.log(`↩️ Released one use of voucher: ${code}`);
   } catch (error) {
     console.error('Error releasing voucher usage:', error);
   }

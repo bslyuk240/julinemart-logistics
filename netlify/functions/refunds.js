@@ -127,6 +127,7 @@ export async function handler(event) {
     if (event.httpMethod === 'POST' && id && action === 'create-refund') {
       const body = JSON.parse(event.body || '{}');
       const { amount, reason, return_request_id } = body;
+      const restorePoints = Number.isInteger(body.restore_points) && body.restore_points > 0 ? body.restore_points : 0;
 
       if (!amount || typeof Number(amount) !== 'number' || Number(amount) <= 0) {
         return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'Valid amount is required' }) };
@@ -145,6 +146,26 @@ export async function handler(event) {
 
       if (!order.payment_reference) {
         return { statusCode: 400, headers, body: JSON.stringify({ success: false, error: 'No payment reference on order — cannot process automatic refund' }) };
+      }
+
+      // Never refund more cash than the customer paid, counting refunds already made.
+      const { data: priorRefunds } = await supabase
+        .from('refund_records')
+        .select('amount, status')
+        .eq('order_id', order.id);
+      const alreadyRefunded = (priorRefunds || [])
+        .filter((x) => !['failed', 'cancelled', 'rejected'].includes(String(x.status || '').toLowerCase()))
+        .reduce((sum, x) => sum + Number(x.amount || 0), 0);
+      const refundable = Math.max(Number(order.total_amount) - alreadyRefunded, 0);
+      if (Number(amount) > refundable + 0.01) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            success: false,
+            error: `Refund exceeds what is left to refund (₦${refundable.toLocaleString()} of ₦${Number(order.total_amount).toLocaleString()}).`,
+          }),
+        };
       }
 
       // Create Paystack refund
@@ -176,8 +197,22 @@ export async function handler(event) {
 
       if (recErr) console.error('Failed to record refund:', recErr.message);
 
-      // Full refund only; partial refunds leave JulinePoints untouched.
-      if (Number(amount) + 1 >= Number(order.total_amount)) {
+      // JulinePoints: staff may hand points back on a partial refund (capped at what
+      // was redeemed and not yet restored). A refund that completes the order's
+      // total restores whatever is still outstanding.
+      let pointsRestored = null;
+      if (restorePoints > 0 && record?.id) {
+        const { data: restored, error: restoreErr } = await supabase.rpc('rewards_restore_points', {
+          p_order_id: order.id,
+          p_points: restorePoints,
+          p_key: `redeem-partial:${record.id}`,
+          p_reason: reason || 'partial refund',
+          p_actor: auth.authUser?.id || null,
+        });
+        if (restoreErr) console.error('refunds: restore points failed', restoreErr.message);
+        pointsRestored = restored || null;
+      }
+      if (alreadyRefunded + Number(amount) + 1 >= Number(order.total_amount)) {
         await reverseRewardsForOrder(supabase, order.id, 'order_refunded');
       }
 
@@ -193,7 +228,11 @@ export async function handler(event) {
         },
       });
 
-      return { statusCode: 200, headers, body: JSON.stringify({ success: true, data: record || refundResult }) };
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ success: true, data: record || refundResult, points_restored: pointsRestored }),
+      };
     }
 
     return { statusCode: 404, headers, body: JSON.stringify({ success: false, error: 'Not found' }) };

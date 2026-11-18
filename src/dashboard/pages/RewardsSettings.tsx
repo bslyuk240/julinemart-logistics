@@ -194,7 +194,7 @@ export function RewardsSettingsPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <Kpi label="Programme">
           <span className={`inline-flex items-center gap-2 text-lg font-semibold ${programmeOn ? 'text-green-700' : 'text-gray-600'}`}>
             <span className={`h-2.5 w-2.5 rounded-full ${programmeOn ? 'bg-green-500' : 'bg-gray-400'}`} />
@@ -214,9 +214,9 @@ export function RewardsSettingsPage() {
         <Kpi label="Active version"><span className="text-lg font-semibold">{active ? `v${active.version}` : 'none'}</span></Kpi>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 xl:grid-cols-3">
         {/* Main column */}
-        <div className="space-y-6 lg:col-span-2">
+        <div className="min-w-0 space-y-6 xl:col-span-2">
           <section className="overflow-hidden rounded-xl border border-gray-200 bg-white">
             <header className="border-b border-gray-200 px-5 py-4 font-semibold text-gray-900">Versions</header>
             <div className="overflow-x-auto">
@@ -226,7 +226,6 @@ export function RewardsSettingsPage() {
                     <th className="px-5 py-2.5 font-medium">Version</th>
                     <th className="px-3 py-2.5 font-medium">Status</th>
                     <th className="px-3 py-2.5 font-medium">Effective from</th>
-                    <th className="px-3 py-2.5 font-medium">Note</th>
                     <th className="px-5 py-2.5 text-right font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -236,14 +235,16 @@ export function RewardsSettingsPage() {
                     const isActive = v.id === data?.active_version_id;
                     return (
                       <tr key={v.id} className={editingId === v.id ? 'bg-amber-50/60' : undefined}>
-                        <td className="px-5 py-3 font-semibold text-gray-900">v{v.version}</td>
+                        <td className="px-5 py-3 font-semibold text-gray-900">
+                          v{v.version}
+                          {v.note && <div className="max-w-[12rem] truncate text-xs font-normal text-gray-500 2xl:max-w-[22rem]" title={v.note}>{v.note}</div>}
+                        </td>
                         <td className="px-3 py-3">
                           <StatusBadge kind={isActive ? 'active' : scheduled ? 'scheduled' : v.status} />
                         </td>
                         <td className="px-3 py-3 whitespace-nowrap text-gray-600">
                           {v.status === 'draft' ? <span className="text-gray-400">not published</span> : fmt(v.effective_from)}
                         </td>
-                        <td className="max-w-[18rem] truncate px-3 py-3 text-gray-600" title={v.note || ''}>{v.note || '—'}</td>
                         <td className="px-5 py-3">
                           <div className="flex items-center justify-end gap-3 whitespace-nowrap">
                             {v.status === 'draft' && <button className="text-blue-600 hover:underline" disabled={busy} onClick={() => startFrom(v)}>Edit</button>}
@@ -268,7 +269,7 @@ export function RewardsSettingsPage() {
                     );
                   })}
                   {(data?.versions || []).length === 0 && (
-                    <tr><td colSpan={5} className="px-5 py-6 text-center text-gray-500">No versions yet.</td></tr>
+                    <tr><td colSpan={4} className="px-5 py-6 text-center text-gray-500">No versions yet.</td></tr>
                   )}
                 </tbody>
               </table>
@@ -349,7 +350,7 @@ export function RewardsSettingsPage() {
         </div>
 
         {/* Side column */}
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           {(data?.review_queue?.length ?? 0) > 0 && (
             <section className="overflow-hidden rounded-xl border border-amber-300 bg-white">
               <header className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-3 font-semibold text-gray-900">

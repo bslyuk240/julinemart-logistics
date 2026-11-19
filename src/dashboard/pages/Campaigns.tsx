@@ -219,7 +219,7 @@ export function CampaignsPage() {
   const [sections, setSections] = useState(emptySections());
   const [showId, setShowId] = useState<Record<string, boolean>>({});
 
-  const [vouchers, setVouchers] = useState<{ id: string; code: string; campaign_name: string }[]>([]);
+  const [vouchers, setVouchers] = useState<{ id: string; code: string; campaign_name: string; status?: string }[]>([]);
   const [categories, setCategories] = useState<{ id: string; name: string; parent_id: string | null }[]>([]);
   const [vendorsList, setVendorsList] = useState<{ id: string; store_name: string; logo_url: string | null; woocommerce_vendor_id: string | null }[]>([]);
 
@@ -313,7 +313,7 @@ export function CampaignsPage() {
 
   async function loadLookups() {
     const [{ data: v }, { data: c }, { data: vend }] = await Promise.all([
-      supabase.from('campaign_vouchers').select('id, code, campaign_name').eq('status', 'active'),
+      supabase.from('campaign_vouchers').select('id, code, campaign_name, status').in('status', ['active', 'draft']),
       supabase.from('categories').select('id, name, parent_id').order('name'),
       supabase.from('vendors').select('id, store_name, logo_url, woocommerce_vendor_id').eq('is_active', true).order('store_name'),
     ]);
@@ -1558,7 +1558,7 @@ export function CampaignsPage() {
                   <select value={formData.offer_voucher_id} onChange={(e) => setFormData({ ...formData, offer_voucher_id: e.target.value })} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500">
                     <option value="">No offer</option>
                     {vouchers.map((v) => (
-                      <option key={v.id} value={v.id}>{v.code} — {v.campaign_name}</option>
+                      <option key={v.id} value={v.id}>{v.code} — {v.campaign_name}{v.status === 'draft' ? ' (draft — activate on Vouchers page)' : ''}</option>
                     ))}
                   </select>
                   <p className="text-xs text-gray-500 mt-1">

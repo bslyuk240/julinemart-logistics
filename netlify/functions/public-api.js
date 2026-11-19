@@ -235,6 +235,7 @@ async function addShipmentNote(adminClient, id, body, apiKeyName) {
 }
 
 // ── vendors.* ───────────────────────────────────────────────────────────
+// `id` is the uuid that campaign vouchers (vendor_ids) and campaign drafts (target_id) reference.
 const VENDOR_LIST_FIELDS = 'id, store_name, store_slug, email, phone, city, state, is_active, total_orders, fulfilled_orders, created_at';
 const VENDOR_DETAIL_FIELDS = `${VENDOR_LIST_FIELDS}, address, description, logo_url`;
 
@@ -248,6 +249,8 @@ async function listVendors(adminClient, query) {
 
   if (query.active === 'true') q = q.eq('is_active', true);
   if (query.active === 'false') q = q.eq('is_active', false);
+  const vendorSearch = sanitizeSearchTerm(query.q);
+  if (vendorSearch) q = q.or(`store_name.ilike.%${vendorSearch}%,store_slug.ilike.%${vendorSearch}%`);
 
   const { data, error, count } = await q;
   if (error) return json(500, { error: error.message });
@@ -625,7 +628,7 @@ async function getRiderStatus(adminClient, id) {
 
 // ── catalogue: products.* / categories.* ───────────────────────────────
 const PRODUCT_LIST_FIELDS =
-  'id, name, slug, sku, status, type, regular_price, sale_price, stock_status, stock_quantity, vendor_id, average_rating, rating_count, created_at, updated_at, product_images(src, position, is_thumbnail, variation_id)';
+  'id, name, slug, sku, status, type, regular_price, sale_price, stock_status, stock_quantity, vendor_id, average_rating, rating_count, created_at, updated_at, product_images(src, position, is_thumbnail, variation_id), product_category_map(category_id)';
 const PRODUCT_DETAIL_FIELDS =
   `${PRODUCT_LIST_FIELDS}, description, short_description, weight, length, width, height, is_virtual, warranty_type, warranty_months`;
 
@@ -644,9 +647,10 @@ function primaryProductImage(images) {
 }
 
 function presentProduct(row) {
-  const { product_images, ...rest } = row;
+  const { product_images, product_category_map, ...rest } = row;
   return {
     ...rest,
+    category_ids: (product_category_map || []).map((m) => m.category_id),
     image_url: primaryProductImage(product_images),
     product_url: storefrontProductUrl(row.slug),
   };
@@ -663,6 +667,18 @@ async function listProducts(adminClient, query) {
   if (query.status) q = q.eq('status', query.status);
   if (query.vendor_id) q = q.eq('vendor_id', query.vendor_id);
   if (query.stock_status) q = q.eq('stock_status', query.stock_status);
+  if (query.category_id) {
+    if (!UUID_RE.test(String(query.category_id))) return json(400, { error: 'category_id must be a uuid (see categories.list)' });
+    const { data: mapped, error: mapErr } = await adminClient
+      .from('product_category_map')
+      .select('product_id')
+      .eq('category_id', query.category_id)
+      .limit(5000);
+    if (mapErr) return json(500, { error: mapErr.message });
+    const ids = (mapped || []).map((m) => m.product_id);
+    if (!ids.length) return json(200, { data: [], count: 0 });
+    q = q.in('id', ids);
+  }
   const searchTerm = sanitizeSearchTerm(query.q);
   if (searchTerm) q = q.or(`name.ilike.%${searchTerm}%,sku.ilike.%${searchTerm}%`);
 
@@ -680,11 +696,15 @@ async function getProduct(adminClient, id) {
 
 async function listCategories(adminClient, query) {
   const { limit, offset } = paginationParams(query);
-  const { data, error, count } = await adminClient
+  let q = adminClient
     .from('categories')
     .select('id, name, slug, parent_id, description, display_order', { count: 'exact' })
     .order('display_order', { ascending: true })
     .range(offset, offset + limit - 1);
+  if (query.parent_id) q = q.eq('parent_id', query.parent_id);
+  const catSearch = sanitizeSearchTerm(query.q);
+  if (catSearch) q = q.or(`name.ilike.%${catSearch}%,slug.ilike.%${catSearch}%`);
+  const { data, error, count } = await q;
 
   if (error) return json(500, { error: error.message });
   return json(200, { data, count });
@@ -1434,6 +1454,154 @@ async function postInstagramImage(body) {
   }
 }
 
+/**
+ * vouchers.* — agents can READ vouchers and PROPOSE one for a campaign, never
+ * activate it. Vouchers cost JulineMart real money, so an agent-created row is
+ * always status='draft' (campaign vouchers only redeem while 'active'); a human
+ * reviews it on the Vouchers page and activates it. Whitelisted fields only:
+ * status, usage counters, financial totals and created_by are set server-side.
+ */
+const VOUCHER_FIELDS =
+  'id, code, campaign_name, campaign_id, description, discount_type, discount_value, shipping_discount_type, shipping_discount_value, vendor_ids, category_ids, product_skus, max_uses, current_uses, max_uses_per_customer, valid_from, valid_until, status, created_at';
+const VOUCHER_DISCOUNT_TYPES = new Set(['free', 'percentage', 'fixed_amount']);
+const VOUCHER_SHIPPING_TYPES = new Set(['none', 'percentage', 'fixed', 'free']);
+const VOUCHER_STATUSES = new Set(['draft', 'active', 'used', 'expired', 'cancelled']);
+
+async function listVouchers(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  let q = adminClient
+    .from('campaign_vouchers')
+    .select(VOUCHER_FIELDS, { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+  if (query.status) {
+    if (!VOUCHER_STATUSES.has(query.status)) return json(400, { error: 'status must be draft, active, used, expired or cancelled' });
+    q = q.eq('status', query.status);
+  }
+  if (query.campaign_id) {
+    if (!UUID_RE.test(String(query.campaign_id))) return json(400, { error: 'campaign_id must be a uuid' });
+    q = q.eq('campaign_id', query.campaign_id);
+  }
+  const term = sanitizeSearchTerm(query.q);
+  if (term) q = q.or(`code.ilike.%${term}%,campaign_name.ilike.%${term}%`);
+  const { data, error, count } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
+async function getVoucher(adminClient, id) {
+  if (!UUID_RE.test(String(id || ''))) return json(400, { error: 'Voucher id must be a uuid' });
+  const { data, error } = await adminClient.from('campaign_vouchers').select(VOUCHER_FIELDS).eq('id', id).maybeSingle();
+  if (error) return json(500, { error: error.message });
+  if (!data) return json(404, { error: 'Voucher not found' });
+  return json(200, { data });
+}
+
+async function createVoucherDraft(adminClient, body) {
+  try {
+    if (!isPlainObject(body)) bad('Invalid JSON body');
+    const code = String(draftText(body.code, 50, 'code') || '').toUpperCase();
+    if (!/^[A-Z0-9][A-Z0-9_-]{2,49}$/.test(code)) bad('code is required: 3-50 characters, letters/numbers/-/_ only');
+    const campaignName = draftText(body.campaign_name, 255, 'campaign_name');
+    if (!campaignName) bad('campaign_name is required');
+
+    const discountType = body.discount_type;
+    if (!VOUCHER_DISCOUNT_TYPES.has(discountType)) bad('discount_type must be free, percentage or fixed_amount');
+    let discountValue = 0;
+    if (discountType !== 'free') {
+      discountValue = Number(body.discount_value);
+      if (!Number.isFinite(discountValue) || discountValue <= 0) bad('discount_value must be greater than 0');
+      if (discountType === 'percentage' && discountValue > 100) bad('discount_value for a percentage cannot exceed 100');
+    }
+
+    const shippingType = body.shipping_discount_type === undefined ? 'none' : body.shipping_discount_type;
+    if (!VOUCHER_SHIPPING_TYPES.has(shippingType)) bad('shipping_discount_type must be none, percentage, fixed or free');
+    let shippingValue = 0;
+    if (shippingType === 'percentage' || shippingType === 'fixed') {
+      shippingValue = Number(body.shipping_discount_value);
+      if (!Number.isFinite(shippingValue) || shippingValue <= 0) bad('shipping_discount_value must be greater than 0');
+      if (shippingType === 'percentage' && shippingValue > 100) bad('shipping_discount_value for a percentage cannot exceed 100');
+    }
+
+    const vendorIds = body.vendor_ids === undefined ? [] : draftUuidList(body.vendor_ids, 'vendor_ids', 50);
+    const categoryIds = body.category_ids === undefined ? [] : draftUuidList(body.category_ids, 'category_ids', 20);
+    await draftAssertExist(adminClient, 'vendors', vendorIds, 'vendor_ids');
+    await draftAssertExist(adminClient, 'categories', categoryIds, 'category_ids');
+
+    let productSkus = [];
+    if (body.product_skus !== undefined) {
+      if (!Array.isArray(body.product_skus)) bad('product_skus must be an array of SKUs');
+      productSkus = [...new Set(body.product_skus.map((x) => String(x).trim()).filter(Boolean))];
+      if (productSkus.length > 100) bad('product_skus accepts at most 100 SKUs');
+    }
+    // An unscoped percentage/fixed voucher would discount every product on the site.
+    if (!vendorIds.length && !categoryIds.length && !productSkus.length) {
+      bad('Scope the voucher with at least one of vendor_ids, category_ids or product_skus');
+    }
+
+    const maxUses = body.max_uses === undefined ? 1 : Math.floor(Number(body.max_uses));
+    if (!Number.isFinite(maxUses) || maxUses < 1 || maxUses > 100000) bad('max_uses must be 1-100000');
+    const perCustomer = body.max_uses_per_customer === undefined ? 1 : Math.floor(Number(body.max_uses_per_customer));
+    if (!Number.isFinite(perCustomer) || perCustomer < 1 || perCustomer > maxUses) bad('max_uses_per_customer must be between 1 and max_uses');
+
+    const validFrom = body.valid_from === undefined ? new Date().toISOString() : draftDate(body.valid_from, 'valid_from');
+    const validUntil = body.valid_until === undefined ? null : draftDate(body.valid_until, 'valid_until');
+    if (validFrom && validUntil && new Date(validUntil) <= new Date(validFrom)) bad('valid_until must be after valid_from');
+
+    let campaignId = null;
+    if (body.campaign_id !== undefined && body.campaign_id !== null) {
+      if (!UUID_RE.test(String(body.campaign_id))) bad('campaign_id must be a uuid');
+      const { data: camp, error: campErr } = await adminClient
+        .from('campaigns')
+        .select('id, submitted_via, status, approval_status')
+        .eq('id', body.campaign_id)
+        .maybeSingle();
+      if (campErr) bad(campErr.message);
+      if (!camp) bad('campaign_id: campaign not found');
+      if (camp.submitted_via !== 'skola_agent' || camp.status !== 'draft' || camp.approval_status !== 'pending') {
+        bad('campaign_id must be one of your own campaign drafts that is still pending review');
+      }
+      campaignId = camp.id;
+    }
+
+    const { data: dup } = await adminClient.from('campaign_vouchers').select('id').ilike('code', code).maybeSingle();
+    if (dup) return json(409, { error: `Voucher code ${code} already exists — choose another code` });
+
+    const payload = {
+      code,
+      campaign_name: campaignName,
+      description: draftText(body.description, 1000, 'description') || null,
+      discount_type: discountType,
+      discount_value: discountValue,
+      shipping_discount_type: shippingType,
+      shipping_discount_value: shippingValue,
+      vendor_ids: vendorIds.length ? vendorIds : null,
+      category_ids: categoryIds.length ? categoryIds : null,
+      product_skus: productSkus.length ? productSkus : null,
+      max_uses: maxUses,
+      max_uses_per_customer: perCustomer,
+      valid_from: validFrom,
+      valid_until: validUntil,
+      campaign_id: campaignId,
+      notes: draftText(body.notes, 1000, 'notes') || null,
+      status: 'draft',
+      created_by: 'skola_agent',
+      metadata: { submitted_via: 'skola_agent' },
+    };
+    const { data: created, error } = await adminClient.from('campaign_vouchers').insert(payload).select(VOUCHER_FIELDS).single();
+    if (error) return json(error.code === '23505' ? 409 : 500, { error: error.code === '23505' ? `Voucher code ${code} already exists — choose another code` : error.message });
+    return json(201, {
+      data: {
+        ...created,
+        message: 'Voucher saved as a DRAFT. It cannot be redeemed until a human reviews it on the JLO Vouchers page and activates it.',
+      },
+    });
+  } catch (e) {
+    if (e instanceof DraftValidationError) return json(400, { error: e.message });
+    return json(500, { error: e.message });
+  }
+}
+
 // ── whatsapp.* (internal outreach — vendors/leads, not customer care) ───
 async function sendWhatsAppMessageRoute(body) {
   if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
@@ -1973,6 +2141,25 @@ export const handler = async (event) => {
         if (auth.errorResponse) return auth.errorResponse;
         const body = JSON.parse(event.body || '{}');
         return await submitGiveawayCampaign(auth.adminClient, body);
+      }
+    }
+
+    // --- vouchers ---
+    if (segments[0] === 'vouchers') {
+      if (segments.length === 1 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'vouchers.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listVouchers(auth.adminClient, query);
+      }
+      if (segments.length === 2 && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'vouchers.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getVoucher(auth.adminClient, segments[1]);
+      }
+      if (segments.length === 2 && segments[1] === 'drafts' && method === 'POST') {
+        const auth = await authenticateServiceApiRequest(event, 'vouchers.draft.create');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await createVoucherDraft(auth.adminClient, JSON.parse(event.body || '{}'));
       }
     }
 

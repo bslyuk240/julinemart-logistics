@@ -30,7 +30,7 @@ interface CampaignVoucher {
   max_uses_per_customer: number;
   valid_from: string;
   valid_until: string | null;
-  status: 'active' | 'used' | 'expired' | 'cancelled';
+  status: 'draft' | 'active' | 'used' | 'expired' | 'cancelled';
   total_cost_absorbed: number;
   notes: string | null;
 }
@@ -97,6 +97,7 @@ const parseArray = (value: string) =>
     .filter(Boolean);
 
 const STATUS_CLS: Record<string, string> = {
+  draft: 'bg-amber-100 text-amber-700',
   active: 'bg-green-100 text-green-700',
   used: 'bg-gray-100 text-gray-600',
   expired: 'bg-red-100 text-red-700',
@@ -266,6 +267,17 @@ export default function MobileVouchers() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const activateVoucher = async (id: string) => {
+    if (!isAdmin || !window.confirm('Activate this voucher? Customers can redeem it straight away.')) return;
+    await supabase.from('campaign_vouchers').update({ status: 'active' }).eq('id', id).eq('status', 'draft');
+    void logActivity({
+      action: 'VOUCHER_ACTIVATED',
+      resource_type: 'campaign_vouchers',
+      resource_id: id,
+    });
+    load();
   };
 
   const cancelVoucher = async (id: string) => {
@@ -488,7 +500,12 @@ export default function MobileVouchers() {
                 <button type="button" onClick={() => { setDetailOpen(false); openEdit(selected); }} className="flex-1 rounded-lg border border-gray-200 py-2 text-sm font-semibold">
                   Edit
                 </button>
-                {selected.status === 'active' && (
+                {selected.status === 'draft' && (
+                  <button type="button" onClick={() => void activateVoucher(selected.id)} className="flex-1 rounded-lg border border-green-200 py-2 text-sm font-semibold text-green-700">
+                    Activate
+                  </button>
+                )}
+                {(selected.status === 'active' || selected.status === 'draft') && (
                   <button type="button" onClick={() => void cancelVoucher(selected.id)} className="flex-1 rounded-lg border border-orange-200 py-2 text-sm font-semibold text-orange-700">
                     Cancel
                   </button>

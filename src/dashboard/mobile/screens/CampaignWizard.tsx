@@ -107,7 +107,7 @@ export function CampaignWizard({ open, editingId, seedForm, seedSections, onClos
 
   const loadLookups = useCallback(async () => {
     const [{ data: v }, { data: c }, { data: vend }] = await Promise.all([
-      supabase.from('campaign_vouchers').select('id, code, campaign_name').eq('status', 'active'),
+      supabase.from('campaign_vouchers').select('id, code, campaign_name').in('status', ['active', 'draft']),
       supabase.from('categories').select('id, name, parent_id').order('name'),
       supabase.from('vendors').select('id, store_name, logo_url, woocommerce_vendor_id').eq('is_active', true).order('store_name'),
     ]);
@@ -183,6 +183,10 @@ export function CampaignWizard({ open, editingId, seedForm, seedSections, onClos
         notification.error('Required fields', 'Internal name and public title are required');
         return false;
       }
+      if (form.target_type === 'multi_vendor' && form.vendor_ids.length === 0) {
+        notification.error('Required fields', 'Select at least one vendor for a multi-vendor campaign');
+        return false;
+      }
     }
     return true;
   };
@@ -255,6 +259,8 @@ export function CampaignWizard({ open, editingId, seedForm, seedSections, onClos
       product_selection_rules: {
         source: form.product_source,
         vendorId: form.target_type === 'vendor' && form.target_id.trim() ? form.target_id.trim() : undefined,
+        // Several sellers: products from any of these, and only these.
+        vendorIds: form.target_type === 'multi_vendor' && form.vendor_ids.length > 0 ? form.vendor_ids : undefined,
         categoryIds: (() => {
           if (form.product_category_id) return [form.product_category_id];
           if (form.target_type === 'category' && form.target_id.trim()) return [form.target_id.trim()];
@@ -455,8 +461,9 @@ export function CampaignWizard({ open, editingId, seedForm, seedSections, onClos
                   patchForm({
                     target_type: next,
                     target_id: '',
+                    vendor_ids: [],
                     product_category_id: '',
-                    product_source: next === 'product' ? 'manual' : next === 'vendor' || next === 'category' ? 'rules_based' : form.product_source,
+                    product_source: next === 'product' ? 'manual' : next === 'vendor' || next === 'category' || next === 'multi_vendor' ? 'rules_based' : form.product_source,
                     review_scope:
                       next === 'vendor' ? 'vendor' : next === 'category' ? 'category' : next === 'product' ? 'product' : form.review_scope,
                   });
@@ -498,6 +505,29 @@ export function CampaignWizard({ open, editingId, seedForm, seedSections, onClos
                     </option>
                   ))}
                 </select>
+              </Field>
+            )}
+
+            {form.target_type === 'multi_vendor' && (
+              <Field label={`Vendors (${form.vendor_ids.length} selected)`}>
+                <div className="max-h-56 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-100">
+                  {vendorsList.map((v) => (
+                    <label key={v.id} className="flex items-center gap-2 px-3 py-2.5 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={form.vendor_ids.includes(v.id)}
+                        onChange={() =>
+                          patchForm({
+                            vendor_ids: form.vendor_ids.includes(v.id) ? form.vendor_ids.filter((x) => x !== v.id) : [...form.vendor_ids, v.id],
+                            review_scope: 'vendor',
+                          })
+                        }
+                      />
+                      {v.store_name}
+                    </label>
+                  ))}
+                </div>
+                <p className="mt-1 text-xs text-gray-500">Only products from the selected vendors appear, across any category.</p>
               </Field>
             )}
 

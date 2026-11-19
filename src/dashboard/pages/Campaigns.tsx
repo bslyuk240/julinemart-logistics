@@ -78,6 +78,8 @@ interface FormState {
   end_date: string;
   target_type: TargetType;
   target_id: string;
+  /** Sellers for a multi_vendor campaign (target_id stays empty). */
+  vendor_ids: string[];
 
   hero_headline: string;
   hero_subtitle: string;
@@ -124,6 +126,7 @@ const emptyForm: FormState = {
   end_date: '',
   target_type: 'general',
   target_id: '',
+  vendor_ids: [],
 
   hero_headline: '',
   hero_subtitle: '',
@@ -203,6 +206,53 @@ function toDatetimeLocalValue(iso: string | null): string {
   const d = new Date(iso);
   const localMs = d.getTime() - d.getTimezoneOffset() * 60000;
   return new Date(localMs).toISOString().slice(0, 16);
+}
+
+/** Pick several vendors: searchable checkbox list with the selection count. Used by multi-vendor campaigns. */
+function VendorMultiSelect({
+  vendors,
+  value,
+  onChange,
+}: {
+  vendors: { id: string; store_name: string }[];
+  value: string[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const shown = q ? vendors.filter((v) => v.store_name.toLowerCase().includes(q)) : vendors;
+  const toggle = (id: string) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
+
+  return (
+    <div className="rounded-lg border border-gray-300">
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search vendors…"
+        className="w-full px-3 py-2 text-sm border-b border-gray-200 rounded-t-lg focus:outline-none"
+      />
+      <ul className="max-h-48 overflow-y-auto divide-y divide-gray-100">
+        {shown.length === 0 && <li className="px-3 py-2 text-sm text-gray-500">No vendors match.</li>}
+        {shown.map((v) => (
+          <li key={v.id}>
+            <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50">
+              <input type="checkbox" checked={value.includes(v.id)} onChange={() => toggle(v.id)} />
+              {v.store_name}
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div className="flex items-center justify-between border-t border-gray-200 px-3 py-1.5 text-xs text-gray-500">
+        <span>{value.length} selected</span>
+        {value.length > 0 && (
+          <button type="button" onClick={() => onChange([])} className="font-medium text-primary-600 hover:underline">
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export function CampaignsPage() {
@@ -407,13 +457,18 @@ export function CampaignsPage() {
       // product-selection category — that filter is for listing, and AND-ing it
       // into the voucher rejects valid vendor products outside that category
       // (and fails when cart lines lack category metadata).
-      const vendorIds = formData.target_type === 'vendor' && formData.target_id ? [formData.target_id] : [];
+      const vendorIds =
+        formData.target_type === 'vendor' && formData.target_id
+          ? [formData.target_id]
+          : formData.target_type === 'multi_vendor'
+            ? formData.vendor_ids
+            : [];
       const productIds =
         formData.product_source === 'manual'
           ? formData.product_manual_ids.split(',').map((s) => s.trim()).filter(Boolean)
           : [];
       const categoryIds =
-        formData.target_type === 'vendor'
+        formData.target_type === 'vendor' || (formData.target_type === 'multi_vendor' && !formData.product_category_id)
           ? []
           : formData.product_category_id
             ? [formData.product_category_id]
@@ -516,6 +571,7 @@ export function CampaignsPage() {
       end_date: toDatetimeLocalValue(campaign.end_date),
       target_type: campaign.target_type,
       target_id: campaign.target_id || '',
+      vendor_ids: Array.isArray(rules.vendorIds) ? rules.vendorIds.map(String) : [],
 
       hero_headline: hero.headline || '',
       hero_subtitle: hero.subtitle || '',
@@ -639,6 +695,11 @@ export function CampaignsPage() {
           formData.target_type === 'vendor' && formData.target_id.trim()
             ? formData.target_id.trim()
             : undefined,
+        // Several sellers: the storefront shows products from any of these, and only these.
+        vendorIds:
+          formData.target_type === 'multi_vendor' && formData.vendor_ids.length > 0
+            ? formData.vendor_ids
+            : undefined,
         categoryIds: (() => {
           if (formData.product_category_id) return [formData.product_category_id];
           if (formData.target_type === 'category' && formData.target_id.trim()) {
@@ -692,6 +753,10 @@ export function CampaignsPage() {
     }
     if (!formData.internal_name.trim() || !formData.public_title.trim()) {
       notification.error('Validation', 'Internal name and public title are required');
+      return;
+    }
+    if (formData.target_type === 'multi_vendor' && formData.vendor_ids.length === 0) {
+      notification.error('Validation', 'Select at least one vendor for a multi-vendor campaign');
       return;
     }
 
@@ -1103,12 +1168,13 @@ export function CampaignsPage() {
                           ...formData,
                           target_type: next,
                           target_id: '',
+                          vendor_ids: [],
                           // Reset product scope to match the new target type.
                           product_category_id: '',
                           product_source:
                             next === 'product'
                               ? 'manual'
-                              : next === 'vendor' || next === 'category'
+                              : next === 'vendor' || next === 'category' || next === 'multi_vendor'
                                 ? 'rules_based'
                                 : formData.product_source,
                           review_scope:
@@ -1132,9 +1198,11 @@ export function CampaignsPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       {formData.target_type === 'vendor'
                         ? 'Target Vendor'
-                        : formData.target_type === 'category'
-                          ? 'Target Category'
-                          : 'Target ID'}
+                        : formData.target_type === 'multi_vendor'
+                          ? `Target Vendors (${formData.vendor_ids.length} selected)`
+                          : formData.target_type === 'category'
+                            ? 'Target Category'
+                            : 'Target ID'}
                     </label>
                     {formData.target_type === 'vendor' ? (
                       <select
@@ -1161,6 +1229,12 @@ export function CampaignsPage() {
                           <option key={v.id} value={v.id}>{v.store_name}</option>
                         ))}
                       </select>
+                    ) : formData.target_type === 'multi_vendor' ? (
+                      <VendorMultiSelect
+                        vendors={vendorsList}
+                        value={formData.vendor_ids}
+                        onChange={(ids) => setFormData({ ...formData, vendor_ids: ids, product_source: formData.product_source === 'manual' ? 'manual' : 'rules_based', review_scope: 'vendor' })}
+                      />
                     ) : formData.target_type === 'category' ? (
                       <select
                         value={formData.target_id}
@@ -1398,6 +1472,17 @@ export function CampaignsPage() {
                     </p>
                   </div>
                 )}
+                {formData.target_type === 'multi_vendor' && (
+                  <div className="rounded-lg border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-900">
+                    <p className="font-semibold">
+                      Scoped to {formData.vendor_ids.length} vendor{formData.vendor_ids.length === 1 ? '' : 's'}
+                      {formData.vendor_ids.length === 0 ? ' (select vendors above)' : ''}
+                    </p>
+                    <p className="mt-1 text-xs text-primary-800/80">
+                      Only products from the selected vendors appear on the landing page, across any category. &quot;View more&quot; goes to the full catalogue unless you narrow to one category below.
+                    </p>
+                  </div>
+                )}
                 {formData.target_type === 'category' && (
                   <div className="rounded-lg border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-900">
                     <p className="font-semibold">
@@ -1454,7 +1539,7 @@ export function CampaignsPage() {
                     formData.target_type !== 'product' && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {formData.target_type === 'vendor'
+                        {formData.target_type === 'vendor' || formData.target_type === 'multi_vendor'
                           ? 'Category filter (optional)'
                           : formData.target_type === 'category'
                             ? 'Category'
@@ -1478,7 +1563,7 @@ export function CampaignsPage() {
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500"
                       >
                         <option value="">
-                          {formData.target_type === 'vendor' ? 'All categories from this vendor' : 'Any category'}
+                          {formData.target_type === 'vendor' ? 'All categories from this vendor' : formData.target_type === 'multi_vendor' ? 'All categories from these vendors' : 'Any category'}
                         </option>
                         {categoryOptions.map((c) => (
                           <option key={c.id} value={c.id}>
@@ -1586,6 +1671,8 @@ export function CampaignsPage() {
                           Scope is inherited from this campaign automatically —{' '}
                           {formData.target_type === 'vendor' && formData.target_id
                             ? `restricted to ${formData.vendor_name || 'the selected vendor'}`
+                            : formData.target_type === 'multi_vendor' && formData.vendor_ids.length > 0
+                            ? `restricted to ${formData.vendor_ids.length} selected vendors`
                             : formData.product_source === 'manual' && formData.product_manual_ids
                             ? `restricted to ${formData.product_manual_ids.split(',').filter(Boolean).length} specific product(s)`
                             : formData.product_category_id

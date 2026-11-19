@@ -124,6 +124,8 @@ export type ProductSelectionSource = 'automatic' | 'manual' | 'rules_based';
 export interface CampaignProductSelectionRules {
   source: ProductSelectionSource;
   vendorId?: string | number;
+  /** Several sellers (target type multi_vendor): products from any of them, and only them. */
+  vendorIds?: (string | number)[];
   categoryIds?: (string | number)[];
   manualProductIds?: (string | number)[];
   pinnedProductIds?: (string | number)[];

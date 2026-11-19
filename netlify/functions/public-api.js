@@ -59,6 +59,12 @@ import {
 } from './services/internalWhatsapp.js';
 import { sendWhatsAppTemplateToRecipients } from './helpers/giveawayHelpers.js';
 import { signReturnImages } from './services/privateStorage.js';
+import {
+  readRewardsConfig,
+  readRewardsSummary,
+  readCustomerRewards,
+  listReferralReview,
+} from './services/rewards-public-api.js';
 
 function json(statusCode, body) {
   return { statusCode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -2044,10 +2050,42 @@ export const handler = async (event) => {
         if (auth.errorResponse) return auth.errorResponse;
         return await getCustomerOrders(auth.adminClient, segments[1], query);
       }
+      if (segments.length === 3 && segments[2] === 'rewards' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'customers.rewards.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        const found = await resolveCustomer(auth.adminClient, segments[1]);
+        if (!found.customer) {
+          return json(found.status, { error: found.error, ...(found.matches ? { matches: found.matches } : {}) });
+        }
+        const r = await readCustomerRewards(auth.adminClient, found.customer);
+        return json(r.status, r.body);
+      }
       if (segments.length === 2 && method === 'GET') {
         const auth = await authenticateServiceApiRequest(event, 'customers.read');
         if (auth.errorResponse) return auth.errorResponse;
         return await getCustomer(auth.adminClient, segments[1]);
+      }
+    }
+
+    // --- rewards (JulinePoints, read-only) ---
+    if (segments[0] === 'rewards' && method === 'GET') {
+      if (segments.length === 2 && segments[1] === 'config') {
+        const auth = await authenticateServiceApiRequest(event, 'rewards.config.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        const r = await readRewardsConfig(auth.adminClient);
+        return json(r.status, r.body);
+      }
+      if (segments.length === 2 && segments[1] === 'summary') {
+        const auth = await authenticateServiceApiRequest(event, 'rewards.summary.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        const r = await readRewardsSummary(auth.adminClient);
+        return json(r.status, r.body);
+      }
+      if (segments.length === 3 && segments[1] === 'referrals' && segments[2] === 'review') {
+        const auth = await authenticateServiceApiRequest(event, 'rewards.referrals.review.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        const r = await listReferralReview(auth.adminClient, query);
+        return json(r.status, r.body);
       }
     }
 

@@ -764,6 +764,46 @@ export const CAPABILITIES = [
     idempotency_required: false, approval_recommended: false, enabled: true,
   },
 
+  // ── REWARDS (JulinePoints) ────────────────────────────────────────────
+  // Read-only on purpose. There is no capability to credit, adjust or restore
+  // points: staff do that in the admin Rewards page (large adjustments need two
+  // approvals). Reading never opens a wallet or claims a bonus. No email is ever
+  // returned.
+  {
+    id: 'rewards.config.read', domain: 'rewards', name: 'Read JulinePoints Settings',
+    description: 'The live JulinePoints programme settings: on/off, points-to-naira rate, sign-up bonus, daily claim and streak, purchase earn rate and hold, referral tiers, redemption cap, expiry. Use it to quote the real numbers instead of guessing; they can change in admin.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/rewards/config',
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'rewards.summary.read', domain: 'rewards', name: 'Read JulinePoints Summary',
+    description: 'Programme-wide totals: accounts, points issued, redeemed, restored, outstanding and pending (with naira values), referrals awaiting review, and how many accounts have a balance that disagrees with their ledger (should be 0). No customer-level data.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'medium',
+    http_method: 'GET', endpoint: '/rewards/summary',
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'customers.rewards.read', domain: 'customers', name: 'Read Customer JulinePoints',
+    description: "One customer's JulinePoints: available, reserved and pending balance (with naira values), points held on unpaid checkouts, daily-claim and streak status, their referral code and referral progress (friends are anonymised), whether they were referred, and their last 20 ledger entries. Email is never returned. Read-only: it does not open a wallet or award anything. :id may be a UUID or a phone number.",
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'medium',
+    http_method: 'GET', endpoint: '/customers/:id/rewards',
+    input_schema: { id: 'uuid or phone' },
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'rewards.referrals.review.list', domain: 'rewards', name: 'List Referral Rewards for Review',
+    description: 'Referral reward awards, by default those flagged for manual review (status in_review), with the referrer and referee names, order id, qualifying amount, points and flag names such as same_phone_as_referrer. A flag is a reason for a person to look, not proof of fraud. Agents report, they do not decide; approving or rejecting is done by staff in admin.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'high',
+    http_method: 'GET', endpoint: '/rewards/referrals/review',
+    input_schema: { status: 'in_review (default) | pending | available | void', limit: 'number (max 100)', offset: 'number' },
+    supports_pagination: true, supports_filtering: true, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+
   // ── OPERATIONS ────────────────────────────────────────────────────────
   {
     id: 'operations.exceptions.list', domain: 'operations', name: 'List Operational Exceptions',

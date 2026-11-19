@@ -31,7 +31,7 @@ interface CampaignVoucher {
   max_uses_per_customer: number;
   valid_from: string;
   valid_until: string | null;
-  status: 'active' | 'used' | 'expired' | 'cancelled';
+  status: 'draft' | 'active' | 'used' | 'expired' | 'cancelled';
   total_cost_absorbed: number;
   total_vendor_payout: number;
   created_by: string | null;
@@ -100,6 +100,7 @@ const emptyForm: FormState = {
 };
 
 const statusColors = {
+  draft: 'bg-amber-100 text-amber-800',
   active: 'bg-green-100 text-green-800',
   used: 'bg-gray-100 text-gray-800',
   expired: 'bg-red-100 text-red-800',
@@ -107,6 +108,7 @@ const statusColors = {
 };
 
 const statusIcons = {
+  draft: Clock,
   active: CheckCircle,
   used: XCircle,
   expired: Clock,
@@ -345,6 +347,32 @@ export function VouchersPage() {
     } catch (err: any) {
       console.error('Delete voucher error', err);
       notification.error('Delete failed', err?.message || 'Unable to delete voucher');
+    }
+  };
+
+  const handleActivate = async (id: string) => {
+    if (!isAdmin) {
+      notification.error('Not allowed', 'Only admins can activate vouchers');
+      return;
+    }
+    if (!confirm('Activate this voucher? Customers will be able to redeem it straight away.')) return;
+    try {
+      const { error } = await supabase
+        .from('campaign_vouchers')
+        .update({ status: 'active' })
+        .eq('id', id)
+        .eq('status', 'draft');
+      if (error) throw error;
+      void logActivity({
+        action: 'VOUCHER_ACTIVATED',
+        resource_type: 'campaign_vouchers',
+        resource_id: id,
+      });
+      notification.success('Activated', 'Voucher is now live');
+      await loadVouchers();
+    } catch (err: any) {
+      console.error('Activate voucher error', err);
+      notification.error('Activate failed', err?.message || 'Unable to activate voucher');
     }
   };
 
@@ -602,7 +630,18 @@ export function VouchersPage() {
                   </button>
                   {isAdmin && (
                     <>
-                      {voucher.status === 'active' && (
+                      {voucher.status === 'draft' && (
+                        <button
+                          onClick={() => handleActivate(voucher.id)}
+                          className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs font-semibold text-green-700 transition-colors hover:bg-green-100 hover:text-green-800"
+                          title="Activate"
+                          aria-label="Activate voucher"
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                          Activate
+                        </button>
+                      )}
+                      {(voucher.status === 'active' || voucher.status === 'draft') && (
                         <>
                           <button
                             onClick={() => openEdit(voucher)}

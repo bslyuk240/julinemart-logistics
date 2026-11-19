@@ -170,10 +170,11 @@ export const CAPABILITIES = [
   // ── VENDORS ───────────────────────────────────────────────────────────
   {
     id: 'vendors.list', domain: 'vendors', name: 'List Vendors',
-    description: 'List marketplace vendors with an active/inactive filter.',
+    description: 'List marketplace vendors (name, slug, contact, city, active flag) with an active/inactive filter and name search (?q=). The returned id is the vendor uuid used for campaign target_id and voucher vendor_ids.',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
     http_method: 'GET', endpoint: '/vendors',
-    supports_pagination: true, supports_filtering: true, supports_search: false,
+    input_schema: { active: 'true|false (optional)', q: 'optional store name/slug search', limit: 'number (max 100)', offset: 'number' },
+    supports_pagination: true, supports_filtering: true, supports_search: true,
     idempotency_required: false, approval_recommended: false, enabled: true,
   },
   {
@@ -420,6 +421,46 @@ export const CAPABILITIES = [
     idempotency_required: false, approval_recommended: false, enabled: true,
   },
 
+  // ── VOUCHERS ──────────────────────────────────────────────────────────
+  // Read access plus draft-only creation: vouchers cost JulineMart real money,
+  // so an agent can never activate one. Drafts cannot be redeemed (checkout
+  // only honours status 'active'); a human activates them on the Vouchers page.
+  {
+    id: 'vouchers.list', domain: 'vouchers', name: 'List Vouchers',
+    description: 'List campaign vouchers (code, discount terms, vendor/category/SKU scope, usage, validity, status) with status/campaign filters and code/name search. Check it before proposing a code so you do not reuse one.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/vouchers',
+    input_schema: { status: 'draft|active|used|expired|cancelled (optional)', campaign_id: 'uuid (optional)', q: 'optional code/campaign-name search', limit: 'number (max 100)', offset: 'number' },
+    supports_pagination: true, supports_filtering: true, supports_search: true,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'vouchers.read', domain: 'vouchers', name: 'Read Voucher',
+    description: 'Full detail for one campaign voucher.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/vouchers/:id',
+    input_schema: { voucher_id: 'string (uuid)' },
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'vouchers.draft.create', domain: 'vouchers', name: 'Create Voucher Draft',
+    description: 'Propose a campaign voucher. It is always saved as status "draft" and cannot be redeemed: a human reviews it on the JLO Vouchers page and activates it. Must be scoped to specific vendors, categories or SKUs (get uuids from vendors.list / categories.list, SKUs from products.list). Pass campaign_id of your own pending campaign draft to link them.',
+    operation_type: 'create', side_effect_type: 'internal_write', risk_level: 'low',
+    http_method: 'POST', endpoint: '/vouchers/drafts',
+    input_schema: {
+      code: 'string (required, 3-50 chars, letters/numbers/-/_, stored uppercase, must be unique)',
+      campaign_name: 'string (required)', description: 'string',
+      discount_type: 'free|percentage|fixed_amount (required)', discount_value: 'number (required unless free; percentage max 100)',
+      shipping_discount_type: 'none|percentage|fixed|free (default none)', shipping_discount_value: 'number',
+      vendor_ids: 'uuid[] (vendors.id)', category_ids: 'uuid[] (categories.id)', product_skus: 'string[]',
+      max_uses: 'number (default 1, max 100000)', max_uses_per_customer: 'number (default 1)',
+      valid_from: 'ISO datetime (default now)', valid_until: 'ISO datetime',
+      campaign_id: 'uuid (optional, one of your own pending campaign drafts)', notes: 'string (shown to the reviewer)',
+    },
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+
   // ── NOTIFICATIONS ─────────────────────────────────────────────────────
   // Real external communication — these actually reach customers/vendors,
   // unlike everything else in this catalog. See capabilityCatalog.js §
@@ -652,15 +693,16 @@ export const CAPABILITIES = [
   // ── CATALOGUE ─────────────────────────────────────────────────────────
   {
     id: 'products.list', domain: 'catalogue', name: 'List Products',
-    description: 'List products with status/stock/vendor filters. Each row includes image_url (main product photo) and product_url (https://julinemart.com/product/{slug}).',
+    description: 'List products with status/stock/vendor/category filters (vendor_id and category_id are uuids from vendors.list / categories.list) — e.g. all of one vendor\'s products, or a vendor\'s products in one category. Each row includes category_ids, sku, image_url (main product photo) and product_url (https://julinemart.com/product/{slug}).',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
     http_method: 'GET', endpoint: '/products',
+    input_schema: { vendor_id: 'uuid (optional)', category_id: 'uuid (optional)', status: 'optional', stock_status: 'optional', limit: 'number (max 100)', offset: 'number' },
     supports_pagination: true, supports_filtering: true, supports_search: false,
     idempotency_required: false, approval_recommended: false, enabled: true,
   },
   {
     id: 'products.search', domain: 'catalogue', name: 'Search Products',
-    description: 'List products filtered by a free-text query (name or SKU). Each row includes image_url and product_url.',
+    description: 'List products filtered by a free-text query (name or SKU); vendor_id and category_id filters also apply. Each row includes category_ids, image_url and product_url.',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
     http_method: 'GET', endpoint: '/products?q=',
     supports_pagination: true, supports_filtering: true, supports_search: true,
@@ -668,7 +710,7 @@ export const CAPABILITIES = [
   },
   {
     id: 'products.read', domain: 'catalogue', name: 'Read Product',
-    description: 'Full detail for one product, including image_url and product_url. Excludes internal cost/sourcing fields.',
+    description: 'Full detail for one product, including category_ids, image_url and product_url. Excludes internal cost/sourcing fields.',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
     http_method: 'GET', endpoint: '/products/:id',
     input_schema: { product_id: 'string (uuid)' },
@@ -677,10 +719,11 @@ export const CAPABILITIES = [
   },
   {
     id: 'categories.list', domain: 'catalogue', name: 'List Categories',
-    description: 'List product categories.',
+    description: 'List product categories (id uuid, name, slug, parent_id). The id is what campaign target_id / products.category_ids and voucher category_ids expect. Supports name search (?q=) and ?parent_id=.',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
     http_method: 'GET', endpoint: '/categories',
-    supports_pagination: true, supports_filtering: false, supports_search: false,
+    input_schema: { q: 'optional name/slug search', parent_id: 'uuid (optional)', limit: 'number (max 100)', offset: 'number' },
+    supports_pagination: true, supports_filtering: true, supports_search: true,
     idempotency_required: false, approval_recommended: false, enabled: true,
   },
 

@@ -104,6 +104,8 @@ function rowToWizardForm(campaign: CampaignRow, mediaItems: MediaGalleryItem[]):
     vendor_shop_image: (vendor.shopImageUrl as string) || '',
     vendor_intro_video: (vendor.introVideoUrl as string) || '',
 
+    vendor_ids: Array.isArray(rules.vendorIds) ? (rules.vendorIds as (string | number)[]).map(String) : [],
+
     product_source: (rules.source as CampaignWizardForm['product_source']) || 'automatic',
     product_category_id: Array.isArray(rules.categoryIds) && rules.categoryIds[0] ? String(rules.categoryIds[0]) : '',
     product_manual_ids: Array.isArray(rules.manualProductIds) ? (rules.manualProductIds as string[]).join(', ') : '',

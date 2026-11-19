@@ -1126,7 +1126,7 @@ async function buildCampaignDraftPatch(adminClient, body, existing, isCreate) {
     if (!UUID_RE.test(targetId)) bad('target_id must be a uuid');
     await draftAssertExist(adminClient, { vendor: 'vendors', category: 'categories', product: 'products' }[targetType], [targetId], 'target_id');
   }
-  if (targetType === 'general') targetId = null;
+  if (targetType === 'general' || targetType === 'multi_vendor') targetId = null;
   patch.target_type = targetType;
   patch.target_id = targetId;
 
@@ -1216,6 +1216,11 @@ async function buildCampaignDraftPatch(adminClient, body, existing, isCreate) {
       await draftAssertExist(adminClient, 'categories', ids, 'products.category_ids');
       rules.categoryIds = ids.length ? ids : undefined;
     }
+    if (p.vendor_ids !== undefined) {
+      const ids = draftUuidList(p.vendor_ids, 'products.vendor_ids', 50);
+      await draftAssertExist(adminClient, 'vendors', ids, 'products.vendor_ids');
+      rules.vendorIds = ids.length ? ids : undefined;
+    }
     if (p.manual_product_ids !== undefined) {
       const ids = draftUuidList(p.manual_product_ids, 'products.manual_product_ids', 50);
       await draftAssertExist(adminClient, 'products', ids, 'products.manual_product_ids');
@@ -1238,6 +1243,11 @@ async function buildCampaignDraftPatch(adminClient, body, existing, isCreate) {
   // Inherit the campaign target so landing pages never mix other vendors/categories.
   if (targetType === 'vendor') rules.vendorId = targetId;
   else delete rules.vendorId;
+  // multi_vendor: the seller list is the scope. Any other target never carries one, so a stale list can't leak in.
+  if (targetType === 'multi_vendor') {
+    if (!(rules.vendorIds || []).length) bad('products.vendor_ids (the sellers to feature) is required when target_type is multi_vendor');
+    if (rules.vendorIds.length < 2) bad('multi_vendor needs at least 2 vendors in products.vendor_ids — use target_type vendor for a single seller');
+  } else delete rules.vendorIds;
   if (targetType === 'category' && !(rules.categoryIds || []).length) rules.categoryIds = [targetId];
   Object.keys(rules).forEach((k) => rules[k] === undefined && delete rules[k]);
   patch.product_selection_rules = rules;

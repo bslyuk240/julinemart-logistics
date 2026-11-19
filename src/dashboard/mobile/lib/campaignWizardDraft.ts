@@ -21,6 +21,8 @@ export interface CampaignWizardForm {
   end_date: string;
   target_type: TargetType;
   target_id: string;
+  /** Sellers for a multi_vendor campaign (target_id stays empty). */
+  vendor_ids: string[];
 
   hero_headline: string;
   hero_subtitle: string;
@@ -79,6 +81,7 @@ export const emptyCampaignWizardForm = (): CampaignWizardForm => ({
   end_date: '',
   target_type: 'general',
   target_id: '',
+  vendor_ids: [],
 
   hero_headline: '',
   hero_subtitle: '',
@@ -144,6 +147,8 @@ export function loadCampaignWizardDraft(editingId: string | null): CampaignWizar
     const parsed = JSON.parse(raw) as CampaignWizardDraft;
     if (parsed.version !== DRAFT_VERSION) return null;
     if (parsed.editingId !== editingId) return null;
+    // Drafts saved before multi-vendor existed have no vendor_ids.
+    parsed.form = { ...parsed.form, vendor_ids: Array.isArray(parsed.form?.vendor_ids) ? parsed.form.vendor_ids : [] };
     return parsed;
   } catch {
     return null;
@@ -181,7 +186,8 @@ export function draftHasContent(draft: CampaignWizardDraft): boolean {
       f.public_title.trim() ||
       f.slug.trim() ||
       f.hero_headline.trim() ||
-      f.target_id.trim(),
+      f.target_id.trim() ||
+      f.vendor_ids.length > 0,
   );
 }
 

@@ -386,11 +386,11 @@ export const CAPABILITIES = [
     input_schema: {
       public_title: 'string (required)', internal_name: 'string', campaign_objective: 'string',
       start_date: 'ISO datetime', end_date: 'ISO datetime',
-      target_type: 'vendor|category|product|collection|multi_vendor|general', target_id: 'uuid (required for vendor/category/product)',
+      target_type: 'vendor|category|product|collection|multi_vendor|general', target_id: 'uuid (required for vendor/category/product; not used for multi_vendor)',
       hero: '{ headline, subtitle, cta_label, badge_text, image_desktop, image_mobile, intro_video_url } (each image may be an https URL on Cloudinary/Supabase/Skola asset host, a data: URI, or { base64 }; the server stores it and saves the public URL. Videos must be URLs)',
       offer: '{ display_text, coupon_code, proposal_note } (proposal only; no voucher)',
       vendor: '{ name, story, location, years_operating, store_link_url, logo_url, shop_image_url, intro_video_url } (vendor target only)',
-      products: '{ source: automatic|manual|rules_based, category_ids[], manual_product_ids[], min_rating, in_stock_only, discounted_only, max_products(1-50) }',
+      products: '{ source: automatic|manual|rules_based, vendor_ids[] (required for target_type multi_vendor, 2+ vendors: products come only from these sellers across any category), category_ids[], manual_product_ids[], min_rating, in_stock_only, discounted_only, max_products(1-50) }',
       reviews: '{ scope: product|featured_products|vendor|category|mixed, min_rating, max_reviews, verified_purchase_only }',
       seo: '{ title, description }',
       sections: 'ordered array from hero|benefits|vendor_story|products|offer|reviews|media_gallery|cta_footer',

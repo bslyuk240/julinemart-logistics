@@ -1661,6 +1661,7 @@ async function sendWhatsAppTemplateRoute(body) {
       buttons: Array.isArray(body.buttons)
         ? body.buttons.filter(isPlainObject).map((b) => ({ index: Number(b.index), sub_type: b.sub_type ? String(b.sub_type) : undefined, value: b.value }))
         : [],
+      buttonUrlSuffix: body.button_url_suffix ?? body.buttonUrlSuffix ?? undefined,
     });
     return json(200, { data });
   } catch (e) {

@@ -207,7 +207,7 @@ export async function sendWhatsAppText({ to, message, contactName, contactType =
  * which is more trustworthy than this function's own possibly-stale copy
  * of the approval state.
  */
-export async function sendWhatsAppTemplate({ to, templateName, variables = [], language, contactName, contactType = 'lead', vendorId, sentByAgent, headerImageUrl, broadcastId, buttons = [] }) {
+export async function sendWhatsAppTemplate({ to, templateName, variables = [], language, contactName, contactType = 'lead', vendorId, sentByAgent, headerImageUrl, broadcastId, buttons = [], buttonUrlSuffix }) {
   if (!to) throw new Error('to (phone number) is required');
   if (!templateName) throw new Error('templateName is required');
   if (headerImageUrl) await validateHeaderImage(headerImageUrl);
@@ -227,6 +227,27 @@ export async function sendWhatsAppTemplate({ to, templateName, variables = [], l
   // runs once the template has been synced; otherwise Meta's own error stands.
   const req = summarizeTemplateRequirements(template.meta_components);
   if (req) {
+    const defective = req.buttons.map((b, index) => ({ ...b, index })).filter((b) => b.url_defect);
+    if (defective.length) {
+      throw new Error(`Template "${template.name}" button #${defective[0].index} "${defective[0].text}" has a broken URL in Meta (${defective[0].url}) — a literal {{1}} was typed into WhatsApp Manager's Dynamic URL field, so every link would open a wrong page. Fix it in WhatsApp Manager (URL should be just the base, e.g. https://julinemart.com/ — Meta adds {{1}} itself), wait for re-approval, then re-sync templates.`);
+    }
+    // Shorthand for the common single-dynamic-link template: a bare suffix fills
+    // the first URL button that needs a value, unless buttons[] already does.
+    if (buttonUrlSuffix != null && String(buttonUrlSuffix) !== '') {
+      const target = req.buttons.findIndex((b) => b.type === 'URL' && b.needs_value);
+      if (target === -1) throw new Error(`Template "${template.name}" has no dynamic URL button — do not pass button_url_suffix.`);
+      if (!(buttons || []).some((b) => Number(b.index) === target)) {
+        buttons = [...(buttons || []), { index: target, value: String(buttonUrlSuffix) }];
+      }
+    }
+    // Callers often pass a URL button's full destination instead of the suffix;
+    // Meta would append it to the base and produce https://site/https://site/...
+    buttons = (buttons || []).map((b) => {
+      const def = req.buttons[Number(b.index)];
+      if (def?.type !== 'URL' || !def.url || typeof b.value !== 'string') return b;
+      const base = def.url.split(/\{\{\d+\}\}/)[0];
+      return base && b.value.startsWith(base) ? { ...b, value: b.value.slice(base.length) } : b;
+    });
     if (req.header_needs_media && !headerImageUrl) {
       throw new Error(`Template "${template.name}" has a ${req.header_format} header — pass header_image_url.`);
     }
@@ -338,6 +359,10 @@ export function summarizeTemplateRequirements(components) {
     // COPY_CODE always needs the code; quick replies/phone/etc. need none.
     needs_value: b.type === 'COPY_CODE' || (b.type === 'URL' && /\{\{\d+\}\}/.test(b.url || '')),
     ...(b.type === 'URL' ? { url: b.url } : {}),
+    // WhatsApp Manager's "Dynamic" URL type appends {{1}} itself; typing {{1}}
+    // into the URL field as well gets it stored URL-encoded in front of the real
+    // one (https://site/%7B%7B1%7D%7D{{1}}), so every link it sends is broken.
+    ...(b.type === 'URL' && /%7B%7B\d+%7D%7D/i.test(b.url || '') ? { url_defect: 'encoded_placeholder' } : {}),
   }));
   return {
     header_format: header?.format || null,

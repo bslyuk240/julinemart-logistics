@@ -154,6 +154,7 @@ under two names for different consumer mental models).
 | `customers.orders.read` | `GET /customers/:id/orders` |
 | `products.list` / `products.search` | `GET /products` |
 | `products.read` | `GET /products/:id` |
+| `products.activity.read` | `GET /products/:id/activity` |
 | `categories.list` | `GET /categories` |
 | `returns.list` | `GET /returns` |
 | `returns.read` | `GET /returns/:id` |
@@ -415,6 +416,21 @@ metadata.
 ```json
 { "data": [{ "id": "...", "name": "Fabrics", "slug": "fabrics", "parent_id": null, "display_order": 3 }], "count": 1 }
 ```
+
+#### `GET /products/:id/activity` — `products.activity.read`
+Who created, last edited or deleted this product, and when — from the staff
+activity log `catalog-product-upsert.js` writes to on every save. Most recent
+first, capped at 50 entries. No `user_id` (internal uuid) in the response —
+only the resolved staff name/email/role.
+```json
+{ "data": [{ "action": "PRODUCT_UPDATED", "actor_name": "Aisha Bello",
+  "actor_email": "aisha@julinemart.com", "actor_role": "agent",
+  "details": { "name": "Ankara Fabric (6 yards)", "slug": "ankara-fabric-6-yards",
+    "status": "published", "vendor_id": "3a1f...", "hub_id": null },
+  "created_at": "2026-11-20T09:12:00Z" }] }
+```
+Only covers activity from when this logging shipped (2026-11-22) onward —
+products created or edited before that have no history here.
 
 ---
 

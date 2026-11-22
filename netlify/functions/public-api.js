@@ -678,6 +678,42 @@ async function getProduct(adminClient, id) {
   return json(200, { data: presentProduct(data) });
 }
 
+// Who created, last updated or deleted this product — reads the staff activity
+// log catalog-product-upsert.js now writes to. Resolves user_id to a staff name
+// the same way the internal Activity Logs admin page does, since an external
+// agent audience has no use for an internal uuid.
+async function getProductActivity(adminClient, id) {
+  const { data: product } = await adminClient.from('products').select('id').eq('id', id).maybeSingle();
+  if (!product) return json(404, { error: 'Product not found' });
+
+  const { data: logs, error } = await adminClient
+    .from('activity_logs')
+    .select('user_id, actor_email, action, details, created_at')
+    .eq('resource_type', 'products')
+    .eq('resource_id', id)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (error) return json(500, { error: error.message });
+
+  const userIds = [...new Set((logs || []).map((l) => l.user_id).filter(Boolean))];
+  let usersById = {};
+  if (userIds.length) {
+    const { data: users } = await adminClient.from('users').select('id, full_name, role').in('id', userIds);
+    usersById = Object.fromEntries((users || []).map((u) => [u.id, u]));
+  }
+
+  const data = (logs || []).map((log) => ({
+    action: log.action,
+    actor_name: usersById[log.user_id]?.full_name || null,
+    actor_email: log.actor_email,
+    actor_role: usersById[log.user_id]?.role || null,
+    details: log.details,
+    created_at: log.created_at,
+  }));
+
+  return json(200, { data });
+}
+
 async function listCategories(adminClient, query) {
   const { limit, offset } = paginationParams(query);
   const { data, error, count } = await adminClient
@@ -1879,6 +1915,11 @@ export const handler = async (event) => {
         const auth = await authenticateServiceApiRequest(event, ['products.list', 'products.search']);
         if (auth.errorResponse) return auth.errorResponse;
         return await listProducts(auth.adminClient, query);
+      }
+      if (segments.length === 3 && segments[2] === 'activity' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'products.activity.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getProductActivity(auth.adminClient, segments[1]);
       }
       if (segments.length === 2 && method === 'GET') {
         const auth = await authenticateServiceApiRequest(event, 'products.read');

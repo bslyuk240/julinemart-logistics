@@ -306,6 +306,40 @@ export const CAPABILITIES = [
     idempotency_required: false, approval_recommended: false, enabled: true,
   },
 
+  // ── FINANCE ───────────────────────────────────────────────────────────
+  // Company-wide money: the admin Finance page's P&L view, its operating
+  // expense ledger, and what's owed back to JulineMart when a vendor's
+  // already-withdrawn payout turns out to cover an order that gets refunded.
+  // Read only, like every other finance capability — an agent reports, a
+  // person moves money.
+  {
+    id: 'finance.pnl.read', domain: 'finance', name: 'Monthly P&L',
+    description: 'Monthly profit & loss from paid orders: revenue (commission + margin + shipping), gross sales, operating expenses (from the expense ledger), gross profit, profit margin %, VAT collected, order count. One row per month, most recent first.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/finance/pnl',
+    input_schema: { since: 'string (YYYY-MM, optional)', until: 'string (YYYY-MM, optional)', limit: 'integer (optional, max 36, default 12)' },
+    supports_pagination: false, supports_filtering: true, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'finance.expenses.list', domain: 'finance', name: 'List Operating Expenses',
+    description: 'The company\'s own expense ledger (courier, marketing, platform, staff, operations, sourcing, other) — category, amount, who it was paid to, when, and whether it is tax deductible. Not vendor payouts and not customer refunds.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/finance/expenses',
+    input_schema: { category: 'string (optional, e.g. courier, marketing, platform, staff, operations, sourcing, other)', since: 'string (YYYY-MM-DD, optional)', until: 'string (YYYY-MM-DD, optional)', limit: 'integer (optional, max 100, default 50)', offset: 'integer (optional)' },
+    supports_pagination: true, supports_filtering: true, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'finance.vendor_debits.list', domain: 'finance', name: 'List Vendor Return Debits',
+    description: 'Money owed back to JulineMart when a vendor already withdrew their payout for an order that was later returned and refunded — amount, status (pending, deducted, paid_back, waived), how it was or will be recovered, and which return request it ties to.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/finance/vendor-debits',
+    input_schema: { vendor_id: 'string (uuid, optional)', status: 'string (optional: pending, deducted, paid_back, waived)', limit: 'integer (optional, max 100, default 50)', offset: 'integer (optional)' },
+    supports_pagination: true, supports_filtering: true, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+
   // ── INFLUENCERS ───────────────────────────────────────────────────────
   {
     id: 'influencers.list', domain: 'influencers', name: 'List Influencers',

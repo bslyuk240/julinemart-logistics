@@ -792,6 +792,64 @@ async function getReturnShipments(adminClient, id) {
   return json(200, { data: data || [] });
 }
 
+// ── finance.* ──────────────────────────────────────────────────────────
+const PNL_FIELDS = 'period, revenue, commission_revenue, margin_revenue, shipping_revenue, gross_sales, expenses, gross_profit, profit_margin_pct, vat_collected, order_count';
+const EXPENSE_LIST_FIELDS = 'id, category, subcategory, description, amount, currency, payment_method, paid_to, tax_deductible, vat_amount, paid_at, fiscal_year, fiscal_month';
+const VENDOR_DEBIT_FIELDS = 'id, vendor_id, return_request_id, amount, status, recovery_method, notes, created_at, updated_at';
+const VENDOR_DEBIT_STATUSES = ['pending', 'deducted', 'paid_back', 'waived'];
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+async function getMonthlyPnl(adminClient, query) {
+  const limit = Math.min(36, Math.max(1, Number(query.limit) || 12));
+  if (query.since && !MONTH_RE.test(query.since)) return json(400, { error: 'since must be YYYY-MM' });
+  if (query.until && !MONTH_RE.test(query.until)) return json(400, { error: 'until must be YYYY-MM' });
+
+  let q = adminClient.from('monthly_pnl_view').select(PNL_FIELDS).order('period', { ascending: false }).limit(limit);
+  if (query.since) q = q.gte('period', query.since);
+  if (query.until) q = q.lte('period', query.until);
+
+  const { data, error } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data: data || [] });
+}
+
+async function listOperatingExpenses(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  let q = adminClient
+    .from('ledger_expenses')
+    .select(EXPENSE_LIST_FIELDS, { count: 'exact' })
+    .order('paid_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (query.category) q = q.eq('category', query.category);
+  if (query.since) q = q.gte('paid_at', query.since);
+  if (query.until) q = q.lte('paid_at', query.until);
+
+  const { data, error, count } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
+async function listVendorReturnDebits(adminClient, query) {
+  const { limit, offset } = paginationParams(query);
+  if (query.status && !VENDOR_DEBIT_STATUSES.includes(query.status)) {
+    return json(400, { error: `status must be one of: ${VENDOR_DEBIT_STATUSES.join(', ')}` });
+  }
+
+  let q = adminClient
+    .from('vendor_return_debits')
+    .select(VENDOR_DEBIT_FIELDS, { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (query.vendor_id) q = q.eq('vendor_id', query.vendor_id);
+  if (query.status) q = q.eq('status', query.status);
+
+  const { data, error, count } = await q;
+  if (error) return json(500, { error: error.message });
+  return json(200, { data, count });
+}
+
 // ── influencers.* ───────────────────────────────────────────────────────
 const INFLUENCER_LIST_FIELDS = 'id, name, handle, platform, coupon_code, tier, status, total_orders, total_sales, commission_rate, total_commission_earned, total_commission_paid, start_date, last_sale_date, created_at';
 const INFLUENCER_DETAIL_FIELDS = `${INFLUENCER_LIST_FIELDS}, email, phone, shipping_discount_type, shipping_discount_value, minimum_order_value, maximum_uses, commission_based_on`;
@@ -2166,6 +2224,25 @@ export const handler = async (event) => {
         const auth = await authenticateServiceApiRequest(event, 'returns.read');
         if (auth.errorResponse) return auth.errorResponse;
         return await getReturn(auth.adminClient, segments[1]);
+      }
+    }
+
+    // --- finance ---
+    if (segments[0] === 'finance') {
+      if (segments.length === 2 && segments[1] === 'pnl' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'finance.pnl.read');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await getMonthlyPnl(auth.adminClient, query);
+      }
+      if (segments.length === 2 && segments[1] === 'expenses' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'finance.expenses.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listOperatingExpenses(auth.adminClient, query);
+      }
+      if (segments.length === 2 && segments[1] === 'vendor-debits' && method === 'GET') {
+        const auth = await authenticateServiceApiRequest(event, 'finance.vendor_debits.list');
+        if (auth.errorResponse) return auth.errorResponse;
+        return await listVendorReturnDebits(auth.adminClient, query);
       }
     }
 

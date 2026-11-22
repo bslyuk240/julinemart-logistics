@@ -159,6 +159,9 @@ under two names for different consumer mental models).
 | `returns.list` | `GET /returns` |
 | `returns.read` | `GET /returns/:id` |
 | `returns.shipments.read` | `GET /returns/:id/shipments` |
+| `finance.pnl.read` | `GET /finance/pnl` |
+| `finance.expenses.list` | `GET /finance/expenses` |
+| `finance.vendor_debits.list` | `GET /finance/vendor-debits` |
 | `influencers.list` | `GET /influencers` |
 | `influencers.read` | `GET /influencers/:id` |
 | `influencers.sales.read` | `GET /influencers/:id/sales` |
@@ -452,6 +455,46 @@ customer email and the raw payment-provider refund payload.
 #### `GET /returns/:id/shipments` — `returns.shipments.read`
 Reverse-logistics shipment(s) created for this return — tracking,
 destination, status. Same shape family as `shipments.read`.
+
+---
+
+### Finance
+
+Read only — an agent reports on money, a person moves it.
+
+#### `GET /finance/pnl` — `finance.pnl.read`
+Query params: `since`, `until` (both `YYYY-MM`), `limit` (default 12, max 36).
+One row per month, most recent first, from the admin Finance page's own
+`monthly_pnl_view`.
+```json
+{ "data": [{ "period": "2026-11", "revenue": 4820000, "commission_revenue": 2100000,
+  "margin_revenue": 1900000, "shipping_revenue": 820000, "gross_sales": 15200000,
+  "expenses": 1350000, "gross_profit": 3470000, "profit_margin_pct": 71.99,
+  "vat_collected": 362000, "order_count": 842 }] }
+```
+
+#### `GET /finance/expenses` — `finance.expenses.list`
+Query params: `category` (courier, marketing, platform, staff, operations,
+sourcing, other), `since`, `until` (both `YYYY-MM-DD`, matching `paid_at`),
+`limit`, `offset`. The company's own operating-expense ledger — not vendor
+payouts, not customer refunds.
+```json
+{ "data": [{ "id": "...", "category": "courier", "subcategory": "fuel",
+  "description": "Generator fuel for Lagos hub", "amount": 45000, "currency": "NGN",
+  "payment_method": "bank_transfer", "paid_to": "Shell Filling Station",
+  "tax_deductible": true, "vat_amount": 0, "paid_at": "2026-11-18T10:00:00Z",
+  "fiscal_year": 2026, "fiscal_month": 11 }], "count": 1 }
+```
+
+#### `GET /finance/vendor-debits` — `finance.vendor_debits.list`
+Query params: `vendor_id`, `status` (pending, deducted, paid_back, waived),
+`limit`, `offset`. Money owed back to JulineMart when a vendor already
+withdrew their payout for an order that was later returned and refunded.
+```json
+{ "data": [{ "id": "...", "vendor_id": "3a1f...", "return_request_id": "...",
+  "amount": 9000, "status": "pending", "recovery_method": null, "notes": null,
+  "created_at": "2026-11-20T08:00:00Z", "updated_at": "2026-11-20T08:00:00Z" }], "count": 1 }
+```
 
 ---
 

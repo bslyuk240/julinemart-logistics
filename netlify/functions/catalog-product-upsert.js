@@ -15,6 +15,7 @@ import {
   requireAdmin,
   GLOBAL_SOURCING_ALLOWED_ROLES,
 } from './services/global-sourcing-utils.js';
+import { recordStaffAudit } from './services/auditLog.js';
 
 export async function handler(event) {
   if (event.httpMethod === 'OPTIONS') return { statusCode: 200, headers, body: '' };
@@ -36,6 +37,12 @@ export async function handler(event) {
   // ── DELETE ────────────────────────────────────────────────────────────────────
   if (isDelete) {
     try {
+      const { data: existingProduct } = await auth.adminClient
+        .from('products')
+        .select('name, slug, vendor_id')
+        .eq('id', productId)
+        .maybeSingle();
+
       await Promise.all([
         auth.adminClient.from('product_images').delete().eq('product_id', productId),
         auth.adminClient.from('product_category_map').delete().eq('product_id', productId),
@@ -45,6 +52,12 @@ export async function handler(event) {
       ]);
       const { error } = await auth.adminClient.from('products').delete().eq('id', productId);
       if (error) return jsonResponse(500, { success: false, error: error.message });
+      await recordStaffAudit(event, auth.authUser, {
+        action: 'PRODUCT_DELETED',
+        resource_type: 'products',
+        resource_id: productId,
+        details: existingProduct || null,
+      });
       return jsonResponse(200, { success: true });
     } catch (err) {
       return jsonResponse(500, { success: false, error: 'Failed to delete product', message: err?.message });
@@ -294,6 +307,19 @@ export async function handler(event) {
       })(),
 
     ]);
+
+    await recordStaffAudit(event, auth.authUser, {
+      action: isPost ? 'PRODUCT_CREATED' : 'PRODUCT_UPDATED',
+      resource_type: 'products',
+      resource_id: pid,
+      details: {
+        name: savedProduct.name,
+        slug: savedProduct.slug,
+        status: savedProduct.status,
+        vendor_id: vendor_id ?? null,
+        hub_id: hub_id ?? null,
+      },
+    });
 
     return jsonResponse(isPost ? 201 : 200, { success: true, data: savedProduct });
   } catch (err) {

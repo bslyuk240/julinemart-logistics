@@ -718,6 +718,15 @@ export const CAPABILITIES = [
     idempotency_required: false, approval_recommended: false, enabled: true,
   },
   {
+    id: 'products.activity.read', domain: 'catalogue', name: 'Read Product Activity',
+    description: 'Who created, last updated or deleted this product, and when, from the staff activity log — actor name, email, role, action and timestamp. Most recent first.',
+    operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
+    http_method: 'GET', endpoint: '/products/:id/activity',
+    input_schema: { product_id: 'string (uuid)' },
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
     id: 'categories.list', domain: 'catalogue', name: 'List Categories',
     description: 'List product categories (id uuid, name, slug, parent_id). The id is what campaign target_id / products.category_ids and voucher category_ids expect. Supports name search (?q=) and ?parent_id=.',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',

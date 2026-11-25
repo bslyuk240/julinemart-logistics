@@ -215,7 +215,7 @@ a plain list), `limit` (default 25, max 100), `offset`.
 ```
 
 #### `GET /orders/:id` — `orders.read`
-Adds `customer_phone`, `delivery_address`, `delivery_landmark`, pricing
+Adds `customer_email`, `customer_phone`, `delivery_address`, `delivery_landmark`, pricing
 breakdown, `payment_method`, `paid_at`, `order_notes`, and a `sub_orders`
 array (one per vendor/hub leg):
 ```json

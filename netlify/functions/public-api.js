@@ -14,7 +14,7 @@
  * anything else) can discover what's available without reading this code.
  *
  * PII is intentionally minimized for an external/agent audience: customer
- * email is never returned, list endpoints omit street addresses, and
+ * email is only returned by orders.read (single order), list endpoints omit street addresses, and
  * rider live location is advertised in the manifest but not enabled —
  * see capabilityCatalog.js. Customer profile (name/phone) is available
  * under customers.read / customers.orders.read.
@@ -97,7 +97,7 @@ function isPlainObject(value) {
 const ORDER_LIST_FIELDS =
   'id, order_number, woocommerce_order_id, customer_name, delivery_city, delivery_state, delivery_zone, overall_status, payment_status, total_amount, created_at, updated_at';
 const ORDER_DETAIL_FIELDS =
-  'id, order_number, woocommerce_order_id, customer_name, customer_phone, delivery_address, delivery_city, delivery_state, delivery_zone, delivery_lga, delivery_landmark, subtotal, total_amount, shipping_fee_paid, tax_amount, discount_amount, payment_status, overall_status, payment_method, paid_at, order_notes, special_instructions, created_at, updated_at';
+  'id, order_number, woocommerce_order_id, customer_name, customer_email, customer_phone, delivery_address, delivery_city, delivery_state, delivery_zone, delivery_lga, delivery_landmark, subtotal, total_amount, shipping_fee_paid, tax_amount, discount_amount, payment_status, overall_status, payment_method, paid_at, order_notes, special_instructions, created_at, updated_at';
 
 async function listOrders(adminClient, query) {
   const { limit, offset } = paginationParams(query);
@@ -163,7 +163,17 @@ async function getOrderItems(adminClient, id) {
     .eq('order_id', id);
 
   if (error) return json(500, { error: error.message });
-  return json(200, { data: data || [] });
+
+  // order_items.product_id is the product uuid stored as text; resolve it to the
+  // storefront link so agents can quote a product URL without a second lookup.
+  const items = data || [];
+  const productIds = [...new Set(items.map((i) => String(i.product_id)).filter((v) => /^[0-9a-f-]{36}$/i.test(v)))];
+  const slugById = {};
+  if (productIds.length) {
+    const { data: prods } = await adminClient.from('products').select('id, slug').in('id', productIds);
+    for (const pr of prods || []) slugById[pr.id] = pr.slug;
+  }
+  return json(200, { data: items.map((i) => ({ ...i, product_url: storefrontProductUrl(slugById[i.product_id]) })) });
 }
 
 // ── shipments.* ─────────────────────────────────────────────────────────

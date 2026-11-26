@@ -4,6 +4,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { checkRateLimit } from '../services/rate-limit.js';
 import { computeInfluencerShippingDiscount as computeShippingDiscount } from '../services/influencer-order-sale.js';
+import { validateVoucherItems } from '../services/voucher-scope.js';
+
+export { validateVoucherItems };
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
 const SERVICE_ROLE_KEY =
@@ -134,81 +137,6 @@ export async function releaseVoucherUsage(supabase, voucherCode) {
   } catch (error) {
     console.error('Error releasing voucher usage:', error);
   }
-}
-
-/**
- * Check if order items match voucher restrictions
- * @param {Object} voucher - Voucher object
- * @param {Array} orderItems - Array of order items
- * @returns {Object} Matching items and validation result
- */
-export function validateVoucherItems(voucher, orderItems) {
-  if (
-    !voucher.product_ids?.length &&
-    !voucher.product_skus?.length &&
-    !voucher.vendor_ids?.length &&
-    !voucher.category_ids?.length
-  ) {
-    return {
-      isValid: true,
-      matchingItems: orderItems,
-      message: 'Voucher applies to all items',
-    };
-  }
-
-  const normalizedProductIds = (voucher.product_ids || [])
-    .map((pid) => pid?.toString().trim())
-    .filter(Boolean);
-  const normalizedProductSkus = (voucher.product_skus || [])
-    .map((sku) => sku?.toString().trim().toUpperCase())
-    .filter(Boolean);
-  const normalizedVendorIds = (voucher.vendor_ids || [])
-    .map((vid) => vid?.toString().trim())
-    .filter(Boolean);
-  const normalizedCategoryIds = (voucher.category_ids || [])
-    .map((cid) => cid?.toString().trim())
-    .filter(Boolean);
-  const requiresProductMatch = normalizedProductIds.length > 0 || normalizedProductSkus.length > 0;
-
-  const matchingItems = orderItems.filter((item) => {
-    const itemSku = item.sku ? item.sku.toString().trim().toUpperCase() : '';
-    const matchesProductId =
-      normalizedProductIds.length > 0 && item.productId
-        ? normalizedProductIds.includes(item.productId.toString())
-        : false;
-    const matchesSku =
-      normalizedProductSkus.length > 0 && itemSku && normalizedProductSkus.includes(itemSku);
-
-    if (requiresProductMatch && !matchesProductId && !matchesSku) {
-      return false;
-    }
-
-    if (normalizedVendorIds.length > 0) {
-      if (!item.vendorId) return false;
-      if (!normalizedVendorIds.includes(item.vendorId)) return false;
-    }
-
-    if (normalizedCategoryIds.length > 0) {
-      const itemCategoryIds = (item.categoryIds || []).map((cid) => cid?.toString());
-      if (!itemCategoryIds.some((cid) => normalizedCategoryIds.includes(cid))) return false;
-    }
-
-    return true;
-  });
-
-  if (matchingItems.length === 0) {
-    return {
-      isValid: false,
-      matchingItems: [],
-      message: 'No items match voucher restrictions',
-    };
-  }
-
-  return {
-    isValid: true,
-    matchingItems,
-    message: `Voucher applies to ${matchingItems.length} item(s)`,
-  };
 }
 
 /**

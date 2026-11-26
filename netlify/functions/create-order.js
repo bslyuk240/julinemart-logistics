@@ -36,6 +36,7 @@ import {
   validateCustomisation,
 } from './services/custom-order-utils.js';
 import { loadApprovedLocations, resolveApprovedLocation } from './services/locationResolver.js';
+import { computeCatalogVoucherDiscount } from './services/voucher-scope.js';
 import { firstDeliveryError, validateDeliveryDetails } from './services/deliveryDetails.js';
 function generateRef() {
   const ts = Date.now().toString(36).toUpperCase();
@@ -338,6 +339,9 @@ export async function handler(event) {
             ? Number(product.warranty_months)
             : null,
         globalSourcing,
+        // for voucher restriction matching
+        _wooProductId: product.woo_product_id || null,
+        _parentSku: product.sku || null,
         // for sub_order items JSONB
         _name: product.name,
         _sku: effectiveVariation?.sku || product.sku || null,
@@ -392,7 +396,7 @@ export async function handler(event) {
     if (voucher_code?.trim()) {
       const { data: voucher } = await adminClient
         .from('campaign_vouchers')
-        .select('id, code, discount_type, discount_value, shipping_discount_type, shipping_discount_value, max_uses, current_uses, valid_from, valid_until, status, campaign_id')
+        .select('id, code, discount_type, discount_value, shipping_discount_type, shipping_discount_value, max_uses, current_uses, valid_from, valid_until, status, campaign_id, product_ids, product_skus, vendor_ids, category_ids, gift_box_skus, gift_occasion_slugs, gift_recipient_slugs')
         .eq('code', voucher_code.trim().toUpperCase())
         .eq('status', 'active')
         .maybeSingle();
@@ -409,15 +413,38 @@ export async function handler(event) {
         return jsonResponse(400, { error: 'Voucher has reached its usage limit' });
       }
 
-      // 'free' means 100% off the subtotal — Vouchers.tsx labels it "Free (100%
-      // Off)" and always saves discount_value as 0 for it, so it must be its
-      // own case rather than falling into the flat-amount branch below (which
-      // would otherwise discount nothing).
-      discountAmount = voucher.discount_type === 'free'
-        ? subtotal
-        : voucher.discount_type === 'percentage'
-        ? Math.round((subtotal * Number(voucher.discount_value)) / 100)
-        : Math.min(Number(voucher.discount_value), subtotal);
+      // Product / vendor / category restrictions are enforced here, on the
+      // server-resolved lines: the cart preview's check is not authoritative,
+      // and the discount must only cover the items the voucher is for.
+      const categoriesByProduct = new Map();
+      if (voucher.category_ids?.length) {
+        const { data: mapRows, error: mapErr } = await adminClient
+          .from('product_category_map')
+          .select('product_id, category_id')
+          .in('product_id', [...new Set(resolvedItems.map((i) => i.product_id))]);
+        if (mapErr) {
+          console.error('create-order: voucher category lookup failed', mapErr.message);
+          return jsonResponse(503, { error: 'Could not apply the voucher. Please try again.' });
+        }
+        for (const row of mapRows || []) {
+          if (!categoriesByProduct.has(row.product_id)) categoriesByProduct.set(row.product_id, []);
+          categoriesByProduct.get(row.product_id).push(row.category_id);
+        }
+      }
+      const scoped = computeCatalogVoucherDiscount(
+        voucher,
+        resolvedItems.map((i) => ({
+          productId: i.product_id,
+          wooProductId: i._wooProductId,
+          sku: i.product_sku,
+          parentSku: i._parentSku,
+          vendorId: i.vendor_id,
+          categoryIds: categoriesByProduct.get(i.product_id) || [],
+          subtotal: i.subtotal,
+        }))
+      );
+      if (!scoped.ok) return jsonResponse(400, { error: scoped.error });
+      discountAmount = scoped.discount;
 
       voucherRow = voucher;
     }

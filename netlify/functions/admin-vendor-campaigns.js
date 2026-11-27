@@ -2,7 +2,8 @@
  * Admin queue for campaigns submitted for review — vendor-submitted
  * (vendor_id set) and, as of the giveaway engine's Skola integration,
  * agent-proposed giveaway campaigns (submitted_via='skola_agent', no vendor)
- * via campaigns.giveaway.submit in public-api.js. Same queue, same
+ * via campaigns.giveaway.submit in public-api.js (revised while still
+ * pending by campaigns.giveaway.update). Same queue, same
  * approval_status lifecycle — kept as one function rather than forking a
  * second approval pipeline. See admin-vendor-campaigns.js's approve branch
  * for the one behavioral difference: vendor campaigns auto-activate on

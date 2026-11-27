@@ -956,6 +956,97 @@ async function submitGiveawayCampaign(adminClient, body) {
 }
 
 /**
+ * campaigns.giveaway.update — same whitelist as submit. Only the agent's own
+ * giveaway rows that are still draft + pending can be edited, so a key cannot
+ * rewrite a live drop, a human-owned campaign, or a merchandising draft.
+ * Voucher, status, approval, kind, and slug are never taken from the body.
+ */
+function giveawayDatePatch(value, field) {
+  if (value === null || value === '') return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return { error: `${field} must be an ISO datetime` };
+  return parsed.toISOString();
+}
+
+function giveawayLimitPatch(value, field) {
+  if (value === null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) return { error: `${field} must be a non-negative integer` };
+  return n;
+}
+
+async function updateGiveawayCampaign(adminClient, id, body) {
+  if (!UUID_RE.test(String(id || ''))) return json(400, { error: 'Campaign id must be a uuid' });
+  if (!isPlainObject(body)) return json(400, { error: 'Invalid JSON body' });
+
+  const { data: existing, error: findErr } = await adminClient
+    .from('campaigns')
+    .select('id, public_title, hero_config, status, approval_status, submitted_via, campaign_kind')
+    .eq('id', id)
+    .maybeSingle();
+  if (findErr) return json(500, { error: findErr.message });
+  if (!existing) return json(404, { error: 'Campaign not found' });
+  if (existing.submitted_via !== 'skola_agent' || existing.campaign_kind !== 'giveaway' || existing.status !== 'draft' || existing.approval_status !== 'pending') {
+    return json(403, { error: 'Only your own giveaway submissions that are still pending review can be edited' });
+  }
+
+  const patch = {};
+  if (body.public_title !== undefined) {
+    const publicTitle = String(body.public_title || '').trim();
+    if (!publicTitle) return json(400, { error: 'public_title cannot be empty' });
+    patch.public_title = publicTitle;
+    patch.internal_name = `[Skola proposal] ${publicTitle}`.slice(0, 120);
+  }
+  if (body.secret_code !== undefined) {
+    const secretCode = String(body.secret_code || '').trim();
+    if (!secretCode) return json(400, { error: 'secret_code cannot be empty' });
+    patch.secret_code = secretCode;
+  }
+  if (body.grand_prize_description !== undefined) {
+    const description = String(body.grand_prize_description || '').trim();
+    if (!description) return json(400, { error: 'grand_prize_description cannot be empty' });
+    patch.grand_prize_description = description;
+  }
+  if (body.hero_headline !== undefined || body.hero_subtitle !== undefined) {
+    const hero = { ...(existing.hero_config || {}) };
+    if (body.hero_headline !== undefined) {
+      hero.headline = String(body.hero_headline || '').trim() || patch.public_title || existing.public_title;
+    }
+    if (body.hero_subtitle !== undefined) hero.subtitle = String(body.hero_subtitle || '').trim();
+    if (!hero.ctaLabel) hero.ctaLabel = 'Enter Now';
+    patch.hero_config = hero;
+  }
+  for (const field of ['start_date', 'end_date']) {
+    if (body[field] === undefined) continue;
+    const next = giveawayDatePatch(body[field], field);
+    if (next && next.error) return json(400, { error: next.error });
+    patch[field] = next;
+  }
+  for (const field of ['entry_limit', 'early_bird_limit']) {
+    if (body[field] === undefined) continue;
+    const next = giveawayLimitPatch(body[field], field);
+    if (next && next.error) return json(400, { error: next.error });
+    patch[field] = next;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return json(400, { error: 'No editable fields supplied. Send any of public_title, secret_code, grand_prize_description, hero_headline, hero_subtitle, start_date, end_date, entry_limit, early_bird_limit' });
+  }
+
+  patch.updated_at = new Date().toISOString();
+  const { error } = await adminClient.from('campaigns').update(patch).eq('id', id);
+  if (error) return json(500, { error: error.message });
+  return json(200, {
+    data: {
+      id,
+      status: 'draft',
+      approval_status: 'pending',
+      message: 'Giveaway submission updated. Still pending human review — it is not live.',
+    },
+  });
+}
+
+/**
  * campaigns.draft.create / campaigns.draft.update — a full merchandising
  * campaign proposed by the agent. Same trust model as the giveaway submit:
  * status/approval/kind/submitted_via are fixed server-side, a voucherId can
@@ -2014,6 +2105,12 @@ export const handler = async (event) => {
         if (auth.errorResponse) return auth.errorResponse;
         const body = JSON.parse(event.body || '{}');
         return await submitGiveawayCampaign(auth.adminClient, body);
+      }
+      if (segments.length === 2 && segments[1] !== 'drafts' && method === 'PUT') {
+        const auth = await authenticateServiceApiRequest(event, 'campaigns.giveaway.update');
+        if (auth.errorResponse) return auth.errorResponse;
+        const body = JSON.parse(event.body || '{}');
+        return await updateGiveawayCampaign(auth.adminClient, segments[1], body);
       }
     }
 

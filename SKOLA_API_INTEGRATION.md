@@ -166,6 +166,8 @@ under two names for different consumer mental models).
 | `custom_orders.read` | `GET /custom-orders/:id` |
 | `campaigns.draft.create` | `POST /campaigns/drafts` (full merchandising campaign as a **pending draft**; proposes offer text/coupon code but never a voucher; images may be sent in the same call as a Skola/Cloudinary/Supabase URL, data: URI or `{base64}` and are stored by the server; max 5 MB each, request body ~4.5 MB; videos by URL only) |
 | `campaigns.draft.update` | `PUT /campaigns/drafts/:id` (only the key's own drafts still pending review) |
+| `campaigns.giveaway.submit` | `POST /campaigns` (secret-code giveaway as a **pending** submission; marketing facts only — no voucher, status, or approval fields) |
+| `campaigns.giveaway.update` | `PUT /campaigns/:id` (only the key's own giveaway submissions still pending review; same fields as submit, all optional) |
 | `campaigns.list` | `GET /campaigns` |
 | `campaigns.read` | `GET /campaigns/:id` |
 | `notifications.email_templates.list` | `GET /notifications/email-templates` |
@@ -514,6 +516,39 @@ Query params: `status`, `approval_status`, `limit`, `offset`.
 Adds `target_id`, `template_id`, `section_layout`, `hero_config`,
 `product_selection_rules`, `offer_config`, `meta_seo`, `vendor_id`.
 Excludes internal review notes and the reviewer's identity.
+
+#### `POST /campaigns` — `campaigns.giveaway.submit`
+Proposes a secret-code giveaway. The row is always `status=draft` and
+`approval_status=pending`. Voucher, discount, status, and approval fields
+in the body are ignored. A human attaches the real reward vouchers and
+activates it after review.
+
+| Field | Required | Notes |
+|---|---|---|
+| `public_title` | yes | Public name |
+| `secret_code` | yes | Entry code. Compared case-insensitively later |
+| `grand_prize_description` | yes | Marketing description of the prize. Not a voucher |
+| `hero_headline`, `hero_subtitle` | no | Landing hero copy. Headline defaults to the title |
+| `start_date`, `end_date` | no | ISO datetimes |
+| `entry_limit`, `early_bird_limit` | no | Non-negative integers. Omit for unlimited entries |
+
+```json
+{ "data": { "id": "...", "slug": "secret-drop-a1b2", "approval_status": "pending", "status": "draft",
+  "message": "Submitted for review in JulineMart's campaign approval queue — a human will attach the real reward voucher(s) and activate it after review." } }
+```
+
+#### `PUT /campaigns/:id` — `campaigns.giveaway.update`
+Edits that same submission while it is still a pending draft created by
+this API (`submitted_via=skola_agent`, `campaign_kind=giveaway`). Any
+subset of the submit fields. Send `null` for a date or limit to clear it.
+Returns 403 once a human has approved or rejected it, or if the row is not
+this agent's giveaway submission. Slug, voucher ids, status, and approval
+cannot be changed here.
+
+```json
+{ "data": { "id": "...", "status": "draft", "approval_status": "pending",
+  "message": "Giveaway submission updated. Still pending human review — it is not live." } }
+```
 
 ---
 

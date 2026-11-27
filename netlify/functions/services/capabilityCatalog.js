@@ -407,7 +407,7 @@ export const CAPABILITIES = [
   },
   {
     id: 'campaigns.giveaway.submit', domain: 'campaigns', name: 'Submit Giveaway Campaign for Review',
-    description: 'Propose a new secret-code giveaway campaign — marketing facts only (title, prize description, secret code, entry/early-bird limits, dates, hero copy). Cannot set voucher/discount terms and does not go live: lands as a pending submission in JulineMart\'s own campaign approval queue (same pipeline vendor-submitted campaigns use), where a human reviews, attaches the real reward vouchers, and separately activates it. Like meta.ads.drafts.create, review happens in JulineMart\'s queue after submission, not gated before it.',
+    description: 'Propose a new secret-code giveaway campaign — marketing facts only (title, prize description, secret code, entry/early-bird limits, dates, hero copy). Cannot set voucher/discount terms and does not go live: lands as a pending submission in JulineMart\'s own campaign approval queue (same pipeline vendor-submitted campaigns use), where a human reviews, attaches the real reward vouchers, and separately activates it. Like meta.ads.drafts.create, review happens in JulineMart\'s queue after submission, not gated before it. To change a submission that is still pending, use campaigns.giveaway.update instead of creating another one.',
     operation_type: 'create', side_effect_type: 'internal_write', risk_level: 'low',
     http_method: 'POST', endpoint: '/campaigns',
     input_schema: {
@@ -415,6 +415,21 @@ export const CAPABILITIES = [
       hero_headline: 'string (optional)', hero_subtitle: 'string (optional)',
       start_date: 'string (ISO datetime, optional)', end_date: 'string (ISO datetime, optional)',
       entry_limit: 'number (optional, blank = unlimited)', early_bird_limit: 'number (optional)',
+    },
+    supports_pagination: false, supports_filtering: false, supports_search: false,
+    idempotency_required: false, approval_recommended: false, enabled: true,
+  },
+  {
+    id: 'campaigns.giveaway.update', domain: 'campaigns', name: 'Update Giveaway Campaign Submission',
+    description: 'Edit a secret-code giveaway this agent submitted, only while it is still a pending draft in JulineMart\'s approval queue. Same marketing fields as campaigns.giveaway.submit, all optional. Cannot set voucher/discount terms, status, or approval, and cannot touch approved, rejected, active, or anyone else\'s campaigns.',
+    operation_type: 'update', side_effect_type: 'internal_write', risk_level: 'low',
+    http_method: 'PUT', endpoint: '/campaigns/:id',
+    input_schema: {
+      id: 'uuid',
+      public_title: 'string (optional)', secret_code: 'string (optional)', grand_prize_description: 'string (optional)',
+      hero_headline: 'string (optional)', hero_subtitle: 'string (optional)',
+      start_date: 'ISO datetime or null (optional)', end_date: 'ISO datetime or null (optional)',
+      entry_limit: 'number or null (optional, null = unlimited)', early_bird_limit: 'number or null (optional)',
     },
     supports_pagination: false, supports_filtering: false, supports_search: false,
     idempotency_required: false, approval_recommended: false, enabled: true,

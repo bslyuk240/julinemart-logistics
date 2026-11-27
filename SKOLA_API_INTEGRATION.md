@@ -398,8 +398,9 @@ Excludes NIN, bank details, and any document/selfie URLs.
 ### Catalogue
 
 #### `GET /products` — `products.list` or `products.search`
-Query params: `status`, `vendor_id`, `stock_status`, `q` (matches name or
-SKU), `limit`, `offset`.
+Query params: `status`, `vendor_id`, `category_id` (uuid, from
+`categories.list`), `stock_status`, `q` (matches name or SKU), `limit`,
+`offset`.
 ```json
 { "data": [{ "id": "...", "name": "Ankara Fabric (6 yards)", "slug": "ankara-fabric-6-yards",
   "sku": "ANK-006", "status": "published", "regular_price": 4500, "sale_price": null,

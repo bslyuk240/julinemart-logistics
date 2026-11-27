@@ -729,7 +729,7 @@ export const CAPABILITIES = [
     id: 'products.list', domain: 'catalogue', name: 'List Products',
     description: 'List products with status/stock/vendor/category filters (vendor_id and category_id are uuids from vendors.list / categories.list) — e.g. all of one vendor\'s products, or a vendor\'s products in one category. Each row includes category_ids, sku, image_url (main product photo) and product_url (https://julinemart.com/product/{slug}).',
     operation_type: 'read', side_effect_type: 'none', risk_level: 'low',
-    http_method: 'GET', endpoint: '/products',
+    http_method: 'GET', endpoint: '/products?vendor_id=&category_id=&stock_status=',
     input_schema: { vendor_id: 'uuid (optional)', category_id: 'uuid (optional)', status: 'optional', stock_status: 'optional', limit: 'number (max 100)', offset: 'number' },
     supports_pagination: true, supports_filtering: true, supports_search: false,
     idempotency_required: false, approval_recommended: false, enabled: true,
